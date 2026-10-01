@@ -95,6 +95,6 @@ void main() {
 
     final planRepository = DriftPlanRepository(database);
 
-    expect(await planRepository.currentPlanVersionId(), 'plan-current');
+    expect((await planRepository.current())?.id, 'plan-current');
   });
 }

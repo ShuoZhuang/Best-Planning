@@ -1,0 +1,30 @@
+import 'package:personal_planner/application/input_snapshot_builder.dart';
+import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
+import 'package:personal_planner/scheduling/schedule_proposal.dart';
+
+final class PlanApplicationService {
+  PlanApplicationService({
+    required this.source,
+    required this.repository,
+    required TimeZoneDatabase zones,
+    this.snapshots = const InputSnapshotBuilder(),
+  }) : _validator = PlanValidator(zones);
+
+  final ScheduleProblemSource source;
+  final PlanRepository repository;
+  final PlanValidator _validator;
+  final InputSnapshotBuilder snapshots;
+
+  Future<ApplyPlanResult> apply(ScheduleProposal proposal) async {
+    final current = withCurrentInputHash(await source.load(), snapshots);
+    if (current.inputHash != proposal.inputHash) {
+      return ApplyPlanResult.stale();
+    }
+    final conflicts = _validator.validate(current, proposal.blocks);
+    if (conflicts.isNotEmpty) return ApplyPlanResult.invalid(conflicts);
+    return repository.applyProposal(proposal, current.inputHash);
+  }
+}
