@@ -1,0 +1,215 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/preferences.dart';
+import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/plan_differ.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
+import 'package:personal_planner/scheduling/schedule_problem.dart';
+
+void main() {
+  final zones = TimeZoneDatabase();
+  final engine = DeterministicScheduleEngine(zones);
+
+  test('golden week schedules classes, research and life quota', () {
+    final fixture = jsonDecode(
+      File('test/fixtures/scheduling/golden_week.json').readAsStringSync(),
+    ) as Map<String, Object?>;
+    final problem = _problemFromFixture(fixture);
+
+    final proposal = engine.generate(problem);
+    final expected = fixture['expected']! as Map<String, Object?>;
+    final expectedBlocks = (expected['blocks']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+
+    expect(proposal.algorithmVersion, expected['algorithmVersion']);
+    expect(proposal.metrics.isFullyFeasible, isTrue);
+    expect(proposal.unscheduled, isEmpty);
+    expect(
+      proposal.blocks
+          .map(
+            (block) => {
+              'taskId': block.taskId,
+              'start': block.startUtc.toIso8601String(),
+              'end': block.endUtc.toIso8601String(),
+              'explanationCode': block.explanationCode,
+            },
+          )
+          .toList(),
+      expectedBlocks,
+    );
+    expect(
+      proposal.explanations.map((item) => item.code),
+      containsAll(['deadline_and_progress', 'life_quota_gap']),
+    );
+  });
+
+  test('same input and reversed input order produce identical output', () {
+    final fixture = jsonDecode(
+      File('test/fixtures/scheduling/golden_week.json').readAsStringSync(),
+    ) as Map<String, Object?>;
+    final problem = _problemFromFixture(fixture);
+    final expected = _signature(engine.generate(problem));
+
+    for (var run = 0; run < 100; run++) {
+      expect(_signature(engine.generate(problem)), expected);
+    }
+
+    final reversed = ScheduleProblem(
+      planningWindow: problem.planningWindow,
+      timeZoneId: problem.timeZoneId,
+      tasks: problem.tasks.reversed.toList(),
+      fixedIntervals: problem.fixedIntervals.reversed.toList(),
+      protectedIntervals: problem.protectedIntervals.reversed.toList(),
+      lockedBlocks: problem.lockedBlocks.reversed.toList(),
+      rules: problem.rules,
+      preferences: problem.preferences,
+      inputHash: problem.inputHash,
+    );
+    expect(_signature(engine.generate(reversed)), expected);
+  });
+
+  test('PlanDiffer identifies added, moved and removed blocks', () {
+    final day = DateTime.utc(2026, 10, 5);
+    final current = [
+      PlannedBlock(
+        id: 'kept',
+        taskId: 'task-a',
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 9)),
+          endUtc: day.add(const Duration(hours: 10)),
+        ),
+      ),
+      PlannedBlock(
+        id: 'removed',
+        taskId: 'task-b',
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 11)),
+          endUtc: day.add(const Duration(hours: 12)),
+        ),
+      ),
+    ];
+    final proposed = [
+      PlannedBlock(
+        id: 'kept',
+        taskId: 'task-a',
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 10)),
+          endUtc: day.add(const Duration(hours: 11)),
+        ),
+      ),
+      PlannedBlock(
+        id: 'added',
+        taskId: 'task-c',
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 12)),
+          endUtc: day.add(const Duration(hours: 13)),
+        ),
+      ),
+    ];
+
+    final diff = const PlanDiffer().diff(current, proposed);
+
+    expect(diff.changes.map((item) => item.type), [
+      PlanChangeType.moved,
+      PlanChangeType.removed,
+      PlanChangeType.added,
+    ]);
+  });
+}
+
+ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {
+  final rulesJson = fixture['rules']! as Map<String, Object?>;
+  final energyJson = (rulesJson['energyWindows']! as List<Object?>)
+      .cast<Map<String, Object?>>();
+  final rules = PlanningRules(
+    energyWindows: [
+      for (final item in energyJson)
+        EnergyWindow(
+          range: LocalTimeRange(
+            startMinute: item['startMinute']! as int,
+            endMinute: item['endMinute']! as int,
+          ),
+          level: EnergyLevel.values.byName(item['level']! as String),
+        ),
+    ],
+    sleepRange: LocalTimeRange(
+      startMinute: rulesJson['sleepStartMinute']! as int,
+      endMinute: rulesJson['sleepEndMinute']! as int,
+    ),
+    minimumSleepMinutes: 420,
+    defaultFocusMinutes: 50,
+    breakMinutes: 10,
+    dailyMovableTaskLimitMinutes: rulesJson['dailyLimitMinutes']! as int,
+    weeklyLifeQuotaMinutes: rulesJson['weeklyLifeQuotaMinutes']! as int,
+  );
+
+  List<BusyInterval> intervals(String key) => [
+    for (final item
+        in (fixture[key]! as List<Object?>).cast<Map<String, Object?>>())
+      BusyInterval(
+        id: item['id']! as String,
+        range: TimeRange(
+          startUtc: DateTime.parse(item['start']! as String),
+          endUtc: DateTime.parse(item['end']! as String),
+        ),
+      ),
+  ];
+
+  return ScheduleProblem(
+    planningWindow: TimeRange(
+      startUtc: DateTime.parse(fixture['planningStartUtc']! as String),
+      endUtc: DateTime.parse(fixture['planningEndUtc']! as String),
+    ),
+    timeZoneId: fixture['timeZoneId']! as String,
+    tasks: [
+      for (final item
+          in (fixture['tasks']! as List<Object?>).cast<Map<String, Object?>>())
+        SchedulableTask(
+          id: item['id']! as String,
+          requiredMinutes: item['minutes']! as int,
+          splitMode: TaskSplitMode.values.byName(item['splitMode']! as String),
+          minChunkMinutes: item['minChunk']! as int,
+          maxChunkMinutes: item['maxChunk']! as int,
+          dueAtUtc: item['due'] == null
+              ? null
+              : DateTime.parse(item['due']! as String),
+          priority: TaskPriority.values.byName(item['priority']! as String),
+          energyLevel: TaskEnergyLevel.values.byName(item['energy']! as String),
+          isLifeTask: item['life']! as bool,
+        ),
+    ],
+    fixedIntervals: intervals('fixed'),
+    protectedIntervals: intervals('protected'),
+    lockedBlocks: const [],
+    rules: rules,
+    preferences: const PreferenceProfile(),
+    inputHash: 'golden-week-v1',
+  );
+}
+
+String _signature(dynamic proposal) => jsonEncode({
+  'id': proposal.proposalId,
+  'blocks': [
+    for (final block in proposal.blocks)
+      [
+        block.id,
+        block.taskId,
+        block.startUtc.toIso8601String(),
+        block.endUtc.toIso8601String(),
+        block.explanationCode,
+      ],
+  ],
+  'unscheduled': [
+    for (final item in proposal.unscheduled)
+      [item.taskId, item.shortageMinutes],
+  ],
+  'conflicts': [
+    for (final item in proposal.conflicts)
+      [item.code.name, item.taskId, item.shortageMinutes],
+  ],
+});

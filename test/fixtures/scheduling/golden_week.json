@@ -1,0 +1,45 @@
+{
+  "timeZoneId": "UTC",
+  "planningStartUtc": "2026-10-05T00:00:00.000Z",
+  "planningEndUtc": "2026-10-12T00:00:00.000Z",
+  "rules": {
+    "sleepStartMinute": 1200,
+    "sleepEndMinute": 480,
+    "dailyLimitMinutes": 720,
+    "weeklyLifeQuotaMinutes": 120,
+    "energyWindows": [
+      {"startMinute": 720, "endMinute": 1080, "level": "high"},
+      {"startMinute": 1080, "endMinute": 1200, "level": "low"}
+    ]
+  },
+  "fixed": [
+    {"id": "monday-class", "start": "2026-10-05T08:00:00.000Z", "end": "2026-10-05T12:00:00.000Z"},
+    {"id": "tuesday-class", "start": "2026-10-06T09:00:00.000Z", "end": "2026-10-06T12:00:00.000Z"}
+  ],
+  "protected": [
+    {"id": "monday-rest", "start": "2026-10-05T13:00:00.000Z", "end": "2026-10-05T20:00:00.000Z"},
+    {"id": "tuesday-morning", "start": "2026-10-06T08:00:00.000Z", "end": "2026-10-06T09:00:00.000Z"},
+    {"id": "tuesday-evening", "start": "2026-10-06T18:00:00.000Z", "end": "2026-10-06T20:00:00.000Z"},
+    {"id": "wednesday-day", "start": "2026-10-07T08:00:00.000Z", "end": "2026-10-07T18:00:00.000Z"},
+    {"id": "thursday", "start": "2026-10-08T08:00:00.000Z", "end": "2026-10-08T20:00:00.000Z"},
+    {"id": "friday", "start": "2026-10-09T08:00:00.000Z", "end": "2026-10-09T20:00:00.000Z"},
+    {"id": "saturday", "start": "2026-10-10T08:00:00.000Z", "end": "2026-10-10T20:00:00.000Z"},
+    {"id": "sunday", "start": "2026-10-11T08:00:00.000Z", "end": "2026-10-11T20:00:00.000Z"}
+  ],
+  "tasks": [
+    {"id": "student-work", "minutes": 60, "splitMode": "continuous", "minChunk": 60, "maxChunk": 60, "due": "2026-10-05T13:00:00.000Z", "priority": "urgent", "energy": "high", "life": false},
+    {"id": "research", "minutes": 360, "splitMode": "splittable", "minChunk": 30, "maxChunk": 90, "due": "2026-10-06T18:00:00.000Z", "priority": "high", "energy": "high", "life": false},
+    {"id": "movie", "minutes": 120, "splitMode": "continuous", "minChunk": 120, "maxChunk": 120, "due": null, "priority": "medium", "energy": "low", "life": true}
+  ],
+  "expected": {
+    "algorithmVersion": "1",
+    "blocks": [
+      {"taskId": "student-work", "start": "2026-10-05T12:00:00.000Z", "end": "2026-10-05T13:00:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T12:00:00.000Z", "end": "2026-10-06T13:30:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T13:30:00.000Z", "end": "2026-10-06T15:00:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T15:00:00.000Z", "end": "2026-10-06T16:30:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T16:30:00.000Z", "end": "2026-10-06T18:00:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "movie", "start": "2026-10-07T18:00:00.000Z", "end": "2026-10-07T20:00:00.000Z", "explanationCode": "life_quota_gap"}
+    ]
+  }
+}
