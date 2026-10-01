@@ -37,7 +37,6 @@ void main() {
     expect(find.text('保护时间'), findsOneWidget);
     expect(find.text('任务'), findsOneWidget);
     expect(find.text('生活'), findsOneWidget);
-    await controller.close();
   });
 
   testWidgets('today page error is recoverable', (tester) async {
@@ -59,7 +58,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('今天暂无安排'), findsOneWidget);
     expect(source.calls, 2);
-    await first.close();
   });
 }
 

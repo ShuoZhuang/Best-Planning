@@ -64,7 +64,6 @@ void main() {
     expect(moves.calls, 1);
     expect(moves.lastItem?.id, 'research');
     expect(moves.lastDay, start.add(const Duration(days: 2)));
-    await controller.close();
   });
 
   testWidgets('week view has an explicit empty state', (tester) async {
