@@ -1,0 +1,25 @@
+.worktrees/
+.tooling/
+.superpowers/
+
+# Flutter / Dart generated files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+
+# IDE and local files
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp
+
+# Local application data and secrets
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.pfx
+*.key
