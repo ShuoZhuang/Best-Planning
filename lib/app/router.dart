@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
+import 'package:personal_planner/features/planning/plan_preview_page.dart';
+import 'package:personal_planner/features/tasks/task_list_page.dart';
+import 'package:personal_planner/features/today/today_page.dart';
 
-final GoRouter plannerRouter = GoRouter(
+const _emptyScheduleSource = EmptyScheduleViewSource();
+const _disabledMoveController = DisabledWeekMoveController();
+final _autoAdjustStore = MemoryAutoAdjustStore();
+
+GoRouter createPlannerRouter({required TaskService taskService}) => GoRouter(
   initialLocation: '/today',
   routes: [
     ShellRoute(
@@ -10,26 +20,34 @@ final GoRouter plannerRouter = GoRouter(
       routes: [
         GoRoute(
           path: '/today',
-          builder: (context, state) => const _SectionPage(
-            title: '今日',
-            description: '今日安排',
-            icon: Icons.today_outlined,
-          ),
+          builder: (context, state) =>
+              TodayPage(source: _emptyScheduleSource, day: _todayUtc()),
         ),
         GoRoute(
           path: '/tasks',
-          builder: (context, state) => const _SectionPage(
-            title: '任务',
-            description: '任务清单',
-            icon: Icons.checklist_outlined,
-          ),
+          builder: (context, state) => TaskListPage(service: taskService),
         ),
         GoRoute(
           path: '/calendar',
-          builder: (context, state) => const _SectionPage(
-            title: '日历',
-            description: '七日日历',
-            icon: Icons.calendar_view_week_outlined,
+          builder: (context, state) => WeekViewPage(
+            source: _emptyScheduleSource,
+            weekStart: _todayUtc(),
+            moveController: _disabledMoveController,
+            onProposalCreated: (proposalId) =>
+                context.go('/planning/preview/$proposalId'),
+          ),
+        ),
+        GoRoute(
+          path: '/planning/preview/:proposalId',
+          builder: (context, state) => PlanPreviewPage(
+            model: PlanPreviewModel(
+              proposalId: state.pathParameters['proposalId']!,
+              changes: const [],
+              conflicts: const [],
+              isStale: true,
+            ),
+            autoAdjustStore: _autoAdjustStore,
+            onConfirm: () async {},
           ),
         ),
       ],
@@ -91,34 +109,7 @@ final class _PlannerShell extends StatelessWidget {
   }
 }
 
-final class _SectionPage extends StatelessWidget {
-  const _SectionPage({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
-
-  final String title;
-  final String description;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: title,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              description,
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+DateTime _todayUtc() {
+  final now = DateTime.now().toUtc();
+  return DateTime.utc(now.year, now.month, now.day);
 }
