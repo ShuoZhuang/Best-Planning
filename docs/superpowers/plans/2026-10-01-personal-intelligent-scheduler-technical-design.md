@@ -542,8 +542,8 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | C3 | 已锁定块被同时计入每日可移动上限 | **已修复**（提交 `01f74b7`）：`plan_validator.dart` 不再把锁定块计入每日可移动上限，并补充双向回归测试 |
 | C4 | 备份缺少 WAL checkpoint 一致性快照 | **已修复**（提交 `7289ea5`）：改为显式 FULL checkpoint，未完成时以 `BackupValidationException('walNotCheckpointed')` 让备份失败，不再静默产出过期快照 |
 | C5 | 候选排序首键为 `coverageMinutes`，先于软约束总分 | 与 §5.2 第 7 步"选择最高分候选"冲突，见 §5.1 偏差说明；修正会改变排程输出与 golden 快照，需先确认意图 |
-| C6 | 远截止压力未达标的任务被跳过全部候选 | `schedule_engine.dart:83` + `candidate_generator.dart:75-79`，连续任务可能永远排不进 |
-| C7 | `_scoreCandidate(...).totalScore!` 强解包未检查 `isEligible` | `schedule_engine.dart:428-434`，锁定块越出规划窗口或晚于截止时可抛 null 断言 |
+| C6 | 远期任务可能整周排入 0 分钟 | **性质修正（实测）**：分片时长不小于 `minChunkMinutes`，而均匀推进目标 `pacedNow` 可能低于该值，于是"截止仍在数周之后"的任务（**连续与可拆分都一样**）当周排入 0 分钟。实测：截止在 30 天后的 120 分钟任务 `scheduled=0`、`shortage=28`。随着截止临近，目标会自然超过最小时长并开始排入，因此是"推迟"而非"永不排进"。是否需要修改属产品判断：真正会造成未来拥堵的部分由 `requiredNow` 覆盖，`pacedNow` 在目标低于最小时长时不产生效果，见 FR-SCHED-02 的"为避免未来拥堵所需的近期投入" |
+| C7 | `_scoreCandidate(...).totalScore!` 强解包未检查 `isEligible` | **判断已修正：当前不可达**。原先记录的触发条件（锁定块晚于截止或越出规划窗口）经实测不成立——`_improve` 首行是 `if (block.locked) continue;`，锁定块根本不进入该路径；分配循环与局部改进又都对候选做过截止过滤，重叠也已被阻止。实测三种场景（锁定块晚于截止、锁定块越出窗口、两个互相重叠的锁定块）均不抛异常。保留为**潜在**健壮性问题：将来若有改动让不可用评分的块进入该路径，此处会抛 null 断言 |
 | C8 | 恢复流程先落库日期例外、再生成提案 | `recovery_planning_service.dart:124-138`，违反 §6"提案应用前不替换当前计划" |
 | C9 | `TZDateTime` 与 `DateTime.utc` 判等失败，导致同一时刻被当作不同区间 | **已修复**（提交 `8c8dbc7`）：`localDateTimeToUtc`/`localMidnightToUtc` 曾返回 `tz.TZDateTime`；该类型即使表示 UTC 也 `isUtc=true`、微秒值与 `hashCode` 与 `DateTime.utc` 相同，但 `==` 返回 false。`TimeRange.operator ==` 用 `==` 比较端点，因此混用两种表示会让同一区间判不相等，而 `PlanValidator` 正是靠 `proposed.range != locked.range` 判断锁定块是否被移动——一旦块从数据库以 `DateTime.utc` 重建，就会误报 `lockedBlockMoved` 并让合法提案被拒。现统一规范化为普通 UTC `DateTime` |
 | C10 | 用餐与固定休息从未参与排程 | **已修复**（提交 `b0a1f69`）：`AvailabilityBuilder` 内部只把 `rules.sleepRange` 落成区间，而 `rules.protectedTimes`（午餐、晚餐、固定休息）需要外部展开成具体区间后传入 `protectedIntervals`——此前没有任何生产代码做这件事，因此这些保护时间在真实运行中恒为空集。新增 `ProtectedTimeExpander` 逐日展开 |
