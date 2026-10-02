@@ -1,0 +1,122 @@
+import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/planning_rule_resolver.dart';
+import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/repository_schedule_problem_source.dart';
+import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/app/planner_app.dart';
+import 'package:personal_planner/core/clock.dart';
+import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
+import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
+import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
+import 'package:personal_planner/features/onboarding/onboarding_page.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
+
+/// 端到端流程：录入任务 → 生成七日计划 → 确认应用 → 界面显示已确认的计划块。
+///
+/// 这是产品最核心的承诺（"用户只提供任务和时长即可获得未来七天的日程建议"）
+/// 第一次被完整地穿过：仓储 → 排程输入装配 → 引擎 → 提案校验与落库 → 周视图。
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  const timeZoneId = 'Asia/Shanghai';
+
+  testWidgets('录入任务后可以生成、确认并在周视图看到首个七日计划', (tester) async {
+    final zones = TimeZoneDatabase();
+    const clock = SystemClock();
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+
+    final taskRepository = DriftTaskRepository(database.taskDao);
+    final calendarRepository = DriftCalendarRepository(database);
+    final planRepository = DriftPlanRepository(database, clock: clock);
+    final settingsRepository = DriftSettingsRepository(database, clock: clock);
+    final settingsService = SettingsService(repository: settingsRepository);
+    final ruleResolver = PlanningRuleResolver(settingsService);
+    final problemSource = RepositoryScheduleProblemSource(
+      tasks: taskRepository,
+      calendar: calendarRepository,
+      settings: settingsService,
+      plans: planRepository,
+      clock: clock,
+      timeZoneId: timeZoneId,
+      zones: zones,
+    );
+    final planning = PlanningService(
+      source: problemSource,
+      engine: DeterministicScheduleEngine(zones),
+    );
+    final application = PlanApplicationService(
+      source: problemSource,
+      repository: planRepository,
+      zones: zones,
+    );
+
+    // 引导已完成，否则应用会先显示引导页而不是主界面。
+    await settingsRepository.write(
+      OnboardingPage.schemaVersionKey,
+      OnboardingPage.currentSchemaVersion.toString(),
+    );
+
+    // 快速录入：只提供标题与预计时长。
+    final taskService = TaskService(
+      repository: taskRepository,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+    );
+    await taskService.quickAdd('完成课程论文', 180);
+    final openTasks = await taskRepository.watchOpenTasks().first;
+    expect(openTasks, hasLength(1));
+    expect(openTasks.single.title, '完成课程论文');
+
+    // 生成提案并确认应用。
+    final proposal = await planning.createProposal();
+    expect(proposal.blocks, isNotEmpty, reason: '七日窗口内有充足可用时间');
+    expect(proposal.metrics.isFullyFeasible, isTrue);
+
+    final result = await application.apply(proposal);
+    expect(result.status, ApplyPlanStatus.applied);
+    final confirmed = await planRepository.current();
+    expect(confirmed, isNotNull);
+    expect(confirmed!.blocks, isNotEmpty);
+
+    // 同一份数据驱动的界面应当显示已确认的计划块。
+    final scheduleSource = RepositoryScheduleViewSource(
+      tasks: taskRepository,
+      calendar: calendarRepository,
+      plans: planRepository,
+      rules: ruleResolver,
+      zones: zones,
+      timeZoneId: timeZoneId,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: PlannerApp(
+          taskRepository: taskRepository,
+          settingsRepository: settingsRepository,
+          planRepository: planRepository,
+          zones: zones,
+          timeZoneId: timeZoneId,
+          planningService: planning,
+          planApplication: application,
+          scheduleSource: scheduleSource,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('日历'));
+    await tester.pumpAndSettle();
+    expect(find.text('完成课程论文'), findsWidgets);
+  });
+}

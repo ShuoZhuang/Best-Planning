@@ -63,6 +63,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # 端到端流程测试。随 Flutter SDK 提供，不需要额外下载。
+  integration_test:
+    sdk: flutter
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
