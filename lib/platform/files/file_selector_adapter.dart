@@ -9,6 +9,25 @@ final class FileSelectorAdapter implements ExportFilePort {
   @override
   Future<String?> chooseDirectory() => getDirectoryPath();
 
+  Future<String?> chooseBackupDestination() async {
+    final location = await getSaveLocation(
+      suggestedName: 'planner-backup.zip',
+      acceptedTypeGroups: const [
+        XTypeGroup(label: '智能日程备份', extensions: ['zip']),
+      ],
+    );
+    return location?.path;
+  }
+
+  Future<String?> chooseBackupSource() async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: '智能日程备份', extensions: ['zip']),
+      ],
+    );
+    return file?.path;
+  }
+
   @override
   Future<String> writeNewFile({
     required String directory,
