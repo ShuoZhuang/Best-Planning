@@ -527,10 +527,10 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 | 编号 | 缺陷 | 影响 |
 | --- | --- | --- |
-| C1 | `breakMinutes`（片段间休息）在 `lib/scheduling/` 中从未使用 | 拆分任务的两段专注可首尾相接，违反 FR-SCHED-05 与产品原则 4.1 |
-| C2 | `deadlineRisk` 只取 0/1000 两档 | §5.4 承诺的 0 至 +3000 梯度未兑现，权重最高的因子退化为布尔开关 |
-| C3 | 已锁定块被同时计入每日可移动上限 | `plan_validator.dart:159-182` 与 `availability_builder.dart:44-54` 重复扣除，产生假 `dailyLimitExceeded`，并让 `PlanApplicationService` 误判提案 invalid |
-| C4 | 备份缺少 WAL checkpoint 一致性快照 | `sqlite_database_lifecycle_adapter.dart:21-22` 以关库后整文件复制代替 §11.1 要求；已提交事务可能未落入备份，而哈希与 integrity check 仍会通过 |
+| C1 | `breakMinutes`（片段间休息）在 `lib/scheduling/` 中从未使用 | **待决策**：两种修法均已实测，代价见 13.0.7。§9.3 未把休息列为硬约束，但 FR-SCHED-05 明确要求保留片段间休息 |
+| C2 | `deadlineRisk` 只取 0/1000 两档 | **性质修正**：不只是取值粗糙。该因子与另外 7 个任务级因子在同一任务的候选之间恒为常数，实际不参与候选选择；任务紧迫度由 `_compareTasks`/`_effectiveSlack` 单独决定。实测见 13.0.7 |
+| C3 | 已锁定块被同时计入每日可移动上限 | **已修复**（提交 `01f74b7`）：`plan_validator.dart` 不再把锁定块计入每日可移动上限，并补充双向回归测试 |
+| C4 | 备份缺少 WAL checkpoint 一致性快照 | **已修复**（提交 `7289ea5`）：改为显式 FULL checkpoint，未完成时以 `BackupValidationException('walNotCheckpointed')` 让备份失败，不再静默产出过期快照 |
 | C5 | 候选排序首键为 `coverageMinutes`，先于软约束总分 | 与 §5.2 第 7 步"选择最高分候选"冲突，见 §5.1 偏差说明；修正会改变排程输出与 golden 快照，需先确认意图 |
 | C6 | 远截止压力未达标的任务被跳过全部候选 | `schedule_engine.dart:83` + `candidate_generator.dart:75-79`，连续任务可能永远排不进 |
 | C7 | `_scoreCandidate(...).totalScore!` 强解包未检查 `isEligible` | `schedule_engine.dart:428-434`，锁定块越出规划窗口或晚于截止时可抛 null 断言 |
@@ -545,7 +545,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | R3 | FR-CAL-03 日视图 | 未实现；本方案亦未列出该任务 |
 | R4 | FR-CAL-02 按周重复、单次/系列编辑、删除 | `recurrence_rules` 无写入方，`RecurrenceExpander` 仅测试引用，`occurrencesBetween` 不展开重复，`editScope` 被表单采集后丢弃，仓储无 delete |
 | R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | 模型层无该字段，`preferredTimeScore` 恒为默认值 |
-| R6 | FR-SCHED-04 十因子评分 | 仅 4 个因子实际赋值，`preferredTimeScore`/`sameTaskAdjacent`/`categorySwitch`/`movesExistingBlock` 恒默认 |
+| R6 | FR-SCHED-04 十因子评分 | `preferredTimeScore`/`sameTaskAdjacent`/`categorySwitch`/`movesExistingBlock` 从未被引擎注入；另据实测，8 个任务级因子在同一任务的候选之间恒为常数，无法影响候选选择（详见 13.0.7，并见 C2） |
 | R7 | FR-SCHED-08 移动原因 | 无任何"移动"解释码；且 `PlanChange` 无 `reason` 字段、`PlanChangeType` 缺 `split`，FR-REPLAN-02 的"拆分"与"原因"在数据模型层无载体 |
 | R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | 仅实现"任务开始"一类；设置页对另外三类提供了开关与提前时间但无排程实现 |
 | R9 | FR-TASK-03 批量调整、FR-TASK-04 任务转固定日程、FR-TASK-05 修正剩余时长、FR-REPLAN-07 处理入口、FR-FOCUS-04/05 补录与重算、FR-STAT-05 精力与休息统计、FR-PREF-05 修改偏好值 | 未实现或无入口 |
@@ -564,15 +564,43 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | T5 | 无 CI；`README.md` 与 `pubspec.yaml` 保留 Flutter 模板内容；`可运行程序/` 为 debug 产物且既未跟踪也未忽略；`.superpowers/` 账本（含全部 Ruling 决策）被 `.gitignore` 排除，未纳入版本控制 |
 | T6 | §14 完成定义要求"文档接口名与实现一致"，但本计划此前已出现 `ConflictCode`、`planningStartUtc/EndUtc`、路由表、目录结构等多项漂移，说明该条未被实际执行 |
 
-#### 13.0.7 收尾顺序
+#### 13.0.7 C1 与 C2 的实测结果
 
-1. 修正文档漂移并落实进度勾选（本文档本次修订）。
-2. 修复 C1–C4 四项可定位缺陷，并复核 C3 相关测试。
+以下数据由直接运行 `lib/scheduling/` 的纯 Dart 代码得到（该模块不依赖 Flutter），因此可复现。
+
+**C1 片段间休息**
+
+使用仓库自带的 golden 周场景（`test/fixtures/scheduling/golden_week.json`；该 fixture 已传入 `breakMinutes: 10`，但引擎此前完全不读取它）：
+
+| 方案 | 实测结果 |
+| --- | --- |
+| 现状 | research 排入 4 段 90 分钟，12:00→18:00 首尾相连，片段间隔 0 分钟；`isFullyFeasible=true` |
+| 软约束惩罚（新增评分因子） | 分片方式改变（变为 6 段），间隔仍为 0 分钟；golden 期望失效而需求仍未满足 → **已放弃该实现** |
+| 硬约束（生成阶段要求间隔 ≥ `breakMinutes`） | 间隔 30 分钟，research 仅排入 270/360 分钟，`isFullyFeasible=false`、`unscheduled=[research:90]`；golden 期望失效 |
+
+原因：候选排序以 `coverageMinutes` 为首键，软约束总分只在覆盖度相同时才起作用，因此惩罚项几乎不改变选择；而硬约束会让"空闲窗口恰好等于任务时长"的场景损失约 25% 容量。
+
+**该项需要产品决策**，可选方向：
+
+- 方案 A（硬约束）：真正落实 FR-SCHED-05，但需改进分片选择以避免容量过度损失，并重新生成 golden fixture。
+- 方案 B（修订需求）：把 FR-SCHED-05 改为"在可用余量允许时尽量保留休息"，承认首版不保证间隔。
+- 方案 C（推荐）：硬约束 + 让分片时长把休息预算计入选择（优先选择当日仍能留出休息的片段长度），再重新生成 golden fixture。
+
+**C2 评分因子的实际作用范围**
+
+对同一任务的 12:00 与 15:00 两个 90 分钟候选调用 `CandidateScorer`，在时段能量等级相同时，**10 个因子的取值完全相同**。结合分配循环（对单个任务遍历候选）可确认：`deadlineRisk`、`priority`、`progressPressure`、`lifeQuota`、`preferredTime`、`sameTaskContinuity`、`categorySwitch`、`movingExistingBlock` 这 8 个因子在同一任务的候选之间恒为常数，无法影响候选选择。实际区分候选的只有 `energyMatch`（随时段能量变化）、`fragmentation`（随片段长度变化）以及排序首键 `coverageMinutes`；其中 `preferredTime`、`sameTaskAdjacent`、`categorySwitch`、`movesExistingBlock` 连取值都从未被引擎注入。
+
+任务紧迫度实际由 `_compareTasks` 的 `_effectiveSlack`（截止前容量 − 目标）决定，这部分实现是合理的梯度而非布尔判断。因此问题不在"`deadlineRisk` 太粗糙"，而在于 §5.4 的评分表把 10 个因子描述为主要决策依据，而其中 8 个在候选层面不生效。修正方向应为文档与实现二选一：如实修订 §5.4/§9.4（任务排序按松弛时间、候选排序按覆盖度与能量/碎片化），或重构为以评分为主决策机制。后者会改变全部排程输出，属于设计变更而非缺陷修复。
+
+#### 13.0.8 收尾顺序
+
+1. 修正文档漂移并落实进度勾选（本次修订已完成）。
+2. 修复可定位缺陷：C3、C4 已修复并提交；C1、C2 已定位并实测，等待上面列出的决策。
 3. 完成 W1–W4 接线，使排程链路在运行期可达。
 4. 补齐 T4 缺失的测试类型，并清理 T2/T3 中不可信的用例。
 5. 完成 Task 20 的首次引导、端到端验收与 Windows 发布，逐项核对 spec §18 后再勾选验收清单。
 
-C5、C6、R12 需要设计或需求决策，不在自动收尾范围内。
+C1、C2、C5、C6、R12 需要设计或需求决策，不在自动收尾范围内。
 
 ---
 
@@ -1534,7 +1562,7 @@ git commit -m "release: complete personal planner MVP"
 | FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突 | 部分：一次性事件 CRUD 缺 delete；重复日程未展开、单次/系列编辑被丢弃（R4）；无日视图（R3）；拖动为空控制器（W2）；创建时不检测冲突 |
 | FR-RULE-01 至 06 | Task 2、10A、11 | 作息、精力、配额、工作日/周末和指定日期例外 | 基本实现：作息/精力/配额/工作日与周末规则已实现；指定日期例外机制正确但无 UI 入口 |
 | FR-DEFAULT-01 至 08 | Task 2、10A、19、20 | 默认值、中性回退、首次引导、优先级、记录与撤销 | 部分：默认值与优先级正确；首次引导门控为死代码（W4）；自动采用无门控（FR-DEFAULT-05）；变更日志不记前后值（FR-DEFAULT-07） |
-| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现 | 部分：引擎逻辑与可复现性成立，但无生产数据源（W1）；评分十因子仅 4 项赋值（R6）；无片段间休息（C1）；无移动原因（R7）；locked 重复计入上限（C3） |
+| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现 | 部分：引擎逻辑与可复现性成立，但无生产数据源（W1）；评分表中 8 个因子在候选层面不生效（R6、C2）；无片段间休息（C1，待决策）；无移动原因（R7）；locked 重复计入上限（C3，已修复） |
 | FR-REPLAN-01 至 08 | Task 9、10、13 | 提案、diff、确认/自动应用、过期拒绝、冲突和撤销 | 部分：快照哈希与过期拒绝已实现（FR-REPLAN-05）；预览为空桩（W2）；diff 缺 split 与 reason（R7）；自动应用路径不存在；冲突无 UI；处理入口未实现（R9） |
 | FR-RECOVERY-01 至 06 | Task 11 | 晚归、最低睡眠、早课冲突、补觉和单次放宽 | 基本实现但不可达：最低睡眠计算、早课冲突告警、单日例外均正确；选项行为未区分、无路由（W3）；先落库后提案（C8） |
 | FR-FOCUS-01 至 05 | Task 12 | 计时状态机、异常恢复、补录与剩余时长更新 | 部分：计时状态机与单调钟正确；崩溃恢复无调用点（W3）；补录与剩余时长重算未实现（R9） |
