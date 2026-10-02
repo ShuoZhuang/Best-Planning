@@ -525,7 +525,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 | 编号 | 偏差 | 证据 |
 | --- | --- | --- |
-| W1 | 排程引擎与全部应用服务未在应用中构造；无生产用 `ScheduleProblemSource` | `lib/scheduling/schedule_engine.dart:19` 仅在 test 中实例化；`lib/app/planner_app.dart:42-50` 只装配任务与设置仓储 |
+| W1 | 排程引擎与全部应用服务未在应用中构造；无生产用 `ScheduleProblemSource` | **部分完成**：生产用 `RepositoryScheduleProblemSource` 与 `ProtectedTimeExpander` 已实现并提交（`b0a1f69`，含单测）；剩余的是 Flutter 装配层——`router.dart`/`main.dart` 尚未注入引擎、`PlanningService` 与真实数据源，`lib/scheduling/schedule_engine.dart:19` 仍只在测试中被实例化 |
 | W2 | 今日页、周视图、调整预览为空桩 | `lib/app/router.dart:12-13,29,38,55-62` 使用 `EmptyScheduleViewSource`、`DisabledWeekMoveController`、`isStale:true`、空 `changes`/`conflicts`、空 `onConfirm` |
 | W3 | 已实现页面无路由：首次引导、统计、专注、偏好设置、数据管理、特殊日、任务详情 | `lib/app/router.dart:21-65` 仅 5 条路由 |
 | W4 | 首次引导门控为死代码，首启不会显示引导页 | `lib/app/planner_app.dart:29-30,38-40` 读入 `_onboardingVersion`/`_onboardingCompleted` 后未使用；`build()` 直接渲染路由器 |
@@ -544,6 +544,8 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | C6 | 远截止压力未达标的任务被跳过全部候选 | `schedule_engine.dart:83` + `candidate_generator.dart:75-79`，连续任务可能永远排不进 |
 | C7 | `_scoreCandidate(...).totalScore!` 强解包未检查 `isEligible` | `schedule_engine.dart:428-434`，锁定块越出规划窗口或晚于截止时可抛 null 断言 |
 | C8 | 恢复流程先落库日期例外、再生成提案 | `recovery_planning_service.dart:124-138`，违反 §6"提案应用前不替换当前计划" |
+| C9 | `TZDateTime` 与 `DateTime.utc` 判等失败，导致同一时刻被当作不同区间 | **已修复**（提交 `8c8dbc7`）：`localDateTimeToUtc`/`localMidnightToUtc` 曾返回 `tz.TZDateTime`；该类型即使表示 UTC 也 `isUtc=true`、微秒值与 `hashCode` 与 `DateTime.utc` 相同，但 `==` 返回 false。`TimeRange.operator ==` 用 `==` 比较端点，因此混用两种表示会让同一区间判不相等，而 `PlanValidator` 正是靠 `proposed.range != locked.range` 判断锁定块是否被移动——一旦块从数据库以 `DateTime.utc` 重建，就会误报 `lockedBlockMoved` 并让合法提案被拒。现统一规范化为普通 UTC `DateTime` |
+| C10 | 用餐与固定休息从未参与排程 | **已修复**（提交 `b0a1f69`）：`AvailabilityBuilder` 内部只把 `rules.sleepRange` 落成区间，而 `rules.protectedTimes`（午餐、晚餐、固定休息）需要外部展开成具体区间后传入 `protectedIntervals`——此前没有任何生产代码做这件事，因此这些保护时间在真实运行中恒为空集。新增 `ProtectedTimeExpander` 逐日展开 |
 
 #### 13.0.5 需求覆盖缺口
 
@@ -609,7 +611,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 1. 修正文档漂移并落实进度勾选（本次修订已完成）。
 2. 修复可定位缺陷：C1、C3、C4 已修复并提交；C2 已按决策修订文档，如实描述现有决策机制。
-3. 完成 W1–W4 接线，使排程链路在运行期可达。
+3. 完成 W1–W4 接线，使排程链路在运行期可达。其中排程输入装配已完成（`b0a1f69`）；剩余为 Flutter 装配层：把引擎、`PlanningService`、真实数据源与 `PlanApplicationService` 注入 `main.dart`/`planner_app.dart`，并用真实数据替换 `router.dart` 的空数据源与空桩预览。
 4. 补齐 T4 缺失的测试类型，并清理 T2/T3 中不可信的用例。
 5. 完成 Task 20 的首次引导、端到端验收与 Windows 发布，逐项核对 spec §18 后再勾选验收清单。
 
