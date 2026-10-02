@@ -32,13 +32,17 @@
     {"id": "movie", "minutes": 120, "splitMode": "continuous", "minChunk": 120, "maxChunk": 120, "due": null, "priority": "medium", "energy": "low", "life": true}
   ],
   "expected": {
-    "algorithmVersion": "1",
+    "algorithmVersion": "2",
+    "fullyFeasible": false,
+    "unscheduled": [
+      {"taskId": "research", "shortageMinutes": 30}
+    ],
     "blocks": [
       {"taskId": "student-work", "start": "2026-10-05T12:00:00.000Z", "end": "2026-10-05T13:00:00.000Z", "explanationCode": "deadline_and_progress"},
       {"taskId": "research", "start": "2026-10-06T12:00:00.000Z", "end": "2026-10-06T13:30:00.000Z", "explanationCode": "deadline_and_progress"},
-      {"taskId": "research", "start": "2026-10-06T13:30:00.000Z", "end": "2026-10-06T15:00:00.000Z", "explanationCode": "deadline_and_progress"},
-      {"taskId": "research", "start": "2026-10-06T15:00:00.000Z", "end": "2026-10-06T16:30:00.000Z", "explanationCode": "deadline_and_progress"},
-      {"taskId": "research", "start": "2026-10-06T16:30:00.000Z", "end": "2026-10-06T18:00:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T13:40:00.000Z", "end": "2026-10-06T15:10:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T15:20:00.000Z", "end": "2026-10-06T16:50:00.000Z", "explanationCode": "deadline_and_progress"},
+      {"taskId": "research", "start": "2026-10-06T17:00:00.000Z", "end": "2026-10-06T18:00:00.000Z", "explanationCode": "deadline_and_progress"},
       {"taskId": "movie", "start": "2026-10-07T18:00:00.000Z", "end": "2026-10-07T20:00:00.000Z", "explanationCode": "life_quota_gap"}
     ]
   }

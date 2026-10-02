@@ -15,7 +15,7 @@ void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
 
-  test('golden week schedules classes, research and life quota', () {
+  test('golden week keeps breaks between chunks and reports the shortfall', () {
     final fixture = jsonDecode(
       File('test/fixtures/scheduling/golden_week.json').readAsStringSync(),
     ) as Map<String, Object?>;
@@ -27,8 +27,21 @@ void main() {
         .cast<Map<String, Object?>>();
 
     expect(proposal.algorithmVersion, expected['algorithmVersion']);
-    expect(proposal.metrics.isFullyFeasible, isTrue);
-    expect(proposal.unscheduled, isEmpty);
+    // research 需要的 360 分钟恰好等于周二唯一的空闲窗口（12:00–18:00）。
+    // 保留 10 分钟片段间休息后不可能排满全部时长，因此必须如实报告缺口，
+    // 而不是回到"四段 90 分钟首尾相连"的无休息排法（FR-SCHED-05、产品原则 4.1）。
+    expect(proposal.metrics.isFullyFeasible, expected['fullyFeasible']);
+    expect(
+      proposal.unscheduled
+          .map(
+            (item) => {
+              'taskId': item.taskId,
+              'shortageMinutes': item.shortageMinutes,
+            },
+          )
+          .toList(),
+      expected['unscheduled'],
+    );
     expect(
       proposal.blocks
           .map(
@@ -45,6 +58,66 @@ void main() {
     expect(
       proposal.explanations.map((item) => item.code),
       containsAll(['deadline_and_progress', 'life_quota_gap']),
+    );
+
+    final researchBlocks =
+        proposal.blocks.where((block) => block.taskId == 'research').toList()
+          ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+    expect(researchBlocks.length, greaterThan(1));
+    for (var index = 1; index < researchBlocks.length; index++) {
+      final gap = researchBlocks[index]
+          .startUtc
+          .difference(researchBlocks[index - 1].endUtc)
+          .inMinutes;
+      expect(gap, greaterThanOrEqualTo(problem.rules.breakMinutes));
+    }
+  });
+
+  test('相同任务的两段专注之间保留 breakMinutes 休息', () {
+    final day = DateTime.utc(2026, 10, 5);
+    final problem = ScheduleProblem(
+      planningWindow: TimeRange(
+        startUtc: day.add(const Duration(hours: 9)),
+        endUtc: day.add(const Duration(hours: 18)),
+      ),
+      timeZoneId: 'UTC',
+      tasks: const [
+        SchedulableTask(
+          id: 'deep-work',
+          requiredMinutes: 120,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 60,
+          maxChunkMinutes: 60,
+        ),
+      ],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: PlanningRules(
+        energyWindows: [
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 540, endMinute: 720),
+            level: EnergyLevel.high,
+          ),
+        ],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'rest-gap-v1',
+    );
+
+    final blocks = [...engine.generate(problem).blocks]
+      ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+
+    expect(blocks.length, 2);
+    expect(
+      blocks[1].startUtc.difference(blocks[0].endUtc).inMinutes,
+      greaterThanOrEqualTo(problem.rules.breakMinutes),
     );
   });
 

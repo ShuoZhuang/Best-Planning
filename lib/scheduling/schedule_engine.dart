@@ -21,7 +21,10 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     : _availabilityBuilder = AvailabilityBuilder(_zones),
       _validator = PlanValidator(_zones);
 
-  static const String algorithmVersion = '1';
+  /// 算法版本。任何会改变排程结果的改动都必须提升该值，否则历史计划无法按
+  /// 当时的算法复现（设计 §5.1）。版本 2 引入同一任务的片段间休息，并把续排
+  /// 容量按休息预算计算（只统计候选之后仍可承接后续片段的时间）。
+  static const String algorithmVersion = '2';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -81,7 +84,8 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         final ranked = <_RankedCandidate>[];
         for (final candidate in candidates) {
           if (candidate.durationMinutes > remaining ||
-              _overlapsAny(candidate.range, blocks)) {
+              _overlapsAny(candidate.range, blocks) ||
+              _violatesRestGap(problem, task, candidate, blocks)) {
             continue;
           }
           final leftover = remaining - candidate.durationMinutes;
@@ -105,10 +109,12 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                 candidate.durationMinutes +
                     math.min(
                       leftover,
-                      _continuationCapacity(task, slots, [
-                        ...blocks,
-                        _temporaryBlock(task.id, candidate),
-                      ]),
+                      _continuationCapacity(
+                        task,
+                        slots,
+                        [...blocks, _temporaryBlock(task.id, candidate)],
+                        notBefore: _restReadyAt(problem, task, candidate),
+                      ),
                     ),
               ),
             );
@@ -306,8 +312,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   int _continuationCapacity(
     SchedulableTask task,
     List<AvailabilitySlot> slots,
-    List<PlannedBlock> blockers,
-  ) {
+    List<PlannedBlock> blockers, {
+    DateTime? notBefore,
+  }) {
     var capacity = 0;
     for (final slot in slots) {
       final dueAt = task.dueAtUtc;
@@ -330,6 +337,12 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
               .toList()
             ..sort((a, b) => a.start.compareTo(b.start));
       var cursor = slot.startUtc;
+      // 只统计 notBefore 之后仍然可用的容量：候选之前的空闲段无法承接本任务
+      // 的后续片段，把它们计入"可续排容量"会高估该候选的价值，并诱导引擎
+      // 为了腾出一段用不上的空隙而把片段推后（实测会把间隔推成 30 分钟并白丢容量）。
+      if (notBefore != null && notBefore.isAfter(cursor)) {
+        cursor = notBefore.isAfter(slotEnd) ? slotEnd : notBefore;
+      }
       for (final cut in cuts) {
         if (cut.start.isAfter(cursor)) {
           capacity += _usableSegmentMinutes(task, cursor, cut.start);
@@ -443,6 +456,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       for (final candidate in alternatives) {
         if (operations++ >= localImprovementOperationBudget) break;
         if (_overlapsAny(candidate.range, others)) continue;
+        if (_violatesRestGap(problem, task, candidate, others)) continue;
         final score = _scoreCandidate(
           problem,
           task,
@@ -539,3 +553,44 @@ String _blockId(String taskId, SchedulingCandidate candidate) =>
 
 PlannedBlock _temporaryBlock(String taskId, SchedulingCandidate candidate) =>
     PlannedBlock(id: 'temporary', taskId: taskId, range: candidate.range);
+
+/// 同一任务两段专注之间必须保留 `Rules.breakMinutes` 的休息
+/// （需求 FR-SCHED-05 与默认值 8.4.1）。连续任务只有一个整块，不适用。
+bool _violatesRestGap(
+  ScheduleProblem problem,
+  SchedulableTask task,
+  SchedulingCandidate candidate,
+  List<PlannedBlock> blocks,
+) {
+  final breakMinutes = problem.rules.breakMinutes;
+  if (breakMinutes <= 0 || task.splitMode == TaskSplitMode.continuous) {
+    return false;
+  }
+  for (final block in blocks) {
+    if (block.taskId != task.id) continue;
+    if (_gapMinutes(block.range, candidate.range) < breakMinutes) return true;
+  }
+  return false;
+}
+
+/// 该候选结束后，同一任务最早可以开始下一片段的时间；null 表示不适用。
+DateTime? _restReadyAt(
+  ScheduleProblem problem,
+  SchedulableTask task,
+  SchedulingCandidate candidate,
+) {
+  final breakMinutes = problem.rules.breakMinutes;
+  if (breakMinutes <= 0 || task.splitMode == TaskSplitMode.continuous) {
+    return null;
+  }
+  return candidate.endUtc.add(Duration(minutes: breakMinutes));
+}
+
+/// 两个区间的间隔分钟数；重叠或首尾相接时为 0。
+int _gapMinutes(TimeRange a, TimeRange b) {
+  if (a.overlaps(b)) return 0;
+  if (!a.endUtc.isAfter(b.startUtc)) {
+    return b.startUtc.difference(a.endUtc).inMinutes;
+  }
+  return a.startUtc.difference(b.endUtc).inMinutes;
+}
