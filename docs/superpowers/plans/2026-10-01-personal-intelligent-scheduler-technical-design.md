@@ -513,7 +513,7 @@ backup.zip
 | --- | --- | --- |
 | Task 1–19 | 已完成并提交 | 提交 `8b2838e..e15d243`；逐任务测试日志见 `.superpowers/sdd/2026-10-01-personal-intelligent-scheduler-technical-design/task-N-tests.log` |
 | Task 10A | 已完成并提交 | 提交 `05ac22a` |
-| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`），但尚未在任何 Windows 设备上执行；仍缺 MSIX 依赖与包标识，手工验收清单尚未执行 |
+| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`）；`msix` 依赖与 `msix_config` 已加入 `pubspec.yaml`，但 `dart run msix:create` 尚未执行、包标识仍为示例值；手工验收清单尚未执行 |
 
 Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该任务自身步骤已执行且其测试通过，**不代表产品整体可用**。
 

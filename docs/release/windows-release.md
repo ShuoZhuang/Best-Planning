@@ -10,7 +10,7 @@ Task 20 的交付物之一，定义首版 Windows 产物的构建、版本与校
 | 产物 | 用途 | 状态 |
 | --- | --- | --- |
 | `personal_planner.exe`（release） | 可直接运行的桌面程序 | 可构建 |
-| `personal_planner.msix` | 正式安装方式；提供 Windows 包身份，使本地通知可被可靠安排与取消 | **待补**：`msix` 依赖尚未加入 `pubspec.yaml` |
+| `personal_planner.msix` | 正式安装方式；提供 Windows 包身份，使本地通知可被可靠安排与取消 | 依赖与 `msix_config` 已加入 `pubspec.yaml`；**尚未实际执行过 `dart run msix:create`** |
 
 发布必须以 MSIX 为准：技术设计 §10 说明只预排一次性通知，而可靠的通知取消与查询能力
 依赖包身份（§11 的风险表亦记录「Windows 通知行为受包身份限制」）。仅分发 release EXE
@@ -21,8 +21,9 @@ Task 20 的交付物之一，定义首版 Windows 产物的构建、版本与校
 | 项 | 值 | 说明 |
 | --- | --- | --- |
 | 应用版本 | `pubspec.yaml` 的 `version` | 当前仍为模板默认 `1.0.0+1`，发布前必须确定为正式版本号 |
-| 包标识（Identity Name） | 待定 | 一旦发布不可更改，需在首次发布前固定 |
-| 发布者（Publisher） | 待定 | 与签名证书主体一致 |
+| 包标识（Identity Name） | `msix_config.identity_name`，当前为示例值 `com.example.personal_planner` | 一旦发布不可更改，需在首次发布前固定为自有反向域名 |
+| 发布者（Publisher） | `msix_config.publisher_display_name`，当前为示例值 | 与签名证书主体一致 |
+| MSIX 版本 | `msix_config.msix_version`，四段式 | 必须与 `pubspec.yaml` 的 `version` 对应，当前均为 1.0.0 |
 | 升级策略 | 同一包标识 + 递增版本 | 换标识等于换应用，用户数据不会自动迁移 |
 | 版本号同步 | `windows/runner/Runner.rc` | 需与 `pubspec.yaml` 保持一致 |
 
@@ -52,7 +53,7 @@ flutter test integration_test -d windows
 # 4. release 产物
 flutter build windows --release
 
-# 5. MSIX（待补：先加入 msix 依赖并配置包标识）
+# 5. MSIX（依赖与 msix_config 已就绪；首次执行前先确认 identity_name 与发布者）
 dart run msix:create
 ```
 
@@ -70,7 +71,7 @@ dart run msix:create
 
 | 阻塞 | 说明 |
 | --- | --- |
-| MSIX 依赖与配置缺失 | `pubspec.yaml` 尚无 `msix` 依赖，包标识与发布者未定。建议用 `flutter pub add --dev msix` 由 pub 选择与当前 SDK 兼容的版本，而不是手工写死版本号 |
+| MSIX 从未执行 | `msix` 依赖（`^3.13.0`，具体版本由 pub 解析并写入 `pubspec.lock`）与 `msix_config` 已加入，但 `dart run msix:create` 尚未运行过；包标识仍是示例值，签名证书未确定 |
 | 端到端测试尚未执行 | `integration_test/` 下已有三条流程（首个七日计划、临时晚归后重排、备份与恢复），`pubspec.yaml` 已加入 SDK 自带的 `integration_test` 依赖，但从未在 Windows 设备上运行过 |
 | 手工清单尚未执行 | 需求规格第 18 节的 19 项验收全部未勾选 |
 | 部分功能在界面上不可达 | 统计、专注、偏好设置、数据管理与特殊日页面尚无路由；应用锁不拦截启动；手动移动被禁用。详见技术设计文档 §13.0 |

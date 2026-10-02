@@ -77,6 +77,10 @@ dev_dependencies:
   build_runner: ^2.16.1
   fake_async: ^1.3.3
 
+  # MSIX 打包。使用范围约束而不是锁定版本，让 pub 选择与当前 SDK 兼容的版本；
+  # 实际版本由 pubspec.lock 固定，可复现性仍由 lock 保证。
+  msix: ^3.13.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -118,3 +122,20 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# MSIX 打包配置（技术设计 Task 20）。
+#
+# 为什么发布必须用 MSIX：技术设计 §10 只排一次性本地通知，而可靠的通知取消与查询
+# 能力依赖 Windows 包身份；仅有 release EXE 时通知行为不可靠。
+#
+# identity_name 与签名证书主体一经发布不可更改——改动等于换一个应用，用户数据不会
+# 自动迁移。因此在首次发布前必须确认下面三项，而不是沿用示例值。
+msix_config:
+  display_name: 智能日程
+  # 待确认：应与最终签名证书主体一致。
+  publisher_display_name: Personal Planner
+  # 待确认：建议使用自有的反向域名（例如 io.github.<组织>.personalplanner）。
+  identity_name: com.example.personal_planner
+  # 必须与 pubspec.yaml 的 version 对应（MSIX 要求四段式）。
+  msix_version: 1.0.0.0
+
