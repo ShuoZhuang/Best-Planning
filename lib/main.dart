@@ -7,6 +7,7 @@ import 'package:personal_planner/application/repository_schedule_problem_source.
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
+import 'package:personal_planner/core/local_time_zone.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
@@ -24,9 +25,20 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  const timeZoneId = 'Asia/Shanghai';
   const clock = SystemClock();
   final zones = TimeZoneDatabase();
+
+  // 需求 §13 要求以本机当前时区保存和展示。Dart 读不到 IANA 标识，因此按本机
+  // 当前偏移解析（见 LocalTimeZoneResolver）。解析不出精确匹配时仍取最接近的
+  // 时区，但会在诊断里说明——目前只在开发期记录，用户可见的提示待首次引导实现。
+  final resolvedZone = LocalTimeZoneResolver(zones).resolve(
+    localOffset: DateTime.now().timeZoneOffset,
+    nowUtc: clock.nowUtc(),
+  );
+  final timeZoneId = resolvedZone.timeZoneId;
+  if (!resolvedZone.exact) {
+    debugPrint('未能精确匹配本机时区：${resolvedZone.diagnostic}');
+  }
 
   final database = AppDatabase.openDefault();
   final taskRepository = DriftTaskRepository(database.taskDao);
