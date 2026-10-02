@@ -8,7 +8,8 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
-final class DriftPlanRepository implements PlanRepository {
+final class DriftPlanRepository
+    implements PlanRepository, PlanHistoryRepository {
   DriftPlanRepository(this._database, {this.clock = const SystemClock()});
 
   final AppDatabase _database;
@@ -24,8 +25,99 @@ final class DriftPlanRepository implements PlanRepository {
       ])
       ..limit(1);
     final version = await query.getSingleOrNull();
-    if (version == null) return null;
+    return version == null ? null : _loadVersion(version);
+  }
 
+  @override
+  Future<ConfirmedPlan?> previous() async {
+    final query = _database.select(_database.planVersions)
+      ..where((row) => row.status.equals('superseded'))
+      ..orderBy([
+        (row) => OrderingTerm.desc(row.createdAtUtc),
+        (row) => OrderingTerm.desc(row.id),
+      ])
+      ..limit(1);
+    final version = await query.getSingleOrNull();
+    return version == null ? null : _loadVersion(version);
+  }
+
+  @override
+  Future<ConfirmedPlan> restoreAsNewVersion({
+    required ConfirmedPlan source,
+    required ConfirmedPlan replaced,
+  }) async {
+    final now = clock.nowUtc();
+    final restoredId =
+        'undo-${now.microsecondsSinceEpoch}-${source.id.replaceAll(':', '-')}';
+    return _database.transaction(() async {
+      await (_database.update(_database.planVersions)
+            ..where((row) => row.status.equals('confirmed')))
+          .write(const PlanVersionsCompanion(status: Value('superseded')));
+      await _database
+          .into(_database.planVersions)
+          .insert(
+            PlanVersionsCompanion.insert(
+              id: restoredId,
+              createdAtUtc: now.microsecondsSinceEpoch,
+              inputHash: source.inputHash,
+              algorithmVersion: source.algorithmVersion,
+              status: 'confirmed',
+              summaryJson: jsonEncode({
+                'operation': 'undo',
+                'restoredFrom': source.id,
+                'replaced': replaced.id,
+              }),
+            ),
+          );
+      final blocks = <PlannedBlock>[];
+      for (var index = 0; index < source.blocks.length; index++) {
+        final block = source.blocks[index];
+        final id = '$restoredId:block:$index';
+        await _database
+            .into(_database.scheduleBlocks)
+            .insert(
+              ScheduleBlocksCompanion.insert(
+                id: id,
+                planVersionId: restoredId,
+                taskId: block.taskId,
+                startAtUtc: block.startUtc.microsecondsSinceEpoch,
+                endAtUtc: block.endUtc.microsecondsSinceEpoch,
+                locked: Value(block.locked),
+                explanationCode: block.explanationCode ?? 'undoRestore',
+              ),
+            );
+        blocks.add(
+          PlannedBlock(
+            id: id,
+            taskId: block.taskId,
+            range: block.range,
+            locked: block.locked,
+            explanationCode: block.explanationCode ?? 'undoRestore',
+          ),
+        );
+      }
+      await _database
+          .into(_database.changeLog)
+          .insert(
+            ChangeLogCompanion.insert(
+              id: '$restoredId:change:0',
+              entityType: 'planVersion',
+              entityId: restoredId,
+              operation: 'undo:${replaced.id}->${source.id}',
+              changedAtUtc: now.microsecondsSinceEpoch,
+              revision: 1,
+            ),
+          );
+      return ConfirmedPlan(
+        id: restoredId,
+        inputHash: source.inputHash,
+        algorithmVersion: source.algorithmVersion,
+        blocks: blocks,
+      );
+    });
+  }
+
+  Future<ConfirmedPlan> _loadVersion(PlanVersion version) async {
     final blockQuery = _database.select(_database.scheduleBlocks)
       ..where((row) => row.planVersionId.equals(version.id))
       ..orderBy([

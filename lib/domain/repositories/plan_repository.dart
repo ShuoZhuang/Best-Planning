@@ -52,3 +52,14 @@ abstract interface class PlanRepository {
     String expectedInputHash,
   );
 }
+
+abstract interface class PlanHistoryRepository {
+  Future<ConfirmedPlan?> current();
+
+  Future<ConfirmedPlan?> previous();
+
+  Future<ConfirmedPlan> restoreAsNewVersion({
+    required ConfirmedPlan source,
+    required ConfirmedPlan replaced,
+  });
+}
