@@ -182,12 +182,8 @@ final class _MemoryTaskRepository implements TaskRepository {
     yield* _changes.stream;
   }
 
-  Iterable<PlannerTask> _openTasks() => _tasks.where(
-    (task) =>
-        task.status != TaskStatus.completed &&
-        task.status != TaskStatus.cancelled &&
-        task.status != TaskStatus.skipped,
-  );
+  Iterable<PlannerTask> _openTasks() =>
+      _tasks.where((task) => !task.status.isClosed);
 
   Future<void> dispose() => _changes.close();
 }

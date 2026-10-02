@@ -6,7 +6,39 @@ enum TaskEnergyLevel { low, medium, high }
 
 enum TaskSplitMode { splittable, continuous }
 
-enum TaskStatus { inbox, open, inProgress, completed, skipped, cancelled }
+/// 任务的当前状态。
+///
+/// 前六个是**用户设置并持久化**的生命周期状态；`scheduled`（已安排）与
+/// `overdue`（已逾期）是**由事实派生**的状态，不写入数据库：
+///
+/// - `overdue` 只取决于"截止时间已过且任务未结束"，时间流逝本身就会让它成立，
+///   没有任何写入时机；
+/// - `scheduled` 取决于"已确认计划中是否存在该任务的块"，与计划生命周期绑定，
+///   若另行落库就会产生两个事实来源，撤销与重排时必然不同步。
+///
+/// 因此从数据库读出的状态永远不会是这两个值，判断当前状态请用
+/// [PlannerTask.statusAt]。
+enum TaskStatus {
+  inbox,
+  open,
+  scheduled,
+  inProgress,
+  completed,
+  skipped,
+  cancelled,
+  overdue,
+}
+
+extension TaskStatusSemantics on TaskStatus {
+  /// 已结束：完成、跳过或取消。
+  bool get isClosed =>
+      this == TaskStatus.completed ||
+      this == TaskStatus.skipped ||
+      this == TaskStatus.cancelled;
+
+  /// 是否属于用户设置并可持久化的状态。
+  bool get isStored => this != TaskStatus.scheduled && this != TaskStatus.overdue;
+}
 
 final class PlannerTask {
   PlannerTask({
@@ -61,6 +93,28 @@ final class PlannerTask {
 
   int get schedulingEstimatedMinutes => _roundToFive(estimatedMinutes);
   int get schedulingRemainingMinutes => _roundToFive(remainingMinutes);
+
+  /// 派生当前状态，供界面展示与筛选使用。
+  ///
+  /// 优先级（前者优先）：
+  /// 1. 已结束（完成 / 跳过 / 取消）——结束即结束，不再判逾期；
+  /// 2. 已逾期——截止已过且未结束，这是最需要处理的事实；
+  /// 3. 进行中——比"已安排"更能说明用户当下在做什么；
+  /// 4. 已安排——已确认计划中存在该任务的块；
+  /// 5. 否则回落到用户设置的状态（收集箱 / 待安排）。
+  ///
+  /// [nowUtc] 必须为 UTC；[hasPlanBlocks] 表示已确认计划中是否有该任务的块。
+  TaskStatus statusAt({required DateTime nowUtc, bool hasPlanBlocks = false}) {
+    if (!nowUtc.isUtc) {
+      throw ArgumentError.value(nowUtc, 'nowUtc', 'Must be UTC.');
+    }
+    if (status.isClosed) return status;
+    final due = dueAtUtc;
+    if (due != null && due.isBefore(nowUtc)) return TaskStatus.overdue;
+    if (status == TaskStatus.inProgress) return status;
+    if (hasPlanBlocks) return TaskStatus.scheduled;
+    return status;
+  }
 
   PlannerTask copyWith({
     EntityId? id,
