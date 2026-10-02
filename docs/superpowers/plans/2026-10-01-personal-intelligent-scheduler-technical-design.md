@@ -525,12 +525,13 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 | 编号 | 偏差 | 证据 |
 | --- | --- | --- |
-| W1 | 排程引擎与全部应用服务未在应用中构造；无生产用 `ScheduleProblemSource` | **部分完成**：生产用 `RepositoryScheduleProblemSource` 与 `ProtectedTimeExpander` 已实现并提交（`b0a1f69`，含单测）；剩余的是 Flutter 装配层——`router.dart`/`main.dart` 尚未注入引擎、`PlanningService` 与真实数据源，`lib/scheduling/schedule_engine.dart:19` 仍只在测试中被实例化 |
-| W2 | 今日页、周视图、调整预览为空桩 | `lib/app/router.dart:12-13,29,38,55-62` 使用 `EmptyScheduleViewSource`、`DisabledWeekMoveController`、`isStale:true`、空 `changes`/`conflicts`、空 `onConfirm` |
-| W3 | 已实现页面无路由：首次引导、统计、专注、偏好设置、数据管理、特殊日、任务详情 | `lib/app/router.dart:21-65` 仅 5 条路由 |
-| W4 | 首次引导门控为死代码，首启不会显示引导页 | `lib/app/planner_app.dart:29-30,38-40` 读入 `_onboardingVersion`/`_onboardingCompleted` 后未使用；`build()` 直接渲染路由器 |
+| W1 | 排程引擎与全部应用服务未在应用中构造；无生产用 `ScheduleProblemSource` | **已解决**（提交 `b0a1f69`、`7955037`）：生产用 `RepositoryScheduleProblemSource`、`ProtectedTimeExpander`、`PlanningRuleResolver` 与 `RepositoryScheduleViewSource` 均已实现；`main.dart` 作为组合根构造引擎、`PlanningService`、`PlanApplicationService` 并注入应用 |
+| W2 | 今日页、周视图、调整预览为空桩 | **已解决**（提交 `7955037`）：今日页与周视图改为注入真实 `RepositoryScheduleViewSource`；预览页从内存提案构建真实的差异、冲突与缺口，确认时经 `PlanApplicationService` 落库并区分 applied/stale/invalid。拖动仍禁用属另一项缺口，见 R9 |
+| W3 | 已实现页面无路由：首次引导、统计、专注、偏好设置、数据管理、特殊日、任务详情 | **部分解决**（提交 `7955037`）：新增计划生成入口与真实预览路由；统计、专注、偏好设置、数据管理、特殊日与任务详情仍无路由 |
+| W4 | 首次引导门控为死代码，首启不会显示引导页 | **已解决**（提交 `7955037`）：按 onboarding schema 版本决定是否先显示引导页，删除两个死字段 |
 | W5 | 存储键与 operation 前缀两端约定不一致，功能恒为空 | 偏好：写 `planning.preferenceState.v1`（`preference_service.dart:64`）而读 `planning.learnedPreferences.v1`（`settings_service.dart:166-179`）；变更历史：写 `confirm`/`create`/`undo:`（`drift_plan_repository.dart:106,194,224`）而读 `interruption:`/`replan:`/`suggestion:`（`analytics_dao.dart:173-178`） |
 | W6 | 偏好证据无写入方；应用锁与通知点击入口无消费方 | `PreferenceEvidence` 在 `lib/` 中零构造；`AppLockService.verify` 无启动调用方；`windows_notification_adapter.dart:82-86` 未注册点击回调 |
+| W7 | 界面上不存在"生成计划"的入口 | `WeekViewPage` 仅在拖动后回报提案 ID，而拖动被禁用，因此排程提案在界面上完全无从触发。**已解决**（提交 `7955037`）：在外壳顶栏加入生成计划入口 |
 
 #### 13.0.4 正确性缺陷
 
@@ -611,9 +612,9 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 1. 修正文档漂移并落实进度勾选（本次修订已完成）。
 2. 修复可定位缺陷：C1、C3、C4 已修复并提交；C2 已按决策修订文档，如实描述现有决策机制。
-3. 完成 W1–W4 接线，使排程链路在运行期可达。其中排程输入装配已完成（`b0a1f69`）；剩余为 Flutter 装配层：把引擎、`PlanningService`、真实数据源与 `PlanApplicationService` 注入 `main.dart`/`planner_app.dart`，并用真实数据替换 `router.dart` 的空数据源与空桩预览。
+3. 完成 W1–W4 接线，使排程链路在运行期可达。W1、W2、W4 与 W7 已完成（`b0a1f69`、`7955037`）；W3 仍缺统计、专注、偏好设置、数据管理、特殊日与任务详情的路由，另有 R9 的手动移动入口。
 4. 补齐 T4 缺失的测试类型，并清理 T2/T3 中不可信的用例。
-5. 完成 Task 20 的首次引导、端到端验收与 Windows 发布，逐项核对 spec §18 后再勾选验收清单。
+5. 完成 Task 20 剩余部分：端到端验收与 Windows 发布配置（首次引导门控已于 `7955037` 生效），逐项核对 spec §18 后再勾选验收清单。
 
 C5、C6、R12 需要设计或需求决策，不在自动收尾范围内。
 
@@ -1572,12 +1573,12 @@ git commit -m "release: complete personal planner MVP"
 
 | 需求规格范围 | 主要实施任务 | 计划核心验证 | 真实状态 |
 | --- | --- | --- | --- |
-| FR-TODAY-01 至 04 | Task 10、12、13 | 今日页状态、快捷操作、完成后重排 | 部分：今日页为条目列表且注入空数据源，无"当前/下一项/剩余时间"汇总（FR-TODAY-01）；跳过与延期无入口（FR-TODAY-02）；无进度、休息提示与冲突提示（FR-TODAY-03）。偏差 W2 |
+| FR-TODAY-01 至 04 | Task 10、12、13 | 今日页状态、快捷操作、完成后重排 | 部分：今日页已接入真实数据源（固定日程、保护时间、已确认计划块）（W2 已解决）；仍无"当前/下一项/剩余时间"汇总（FR-TODAY-01）、无跳过与延期入口（FR-TODAY-02）、无进度与休息提示（FR-TODAY-03）。偏差 W2 |
 | FR-TASK-01 至 05 | Task 2、4 | 快速录入、完整编辑、筛选、批量调整和剩余时长 | 部分：快速录入已实现；分类/项目/标签不可用（R1、R2）；无批量调整（R9）；任务转固定日程与修正剩余时长未实现（R9） |
-| FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突 | 部分：一次性事件 CRUD 缺 delete；重复日程未展开、单次/系列编辑被丢弃（R4）；无日视图（R3）；拖动为空控制器（W2）；创建时不检测冲突 |
+| FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突 | 部分：一次性事件 CRUD 缺 delete；重复日程未展开、单次/系列编辑被丢弃（R4）；无日视图（R3）；四类时间块的区分现已显示真实数据（W2 已解决），但拖动仍禁用（R9）；创建时不检测冲突 |
 | FR-RULE-01 至 06 | Task 2、10A、11 | 作息、精力、配额、工作日/周末和指定日期例外 | 基本实现：作息/精力/配额/工作日与周末规则已实现；指定日期例外机制正确但无 UI 入口 |
 | FR-DEFAULT-01 至 08 | Task 2、10A、19、20 | 默认值、中性回退、首次引导、优先级、记录与撤销 | 部分：默认值与优先级正确；首次引导门控为死代码（W4）；自动采用无门控（FR-DEFAULT-05）；变更日志不记前后值（FR-DEFAULT-07） |
-| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现 | 部分：引擎逻辑与可复现性成立，但无生产数据源（W1）；评分表中 8 个因子在候选层面不生效（R6、C2）；片段间休息已实施（C1，算法版本 2）；无移动原因（R7）；locked 重复计入上限（C3，已修复） |
+| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现 | 部分：生产数据源与七日窗口已接线，引擎可在运行期产出计划（W1 已解决）；评分表中 8 个因子在候选层面不生效（R6、C2）；片段间休息已实施（C1，算法版本 2）；无移动原因（R7）；locked 重复计入上限（C3，已修复） |
 | FR-REPLAN-01 至 08 | Task 9、10、13 | 提案、diff、确认/自动应用、过期拒绝、冲突和撤销 | 部分：快照哈希与过期拒绝已实现（FR-REPLAN-05）；预览为空桩（W2）；diff 缺 split 与 reason（R7）；自动应用路径不存在；冲突无 UI；处理入口未实现（R9） |
 | FR-RECOVERY-01 至 06 | Task 11 | 晚归、最低睡眠、早课冲突、补觉和单次放宽 | 基本实现但不可达：最低睡眠计算、早课冲突告警、单日例外均正确；选项行为未区分、无路由（W3）；先落库后提案（C8） |
 | FR-FOCUS-01 至 05 | Task 12 | 计时状态机、异常恢复、补录与剩余时长更新 | 部分：计时状态机与单调钟正确；崩溃恢复无调用点（W3）；补录与剩余时长重算未实现（R9） |
