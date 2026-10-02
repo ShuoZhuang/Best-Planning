@@ -146,7 +146,7 @@ void main() {
     expect(_signature(engine.generate(reversed)), expected);
   });
 
-  test('非生活任务块之间保留休息，任一侧是生活任务时不要求', () {
+  test('任意两个任务块之间保留休息，不区分任务类型', () {
     final day = DateTime.utc(2026, 10, 5);
 
     ScheduleProblem build(List<SchedulableTask> tasks) => ScheduleProblem(
@@ -196,17 +196,17 @@ void main() {
       ];
     }
 
-    // 两个不同的非生活任务之间同样需要休息。
+    // 两个不同的任务之间同样需要休息。
     expect(gaps([single('work-a'), single('work-b')]), [10]);
-    // 连续多个非生活任务之间都要休息。
+    // 连续多个任务之间都要休息。
     expect(gaps([single('work-a'), single('work-b'), single('work-c')]), [
       10,
       10,
     ]);
-    // 任一侧是生活任务时不要求间隔：娱乐本身就是休息。
-    expect(gaps([single('work-a'), single('fun', life: true)]), [0]);
+    // 不再按任务类型区分：生活任务之间、以及生活任务与普通任务之间都要休息。
+    expect(gaps([single('work-a'), single('fun', life: true)]), [10]);
     expect(gaps([single('fun-a', life: true), single('fun-b', life: true)]), [
-      0,
+      10,
     ]);
   });
 
