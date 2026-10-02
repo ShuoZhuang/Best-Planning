@@ -63,13 +63,15 @@ final class ScheduleProblem {
     required List<BusyInterval> fixedIntervals,
     required List<BusyInterval> protectedIntervals,
     required List<PlannedBlock> lockedBlocks,
+    List<PlannedBlock> existingBlocks = const [],
     required this.rules,
     required this.preferences,
     required this.inputHash,
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
-       lockedBlocks = UnmodifiableListView(List.of(lockedBlocks));
+       lockedBlocks = UnmodifiableListView(List.of(lockedBlocks)),
+       existingBlocks = UnmodifiableListView(List.of(existingBlocks));
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -77,6 +79,12 @@ final class ScheduleProblem {
   final List<BusyInterval> fixedIntervals;
   final List<BusyInterval> protectedIntervals;
   final List<PlannedBlock> lockedBlocks;
+
+  /// 已确认但**未锁定**的时间块：引擎可以移动它们，但移动应付出代价。
+  ///
+  /// 用于设计 §5.4 的"移动已确认但未锁定的时间块"因子。它们不进 `lockedBlocks`，
+  /// 因此不会被硬约束冻结；也不进可用时间，因此新计划仍可复用这些时段。
+  final List<PlannedBlock> existingBlocks;
   final PlanningRules rules;
   final PreferenceProfile preferences;
   final String inputHash;

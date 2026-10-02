@@ -55,6 +55,19 @@ final class InputSnapshotBuilder {
           'locked': block.locked,
         },
     ],
+    // 已确认但未锁定的块同样影响排程结果（移动代价），因此必须进入快照哈希。
+    'existingBlocks': [
+      for (final block in [
+        ...problem.existingBlocks,
+      ]..sort((a, b) => a.id.compareTo(b.id)))
+        {
+          'id': block.id,
+          'taskId': block.taskId,
+          'startUtc': block.startUtc.microsecondsSinceEpoch,
+          'endUtc': block.endUtc.microsecondsSinceEpoch,
+          'locked': block.locked,
+        },
+    ],
     'rules': _rules(problem.rules),
     'preferences': {
       'enabled': problem.preferences.enabled,

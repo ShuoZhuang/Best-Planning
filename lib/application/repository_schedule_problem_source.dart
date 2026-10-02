@@ -106,6 +106,11 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         for (final block in confirmed?.blocks ?? const <PlannedBlock>[])
           if (block.locked && schedulableIds.contains(block.taskId)) block,
       ],
+      // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
+      existingBlocks: [
+        for (final block in confirmed?.blocks ?? const <PlannedBlock>[])
+          if (!block.locked && schedulableIds.contains(block.taskId)) block,
+      ],
       rules: resolvedRules,
       preferences: const PreferenceProfile(),
       inputHash: '',

@@ -55,6 +55,7 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       fixedIntervals: problem.fixedIntervals,
       protectedIntervals: problem.protectedIntervals,
       lockedBlocks: problem.lockedBlocks,
+      existingBlocks: problem.existingBlocks,
       rules: problem.rules,
       preferences: problem.preferences,
       inputHash: inputHash,

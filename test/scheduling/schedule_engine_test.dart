@@ -352,6 +352,65 @@ void main() {
     );
   });
 
+  test('移动成本生效：倾向复现已确认但未锁定的位置', () {
+    final day = DateTime.utc(2026, 10, 5);
+    // 已确认但未锁定的块放在较晚时段，使"复现它"与"按开始时间择优"给出不同答案。
+    final existing = PlannedBlock(
+      id: 'existing-block',
+      taskId: 'work',
+      range: TimeRange(
+        startUtc: day.add(const Duration(hours: 10)),
+        endUtc: day.add(const Duration(hours: 11)),
+      ),
+    );
+
+    ScheduleProblem build({required bool withExisting}) => ScheduleProblem(
+      planningWindow: TimeRange(
+        startUtc: day.add(const Duration(hours: 9)),
+        endUtc: day.add(const Duration(hours: 12)),
+      ),
+      timeZoneId: 'UTC',
+      tasks: const [
+        SchedulableTask(
+          id: 'work',
+          requiredMinutes: 60,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 60,
+          maxChunkMinutes: 60,
+          priority: TaskPriority.high,
+          energyLevel: TaskEnergyLevel.high,
+        ),
+      ],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      existingBlocks: withExisting ? [existing] : const [],
+      rules: PlanningRules(
+        energyWindows: const [],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'moving-cost-ab',
+    );
+
+    DateTime placement(ScheduleProblem problem) =>
+        engine.generate(problem).blocks.single.startUtc;
+
+    // 不提供已确认块时，两个候选同分，按开始时间决胜 → 最早位置。
+    expect(placement(build(withExisting: false)), day.add(const Duration(hours: 9)));
+    // 提供之后，占用已确认块的位置不计移动代价，因此原样复现 → 10:00。
+    expect(
+      placement(build(withExisting: true)),
+      day.add(const Duration(hours: 10)),
+      reason: '移动成本应使引擎复现已确认的位置而不是漂移到更早时段',
+    );
+  });
+
   test('PlanDiffer identifies added, moved and removed blocks', () {
     final day = DateTime.utc(2026, 10, 5);
     final current = [

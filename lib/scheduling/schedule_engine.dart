@@ -31,7 +31,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 版本 6 把"大于零但小于最小可排片段"的远期目标抬到可排的最小量，
   /// 使 §5.3 的均匀推进量不再落空。
   /// 版本 7 注入同任务连续性与类别切换成本两个因子（此前从未被引擎设置）。
-  static const String algorithmVersion = '7';
+  /// 版本 8 注入移动成本：`ScheduleProblem.existingBlocks`（已确认但未锁定的块）
+  /// 被占用时计一次移动代价。
+  static const String algorithmVersion = '8';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -340,6 +342,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           candidate,
           blocks,
         ),
+        movesExistingBlock: _movesExistingBlock(problem, task, candidate),
         hardConstraintsSatisfied:
             !_overlapsAny(candidate.range, blocks) &&
             (task.dueAtUtc == null ||
@@ -349,7 +352,6 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   }
 
   /// 同一任务在该候选所在本地日是否已有其它片段。
-  ///
   /// 设计 §9.4 的"同一任务片段的连续性"：把同一任务的片段聚合在同一天内，
   /// 比分散到多天更利于连续推进。注意本规则与片段间休息并不冲突——休息要求
   /// 片段之间留出间隔，连续性只要求它们落在同一天。
@@ -363,6 +365,35 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         block.taskId == task.id &&
         _localDate(block.startUtc, problem.timeZoneId) == candidate.localDate,
   );
+
+  /// 该候选是否会导致"已确认但未锁定"的时间块被迫移动。
+  ///
+  /// 设计 §5.4 的"移动已确认但未锁定的时间块 0 至 -700"：已确认的计划应尽量稳定。
+  /// 提案是按锁定块重新生成的，未锁定的已确认块不会自动延续，因此：
+  ///
+  /// - 候选与某次已确认块的位置**完全一致** → 那次确认得以原样保留，**不计**代价；
+  /// - 本任务已有确认块、而候选与任何一次都不完全一致 → 那些块要移动，计一次代价
+  ///   （部分重叠同样算移动：它并不是保留原安排，而是与它冲突）；
+  /// - 候选占用了**其它任务**已确认块的位置 → 那个块必须让位，同样计一次代价。
+  ///
+  /// 已锁定的块不出现在 `existingBlocks` 中：它们由硬约束冻结，候选落不上去。
+  bool _movesExistingBlock(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+  ) {
+    final existing = problem.existingBlocks;
+    if (existing.isEmpty) return false;
+    if (existing.any(
+      (block) =>
+          block.taskId != task.id && block.range.overlaps(candidate.range),
+    )) {
+      return true;
+    }
+    final own = existing.where((block) => block.taskId == task.id).toList();
+    if (own.isEmpty) return false;
+    return !own.any((block) => block.range == candidate.range);
+  }
 
   /// 候选在时间上紧邻的片段是否属于其它任务。
   ///
