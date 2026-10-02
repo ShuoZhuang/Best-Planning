@@ -529,7 +529,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | W2 | 今日页、周视图、调整预览为空桩 | **已解决**（提交 `7955037`）：今日页与周视图改为注入真实 `RepositoryScheduleViewSource`；预览页从内存提案构建真实的差异、冲突与缺口，确认时经 `PlanApplicationService` 落库并区分 applied/stale/invalid。拖动仍禁用属另一项缺口，见 R9 |
 | W3 | 已实现页面无路由：首次引导、统计、专注、偏好设置、数据管理、特殊日、任务详情 | **部分解决**（提交 `7955037`）：新增计划生成入口与真实预览路由；统计、专注、偏好设置、数据管理、特殊日与任务详情仍无路由 |
 | W4 | 首次引导门控为死代码，首启不会显示引导页 | **已解决**（提交 `7955037`）：按 onboarding schema 版本决定是否先显示引导页，删除两个死字段 |
-| W5 | 存储键与 operation 前缀两端约定不一致，功能恒为空 | 偏好：写 `planning.preferenceState.v1`（`preference_service.dart:64`）而读 `planning.learnedPreferences.v1`（`settings_service.dart:166-179`）；变更历史：写 `confirm`/`create`/`undo:`（`drift_plan_repository.dart:106,194,224`）而读 `interruption:`/`replan:`/`suggestion:`（`analytics_dao.dart:173-178`） |
+| W5 | 存储键与 operation 前缀两端约定不一致，功能恒为空 | **偏好一半已修复**（提交 `2878af3`）：写入端 `SettingsPreferenceStore` 与读取端 `SettingsService` 曾各用各的键，**且 JSON 结构也不同**（写入端把偏好包在 `profile` 字段下、精力区间是平铺的；读取端期望裸 profile 且精力区间嵌在 `range` 下）——只对齐键名会让静默失效变成 `_energyWindowFromJson` 崩溃。现偏好统一由 `SettingsService` 读写，`clearLearned` 也会删除排程读取的键；跨模块回归测试 `test/application/learned_preference_storage_test.dart` 固化该约定。**变更历史一半仍未解决，且性质不同于原先描述**：`drift_plan_repository` 写的是计划生命周期事件（`confirm`/`create`/`undo:`），而 `analytics_dao` 统计的是 `interruption:`/`replan:`/`suggestion:` 三类行为事件——问题不是两侧字符串不一致，而是**根本没有任何代码产生这三类事件**，因此这属于待实现的功能缺口（与 R8 同类），不是改字符串能解决的 |
 | W6 | 偏好证据无写入方；应用锁与通知点击入口无消费方 | `PreferenceEvidence` 在 `lib/` 中零构造；`AppLockService.verify` 无启动调用方；`windows_notification_adapter.dart:82-86` 未注册点击回调 |
 | W7 | 界面上不存在"生成计划"的入口 | `WeekViewPage` 仅在拖动后回报提案 ID，而拖动被禁用，因此排程提案在界面上完全无从触发。**已解决**（提交 `7955037`）：在外壳顶栏加入生成计划入口 |
 
