@@ -1,9 +1,9 @@
 import 'package:personal_planner/application/input_snapshot_builder.dart';
+import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
-import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -43,7 +43,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     required this.zones,
     this.days = 7,
     this.snapshots = const InputSnapshotBuilder(),
-  }) : protectedTimes = ProtectedTimeExpander(zones);
+  }) : protectedTimes = ProtectedTimeExpander(zones),
+       rules = PlanningRuleResolver(settings);
 
   final TaskRepository tasks;
   final CalendarRepository calendar;
@@ -55,6 +56,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   final int days;
   final InputSnapshotBuilder snapshots;
   final ProtectedTimeExpander protectedTimes;
+  final PlanningRuleResolver rules;
 
   @override
   Future<ScheduleProblem> load() async {
@@ -66,7 +68,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       timeZoneId,
     );
 
-    final rules = await _windowRules(startLocalDate);
+    final resolvedRules = await rules.resolveForWindow(startLocalDate);
     final openTasks = await tasks.watchOpenTasks().first;
     final occurrences = await calendar.occurrencesBetween(startUtc, endUtc);
     final confirmed = await plans.current();
@@ -95,7 +97,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           BusyInterval(id: occurrence.eventId, range: occurrence.range),
       ],
       protectedIntervals: protectedTimes.expand(
-        rules: rules,
+        rules: resolvedRules,
         startUtc: startUtc,
         endUtc: endUtc,
         timeZoneId: timeZoneId,
@@ -104,62 +106,14 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         for (final block in confirmed?.blocks ?? const <PlannedBlock>[])
           if (block.locked && schedulableIds.contains(block.taskId)) block,
       ],
-      rules: rules,
+      rules: resolvedRules,
       preferences: const PreferenceProfile(),
       inputHash: '',
     );
 
     return withCurrentInputHash(problem, snapshots);
   }
-
-  Future<PlanningRules> _windowRules(DateTime startLocalDate) async {
-    final startRules = (await settings.resolveForDate(startLocalDate)).rules;
-    final weekendDate = _nextWeekend(startLocalDate);
-    final weekendRules = (await settings.resolveForDate(weekendDate)).rules;
-
-    // resolveForDate 会按当天 DayKind 过滤精力区间与保护时间，因此分别解析
-    // 窗口首日与一个周末日，再取并集，让引擎能按当天类型自行筛选。
-    return startRules.copyWith(
-      energyWindows: _mergeDistinct(
-        startRules.energyWindows,
-        weekendRules.energyWindows,
-        (window) =>
-            '${window.dayKind.name}|${window.range.startMinute}|'
-            '${window.range.endMinute}|${window.level.name}',
-      ),
-      protectedTimes: _mergeDistinct(
-        startRules.protectedTimes,
-        weekendRules.protectedTimes,
-        (item) =>
-            '${item.dayKind.name}|${item.kind.name}|'
-            '${item.range.startMinute}|${item.range.endMinute}',
-      ),
-    );
-  }
 }
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
-
-DateTime _nextWeekend(DateTime localDate) {
-  if (localDate.weekday == DateTime.saturday ||
-      localDate.weekday == DateTime.sunday) {
-    return localDate;
-  }
-  return localDate.add(
-    Duration(days: (DateTime.saturday - localDate.weekday + 7) % 7),
-  );
-}
-
-List<T> _mergeDistinct<T>(
-  List<T> first,
-  List<T> second,
-  String Function(T item) key,
-) {
-  final seen = <String>{};
-  final merged = <T>[];
-  for (final item in [...first, ...second]) {
-    if (seen.add(key(item))) merged.add(item);
-  }
-  return merged;
-}

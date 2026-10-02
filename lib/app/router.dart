@@ -1,32 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
-import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
+import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
+import 'package:personal_planner/scheduling/explanations.dart';
+import 'package:personal_planner/scheduling/plan_differ.dart';
+import 'package:personal_planner/scheduling/schedule_problem.dart';
 
-const _emptyScheduleSource = EmptyScheduleViewSource();
-const _disabledMoveController = DisabledWeekMoveController();
-final _autoAdjustStore = MemoryAutoAdjustStore();
-
+/// 组装应用路由。
+///
+/// `planningService`、`planApplication` 与 `plans` 可为空：在不带数据库的测试
+/// 场景下（例如只构造 `PlannerApp()`），今日页与周视图仍可显示真实数据源给出的
+/// 内容，而"生成计划"入口会隐藏、调整预览会明确提示计划服务不可用，而不是
+/// 显示一个点了没反应的按钮。
 GoRouter createPlannerRouter({
   required TaskService taskService,
   required SettingsService settingsService,
+  required ScheduleViewSource scheduleSource,
+  required WeekMoveController moveController,
+  required AutoAdjustStore autoAdjustStore,
+  required DateTime todayStartUtc,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+  PlanningService? planningService,
+  PlanApplicationService? planApplication,
+  PlanRepository? plans,
 }) => GoRouter(
   initialLocation: '/today',
   routes: [
     ShellRoute(
-      builder: (context, state, child) =>
-          _PlannerShell(location: state.uri.path, child: child),
+      builder: (context, state, child) => _PlannerShell(
+        location: state.uri.path,
+        onGeneratePlan: planningService == null
+            ? null
+            : (shellContext) =>
+                  _generatePlan(shellContext, planningService),
+        child: child,
+      ),
       routes: [
         GoRoute(
           path: '/today',
           builder: (context, state) =>
-              TodayPage(source: _emptyScheduleSource, day: _todayUtc()),
+              TodayPage(source: scheduleSource, day: todayStartUtc),
         ),
         GoRoute(
           path: '/tasks',
@@ -35,9 +59,9 @@ GoRouter createPlannerRouter({
         GoRoute(
           path: '/calendar',
           builder: (context, state) => WeekViewPage(
-            source: _emptyScheduleSource,
-            weekStart: _todayUtc(),
-            moveController: _disabledMoveController,
+            source: scheduleSource,
+            weekStart: todayStartUtc,
+            moveController: moveController,
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
           ),
@@ -46,20 +70,19 @@ GoRouter createPlannerRouter({
           path: '/settings',
           builder: (context, state) => PlanningRulesPage(
             service: settingsService,
-            autoAdjustStore: _autoAdjustStore,
+            autoAdjustStore: autoAdjustStore,
           ),
         ),
         GoRoute(
           path: '/planning/preview/:proposalId',
-          builder: (context, state) => PlanPreviewPage(
-            model: PlanPreviewModel(
-              proposalId: state.pathParameters['proposalId']!,
-              changes: const [],
-              conflicts: const [],
-              isStale: true,
-            ),
-            autoAdjustStore: _autoAdjustStore,
-            onConfirm: () async {},
+          builder: (context, state) => _PlanPreviewLoader(
+            proposalId: state.pathParameters['proposalId']!,
+            planning: planningService,
+            application: planApplication,
+            plans: plans,
+            autoAdjustStore: autoAdjustStore,
+            zones: zones,
+            timeZoneId: timeZoneId,
           ),
         ),
       ],
@@ -67,11 +90,25 @@ GoRouter createPlannerRouter({
   ],
 );
 
+Future<void> _generatePlan(
+  BuildContext context,
+  PlanningService planning,
+) async {
+  final proposal = await planning.createProposal();
+  if (!context.mounted) return;
+  context.go('/planning/preview/${proposal.proposalId}');
+}
+
 final class _PlannerShell extends StatelessWidget {
-  const _PlannerShell({required this.location, required this.child});
+  const _PlannerShell({
+    required this.location,
+    required this.child,
+    this.onGeneratePlan,
+  });
 
   final String location;
   final Widget child;
+  final Future<void> Function(BuildContext context)? onGeneratePlan;
 
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
@@ -82,8 +119,20 @@ final class _PlannerShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final generate = onGeneratePlan;
     return Scaffold(
-      appBar: AppBar(title: const Text('智能日程')),
+      appBar: AppBar(
+        title: const Text('智能日程'),
+        actions: [
+          if (generate != null)
+            TextButton.icon(
+              onPressed: () => generate(context),
+              icon: const Icon(Icons.auto_awesome_outlined),
+              label: const Text('生成计划'),
+            ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: Row(
         children: [
           NavigationRail(
@@ -128,7 +177,138 @@ final class _PlannerShell extends StatelessWidget {
   }
 }
 
-DateTime _todayUtc() {
-  final now = DateTime.now().toUtc();
-  return DateTime.utc(now.year, now.month, now.day);
+/// 从内存中的提案构建真实的调整预览：与当前已确认计划做差异、带上冲突与缺口，
+/// 确认时调用 `PlanApplicationService` 真正落库。
+final class _PlanPreviewLoader extends StatefulWidget {
+  const _PlanPreviewLoader({
+    required this.proposalId,
+    required this.autoAdjustStore,
+    required this.zones,
+    required this.timeZoneId,
+    this.planning,
+    this.application,
+    this.plans,
+  });
+
+  final String proposalId;
+  final AutoAdjustStore autoAdjustStore;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
+  final PlanningService? planning;
+  final PlanApplicationService? application;
+  final PlanRepository? plans;
+
+  @override
+  State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
+}
+
+final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
+  late final Future<PlanPreviewModel> _model = _build();
+
+  Future<PlanPreviewModel> _build() async {
+    final planning = widget.planning;
+    if (planning == null) {
+      return PlanPreviewModel(
+        proposalId: widget.proposalId,
+        changes: const [],
+        conflicts: const ['当前未装配排程服务，无法生成或应用计划'],
+        isStale: true,
+      );
+    }
+    final proposal = planning.preview(widget.proposalId);
+    if (proposal == null) {
+      // 提案只保存在内存中；重启或重新生成后旧链接会失效。
+      return PlanPreviewModel(
+        proposalId: widget.proposalId,
+        changes: const [],
+        conflicts: const ['该调整提案已失效，请重新生成计划'],
+        isStale: true,
+      );
+    }
+
+    final current = await widget.plans?.current();
+    final diff = const PlanDiffer().diff(
+      current?.blocks ?? const <PlannedBlock>[],
+      proposal.blocks,
+    );
+
+    return PlanPreviewModel(
+      proposalId: widget.proposalId,
+      changes: [
+        for (final change in diff.changes)
+          PreviewChange(
+            kind: _kindOf(change),
+            title: _titleOf(widget.zones, widget.timeZoneId, change),
+            reason: explanationLabel(
+              change.after?.explanationCode ??
+                  change.before?.explanationCode ??
+                  '',
+            ),
+          ),
+      ],
+      conflicts: [
+        for (final conflict in proposal.conflicts) conflictLabel(conflict.code),
+        for (final task in proposal.unscheduled)
+          '「${task.taskId}」还缺 ${task.shortageMinutes} 分钟',
+      ],
+      isStale: false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PlanPreviewModel>(
+    future: _model,
+    builder: (context, snapshot) {
+      final model = snapshot.data;
+      if (model == null) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return PlanPreviewPage(
+        model: model,
+        autoAdjustStore: widget.autoAdjustStore,
+        onConfirm: () => _confirm(context, model),
+      );
+    },
+  );
+
+  Future<void> _confirm(BuildContext context, PlanPreviewModel model) async {
+    final proposal = widget.planning?.preview(widget.proposalId);
+    final application = widget.application;
+    if (proposal == null || application == null) return;
+
+    final result = await application.apply(proposal);
+    if (!context.mounted) return;
+
+    final message = switch (result.status) {
+      ApplyPlanStatus.applied => '计划已更新',
+      ApplyPlanStatus.staleProposal => '输入已变化，计划已过期，请重新生成',
+      ApplyPlanStatus.invalidProposal => '计划未通过校验，未应用',
+    };
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+    if (result.status == ApplyPlanStatus.applied) {
+      context.go('/calendar');
+    }
+  }
+}
+
+PreviewChangeKind _kindOf(PlanChange change) => switch (change.type) {
+  PlanChangeType.added => PreviewChangeKind.added,
+  PlanChangeType.moved => PreviewChangeKind.moved,
+  PlanChangeType.removed => PreviewChangeKind.removed,
+};
+
+String _titleOf(
+  TimeZoneDatabase zones,
+  String timeZoneId,
+  PlanChange change,
+) {
+  final block = change.after ?? change.before;
+  if (block == null) return change.blockId;
+  final start = zones.toLocal(block.startUtc, timeZoneId);
+  final end = zones.toLocal(block.endUtc, timeZoneId);
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${block.taskId}  ${two(start.month)}-${two(start.day)} '
+      '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
