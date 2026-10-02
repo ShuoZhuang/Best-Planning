@@ -57,6 +57,7 @@ dependencies:
   archive: ^4.3.0
   cryptography: ^2.9.0
   sqlite3: ^3.7.0
+  fl_chart: ^1.2.0
 
 dev_dependencies:
   flutter_test:
