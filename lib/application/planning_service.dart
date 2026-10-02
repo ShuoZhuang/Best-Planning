@@ -10,7 +10,11 @@ abstract interface class ScheduleProblemSource {
   Future<ScheduleProblem> load();
 }
 
-final class PlanningService {
+abstract interface class ProposalCreator {
+  Future<ScheduleProposal> createProposal();
+}
+
+final class PlanningService implements ProposalCreator {
   PlanningService({
     required this.source,
     required this.engine,
@@ -22,6 +26,7 @@ final class PlanningService {
   final InputSnapshotBuilder snapshots;
   final Map<String, ScheduleProposal> _previews = {};
 
+  @override
   Future<ScheduleProposal> createProposal() async {
     final rawProblem = await source.load();
     final inputHash = snapshots.hash(InputSnapshot(problem: rawProblem));

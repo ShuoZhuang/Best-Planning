@@ -1,0 +1,242 @@
+import 'package:flutter/material.dart';
+import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
+
+final class SpecialDayPage extends StatefulWidget {
+  const SpecialDayPage({
+    required this.recoveryDate,
+    required this.rules,
+    required this.fixedEvents,
+    required this.onCreateOverride,
+    this.timeZoneId = 'Asia/Shanghai',
+    super.key,
+  });
+
+  final DateTime recoveryDate;
+  final PlanningRules rules;
+  final List<CalendarOccurrence> fixedEvents;
+  final String timeZoneId;
+  final Future<RecoveryPlan> Function(SpecialDayDraft draft) onCreateOverride;
+
+  @override
+  State<SpecialDayPage> createState() => _SpecialDayPageState();
+}
+
+final class _SpecialDayPageState extends State<SpecialDayPage> {
+  final _endTime = TextEditingController(text: '01:00');
+  final _acceptedSleep = TextEditingController(text: '360');
+  RecoveryResolution _resolution = RecoveryResolution.scheduleRecoverySleep;
+  RecoveryPlan? _result;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _endTime.dispose();
+    _acceptedSleep.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final endMinute = _parseTime(_endTime.text);
+    final accepted = int.tryParse(_acceptedSleep.text.trim());
+    if (endMinute == null ||
+        (_resolution == RecoveryResolution.acceptShorterSleep &&
+            (accepted == null || accepted <= 0))) {
+      setState(() => _error = '请填写有效的结束时间和睡眠时长');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final endUtc = TimeZoneDatabase().localDateTimeToUtc(
+        widget.recoveryDate,
+        endMinute,
+        widget.timeZoneId,
+      );
+      final result = await widget.onCreateOverride(
+        SpecialDayDraft(
+          recoveryDate: widget.recoveryDate,
+          actualEndUtc: endUtc,
+          timeZoneId: widget.timeZoneId,
+          rules: widget.rules,
+          fixedEvents: widget.fixedEvents,
+          resolution: _resolution,
+          acceptedSleepMinutes:
+              _resolution == RecoveryResolution.acceptShorterSleep
+              ? accepted
+              : null,
+        ),
+      );
+      if (mounted) setState(() => _result = result);
+    } catch (error) {
+      if (mounted) setState(() => _error = '无法生成恢复方案，请检查输入');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('特殊日与恢复保护')),
+    body: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '晚归或加班后，程序会先保护恢复时间，再重新计算次日任务。',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: 220,
+            child: TextField(
+              key: const Key('actual-end-time'),
+              controller: _endTime,
+              decoration: const InputDecoration(
+                labelText: '实际结束时间',
+                hintText: 'HH:mm',
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          for (final option in _options)
+            _ResolutionCard(
+              option: option,
+              selected: _resolution == option.value,
+              onTap: () => setState(() => _resolution = option.value),
+            ),
+          if (_resolution == RecoveryResolution.acceptShorterSleep)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 16),
+              child: TextField(
+                key: const Key('accepted-sleep-minutes'),
+                controller: _acceptedSleep,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '本次接受的睡眠时长（分钟）',
+                  helperText: '仅影响本次恢复，不会修改长期作息。',
+                ),
+              ),
+            ),
+          if (_error != null)
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _saving ? null : _submit,
+            icon: const Icon(Icons.bedtime_outlined),
+            label: const Text('生成恢复方案'),
+          ),
+          if (_result != null) ...[
+            const SizedBox(height: 20),
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.shield_outlined),
+                title: Text('恢复保护已加入当日例外'),
+                subtitle: Text('常规睡眠和学习偏好未被修改。'),
+              ),
+            ),
+            for (final conflict in _result!.conflicts)
+              if (conflict.code == ConflictCode.minimumSleepConflict)
+                Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.warning_amber),
+                    title: Text('最低睡眠与不可移动${_conflictTitle(conflict)}冲突'),
+                  ),
+                ),
+            for (final event in _result!.fixedEventsToKeep)
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: Text('已保留：${event.title}'),
+              ),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  String _conflictTitle(PlanningConflict conflict) {
+    final explicit = conflict.details['title'];
+    if (explicit is String && explicit.isNotEmpty) return explicit;
+    for (final event in _result!.fixedEventsToKeep) {
+      if (conflict.relatedEntityIds.contains(event.eventId)) return event.title;
+    }
+    return '日程';
+  }
+}
+
+final class _ResolutionOption {
+  const _ResolutionOption(this.value, this.title, this.impact);
+  final RecoveryResolution value;
+  final String title;
+  final String impact;
+}
+
+const _options = [
+  _ResolutionOption(
+    RecoveryResolution.rescheduleMovableTasks,
+    '重新安排可移动任务',
+    '保留固定日程和睡眠，重算后续任务与截止风险。',
+  ),
+  _ResolutionOption(
+    RecoveryResolution.cancelMovableTasks,
+    '取消次日可移动任务',
+    '释放次日任务时间，但可能增加之后的截止压力。',
+  ),
+  _ResolutionOption(
+    RecoveryResolution.scheduleRecoverySleep,
+    '安排补觉',
+    '按常规最低睡眠时长保护恢复窗口。',
+  ),
+  _ResolutionOption(
+    RecoveryResolution.acceptShorterSleep,
+    '单次接受较短睡眠',
+    '需要明确填写时长；不会修改长期作息。',
+  ),
+];
+
+final class _ResolutionCard extends StatelessWidget {
+  const _ResolutionCard({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _ResolutionOption option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: selected
+        ? Theme.of(context).colorScheme.primaryContainer
+        : Theme.of(context).colorScheme.surfaceContainerLow,
+    child: ListTile(
+      onTap: onTap,
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+      ),
+      title: Text(option.title),
+      subtitle: Text(option.impact),
+    ),
+  );
+}
+
+int? _parseTime(String input) {
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(input.trim());
+  if (match == null) return null;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
