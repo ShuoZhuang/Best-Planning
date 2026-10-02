@@ -5,16 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/domain/models/feedback_message.dart';
+import 'package:personal_planner/features/analytics/feedback_cards.dart';
 
 final class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({
     required this.analytics,
     required this.nowUtc,
+    this.feedbackMessages = const [],
     super.key,
   });
 
   final AnalyticsQuery analytics;
   final DateTime nowUtc;
+  final List<FeedbackMessage> feedbackMessages;
 
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
@@ -157,6 +161,13 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                 if (_report case final report?) ...[
                   const SizedBox(height: 22),
                   _Overview(report: report),
+                  if (widget.feedbackMessages.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    FeedbackCards(
+                      messages: widget.feedbackMessages,
+                      filter: report.filter,
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   _ChartGrid(report: report),
                   const SizedBox(height: 20),
