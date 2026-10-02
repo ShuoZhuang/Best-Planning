@@ -46,7 +46,7 @@ dart run build_runner build --delete-conflicting-outputs
 flutter analyze
 flutter test
 
-# 3. 端到端流程（待补：integration_test 尚未编写）
+# 3. 端到端流程（已编写，尚未在 Windows 上执行）
 flutter test integration_test -d windows
 
 # 4. release 产物
@@ -70,8 +70,8 @@ dart run msix:create
 
 | 阻塞 | 说明 |
 | --- | --- |
-| MSIX 依赖与配置缺失 | `pubspec.yaml` 尚无 `msix` 依赖，包标识与发布者未定 |
-| 端到端测试缺失 | `integration_test/` 不存在，`pubspec.yaml` 亦无 `integration_test` 依赖 |
+| MSIX 依赖与配置缺失 | `pubspec.yaml` 尚无 `msix` 依赖，包标识与发布者未定。建议用 `flutter pub add --dev msix` 由 pub 选择与当前 SDK 兼容的版本，而不是手工写死版本号 |
+| 端到端测试尚未执行 | `integration_test/` 下已有三条流程（首个七日计划、临时晚归后重排、备份与恢复），`pubspec.yaml` 已加入 SDK 自带的 `integration_test` 依赖，但从未在 Windows 设备上运行过 |
 | 手工清单尚未执行 | 需求规格第 18 节的 19 项验收全部未勾选 |
 | 部分功能在界面上不可达 | 统计、专注、偏好设置、数据管理与特殊日页面尚无路由；应用锁不拦截启动；手动移动被禁用。详见技术设计文档 §13.0 |
 
