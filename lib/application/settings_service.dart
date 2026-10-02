@@ -27,6 +27,7 @@ final class NotificationPreferences {
     this.deadlineEnabled = true,
     this.deadlineLeadMinutes = 24 * 60,
     this.conflictEnabled = true,
+    this.conflictLeadMinutes = 30,
     LocalTimeRange? quietHours,
   }) : quietHours =
            quietHours ??
@@ -39,6 +40,12 @@ final class NotificationPreferences {
   final bool deadlineEnabled;
   final int deadlineLeadMinutes;
   final bool conflictEnabled;
+
+  /// 冲突待处理通知的提前时间。
+  ///
+  /// 需求 FR-NOTIFY-02 要求**每一种通知类型**都能单独设置提前时间，而冲突类型此前
+  /// 只有开关没有提前时间。冲突本身不绑定具体时刻，因此提前时间是相对"现在"计算。
+  final int conflictLeadMinutes;
   final LocalTimeRange quietHours;
 }
 
@@ -190,6 +197,7 @@ final class SettingsService {
       deadlineEnabled: value['deadlineEnabled'] as bool,
       deadlineLeadMinutes: value['deadlineLeadMinutes'] as int,
       conflictEnabled: value['conflictEnabled'] as bool,
+      conflictLeadMinutes: value['conflictLeadMinutes'] as int? ?? 30,
       quietHours: _rangeFromJson(value['quietHours']),
     );
   }
@@ -201,6 +209,7 @@ final class SettingsService {
       preferences.taskStartLeadMinutes,
       preferences.calendarStartLeadMinutes,
       preferences.deadlineLeadMinutes,
+      preferences.conflictLeadMinutes,
     ];
     if (leadTimes.any((value) => value < 0)) {
       throw const SettingsValidationException({
@@ -217,6 +226,7 @@ final class SettingsService {
         'deadlineEnabled': preferences.deadlineEnabled,
         'deadlineLeadMinutes': preferences.deadlineLeadMinutes,
         'conflictEnabled': preferences.conflictEnabled,
+        'conflictLeadMinutes': preferences.conflictLeadMinutes,
         'quietHours': _rangeToJson(preferences.quietHours),
       }),
     );
