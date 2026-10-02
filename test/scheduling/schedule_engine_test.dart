@@ -288,6 +288,70 @@ void main() {
     expect(near.metrics.scheduledMinutes, 120);
   });
 
+  test('类别切换成本生效：避开与其它任务相邻的位置', () {
+    final day = DateTime.utc(2026, 10, 5);
+    final problem = ScheduleProblem(
+      // 跨越两天：第二天存在"同一本地日内没有相邻任务"的位置。
+      planningWindow: TimeRange(
+        startUtc: day.add(const Duration(hours: 9)),
+        endUtc: day.add(const Duration(days: 1, hours: 18)),
+      ),
+      timeZoneId: 'UTC',
+      tasks: const [
+        SchedulableTask(
+          id: 'work',
+          requiredMinutes: 60,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 60,
+          maxChunkMinutes: 60,
+          priority: TaskPriority.high,
+          energyLevel: TaskEnergyLevel.high,
+        ),
+      ],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      // 另一任务的已锁定块，使第一天的候选都与"其它任务"相邻。
+      lockedBlocks: [
+        PlannedBlock(
+          id: 'locked-other',
+          taskId: 'other',
+          range: TimeRange(
+            startUtc: day.add(const Duration(hours: 11)),
+            endUtc: day.add(const Duration(hours: 12)),
+          ),
+          locked: true,
+        ),
+      ],
+      rules: PlanningRules(
+        // 精力区间为空，使两个候选的精力匹配没有差别。
+        energyWindows: const [],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'switch-cost-discriminator',
+    );
+
+    final work = engine
+        .generate(problem)
+        .blocks
+        .where((block) => block.taskId == 'work')
+        .toList();
+
+    // 两个候选的覆盖度与精力匹配完全相同，只有切换成本能区分它们；
+    // 若该因子未生效，会按开始时间决胜而落在第一天。
+    expect(work, hasLength(1));
+    expect(
+      work.single.startUtc.isBefore(day.add(const Duration(days: 1))),
+      isFalse,
+      reason: '应避开与其它任务相邻的第一天',
+    );
+  });
+
   test('PlanDiffer identifies added, moved and removed blocks', () {
     final day = DateTime.utc(2026, 10, 5);
     final current = [

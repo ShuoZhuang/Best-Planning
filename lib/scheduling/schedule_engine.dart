@@ -30,7 +30,8 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 覆盖度退为同分时的次级依据。
   /// 版本 6 把"大于零但小于最小可排片段"的远期目标抬到可排的最小量，
   /// 使 §5.3 的均匀推进量不再落空。
-  static const String algorithmVersion = '6';
+  /// 版本 7 注入同任务连续性与类别切换成本两个因子（此前从未被引擎设置）。
+  static const String algorithmVersion = '7';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -327,12 +328,70 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         lifeQuotaTargetMinutes: problem.rules.weeklyLifeQuotaMinutes,
         plannedLifeMinutes: plannedLifeMinutes,
         fragmentationPenaltyPermille: _fragmentation(task, candidate),
+        sameTaskAdjacent: _sameTaskOnSameDay(
+          problem,
+          task,
+          candidate,
+          blocks,
+        ),
+        categorySwitch: _neighboursAnotherTask(
+          problem,
+          task,
+          candidate,
+          blocks,
+        ),
         hardConstraintsSatisfied:
             !_overlapsAny(candidate.range, blocks) &&
             (task.dueAtUtc == null ||
                 !candidate.endUtc.isAfter(task.dueAtUtc!)),
       ),
     );
+  }
+
+  /// 同一任务在该候选所在本地日是否已有其它片段。
+  ///
+  /// 设计 §9.4 的"同一任务片段的连续性"：把同一任务的片段聚合在同一天内，
+  /// 比分散到多天更利于连续推进。注意本规则与片段间休息并不冲突——休息要求
+  /// 片段之间留出间隔，连续性只要求它们落在同一天。
+  bool _sameTaskOnSameDay(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks,
+  ) => blocks.any(
+    (block) =>
+        block.taskId == task.id &&
+        _localDate(block.startUtc, problem.timeZoneId) == candidate.localDate,
+  );
+
+  /// 候选在时间上紧邻的片段是否属于其它任务。
+  ///
+  /// 设计 §9.4 的"相邻任务的类别切换成本"：取候选之前最近的片段与之后最近的
+  /// 片段作为相邻活动，任一属于其它任务且落在同一本地日内即计一次切换。
+  /// 不引入额外的时间阈值——"相邻"即"中间没有其它片段的那个"。
+  bool _neighboursAnotherTask(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks,
+  ) {
+    PlannedBlock? predecessor;
+    PlannedBlock? successor;
+    for (final block in blocks) {
+      if (block.endUtc.isAfter(candidate.startUtc)) {
+        if (successor == null || block.startUtc.isBefore(successor.startUtc)) {
+          successor = block;
+        }
+      } else if (predecessor == null ||
+          block.endUtc.isAfter(predecessor.endUtc)) {
+        predecessor = block;
+      }
+    }
+    bool switchesFrom(PlannedBlock? block) =>
+        block != null &&
+        block.taskId != task.id &&
+        _localDate(block.startUtc, problem.timeZoneId) == candidate.localDate;
+    return switchesFrom(predecessor) || switchesFrom(successor);
   }
 
   int _fragmentation(SchedulableTask task, SchedulingCandidate candidate) {
