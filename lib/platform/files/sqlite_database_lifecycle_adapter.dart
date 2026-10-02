@@ -19,7 +19,41 @@ final class SqliteDatabaseLifecycleAdapter implements DatabaseLifecyclePort {
 
   @override
   Future<void> createConsistentSnapshot(String destination) =>
-      _exclusive(() => File(databasePath).copy(destination).then<void>((_) {}));
+      _exclusive(() async {
+        await _checkpointWriteAheadLog();
+        await File(databasePath).copy(destination);
+      });
+
+  /// 备份前把 WAL 中已提交的内容显式并回主库（技术设计 §11.1）。
+  ///
+  /// 关闭最后一个连接时 SQLite 通常会自动 checkpoint 并删除 `-wal`，但该行为
+  /// 只在"确实是最后一个连接且 checkpoint 成功"时成立。若其他连接仍然打开，
+  /// `-wal` 会连同未并回的已提交数据一起保留，此时直接复制主库会得到一份
+  /// **结构完整但内容过期**的快照：manifest 长度、SHA-256 与
+  /// `PRAGMA integrity_check` 全部通过，丢失的数据无法被察觉。
+  ///
+  /// 因此这里显式执行 FULL checkpoint，并以 `busy` 判断其是否真正完成；
+  /// 未完成时让备份失败，而不是静默产出过期快照。
+  ///
+  /// 这里刻意不要求 `-wal` 为空：FULL checkpoint 保证所有已提交帧都已写入主库，
+  /// 但不截断 WAL；只有 TRUNCATE 模式才会清空文件，而它在其他连接仅处于打开
+  /// 状态时就可能返回 busy，从而让正常备份失败。快照只复制主库文件，因此
+  /// "帧已并回主库"才是正确的判据。
+  Future<void> _checkpointWriteAheadLog() async {
+    final wal = File('$databasePath-wal');
+    if (!await wal.exists()) return;
+    final database = sqlite3.open(databasePath);
+    var busy = 0;
+    try {
+      final rows = database.select('PRAGMA wal_checkpoint(FULL)');
+      if (rows.isNotEmpty) busy = rows.first['busy'] as int? ?? 0;
+    } finally {
+      database.close();
+    }
+    if (busy != 0) {
+      throw const BackupValidationException('walNotCheckpointed');
+    }
+  }
 
   @override
   Future<DatabaseInspection> inspect(String candidate) async {
