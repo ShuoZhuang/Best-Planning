@@ -140,6 +140,45 @@ void main() {
     );
   });
 
+  test('已锁定块不计入每日可移动任务上限', () {
+    const task = SchedulableTask(
+      id: 'task-1',
+      requiredMinutes: 480,
+      splitMode: TaskSplitMode.splittable,
+      minChunkMinutes: 25,
+      maxChunkMinutes: 480,
+    );
+    final locked = PlannedBlock(
+      id: 'locked-1',
+      taskId: 'task-1',
+      range: at(0, 6),
+      locked: true,
+    );
+
+    // 锁定 360 分钟 + 新排 120 分钟：可移动部分未超过 180 分钟上限。
+    // 锁定块必须被排除，否则同一段时长被重复计算并产生虚假冲突。
+    expect(
+      validator
+          .validate(problem(tasks: [task], locked: [locked], dailyLimit: 180), [
+            locked,
+            PlannedBlock(id: 'movable-1', taskId: 'task-1', range: at(8, 10)),
+          ])
+          .map((conflict) => conflict.code),
+      isNot(contains(ConflictCode.dailyLimitExceeded)),
+    );
+
+    // 可移动部分自身超过上限时仍必须报告。
+    expect(
+      validator
+          .validate(problem(tasks: [task], locked: [locked], dailyLimit: 180), [
+            locked,
+            PlannedBlock(id: 'movable-2', taskId: 'task-1', range: at(8, 12)),
+          ])
+          .map((conflict) => conflict.code),
+      contains(ConflictCode.dailyLimitExceeded),
+    );
+  });
+
   test('排程问题复制输入列表而不是保留可变引用', () {
     final tasks = <SchedulableTask>[];
     final value = problem(tasks: tasks);

@@ -156,8 +156,15 @@ final class PlanValidator {
       }
     }
 
+    // 每日上限约束的是"可移动任务"时长：规则字段名为
+    // dailyMovableTaskLimitMinutes，需求规格 8.4.1 也表述为"每日可移动任务上限，
+    // 不含固定课程与会议"。已锁定块由用户固定、引擎不得移动，属于不可移动时长，
+    // 因此不计入本上限。AvailabilityBuilder 同样先把锁定块从可用时间中扣除，
+    // 再把当日预算花在剩余空闲上；若此处再把锁定块计入，同一段时长会被计算两次，
+    // 产生虚假的 dailyLimitExceeded，并使 PlanApplicationService 把合法提案判为 invalid。
     final minutesByLocalDate = <String, int>{};
     for (final block in blocks) {
+      if (block.locked) continue;
       final local = _zones.toLocal(block.startUtc, problem.timeZoneId);
       final key = '${local.year}-${local.month}-${local.day}';
       minutesByLocalDate.update(
