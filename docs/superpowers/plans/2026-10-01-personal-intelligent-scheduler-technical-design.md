@@ -102,8 +102,7 @@ personal_planner/
 │   ├── main.dart
 │   ├── app/
 │   │   ├── planner_app.dart
-│   │   ├── router.dart
-│   │   └── providers.dart
+│   │   └── router.dart
 │   ├── core/
 │   │   ├── clock.dart
 │   │   ├── ids.dart
@@ -128,8 +127,7 @@ personal_planner/
 │   │   ├── database/
 │   │   │   ├── app_database.dart
 │   │   │   ├── tables/
-│   │   │   ├── daos/
-│   │   │   └── migrations/
+│   │   │   └── daos/
 │   │   └── repositories/
 │   ├── application/
 │   │   ├── planning_service.dart
@@ -162,6 +160,12 @@ personal_planner/
 ├── drift_schemas/
 └── windows/
 ```
+
+目录结构说明：
+
+- `lib/app/providers.dart` 从未创建：Riverpod 状态目前由各页面自行组织，依赖注入集中在 `main.dart` 与 `PlannerApp` 构造参数，本计划不再要求该文件。若后续需要集中 provider 定义，应作为独立任务引入。
+- `lib/data/database/migrations/` 尚未创建：当前 schemaVersion 为 1，只有 `onCreate`，无迁移代码。首次提升 schemaVersion 时必须创建该目录、导出 schema 快照并补充迁移测试（见 §4.2 与 Task 3）。
+- `integration_test/` 属于 Task 20 交付物，当前不存在。
 
 ## 3. 核心领域接口
 
@@ -275,7 +279,11 @@ final class ScheduleProposal {
 }
 ```
 
-`ScheduleEngine.generate` 是纯函数：不读数据库、不调用当前时间、不产生随机结果。当前时间和 ID 在应用层注入，候选排序的最终平局依次使用开始时间、任务 ID 和候选 ID，保证可复现。
+`ScheduleEngine.generate` 是纯函数：不读数据库、不调用当前时间、不产生随机结果。当前时间和 ID 在应用层注入。
+
+候选排序的完整顺序（与 `schedule_engine.dart` 的 `_compareRankedCandidates` 一致）：`coverageMinutes` 降序 → 软约束总分降序 → `startUtc` 升序 → `taskId` → 候选 ID。最后三项构成最终平局键，保证相同输入产生相同输出。
+
+> **已知偏差（待确认）**：本节原先只声明了最后三项平局键，遗漏了前两个实质排序键。更值得注意的是 `coverageMinutes`（候选覆盖任务目标时长的比例）当前排在软约束总分之前，而 5.2 第 7 步写的是"选择**最高分**且不破坏硬约束的候选"。两者存在意图冲突：引擎实际优先"一次吃掉更多目标时长"，而非优先最高分位置。该冲突已登记在 §13.0，修正排序会改变排程输出与 golden 快照，需先确认设计意图。
 
 ### 5.2 处理管线
 
@@ -326,8 +334,11 @@ enum ConflictCode {
   insufficientCapacity,
   fixedEventOverlap,
   protectedTimeOverlap,
+  lockedBlockMoved,
+  blockOverlap,
   continuousBlockUnavailable,
   dailyLimitExceeded,
+  scheduledDurationExceeded,
   minimumSleepConflict,
   staleProposal,
   invalidInput,
@@ -460,18 +471,20 @@ backup.zip
 主要路由：
 
 ```text
-/onboarding
-/today
-/tasks
-/tasks/:id
-/calendar
-/planning/preview/:proposalId
-/focus/:taskId
-/analytics
-/settings
-/settings/preferences
-/settings/data
+/onboarding              未接线：页面已存在，但未加入路由表，首启门控未生效
+/today                   已实现，但注入 EmptyScheduleViewSource，恒显示空日程
+/tasks                   已接线（真实 TaskService + Drift 仓储）
+/tasks/:id               未实现（无任务详情路由）
+/calendar                已实现，但注入 EmptyScheduleViewSource 与 DisabledWeekMoveController
+/planning/preview/:proposalId  已实现，但硬编码空 changes/conflicts、isStale=true、onConfirm 为空
+/focus/:taskId           未接线（页面已存在，无路由）
+/analytics               未接线（页面已存在，无路由）
+/settings                已接线（PlanningRulesPage）
+/settings/preferences    未接线（页面已存在，无路由）
+/settings/data           未接线（页面已存在，无路由）
 ```
+
+`/today`、`/calendar`、`/planning/preview/:proposalId` 的空桩状态是当前产品不可用的直接原因，已登记在 §13.0，属于接线任务（见 §13.0 的 W1–W5）。
 
 ## 13. 分阶段实施
 
@@ -482,6 +495,84 @@ backup.zip
 3. **洞察个性化版**：Task 17–20。交付统计、正向反馈、偏好学习、完整验收和 Windows 发布包。
 
 每个增量都必须能独立运行和测试；不得等到第三阶段才验证排程正确性或数据恢复。Task 10A 属于基础排程版。
+
+### 13.0 实施状态与偏差登记（2026-10-02 复核）
+
+#### 13.0.1 实施状态
+
+| 范围 | 状态 | 证据 |
+| --- | --- | --- |
+| Task 1–19 | 已完成并提交 | 提交 `8b2838e..e15d243`；逐任务测试日志见 `.superpowers/sdd/2026-10-01-personal-intelligent-scheduler-technical-design/task-N-tests.log` |
+| Task 10A | 已完成并提交 | 提交 `05ac22a` |
+| Task 20 | **未完成** | 仅有任务说明；首次引导页与冒烟测试改动处于未提交状态，`integration_test/`、MSIX 配置、`docs/testing/`、`docs/release/` 均不存在 |
+
+Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该任务自身步骤已执行且其测试通过，**不代表产品整体可用**。
+
+#### 13.0.2 关键结论：任务级完成 ≠ 产品可用
+
+复核发现生产装配层缺失：`DeterministicScheduleEngine`、`RecurrenceExpander`、`PlanningService`、`PlanApplicationService`、`RecoveryPlanningService`、`FocusService` 在 `lib/` 中从未被实例化（仅测试构造），且 `router.dart` 的今日页与周视图注入恒空数据源。因此 §17 原先声称的"已覆盖"并不能在运行期兑现。以下偏差按类别登记，编号供后续任务引用。
+
+#### 13.0.3 接线缺失
+
+| 编号 | 偏差 | 证据 |
+| --- | --- | --- |
+| W1 | 排程引擎与全部应用服务未在应用中构造；无生产用 `ScheduleProblemSource` | `lib/scheduling/schedule_engine.dart:19` 仅在 test 中实例化；`lib/app/planner_app.dart:42-50` 只装配任务与设置仓储 |
+| W2 | 今日页、周视图、调整预览为空桩 | `lib/app/router.dart:12-13,29,38,55-62` 使用 `EmptyScheduleViewSource`、`DisabledWeekMoveController`、`isStale:true`、空 `changes`/`conflicts`、空 `onConfirm` |
+| W3 | 已实现页面无路由：首次引导、统计、专注、偏好设置、数据管理、特殊日、任务详情 | `lib/app/router.dart:21-65` 仅 5 条路由 |
+| W4 | 首次引导门控为死代码，首启不会显示引导页 | `lib/app/planner_app.dart:29-30,38-40` 读入 `_onboardingVersion`/`_onboardingCompleted` 后未使用；`build()` 直接渲染路由器 |
+| W5 | 存储键与 operation 前缀两端约定不一致，功能恒为空 | 偏好：写 `planning.preferenceState.v1`（`preference_service.dart:64`）而读 `planning.learnedPreferences.v1`（`settings_service.dart:166-179`）；变更历史：写 `confirm`/`create`/`undo:`（`drift_plan_repository.dart:106,194,224`）而读 `interruption:`/`replan:`/`suggestion:`（`analytics_dao.dart:173-178`） |
+| W6 | 偏好证据无写入方；应用锁与通知点击入口无消费方 | `PreferenceEvidence` 在 `lib/` 中零构造；`AppLockService.verify` 无启动调用方；`windows_notification_adapter.dart:82-86` 未注册点击回调 |
+
+#### 13.0.4 正确性缺陷
+
+| 编号 | 缺陷 | 影响 |
+| --- | --- | --- |
+| C1 | `breakMinutes`（片段间休息）在 `lib/scheduling/` 中从未使用 | 拆分任务的两段专注可首尾相接，违反 FR-SCHED-05 与产品原则 4.1 |
+| C2 | `deadlineRisk` 只取 0/1000 两档 | §5.4 承诺的 0 至 +3000 梯度未兑现，权重最高的因子退化为布尔开关 |
+| C3 | 已锁定块被同时计入每日可移动上限 | `plan_validator.dart:159-182` 与 `availability_builder.dart:44-54` 重复扣除，产生假 `dailyLimitExceeded`，并让 `PlanApplicationService` 误判提案 invalid |
+| C4 | 备份缺少 WAL checkpoint 一致性快照 | `sqlite_database_lifecycle_adapter.dart:21-22` 以关库后整文件复制代替 §11.1 要求；已提交事务可能未落入备份，而哈希与 integrity check 仍会通过 |
+| C5 | 候选排序首键为 `coverageMinutes`，先于软约束总分 | 与 §5.2 第 7 步"选择最高分候选"冲突，见 §5.1 偏差说明；修正会改变排程输出与 golden 快照，需先确认意图 |
+| C6 | 远截止压力未达标的任务被跳过全部候选 | `schedule_engine.dart:83` + `candidate_generator.dart:75-79`，连续任务可能永远排不进 |
+| C7 | `_scoreCandidate(...).totalScore!` 强解包未检查 `isEligible` | `schedule_engine.dart:428-434`，锁定块越出规划窗口或晚于截止时可抛 null 断言 |
+| C8 | 恢复流程先落库日期例外、再生成提案 | `recovery_planning_service.dart:124-138`，违反 §6"提案应用前不替换当前计划" |
+
+#### 13.0.5 需求覆盖缺口
+
+| 编号 | 需求 | 现状 |
+| --- | --- | --- |
+| R1 | FR-TASK-02 自定义标签、FR-STAT-02 按标签筛选 | 数据库无 tags 表/列，本技术方案也从未设计标签；`AnalyticsFilter.tags` 永不填充 |
+| R2 | FR-TASK-02 项目、FR-STAT-02 按项目/领域筛选 | `projects`/`areas` 表已建但无任何创建入口，`task.projectId` 恒为空，领域统计退化为"未分类" |
+| R3 | FR-CAL-03 日视图 | 未实现；本方案亦未列出该任务 |
+| R4 | FR-CAL-02 按周重复、单次/系列编辑、删除 | `recurrence_rules` 无写入方，`RecurrenceExpander` 仅测试引用，`occurrencesBetween` 不展开重复，`editScope` 被表单采集后丢弃，仓储无 delete |
+| R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | 模型层无该字段，`preferredTimeScore` 恒为默认值 |
+| R6 | FR-SCHED-04 十因子评分 | 仅 4 个因子实际赋值，`preferredTimeScore`/`sameTaskAdjacent`/`categorySwitch`/`movesExistingBlock` 恒默认 |
+| R7 | FR-SCHED-08 移动原因 | 无任何"移动"解释码；且 `PlanChange` 无 `reason` 字段、`PlanChangeType` 缺 `split`，FR-REPLAN-02 的"拆分"与"原因"在数据模型层无载体 |
+| R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | 仅实现"任务开始"一类；设置页对另外三类提供了开关与提前时间但无排程实现 |
+| R9 | FR-TASK-03 批量调整、FR-TASK-04 任务转固定日程、FR-TASK-05 修正剩余时长、FR-REPLAN-07 处理入口、FR-FOCUS-04/05 补录与重算、FR-STAT-05 精力与休息统计、FR-PREF-05 修改偏好值 | 未实现或无入口 |
+| R10 | FR-DATA-08 核心数据含创建与修改时间 | `Areas`/`Projects`/`ScheduleBlocks`/`TimeEntries` 无任何时间戳，`CalendarEvents` 缺 `createdAtUtc` |
+| R11 | spec §13 以本机当前时区保存和展示 | `notification_service.dart:29`、`special_day_page.dart:14` 硬编码 `'Asia/Shanghai'` |
+| R12 | spec §7.1 任务状态 8 种 | 实现为 6 种。**需用户决策**：补实现或修订需求，本文档不单方面降低需求 |
+
+#### 13.0.6 测试与流程
+
+| 编号 | 问题 |
+| --- | --- |
+| T1 | 本文档实现前 122 个任务复选框全部未勾选，spec §18 的 19 项验收全部未勾选，进度追踪失真（本次修订已勾选 Task 1–19；spec §18 须待 Task 20 验收后逐项附证据再勾选） |
+| T2 | 存在断言不可达状态的测试：`plan_preview_test.dart:23-31` 手写 `PreviewChangeKind.split`（生产 `plan_differ` 永不产生），`app_smoke_test.dart:12-13` 断言首启显示引导文案（门控未接线） |
+| T3 | 存在恒真/复述断言与公式自证：`database_schema_test.dart:15-33,62`、`default_settings_test.dart:12-40`、`pressure_calculator_test.dart:18-44`、`candidate_generator_test.dart:29,63`（魔数 169/13） |
+| T4 | 测试类型缺口：无 integration_test、无迁移测试、DST 仅 `recurrence_expander_test.dart` 一处且引擎层为 0、无真正的并发交错测试、golden fixture 固定 `"timeZoneId": "UTC"` |
+| T5 | 无 CI；`README.md` 与 `pubspec.yaml` 保留 Flutter 模板内容；`可运行程序/` 为 debug 产物且既未跟踪也未忽略；`.superpowers/` 账本（含全部 Ruling 决策）被 `.gitignore` 排除，未纳入版本控制 |
+| T6 | §14 完成定义要求"文档接口名与实现一致"，但本计划此前已出现 `ConflictCode`、`planningStartUtc/EndUtc`、路由表、目录结构等多项漂移，说明该条未被实际执行 |
+
+#### 13.0.7 收尾顺序
+
+1. 修正文档漂移并落实进度勾选（本文档本次修订）。
+2. 修复 C1–C4 四项可定位缺陷，并复核 C3 相关测试。
+3. 完成 W1–W4 接线，使排程链路在运行期可达。
+4. 补齐 T4 缺失的测试类型，并清理 T2/T3 中不可信的用例。
+5. 完成 Task 20 的首次引导、端到端验收与 Windows 发布，逐项核对 spec §18 后再勾选验收清单。
+
+C5、C6、R12 需要设计或需求决策，不在自动收尾范围内。
 
 ---
 
@@ -501,17 +592,17 @@ backup.zip
 - Consumes: 无。
 - Produces: `PlannerApp`、根 `ProviderScope`、稳定路由和显示名“智能日程”。
 
-- [ ] **Step 1: 初始化 Git 和 Flutter Windows 项目**
+- [x] **Step 1: 初始化 Git 和 Flutter Windows 项目**
 
 Run: `git init`，然后 `flutter create --platforms=windows --org app.personalplanner --project-name personal_planner .`
 
 Expected: `flutter doctor -v` 的 Windows toolchain 无阻塞错误，`flutter run -d windows` 可启动默认窗口。
 
-- [ ] **Step 2: 添加并锁定首阶段依赖**
+- [x] **Step 2: 添加并锁定首阶段依赖**
 
 添加 `flutter_riverpod`、`go_router`、`drift`、`drift_flutter`、`uuid`、`timezone`、`intl`，以及开发依赖 `drift_dev`、`build_runner`、`flutter_lints`；提交 `pubspec.lock`。SQLite 原生运行库由 `drift_flutter` 的当前推荐配置提供，不重复引入旧式平台依赖。
 
-- [ ] **Step 3: 写失败的应用冒烟测试**
+- [x] **Step 3: 写失败的应用冒烟测试**
 
 `app_smoke_test.dart` 中验证启动后显示“今日”，并能通过路由进入“任务”和“日历”。
 
@@ -519,17 +610,17 @@ Run: `flutter test test/app/app_smoke_test.dart`
 
 Expected: FAIL，因为 `PlannerApp` 和路由尚未实现。
 
-- [ ] **Step 4: 实现最小应用外壳和骨架页面**
+- [x] **Step 4: 实现最小应用外壳和骨架页面**
 
 实现 `PlannerApp` 与路由；将 Windows 标题、二进制名和资源显示名改为“智能日程”/`personal_planner`。
 
-- [ ] **Step 5: 验证外壳**
+- [x] **Step 5: 验证外壳**
 
 Run: `flutter analyze`，`flutter test test/app/app_smoke_test.dart`，`flutter build windows --debug`
 
 Expected: 无分析错误、测试 PASS、生成 Windows debug 可执行程序。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add .
@@ -556,7 +647,7 @@ git commit -m "build: scaffold Windows planner app"
 - Consumes: Dart SDK。
 - Produces: `PlannerTask`、`CalendarEvent`、`PlanningRules`、`TimeRange`、`PreferenceProfile`、`DefaultSettings.v1()`、`Clock`、`IdGenerator`。
 
-- [ ] **Step 1: 写默认值和优先级失败测试**
+- [x] **Step 1: 写默认值和优先级失败测试**
 
 断言 `DefaultSettings.v1()` 包含高精力 09:00–12:00、中精力 14:00–17:00、低精力 19:00–22:00、睡眠 23:30–07:30、最低睡眠 420 分钟、默认片段 50 分钟、休息 10 分钟、每日可移动任务上限 360 分钟、生活配额 360 分钟，且临时例外 > 用户设置 > 已确认偏好 > 产品默认。
 
@@ -564,21 +655,21 @@ Run: `flutter test test/domain/default_settings_test.dart`
 
 Expected: FAIL，因为模型不存在。
 
-- [ ] **Step 2: 写时间和值校验失败测试**
+- [x] **Step 2: 写时间和值校验失败测试**
 
 覆盖半开区间、零/负时长拒绝、跨午夜本地范围拆分、任务排程时长向上取整到 5 分钟但保留原始分钟数。
 
-- [ ] **Step 3: 实现领域模型和默认值**
+- [x] **Step 3: 实现领域模型和默认值**
 
 使用不可变 Dart 类和显式 `copyWith`；业务模型不得导入 `package:flutter` 或 Drift。
 
-- [ ] **Step 4: 验证领域层**
+- [x] **Step 4: 验证领域层**
 
 Run: `flutter test test/domain`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/core lib/domain test/domain
@@ -602,31 +693,31 @@ git commit -m "feat: define planner domain and defaults"
 - Consumes: Task 2 的领域模型。
 - Produces: `AppDatabase.openDefault()`、`AppDatabase.forTesting(QueryExecutor)` 和 `TaskRepository`、`CalendarRepository`、`PlanRepository` 的 Drift 实现。
 
-- [ ] **Step 1: 写内存数据库失败测试**
+- [x] **Step 1: 写内存数据库失败测试**
 
 验证 13 张核心表存在、外键启用、任务 round-trip 不丢字段、删除项目时不能留下悬空任务。
 
-- [ ] **Step 2: 定义 Drift 表和 DAO**
+- [x] **Step 2: 定义 Drift 表和 DAO**
 
 按第 4 节表结构实现；所有 UTC 时间显式保存为 `int` 微秒，重复规则墙上时间保存为分钟整数。
 
-- [ ] **Step 3: 实现 repository 映射**
+- [x] **Step 3: 实现 repository 映射**
 
 DAO row 不得越过 data 层；repository 返回 Task 2 的领域模型。
 
-- [ ] **Step 4: 生成代码和 schema 基线**
+- [x] **Step 4: 生成代码和 schema 基线**
 
 Run: `dart run build_runner build --delete-conflicting-outputs`，`dart run drift_dev make-migrations`
 
 Expected: 生成代码、schema v1 快照和迁移测试文件。
 
-- [ ] **Step 5: 验证事务和迁移基线**
+- [x] **Step 5: 验证事务和迁移基线**
 
 Run: `flutter test test/data`
 
 Expected: 全部 PASS，`PRAGMA foreign_key_check` 无结果。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add build.yaml lib/data lib/domain/repositories test/data drift_schemas
@@ -648,25 +739,25 @@ git commit -m "feat: add local planner database"
 - Consumes: `TaskRepository`、`CalendarRepository`、`Clock`、`IdGenerator`。
 - Produces: `TaskService.quickAdd(title, estimatedMinutes)`、`TaskService.saveDraft(TaskDraft)`、`CalendarService.save(EventDraft)`。
 
-- [ ] **Step 1: 写快速录入失败测试**
+- [x] **Step 1: 写快速录入失败测试**
 
 验证只填写标题和预计时长即可创建收集箱任务，空标题和非正时长显示字段错误而不写数据库。
 
-- [ ] **Step 2: 实现应用服务**
+- [x] **Step 2: 实现应用服务**
 
 应用服务负责校验、默认值、ID 和时间戳；Notifier 只转换 UI 事件。
 
-- [ ] **Step 3: 实现任务列表、详情和固定日程表单**
+- [x] **Step 3: 实现任务列表、详情和固定日程表单**
 
 覆盖领域与项目维护、搜索、筛选、批量调整、状态变更、一次性事件以及“修改单次/修改系列”入口。
 
-- [ ] **Step 4: 验证 CRUD 与键盘操作**
+- [x] **Step 4: 验证 CRUD 与键盘操作**
 
 Run: `flutter test test/application/task_service_test.dart test/features/tasks test/features/calendar`
 
 Expected: 全部 PASS；快速录入可只用键盘完成。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/application lib/features/tasks lib/features/calendar test/application test/features
@@ -686,29 +777,29 @@ git commit -m "feat: add task and calendar editing"
 - Consumes: `RecurrenceRule`、`CalendarEvent`、`PlanningRules`、`TimeRange`。
 - Produces: `RecurrenceExpander.expand(rule, window, exceptions)`、`AvailabilityInput` 和 `AvailabilityBuilder.build(input) -> List<AvailabilitySlot>`。
 
-- [ ] **Step 1: 写重复展开失败测试**
+- [x] **Step 1: 写重复展开失败测试**
 
 覆盖按周重复、修改单次、删除单次、有效起止日期、跨午夜以及夏令时跳变；本地 09:00 的重复事项在时区变化后仍保持本地 09:00。
 
-- [ ] **Step 2: 实现重复规则展开**
+- [x] **Step 2: 实现重复规则展开**
 
 使用 `timezone` 的 IANA location 做本地日期到 UTC 的转换；不得用固定 UTC offset 模拟时区。
 
-- [ ] **Step 3: 写可用时间失败测试**
+- [x] **Step 3: 写可用时间失败测试**
 
 输入睡眠、午餐、课程、锁定块和每日 360 分钟上限，断言输出无重叠、均落在允许窗口、总可移动容量正确。
 
-- [ ] **Step 4: 实现区间合并和可用时间构造**
+- [x] **Step 4: 实现区间合并和可用时间构造**
 
 所有区间采用 `[start, end)`；先合并忙碌区间，再求补集，最后应用每日上限。
 
-- [ ] **Step 5: 验证边界**
+- [x] **Step 5: 验证边界**
 
 Run: `flutter test test/domain/recurrence_expander_test.dart test/scheduling/availability_builder_test.dart`
 
 Expected: 全部 PASS，包含 Review Focus 的时区、跨午夜测试。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/core/time_zone.dart lib/domain/services lib/scheduling test/domain test/scheduling
@@ -728,25 +819,25 @@ git commit -m "feat: build recurring availability windows"
 - Consumes: Task 2 和 Task 5 的值对象。
 - Produces: `ScheduleProblem`、`ScheduleProposal`、`PlanningConflict`、`PlanValidator.validate(problem, blocks)`。
 
-- [ ] **Step 1: 写硬约束验证失败测试**
+- [x] **Step 1: 写硬约束验证失败测试**
 
 分别构造固定日程重叠、保护时间重叠、锁定块移动、连续任务拆分、每日上限超出和片段总量超出，断言返回稳定 `ConflictCode`。
 
-- [ ] **Step 2: 实现不可变输入输出模型**
+- [x] **Step 2: 实现不可变输入输出模型**
 
 为所有列表做不可变封装；`ScheduleProposal` 显式包含 `inputHash` 和 `algorithmVersion`。
 
-- [ ] **Step 3: 实现最终验证器和解释代码映射**
+- [x] **Step 3: 实现最终验证器和解释代码映射**
 
 验证器不修复结果，只报告冲突；中文解释由代码和参数在 UI 层格式化。
 
-- [ ] **Step 4: 验证模型和约束**
+- [x] **Step 4: 验证模型和约束**
 
 Run: `flutter test test/scheduling/plan_validator_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/scheduling test/scheduling/plan_validator_test.dart
@@ -768,29 +859,29 @@ git commit -m "feat: define schedule proposal contract"
 - Consumes: `ScheduleProblem`、`AvailabilitySlot`。
 - Produces: `PressureCalculator.calculate(task, capacityModel)`、`CandidateGenerator.generate(task, slots)`、`CandidateScorer.score(candidate, context)`。
 
-- [ ] **Step 1: 写远期压力失败测试**
+- [x] **Step 1: 写远期压力失败测试**
 
 验证 6 小时任务在 21 天后截止时会在七日内获得均匀推进量；未来容量不足时提高七日必须完成量；无截止任务不虚构截止压力。
 
-- [ ] **Step 2: 实现容量估算和压力公式**
+- [x] **Step 2: 实现容量估算和压力公式**
 
 按第 5.3 节公式实现，重复日程最多展开 180 天。
 
-- [ ] **Step 3: 写候选和评分失败测试**
+- [x] **Step 3: 写候选和评分失败测试**
 
 验证 6 小时可拆分任务生成 30–90 分钟片段，高脑力任务优先高精力时段，生活配额缺口提高娱乐任务得分，但任何评分不绕过硬约束。
 
-- [ ] **Step 4: 实现候选与 `SchedulingWeights.v1`**
+- [x] **Step 4: 实现候选与 `SchedulingWeights.v1`**
 
 候选以 5 分钟步长生成；所有分数为整数并返回逐因素明细。
 
-- [ ] **Step 5: 验证算法组件**
+- [x] **Step 5: 验证算法组件**
 
 Run: `flutter test test/scheduling/pressure_calculator_test.dart test/scheduling/candidate_generator_test.dart test/scheduling/candidate_scorer_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/scheduling test/scheduling
@@ -810,29 +901,29 @@ git commit -m "feat: score schedule candidates"
 - Consumes: Tasks 5–7 的构件。
 - Produces: `DeterministicScheduleEngine implements ScheduleEngine`、`PlanDiffer.diff(current, proposed)`。
 
-- [ ] **Step 1: 写黄金场景失败测试**
+- [x] **Step 1: 写黄金场景失败测试**
 
 用固定 JSON fixture 覆盖课程、科研、娱乐配额、6 小时拆分任务和连续任务；断言时间块、顺序、解释代码和 `algorithmVersion='1'`。
 
-- [ ] **Step 2: 写不可行与确定性失败测试**
+- [x] **Step 2: 写不可行与确定性失败测试**
 
 断言总需求大于容量时不违反睡眠且报告精确缺口分钟；相同输入连续运行 100 次输出相同；输入列表顺序变化不改变结果。
 
-- [ ] **Step 3: 实现贪心分配和有界局部改进**
+- [x] **Step 3: 实现贪心分配和有界局部改进**
 
 局部改进使用确定性的 200 次操作预算，并按稳定候选顺序尝试交换或移动。不得以墙上运行时间作为停止条件，否则同一输入可能在不同机器上产生不同结果。
 
-- [ ] **Step 4: 每次改进后调用验证器**
+- [x] **Step 4: 每次改进后调用验证器**
 
 最终结果只在 `PlanValidator` 无硬冲突时标记完全可行；否则保留可行部分并生成冲突。
 
-- [ ] **Step 5: 验证引擎**
+- [x] **Step 5: 验证引擎**
 
 Run: `flutter test test/scheduling`
 
 Expected: 全部 PASS，包含 Review Focus 的容量不足场景。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/scheduling test/scheduling test/fixtures
@@ -852,29 +943,29 @@ git commit -m "feat: generate deterministic weekly plans"
 - Consumes: repositories、`ScheduleEngine`、`Clock`。
 - Produces: `PlanningService.createProposal()`、`PlanApplicationService.apply(proposal)`、`InputSnapshotBuilder.hash(snapshot)`。
 
-- [ ] **Step 1: 写快照和过期提案失败测试**
+- [x] **Step 1: 写快照和过期提案失败测试**
 
 生成提案后修改任务，断言 `apply` 返回 `staleProposal` 且当前计划未改变；只改变无关 UI 状态不应改变哈希。
 
-- [ ] **Step 2: 实现规范化快照和 SHA-256**
+- [x] **Step 2: 实现规范化快照和 SHA-256**
 
 JSON key 和列表按稳定规则排序；哈希只包含会影响排程的事实数据与设置。此任务加入 `crypto` 依赖并提交更新后的 `pubspec.lock`。
 
-- [ ] **Step 3: 写事务回滚失败测试**
+- [x] **Step 3: 写事务回滚失败测试**
 
 模拟写入第三个时间块失败，断言计划版本、时间块和 change log 全部回滚。
 
-- [ ] **Step 4: 实现提案创建和原子应用**
+- [x] **Step 4: 实现提案创建和原子应用**
 
 排程在独立 isolate 中运行；确认前仅内存保存提案，应用时重新计算哈希并再次运行验证器。
 
-- [ ] **Step 5: 验证服务**
+- [x] **Step 5: 验证服务**
 
 Run: `flutter test test/application/planning_service_test.dart test/application/plan_application_service_test.dart`
 
 Expected: 全部 PASS，包含 Review Focus 的过期提案测试。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/application test/application
@@ -896,29 +987,29 @@ git commit -m "feat: preview and atomically apply plans"
 - Consumes: Task 9 应用服务及 repository watch streams。
 - Produces: 可操作的 `/today`、`/calendar`、`/planning/preview/:proposalId` 页面。
 
-- [ ] **Step 1: 写页面状态失败测试**
+- [x] **Step 1: 写页面状态失败测试**
 
 分别覆盖 loading、empty、content、recoverable error；周视图不只通过颜色区分类别。
 
-- [ ] **Step 2: 实现今日页和周视图**
+- [x] **Step 2: 实现今日页和周视图**
 
 显示固定日程、保护时间、任务块和生活时间；拖动任务后调用应用服务创建新提案，而不是直接改数据库。
 
-- [ ] **Step 3: 写调整预览失败测试**
+- [x] **Step 3: 写调整预览失败测试**
 
 验证新增、移动、拆分、移除和冲突分组；每项可展开原因；过期提案禁用确认按钮。
 
-- [ ] **Step 4: 实现预览确认和自动调整设置**
+- [x] **Step 4: 实现预览确认和自动调整设置**
 
 自动调整默认关闭；开启后仍保存 diff 和解释历史。
 
-- [ ] **Step 5: 验证基础排程版**
+- [x] **Step 5: 验证基础排程版**
 
 Run: `flutter analyze`，`flutter test`，`flutter build windows --debug`
 
 Expected: 全部通过，可从录入任务走通到确认七日计划。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/features lib/app/router.dart test/features
@@ -939,29 +1030,29 @@ git commit -m "feat: deliver weekly planning workflow"
 - Consumes: `PlanningRules`、`DefaultSettings.v1()`、settings repository。
 - Produces: `SettingsService.resolveForDate(localDate)`、`saveUserRules(rules)`、`saveDateOverride(date, override)`、完整规划规则设置页面。
 
-- [ ] **Step 1: 写规则优先级失败测试**
+- [x] **Step 1: 写规则优先级失败测试**
 
 断言指定日期例外 > 用户长期设置 > 已确认学习偏好 > 产品默认值；未标记精力时段返回中性权重而不是低精力。
 
-- [ ] **Step 2: 写硬约束修改失败测试**
+- [x] **Step 2: 写硬约束修改失败测试**
 
 验证最低睡眠、用餐、每日上限和生活配额只有明确保存用户表单时才改变；偏好学习写入不能修改这些字段。
 
-- [ ] **Step 3: 实现设置服务和页面**
+- [x] **Step 3: 实现设置服务和页面**
 
 页面覆盖工作日/周末睡眠、用餐、休息、多个精力区间、默认专注片段、拆分片段范围、每日任务上限、生活娱乐配额、通知提前量、免打扰和自动调整开关。
 
-- [ ] **Step 4: 写并实现输入校验**
+- [x] **Step 4: 写并实现输入校验**
 
 拒绝重叠且级别冲突的精力区间、负时长、零长度区间和超过 24 小时的单日上限；保存前显示字段级错误。
 
-- [ ] **Step 5: 验证设置流程**
+- [x] **Step 5: 验证设置流程**
 
 Run: `flutter test test/application/settings_service_test.dart test/features/settings/planning_rules_page_test.dart`
 
 Expected: 全部 PASS；重新启动内存测试容器后用户设置仍优先于默认值。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/application/settings_service.dart lib/features/settings lib/app/router.dart test/application test/features/settings
@@ -980,25 +1071,25 @@ git commit -m "feat: configure planning rules and defaults"
 - Consumes: `PlanningRules`、固定事件、`PlanningService`。
 - Produces: `RecoveryPlanningService.createOverride(SpecialDayDraft)` 和次日最早可安排时间计算。
 
-- [ ] **Step 1: 写晚归恢复失败测试**
+- [x] **Step 1: 写晚归恢复失败测试**
 
 活动延长到 01:00、最低睡眠 420 分钟时，断言次日 08:00 前不可安排；若 07:30 有早课，返回 `minimumSleepConflict` 而非移动早课。
 
-- [ ] **Step 2: 实现单日覆盖和恢复服务**
+- [x] **Step 2: 实现单日覆盖和恢复服务**
 
 特殊日只写日期范围例外，不修改常规睡眠和学习偏好。
 
-- [ ] **Step 3: 实现特殊日 UI 和处理选项**
+- [x] **Step 3: 实现特殊日 UI 和处理选项**
 
 提供取消可移动任务、安排补觉、单次接受较短睡眠，并展示每项影响。
 
-- [ ] **Step 4: 验证恢复流程**
+- [x] **Step 4: 验证恢复流程**
 
 Run: `flutter test test/application/recovery_planning_service_test.dart test/features/calendar/special_day_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/application lib/features/calendar/special_day test
@@ -1020,29 +1111,29 @@ git commit -m "feat: protect recovery after late events"
 
 本任务加入开发依赖 `fake_async` 并提交更新后的 `pubspec.lock`。
 
-- [ ] **Step 1: 用 `fake_async` 写状态机失败测试**
+- [x] **Step 1: 用 `fake_async` 写状态机失败测试**
 
 覆盖运行、暂停、继续、完成、重复点击幂等和非法转换。
 
-- [ ] **Step 2: 写崩溃与时钟跳变失败测试**
+- [x] **Step 2: 写崩溃与时钟跳变失败测试**
 
 断言重启发现 running 记录时要求确认；墙上时间跳变超过 5 分钟不直接计入实际时长。
 
-- [ ] **Step 3: 实现持久化状态机**
+- [x] **Step 3: 实现持久化状态机**
 
 每次状态转换先落库再更新 UI；统计只读取 `confirmed` 记录。
 
-- [ ] **Step 4: 实现专注页和恢复对话框**
+- [x] **Step 4: 实现专注页和恢复对话框**
 
 用户可修正结束时间、实际时长和完成备注。
 
-- [ ] **Step 5: 验证计时**
+- [x] **Step 5: 验证计时**
 
 Run: `flutter test test/application/focus_service_test.dart test/features/focus`
 
 Expected: 全部 PASS，包含 Review Focus 的崩溃恢复测试。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/application/focus_service.dart lib/platform lib/features/focus test
@@ -1061,27 +1152,27 @@ git commit -m "feat: record recoverable focus sessions"
 - Consumes: task/calendar/focus changes、`PlanningService`、`PlanRepository`。
 - Produces: `ReplanningCoordinator.onDomainChange(change)`、`PlanUndoService.undoLastAppliedPlan()`。
 
-- [ ] **Step 1: 写触发矩阵失败测试**
+- [x] **Step 1: 写触发矩阵失败测试**
 
 新增、修改、完成、跳过、延期任务和新增固定事件应触发；纯备注修改不触发；短时间连续变化合并为一次请求。
 
-- [ ] **Step 2: 实现 500 毫秒去抖和取消旧计算**
+- [x] **Step 2: 实现 500 毫秒去抖和取消旧计算**
 
 新输入到达时取消仍在运行的旧提案；已完成的旧提案因哈希不匹配不可应用。
 
-- [ ] **Step 3: 写撤销失败测试**
+- [x] **Step 3: 写撤销失败测试**
 
 应用计划 B 后撤销，恢复计划 A 的块并创建新的审计记录，不删除历史版本。
 
-- [ ] **Step 4: 实现协调器与撤销服务**
+- [x] **Step 4: 实现协调器与撤销服务**
 
-- [ ] **Step 5: 验证重排生命周期**
+- [x] **Step 5: 验证重排生命周期**
 
 Run: `flutter test test/application/replanning_coordinator_test.dart test/application/plan_undo_service_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/application test/application
@@ -1102,23 +1193,23 @@ git commit -m "feat: coordinate and undo replanning"
 
 本任务加入 `flutter_local_notifications` 依赖并提交更新后的 `pubspec.lock`。
 
-- [ ] **Step 1: 写通知计划失败测试**
+- [x] **Step 1: 写通知计划失败测试**
 
 验证只安排未来 7 天一次性通知、免打扰推迟普通提醒、payload 不包含标题和备注、计划变更取消旧通知。
 
-- [ ] **Step 2: 实现可 mock 的端口和协调服务**
+- [x] **Step 2: 实现可 mock 的端口和协调服务**
 
-- [ ] **Step 3: 接入 `flutter_local_notifications` Windows 适配器**
+- [x] **Step 3: 接入 `flutter_local_notifications` Windows 适配器**
 
 不得调用 Windows 不支持的 repeating API；无包身份时显示功能限制诊断。
 
-- [ ] **Step 4: 验证通知服务**
+- [x] **Step 4: 验证通知服务**
 
 Run: `flutter test test/application/notification_service_test.dart`
 
 Expected: 全部 PASS；在 Windows debug 环境手动验证一条 2 分钟后通知。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pubspec.yaml pubspec.lock lib/platform/notifications lib/application lib/domain/repositories test
@@ -1139,23 +1230,23 @@ git commit -m "feat: schedule Windows planner notifications"
 
 本任务加入 Flutter 官方维护的 `file_selector` 依赖并提交更新后的 `pubspec.lock`。
 
-- [ ] **Step 1: 写导出失败测试**
+- [x] **Step 1: 写导出失败测试**
 
 验证 JSON 包含 schema 版本和所有用户事实数据；CSV 使用 UTF-8 BOM 供常见 Windows 表格工具读取；计划与实际字段明确区分。
 
-- [ ] **Step 2: 实现流式导出和临时文件原子改名**
+- [x] **Step 2: 实现流式导出和临时文件原子改名**
 
 取消或失败时删除临时文件，不覆盖既有同名文件。
 
-- [ ] **Step 3: 实现导出 UI 和完成摘要**
+- [x] **Step 3: 实现导出 UI 和完成摘要**
 
-- [ ] **Step 4: 验证导出**
+- [x] **Step 4: 验证导出**
 
 Run: `flutter test test/application/export_service_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/application/export_service.dart lib/platform/files lib/features/settings/data test
@@ -1180,31 +1271,31 @@ git commit -m "feat: export local planner data"
 
 本任务加入 ZIP 与 PBKDF2-HMAC-SHA256 所需的最小维护依赖并提交 `pubspec.lock`；依赖选择需通过 Windows 支持、许可证和最近维护状态检查。
 
-- [ ] **Step 1: 写备份 round-trip 失败测试**
+- [x] **Step 1: 写备份 round-trip 失败测试**
 
 创建包含任务、计划和计时的数据库，备份后恢复到新数据库，断言业务数据和 schema 版本一致。
 
-- [ ] **Step 2: 写恶意或损坏备份失败测试**
+- [x] **Step 2: 写恶意或损坏备份失败测试**
 
 覆盖错误哈希、截断 SQLite、新版本 schema 和 ZIP 路径穿越，断言全部在临时目录被拒绝且当前数据库字节不变。
 
-- [ ] **Step 3: 实现 manifest、哈希、integrity check 和原子恢复**
+- [x] **Step 3: 实现 manifest、哈希、integrity check 和原子恢复**
 
-- [ ] **Step 4: 写并实现永久清除测试**
+- [x] **Step 4: 写并实现永久清除测试**
 
 要求用户输入明确确认短语；清除数据库、备份索引、通知和应用锁凭据，但不删除用户自行导出的外部文件。
 
-- [ ] **Step 5: 写并实现应用锁测试**
+- [x] **Step 5: 写并实现应用锁测试**
 
 验证密码不明文保存、错误尝试递增等待、关闭锁需再次验证；界面明确说明数据库未加密。
 
-- [ ] **Step 6: 验证数据安全功能**
+- [x] **Step 6: 验证数据安全功能**
 
 Run: `flutter test test/application/backup_service_test.dart test/application/data_erasure_service_test.dart test/platform/app_lock_service_test.dart`
 
 Expected: 全部 PASS，包含 Review Focus 的损坏备份测试。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pubspec.yaml pubspec.lock lib/application lib/platform/app_lock lib/features/settings test
@@ -1227,29 +1318,29 @@ git commit -m "feat: protect and recover local planner data"
 
 本任务加入 `fl_chart` 依赖并提交更新后的 `pubspec.lock`。
 
-- [ ] **Step 1: 写统计口径失败测试**
+- [x] **Step 1: 写统计口径失败测试**
 
 覆盖跨范围边界的时间块交集、计划与实际区分、完成率分母、按期完成、预估为零、生活配额、常见中断、重排原因、建议接受行为和自定义日期范围。
 
-- [ ] **Step 2: 实现 Drift 聚合查询和应用服务**
+- [x] **Step 2: 实现 Drift 聚合查询和应用服务**
 
 所有百分比模型同时返回 numerator、denominator 和 `isAvailable`，避免 UI 猜测口径。
 
-- [ ] **Step 3: 实现统计页面**
+- [x] **Step 3: 实现统计页面**
 
 使用 `fl_chart` 展示领域分布、趋势和计划/实际对比；图表同时提供文本摘要和可访问标签。
 
-- [ ] **Step 4: 写性能基准测试**
+- [x] **Step 4: 写性能基准测试**
 
 生成 10,000 条 time entries，查询一年范围；记录基准结果。只有结果在目标设备上超过 300 毫秒才引入日汇总缓存。
 
-- [ ] **Step 5: 验证统计**
+- [x] **Step 5: 验证统计**
 
 Run: `flutter test test/application/analytics_service_test.dart test/features/analytics`
 
 Expected: 口径测试全部 PASS，基准结果记录在测试输出。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pubspec.yaml pubspec.lock lib/application/analytics_service.dart lib/domain/models/analytics.dart lib/data lib/features/analytics test
@@ -1268,25 +1359,25 @@ git commit -m "feat: visualize planned and actual time"
 - Consumes: `AnalyticsReport` 当前期和对比期。
 - Produces: `FeedbackService.generate(current, previous)` -> 最多 3 条 `FeedbackMessage`。
 
-- [ ] **Step 1: 写文案规则失败测试**
+- [x] **Step 1: 写文案规则失败测试**
 
 验证只根据真实可用指标生成反馈、最多三条、包含证据值；休息增加、娱乐达标、延期和低完成率不生成羞辱或惩罚文案。
 
-- [ ] **Step 2: 实现稳定规则和文案代码**
+- [x] **Step 2: 实现稳定规则和文案代码**
 
 规则输出 message code、参数和证据，不在服务中拼接不可测试长文本。
 
-- [ ] **Step 3: 实现统计页反馈卡片**
+- [x] **Step 3: 实现统计页反馈卡片**
 
 允许用户隐藏单条建议，并说明统计范围。
 
-- [ ] **Step 4: 验证反馈**
+- [x] **Step 4: 验证反馈**
 
 Run: `flutter test test/application/feedback_service_test.dart test/features/analytics`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/application/feedback_service.dart lib/domain/models/feedback_message.dart lib/features/analytics test
@@ -1307,31 +1398,31 @@ git commit -m "feat: add evidence-based positive feedback"
 - Consumes: `PreferenceEvidence`、当前 `PreferenceProfile`。
 - Produces: `PreferenceAnalyzer.analyze`、`PreferenceService.confirm`、`reject`、`disable`、`clearLearned`、`undoLastAutoApply`。
 
-- [ ] **Step 1: 写门槛和异常排除失败测试**
+- [x] **Step 1: 写门槛和异常排除失败测试**
 
 19 条记录不建议，20 条且覆盖 14 个活跃日并有至少 15% 效果差异才建议；特殊日全部排除；同向手动移动 5 次可建议时段偏好。
 
-- [ ] **Step 2: 实现统计分析器**
+- [x] **Step 2: 实现统计分析器**
 
 每条建议返回证据数、日期范围、差异、建议值和 explanation code。
 
-- [ ] **Step 3: 写优先级和自动采用失败测试**
+- [x] **Step 3: 写优先级和自动采用失败测试**
 
 断言临时例外 > 用户设置 > confirmed/autoApplied 偏好 > 默认；自动采用不能修改最低睡眠、用餐和每日上限。
 
-- [ ] **Step 4: 实现偏好服务与审计撤销**
+- [x] **Step 4: 实现偏好服务与审计撤销**
 
-- [ ] **Step 5: 实现偏好页面**
+- [x] **Step 5: 实现偏好页面**
 
 用户可查看依据、确认、拒绝、停用、清除和撤销自动更新。
 
-- [ ] **Step 6: 验证偏好学习**
+- [x] **Step 6: 验证偏好学习**
 
 Run: `flutter test test/domain/preference_analyzer_test.dart test/application/preference_service_test.dart test/features/settings/preferences_page_test.dart`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add lib/application/preference_service.dart lib/domain/services lib/features/settings/preferences test
@@ -1402,6 +1493,10 @@ git commit -m "release: complete personal planner MVP"
 5. 数据模型变化包含 schema 快照和迁移测试。
 6. 文档和测试使用的接口名与实现一致。
 7. 改动以任务为单位提交，提交不混入无关修改。
+8. 勾选该任务的全部步骤复选框，并把本任务引入的任何降级、偏差或接口改名登记到 §13.0，同时更新 §17 覆盖映射的真实状态。
+9. 本任务新增的页面、服务或引擎必须在 `router.dart` 或组合根中完成接线，并有证据（测试或手工记录）表明其在运行期可达。仅有单元测试、无生产调用方的模块不计入完成。
+
+第 8、9 条是针对本计划前 19 个任务实际暴露的问题而补充：此前复选框长期未勾选、§17 声称的覆盖在运行期无法兑现（详见 §13.0），说明这两类收尾动作必须成为完成定义的一部分，而不是事后补做。
 
 ## 15. 技术风险与控制
 
@@ -1430,19 +1525,21 @@ git commit -m "release: complete personal planner MVP"
 
 ## 17. 需求覆盖映射
 
-| 需求规格范围 | 主要实施任务 | 核心验证 |
-| --- | --- | --- |
-| FR-TODAY-01 至 04 | Task 10、12、13 | 今日页状态、快捷操作、完成后重排。 |
-| FR-TASK-01 至 05 | Task 2、4 | 快速录入、完整编辑、筛选、批量调整和剩余时长。 |
-| FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突。 |
-| FR-RULE-01 至 06 | Task 2、10A、11 | 作息、精力、配额、工作日/周末和指定日期例外。 |
-| FR-DEFAULT-01 至 08 | Task 2、10A、19、20 | 默认值、中性回退、首次引导、优先级、记录与撤销。 |
-| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现。 |
-| FR-REPLAN-01 至 08 | Task 9、10、13 | 提案、diff、确认/自动应用、过期拒绝、冲突和撤销。 |
-| FR-RECOVERY-01 至 06 | Task 11 | 晚归、最低睡眠、早课冲突、补觉和单次放宽。 |
-| FR-FOCUS-01 至 05 | Task 12 | 计时状态机、异常恢复、补录与剩余时长更新。 |
-| FR-STAT-01 至 09 | Task 17、18 | 自选范围、指标口径、趋势、计划/实际区分和温和反馈。 |
-| FR-PREF-01 至 08 | Task 7、19 | 证据采集、门槛、解释、确认、自动采用、异常排除和清除。 |
-| FR-NOTIFY-01 至 04 | Task 10A、14 | 一次性通知、分类设置、免打扰和快捷入口。 |
-| FR-DATA-01 至 08 | Task 3、15、16 | 本地存储、备份校验、导出、清除、应用锁和同步预留字段。 |
-| 非功能与发布 | Task 1、3、8、9、16、20 | Windows 构建、性能、迁移、事务、恢复、可访问性和 MSIX。 |
+下表反映**复核后的真实状态**，不是计划意图。`真实状态` 列取值：已实现（可在运行期兑现）／部分／未实现。任何标注偏差编号的条目须先解决 §13.0 对应项，才能视为覆盖。
+
+| 需求规格范围 | 主要实施任务 | 计划核心验证 | 真实状态 |
+| --- | --- | --- | --- |
+| FR-TODAY-01 至 04 | Task 10、12、13 | 今日页状态、快捷操作、完成后重排 | 部分：今日页为条目列表且注入空数据源，无"当前/下一项/剩余时间"汇总（FR-TODAY-01）；跳过与延期无入口（FR-TODAY-02）；无进度、休息提示与冲突提示（FR-TODAY-03）。偏差 W2 |
+| FR-TASK-01 至 05 | Task 2、4 | 快速录入、完整编辑、筛选、批量调整和剩余时长 | 部分：快速录入已实现；分类/项目/标签不可用（R1、R2）；无批量调整（R9）；任务转固定日程与修正剩余时长未实现（R9） |
+| FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突 | 部分：一次性事件 CRUD 缺 delete；重复日程未展开、单次/系列编辑被丢弃（R4）；无日视图（R3）；拖动为空控制器（W2）；创建时不检测冲突 |
+| FR-RULE-01 至 06 | Task 2、10A、11 | 作息、精力、配额、工作日/周末和指定日期例外 | 基本实现：作息/精力/配额/工作日与周末规则已实现；指定日期例外机制正确但无 UI 入口 |
+| FR-DEFAULT-01 至 08 | Task 2、10A、19、20 | 默认值、中性回退、首次引导、优先级、记录与撤销 | 部分：默认值与优先级正确；首次引导门控为死代码（W4）；自动采用无门控（FR-DEFAULT-05）；变更日志不记前后值（FR-DEFAULT-07） |
+| FR-SCHED-01 至 09 | Task 5 至 9 | 七日窗口、远期压力、硬约束、评分、拆分、连续性和可复现 | 部分：引擎逻辑与可复现性成立，但无生产数据源（W1）；评分十因子仅 4 项赋值（R6）；无片段间休息（C1）；无移动原因（R7）；locked 重复计入上限（C3） |
+| FR-REPLAN-01 至 08 | Task 9、10、13 | 提案、diff、确认/自动应用、过期拒绝、冲突和撤销 | 部分：快照哈希与过期拒绝已实现（FR-REPLAN-05）；预览为空桩（W2）；diff 缺 split 与 reason（R7）；自动应用路径不存在；冲突无 UI；处理入口未实现（R9） |
+| FR-RECOVERY-01 至 06 | Task 11 | 晚归、最低睡眠、早课冲突、补觉和单次放宽 | 基本实现但不可达：最低睡眠计算、早课冲突告警、单日例外均正确；选项行为未区分、无路由（W3）；先落库后提案（C8） |
+| FR-FOCUS-01 至 05 | Task 12 | 计时状态机、异常恢复、补录与剩余时长更新 | 部分：计时状态机与单调钟正确；崩溃恢复无调用点（W3）；补录与剩余时长重算未实现（R9） |
+| FR-STAT-01 至 09 | Task 17、18 | 自选范围、指标口径、趋势、计划/实际区分和温和反馈 | 部分：范围、趋势、反馈文案与温和原则达标；标签筛选恒空（R1）、无筛选 UI；精力与休息统计未实现（R9）；中断/重排原因数据源前缀不匹配（W5） |
+| FR-PREF-01 至 08 | Task 7、19 | 证据采集、门槛、解释、确认、自动采用、异常排除和清除 | 部分：门槛常量与设计一致、只影响软约束；证据无写入方（W6）；存储键断裂（W5）；特殊日排除不生效；无修改偏好值入口（R9） |
+| FR-NOTIFY-01 至 04 | Task 10A、14 | 一次性通知、分类设置、免打扰和快捷入口 | 部分：仅"任务开始"一类、免打扰正确；其余三类无实现（R8）；点击快捷入口无消费方（W6） |
+| FR-DATA-01 至 08 | Task 3、15、16 | 本地存储、备份校验、导出、清除、应用锁和同步预留字段 | 部分：备份校验顺序、导出、永久清除达标；备份缺 WAL 快照（C4）；应用锁不拦截启动（W6）；时间戳不齐（R10） |
+| 非功能与发布 | Task 1、3、8、9、16、20 | Windows 构建、性能、迁移、事务、恢复、可访问性和 MSIX | 部分：事务与恢复机制达标；无迁移测试（T4）；排程不可取消且有界性不足；无 MSIX、无 release 产物、无 CI（T5） |
