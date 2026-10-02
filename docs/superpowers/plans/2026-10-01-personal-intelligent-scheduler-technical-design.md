@@ -561,7 +561,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | **被环境阻塞**：需要给任务表加列并生成迁移与 schema 快照，而 `dart run build_runner`（drift_dev 代码生成）需要派生子进程，当前环境拒绝创建子进程。手改 `app_database.g.dart` 会造成生成代码与 schema 不一致，因此不在此环境实施。该字段是 `preferredTimeScore` 因子（§5.4 最后一项目前未注入的因子）的前置条件 |
 | R6 | FR-SCHED-04 十因子评分 | **大部分已实现**（`8e4c868` 版本 7、`be6accb` 版本 8）：同任务连续性、类别切换成本、移动成本三个因子已注入并各有判别性验证。**剩余**：用户期望时段需要任务模型新增字段（§7.1 要求），属数据库结构变更，见 R5；另有 8 个任务级因子在同一任务的候选之间恒为常数（见 C2） |
 | R7 | FR-SCHED-08 移动原因、FR-REPLAN-02 拆分与原因 | **已实现**（提交 `ee3dcbc`）：`PlanChangeType` 增加 `split`，`PlanChange` 增加 `reason`（取自片段的 `explanationCode`，保持稳定码约定，界面用 `explanationLabel` 渲染）。规则：任务在原计划已有块且提案中块数变多 → 新块记为 `split`；原计划没有该任务的块 → 记为 `added`。既有的按 ID 比较逻辑未改动，因此原有差异测试的期望 `[moved, removed, added]` 仍然成立（已用同一场景实测）。`router.dart` 的 `PlanChangeType` switch 同步补上 `split` 分支——否则新增枚举值会让该 switch 失去穷尽性而无法编译 |
-| R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | 仅实现"任务开始"一类；设置页对另外三类提供了开关与提前时间但无排程实现 |
+| R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | **已于服务层实现**（提交 `2d14142`）：固定日程即将开始、截止临近、冲突待处理三类都可安排，`NotificationPreferences` 增加了冲突类型的提前时间（FR-NOTIFY-02 要求每类都能设置），存于设置 JSON、无需迁移，旧数据回退默认值。三类来源以可选依赖注入，未装配时跳过该类而不是伪造。**顺带修掉一个既有缺陷**：默认截止提前时间为 24 小时，20 小时后到期的任务其提醒时刻落在过去而被静默丢弃，用户永远收不到提醒；现在已过的提醒时刻改为"尽快提醒"。**剩余**：FR-NOTIFY-04 的快捷入口——`windows_notification_adapter` 仍未注册点击回调，且该服务尚未在 `main.dart` 中装配 |
 | R9 | FR-TASK-03 批量调整、FR-TASK-04 任务转固定日程、FR-TASK-05 修正剩余时长、FR-REPLAN-07 处理入口、FR-FOCUS-04/05 补录与重算、FR-STAT-05 精力与休息统计、FR-PREF-05 修改偏好值 | 未实现或无入口 |
 | R10 | FR-DATA-08 核心数据含创建与修改时间 | **被环境阻塞**（见 13.0.8）：需给多张表加时间戳列，属数据库结构变更 |
 | R11 | spec §13 以本机当前时区保存和展示 | `notification_service.dart:29`、`special_day_page.dart:14` 硬编码 `'Asia/Shanghai'` |
