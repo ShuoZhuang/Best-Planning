@@ -146,6 +146,70 @@ void main() {
     expect(_signature(engine.generate(reversed)), expected);
   });
 
+  test('非生活任务块之间保留休息，任一侧是生活任务时不要求', () {
+    final day = DateTime.utc(2026, 10, 5);
+
+    ScheduleProblem build(List<SchedulableTask> tasks) => ScheduleProblem(
+      planningWindow: TimeRange(
+        startUtc: day.add(const Duration(hours: 9)),
+        endUtc: day.add(const Duration(hours: 18)),
+      ),
+      timeZoneId: 'UTC',
+      tasks: tasks,
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: PlanningRules(
+        energyWindows: [
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 540, endMinute: 720),
+            level: EnergyLevel.high,
+          ),
+        ],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'rest-gap-cross-task',
+    );
+
+    SchedulableTask single(String id, {bool life = false}) => SchedulableTask(
+      id: id,
+      requiredMinutes: 60,
+      splitMode: TaskSplitMode.splittable,
+      minChunkMinutes: 60,
+      maxChunkMinutes: 60,
+      priority: TaskPriority.high,
+      isLifeTask: life,
+    );
+
+    List<int> gaps(List<SchedulableTask> tasks) {
+      final blocks = [...engine.generate(build(tasks)).blocks]
+        ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+      return [
+        for (var index = 1; index < blocks.length; index++)
+          blocks[index].startUtc.difference(blocks[index - 1].endUtc).inMinutes,
+      ];
+    }
+
+    // 两个不同的非生活任务之间同样需要休息。
+    expect(gaps([single('work-a'), single('work-b')]), [10]);
+    // 连续多个非生活任务之间都要休息。
+    expect(gaps([single('work-a'), single('work-b'), single('work-c')]), [
+      10,
+      10,
+    ]);
+    // 任一侧是生活任务时不要求间隔：娱乐本身就是休息。
+    expect(gaps([single('work-a'), single('fun', life: true)]), [0]);
+    expect(gaps([single('fun-a', life: true), single('fun-b', life: true)]), [
+      0,
+    ]);
+  });
+
   test('PlanDiffer identifies added, moved and removed blocks', () {
     final day = DateTime.utc(2026, 10, 5);
     final current = [

@@ -24,7 +24,8 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 算法版本。任何会改变排程结果的改动都必须提升该值，否则历史计划无法按
   /// 当时的算法复现（设计 §5.1）。版本 2 引入同一任务的片段间休息，并把续排
   /// 容量按休息预算计算（只统计候选之后仍可承接后续片段的时间）。
-  static const String algorithmVersion = '2';
+  /// 版本 3 把休息推广到任意两个非生活任务块之间（生活任务之间不要求间隔）。
+  static const String algorithmVersion = '3';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -554,8 +555,12 @@ String _blockId(String taskId, SchedulingCandidate candidate) =>
 PlannedBlock _temporaryBlock(String taskId, SchedulingCandidate candidate) =>
     PlannedBlock(id: 'temporary', taskId: taskId, range: candidate.range);
 
-/// 同一任务两段专注之间必须保留 `Rules.breakMinutes` 的休息
-/// （需求 FR-SCHED-05 与默认值 8.4.1）。连续任务只有一个整块，不适用。
+/// 任意两个非生活任务块之间必须保留 `Rules.breakMinutes` 的休息
+/// （需求 FR-SCHED-05 与默认值 8.4.1）。
+///
+/// 该规则原先是"同一任务的两段专注之间"，现已按产品决策推广到"任意两个非生活
+/// 任务块之间"：连续任务与另一个任务块相邻时同样需要休息，因此不再按拆分模式
+/// 豁免。只要任一侧是生活任务就不要求间隔，见下方判断。
 bool _violatesRestGap(
   ScheduleProblem problem,
   SchedulableTask task,
@@ -563,11 +568,16 @@ bool _violatesRestGap(
   List<PlannedBlock> blocks,
 ) {
   final breakMinutes = problem.rules.breakMinutes;
-  if (breakMinutes <= 0 || task.splitMode == TaskSplitMode.continuous) {
-    return false;
-  }
+  if (breakMinutes <= 0 || task.isLifeTask) return false;
+  final tasksById = {for (final item in problem.tasks) item.id: item};
   for (final block in blocks) {
-    if (block.taskId != task.id) continue;
+    final sameTask = block.taskId == task.id;
+    if (!sameTask) {
+      final other = tasksById[block.taskId];
+      // 任一侧是生活任务时不要求间隔：娱乐与社交本身就是休息，
+      // 再插入间隔只会把生活时间切碎。
+      if (other == null || other.isLifeTask) continue;
+    }
     if (_gapMinutes(block.range, candidate.range) < breakMinutes) return true;
   }
   return false;
@@ -583,6 +593,9 @@ DateTime? _restReadyAt(
   if (breakMinutes <= 0 || task.splitMode == TaskSplitMode.continuous) {
     return null;
   }
+  // 生活任务的片段之间无需休息，因此下一片段在候选结束处即可开始；
+  // 返回 null 会让续排容量把候选之前的空闲段也算进来，从而高估该候选。
+  if (task.isLifeTask) return candidate.endUtc;
   return candidate.endUtc.add(Duration(minutes: breakMinutes));
 }
 
