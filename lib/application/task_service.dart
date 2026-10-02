@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 
 final class TaskDraft {
@@ -51,13 +52,20 @@ final class TaskService {
     required TaskRepository repository,
     required Clock clock,
     required IdGenerator idGenerator,
-  }) : this._(repository, clock, idGenerator);
+    TaskCorrectionLog? correctionLog,
+  }) : this._(repository, clock, idGenerator, correctionLog);
 
-  const TaskService._(this._repository, this._clock, this._idGenerator);
+  const TaskService._(
+    this._repository,
+    this._clock,
+    this._idGenerator,
+    this._correctionLog,
+  );
 
   final TaskRepository _repository;
   final Clock _clock;
   final IdGenerator _idGenerator;
+  final TaskCorrectionLog? _correctionLog;
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
 
@@ -99,6 +107,47 @@ final class TaskService {
     );
     await _repository.save(task);
     return TaskSaveResult.success(task);
+  }
+
+  /// 手动修正剩余时长（FR-TASK-05）。
+  ///
+  /// 只改 `remainingMinutes`，**不改预计时长**：预计时长是原始估算，§8 的预估偏差
+  /// 口径正是用它与实际投入对照；改写它会污染该统计。
+  ///
+  /// 剩余时长必须大于 0：把任务做完了应当走 `changeStatus(completed)`，而不是把
+  /// 剩余时长归零——后者会让任务仍处于未完成状态却没有可排时长。
+  ///
+  /// 修正记录通过 [TaskCorrectionLog] 落库供统计分析。未注入该端口时修正照常完成，
+  /// 但不会留下历史，因此生产装配必须注入。
+  Future<TaskSaveResult> correctRemainingMinutes(
+    String taskId,
+    int remainingMinutes,
+  ) async {
+    if (remainingMinutes <= 0) {
+      return TaskSaveResult.invalid({
+        'remainingMinutes': '剩余时长必须大于 0 分钟',
+      });
+    }
+    final existing = await _repository.getById(taskId);
+    if (existing == null) {
+      return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    }
+
+    final now = _clock.nowUtc();
+    final updated = existing.copyWith(
+      remainingMinutes: remainingMinutes,
+      updatedAtUtc: now,
+    );
+    await _repository.save(updated);
+    await _correctionLog?.record(
+      RemainingMinutesCorrection(
+        taskId: taskId,
+        previousMinutes: existing.remainingMinutes,
+        correctedMinutes: remainingMinutes,
+        correctedAtUtc: now,
+      ),
+    );
+    return TaskSaveResult.success(updated);
   }
 
   Future<bool> changeStatus(String taskId, TaskStatus status) async {
