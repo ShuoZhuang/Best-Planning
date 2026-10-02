@@ -28,7 +28,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 版本 4 取消任务类型区分：所有任务块之间一律保留休息。
   /// 版本 5 让候选排序以软约束总分为首键（与设计 §5.2 第 7 步一致），
   /// 覆盖度退为同分时的次级依据。
-  static const String algorithmVersion = '5';
+  /// 版本 6 把"大于零但小于最小可排片段"的远期目标抬到可排的最小量，
+  /// 使 §5.3 的均匀推进量不再落空。
+  static const String algorithmVersion = '6';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -243,7 +245,37 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           )
           .fold<int>(0, (sum, slot) => sum + slot.durationMinutes),
     );
-    return _pressureCalculator.calculate(task, capacity).targetMinutes;
+    return _ensurePlaceable(
+      _pressureCalculator.calculate(task, capacity).targetMinutes,
+      problem,
+      task,
+    );
+  }
+
+  /// 把"大于零但小于最小可排片段"的目标抬到真正可排的最小量（不超过任务剩余时长）。
+  ///
+  /// 设计 §5.3 的均匀推进量 `pacedNow` 可能低于 `minChunkMinutes`，而候选生成不会
+  /// 产出比最小片段更短的块，于是目标虽为正却一个片段也放不下——远端任务因此整周
+  /// 排入 0 分钟（实测：截止在 30 天后的 120 分钟任务 `scheduled=0`、`shortage=28`），
+  /// FR-SCHED-02 要求的"为避免未来拥堵所需的近期投入"落空。目标一旦大于零即表示
+  /// 需要开始投入，因此抬到确实可排的最小量。
+  ///
+  /// 连续任务只有"整块"一种候选，其最小可排量就是任务剩余时长——即要么整体排入，
+  /// 要么一个也排不进；这是不可拆分任务的固有取舍，不额外处理。
+  int _ensurePlaceable(
+    int target,
+    ScheduleProblem problem,
+    SchedulableTask task,
+  ) {
+    if (target <= 0) return 0;
+    if (target >= task.requiredMinutes) return task.requiredMinutes;
+    final granularity = problem.rules.granularityMinutes;
+    final minimumPlaceable = task.splitMode == TaskSplitMode.continuous
+        ? task.requiredMinutes
+        : ((task.minChunkMinutes + granularity - 1) ~/ granularity) *
+              granularity;
+    if (target >= minimumPlaceable) return target;
+    return math.min(minimumPlaceable, task.requiredMinutes);
   }
 
   int _compareTasks(

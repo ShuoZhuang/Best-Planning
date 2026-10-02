@@ -210,6 +210,84 @@ void main() {
     ]);
   });
 
+  test('远期任务会排入可排的最小量，而不是整周 0 分钟', () {
+    final day = DateTime.utc(2026, 10, 5);
+
+    ScheduleProblem build(SchedulableTask task) => ScheduleProblem(
+      planningWindow: TimeRange(
+        startUtc: day,
+        endUtc: day.add(const Duration(days: 7)),
+      ),
+      timeZoneId: 'UTC',
+      tasks: [task],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: PlanningRules(
+        energyWindows: [
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 540, endMinute: 720),
+            level: EnergyLevel.high,
+          ),
+        ],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'far-deadline-target',
+    );
+
+    // 均匀推进量（28 分钟）低于最小时长（30 分钟），原先因此一个片段也放不下。
+    final splittable = engine.generate(
+      build(
+        SchedulableTask(
+          id: 'far-splittable',
+          requiredMinutes: 120,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 30,
+          maxChunkMinutes: 60,
+          dueAtUtc: day.add(const Duration(days: 30)),
+        ),
+      ),
+    );
+    expect(splittable.metrics.scheduledMinutes, 30);
+    expect(splittable.unscheduled, isEmpty);
+
+    // 不可拆分任务只有整块一种候选，因此要么整体排入要么排不进。
+    final continuous = engine.generate(
+      build(
+        SchedulableTask(
+          id: 'far-continuous',
+          requiredMinutes: 120,
+          splitMode: TaskSplitMode.continuous,
+          minChunkMinutes: 120,
+          maxChunkMinutes: 120,
+          dueAtUtc: day.add(const Duration(days: 30)),
+        ),
+      ),
+    );
+    expect(continuous.metrics.scheduledMinutes, 120);
+
+    // 窗口内到期的任务不受影响。
+    final near = engine.generate(
+      build(
+        SchedulableTask(
+          id: 'near',
+          requiredMinutes: 120,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 30,
+          maxChunkMinutes: 60,
+          dueAtUtc: day.add(const Duration(days: 2)),
+        ),
+      ),
+    );
+    expect(near.metrics.scheduledMinutes, 120);
+  });
+
   test('PlanDiffer identifies added, moved and removed blocks', () {
     final day = DateTime.utc(2026, 10, 5);
     final current = [
