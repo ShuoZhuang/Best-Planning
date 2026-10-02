@@ -3,16 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/repositories/settings_repository.dart';
 
 final class PlannerApp extends StatefulWidget {
-  const PlannerApp({this.taskRepository, super.key});
+  const PlannerApp({this.taskRepository, this.settingsRepository, super.key});
 
   final TaskRepository? taskRepository;
+  final SettingsRepository? settingsRepository;
 
   @override
   State<PlannerApp> createState() => _PlannerAppState();
@@ -31,6 +34,9 @@ final class _PlannerAppState extends State<PlannerApp> {
         repository: _repository,
         clock: const SystemClock(),
         idGenerator: UuidIdGenerator(),
+      ),
+      settingsService: SettingsService(
+        repository: widget.settingsRepository ?? MemorySettingsRepository(),
       ),
     );
   }

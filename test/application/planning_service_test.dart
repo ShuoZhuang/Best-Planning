@@ -40,6 +40,29 @@ void main() {
     expect(first, hasLength(64));
   });
 
+  test('保护时间或默认片段变化会使已有提案过期', () {
+    final original = _problem(requiredMinutes: 60);
+    final changed = ScheduleProblem(
+      planningWindow: original.planningWindow,
+      timeZoneId: original.timeZoneId,
+      tasks: original.tasks,
+      fixedIntervals: original.fixedIntervals,
+      protectedIntervals: original.protectedIntervals,
+      lockedBlocks: original.lockedBlocks,
+      rules: original.rules.copyWith(
+        protectedTimes: const [],
+        minChunkMinutes: 35,
+      ),
+      preferences: original.preferences,
+      inputHash: original.inputHash,
+    );
+
+    expect(
+      snapshots.hash(InputSnapshot(problem: changed)),
+      isNot(snapshots.hash(InputSnapshot(problem: original))),
+    );
+  });
+
   test(
     'changed task makes a preview stale without changing current plan',
     () async {

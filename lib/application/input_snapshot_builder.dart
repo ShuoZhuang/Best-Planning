@@ -77,6 +77,27 @@ final class InputSnapshotBuilder {
 
   Map<String, Object?> _rules(PlanningRules rules) => {
     'energyWindows': _energyWindows(rules.energyWindows),
+    'protectedTimes': [
+      for (final item
+          in [...rules.protectedTimes]..sort((a, b) {
+            final dayOrder = a.dayKind.index.compareTo(b.dayKind.index);
+            if (dayOrder != 0) return dayOrder;
+            final kindOrder = a.kind.index.compareTo(b.kind.index);
+            if (kindOrder != 0) return kindOrder;
+            final startOrder = a.range.startMinute.compareTo(
+              b.range.startMinute,
+            );
+            if (startOrder != 0) return startOrder;
+            return a.range.endMinute.compareTo(b.range.endMinute);
+          }))
+        {
+          'kind': item.kind.name,
+          'dayKind': item.dayKind.name,
+          'startMinute': item.range.startMinute,
+          'endMinute': item.range.endMinute,
+          'enabled': item.enabled,
+        },
+    ],
     'sleepStartMinute': rules.sleepRange.startMinute,
     'sleepEndMinute': rules.sleepRange.endMinute,
     'minimumSleepMinutes': rules.minimumSleepMinutes,
@@ -84,6 +105,8 @@ final class InputSnapshotBuilder {
     'breakMinutes': rules.breakMinutes,
     'dailyMovableTaskLimitMinutes': rules.dailyMovableTaskLimitMinutes,
     'weeklyLifeQuotaMinutes': rules.weeklyLifeQuotaMinutes,
+    'minChunkMinutes': rules.minChunkMinutes,
+    'maxChunkMinutes': rules.maxChunkMinutes,
     'granularityMinutes': rules.granularityMinutes,
   };
 

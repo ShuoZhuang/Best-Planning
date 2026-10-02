@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
+import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 
 const _emptyScheduleSource = EmptyScheduleViewSource();
 const _disabledMoveController = DisabledWeekMoveController();
 final _autoAdjustStore = MemoryAutoAdjustStore();
 
-GoRouter createPlannerRouter({required TaskService taskService}) => GoRouter(
+GoRouter createPlannerRouter({
+  required TaskService taskService,
+  required SettingsService settingsService,
+}) => GoRouter(
   initialLocation: '/today',
   routes: [
     ShellRoute(
@@ -35,6 +40,13 @@ GoRouter createPlannerRouter({required TaskService taskService}) => GoRouter(
             moveController: _disabledMoveController,
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
+          ),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => PlanningRulesPage(
+            service: settingsService,
+            autoAdjustStore: _autoAdjustStore,
           ),
         ),
         GoRoute(
@@ -64,6 +76,7 @@ final class _PlannerShell extends StatelessWidget {
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
     '/calendar' => 2,
+    '/settings' => 3,
     _ => 0,
   };
 
@@ -80,6 +93,7 @@ final class _PlannerShell extends StatelessWidget {
               context.go(switch (index) {
                 1 => '/tasks',
                 2 => '/calendar',
+                3 => '/settings',
                 _ => '/today',
               });
             },
@@ -98,6 +112,11 @@ final class _PlannerShell extends StatelessWidget {
                 icon: Icon(Icons.calendar_view_week_outlined),
                 selectedIcon: Icon(Icons.calendar_view_week),
                 label: Text('日历'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.tune_outlined),
+                selectedIcon: Icon(Icons.tune),
+                label: Text('设置'),
               ),
             ],
           ),

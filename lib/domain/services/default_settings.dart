@@ -18,6 +18,16 @@ abstract final class DefaultSettings {
         level: EnergyLevel.low,
       ),
     ],
+    protectedTimes: [
+      ProtectedTimeRule(
+        kind: ProtectedTimeKind.lunch,
+        range: LocalTimeRange(startMinute: 12 * 60, endMinute: 13 * 60),
+      ),
+      ProtectedTimeRule(
+        kind: ProtectedTimeKind.dinner,
+        range: LocalTimeRange(startMinute: 18 * 60, endMinute: 19 * 60),
+      ),
+    ],
     sleepRange: LocalTimeRange(
       startMinute: 23 * 60 + 30,
       endMinute: 7 * 60 + 30,
@@ -27,6 +37,8 @@ abstract final class DefaultSettings {
     breakMinutes: 10,
     dailyMovableTaskLimitMinutes: 360,
     weeklyLifeQuotaMinutes: 360,
+    minChunkMinutes: 30,
+    maxChunkMinutes: 90,
   );
 
   static PlanningRules resolve({
