@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -58,27 +59,35 @@ final class MemoryPreferenceStore implements PreferenceStore {
       _autoHistory.isEmpty ? null : _autoHistory.removeLast();
 }
 
+/// 学习偏好的持久化。
+///
+/// 学习偏好本身由 `SettingsService` 统一读写（键 `planning.learnedPreferences.v1`），
+/// 因为排程正是在那里读取它。本类只负责建议列表与自动采用的撤销历史，存在
+/// 自己的状态键里。
+///
+/// 历史问题：本类曾自行维护 `planning.preferenceState.v1` 并把偏好包在
+/// `profile` 字段下，与 `SettingsService` 的键和 JSON 结构都不一致——两端各自
+/// 自洽，却从不互通，因此用户在偏好页面确认的偏好永远不影响排程。
 final class SettingsPreferenceStore implements PreferenceStore {
-  const SettingsPreferenceStore(this.repository);
+  SettingsPreferenceStore(this.repository)
+    : _settings = SettingsService(repository: repository);
 
+  /// 建议与撤销历史的状态键。学习偏好不使用该键。
   static const _key = 'planning.preferenceState.v1';
+
   final SettingsRepository repository;
+  final SettingsService _settings;
 
   @override
-  Future<PreferenceProfile> loadProfile() async {
-    final state = await _load();
-    final value = state['profile'];
-    return value is Map<String, Object?>
-        ? _profileFromJson(value)
-        : const PreferenceProfile();
-  }
+  Future<PreferenceProfile> loadProfile() async =>
+      await _settings.loadLearnedPreferences() ??
+      // 没有任何学习偏好时返回"未启用"：`PreferenceProfile.enabled` 默认是 true，
+      // 直接返回默认值会让人以为学习已启用（且 asPatch 会去应用一份空偏好）。
+      const PreferenceProfile(enabled: false);
 
   @override
-  Future<void> saveProfile(PreferenceProfile profile) async {
-    final state = await _load();
-    state['profile'] = _profileToJson(profile);
-    await _save(state);
-  }
+  Future<void> saveProfile(PreferenceProfile profile) =>
+      _settings.saveLearnedPreferences(profile);
 
   @override
   Future<List<PreferenceSuggestion>> loadSuggestions() async {
@@ -105,11 +114,15 @@ final class SettingsPreferenceStore implements PreferenceStore {
   }
 
   @override
-  Future<void> clearLearned() => _save({
-    'profile': _profileToJson(const PreferenceProfile(enabled: false)),
-    'suggestions': <Object?>[],
-    'autoHistory': <Object?>[],
-  });
+  Future<void> clearLearned() async {
+    // 学习偏好由 SettingsService 持有，清除时必须一并删除该键，
+    // 否则"清除学习结果"只清掉了建议列表，排程仍在消费旧偏好。
+    await _settings.clearLearnedPreferences();
+    await _save({
+      'suggestions': <Object?>[],
+      'autoHistory': <Object?>[],
+    });
+  }
 
   @override
   Future<void> rememberAutoApply(PreferenceProfile previous) async {

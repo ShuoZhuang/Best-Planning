@@ -86,7 +86,7 @@ final class SettingsService {
 
   Future<ResolvedPlanningSettings> resolveForDate(DateTime localDate) async {
     final user = await loadUserRules();
-    final learned = await _loadLearnedPreferences();
+    final learned = await loadLearnedPreferences();
     final dateOverride = await _loadPatch(_overrideKey(localDate));
     final isWeekend =
         localDate.weekday == DateTime.saturday ||
@@ -225,7 +225,13 @@ final class SettingsService {
   Future<void> setTrustAutoAdjust(bool value) =>
       repository.write(_trustAutoAdjustKey, value.toString());
 
-  Future<PreferenceProfile?> _loadLearnedPreferences() async {
+  /// 读取已确认/已自动采用的学习偏好。
+  ///
+  /// 这是学习偏好的唯一读取入口：排程通过 `resolveForDate` 消费它，偏好页面
+  /// 通过 `SettingsPreferenceStore` 写入它。此前偏好页面写的是另一个键
+  /// （`planning.preferenceState.v1`）且 JSON 结构也不同，导致用户确认的偏好
+  /// 永远不影响排程。
+  Future<PreferenceProfile?> loadLearnedPreferences() async {
     final raw = await repository.read(_learnedPreferencesKey);
     if (raw == null) return null;
     final value = jsonDecode(raw) as Map<String, Object?>;
