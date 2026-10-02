@@ -26,7 +26,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 容量按休息预算计算（只统计候选之后仍可承接后续片段的时间）。
   /// 版本 3 把休息推广到任意两个非生活任务块之间。
   /// 版本 4 取消任务类型区分：所有任务块之间一律保留休息。
-  static const String algorithmVersion = '4';
+  /// 版本 5 让候选排序以软约束总分为首键（与设计 §5.2 第 7 步一致），
+  /// 覆盖度退为同分时的次级依据。
+  static const String algorithmVersion = '5';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -495,11 +497,17 @@ final class _RankedCandidate {
   final int coverageMinutes;
 }
 
+/// 候选级排序。**软约束总分是首键**，与设计 §5.2 第 7 步"选择最高分且不破坏
+/// 硬约束的候选"一致；覆盖度只作为同分时的次级依据，不再反过来压过评分。
+///
+/// 历史：首键曾是 `coverageMinutes`，导致"一次吃更多目标时长"压过所有软约束，
+/// 评分几乎只在覆盖度打平时才起作用（实测：给"片段间距不足"加惩罚后，引擎改变
+/// 了分片方式却仍排出 0 分钟间隔）。
 int _compareRankedCandidates(_RankedCandidate a, _RankedCandidate b) {
-  final coverageOrder = b.coverageMinutes.compareTo(a.coverageMinutes);
-  if (coverageOrder != 0) return coverageOrder;
   final scoreOrder = b.score.compareTo(a.score);
   if (scoreOrder != 0) return scoreOrder;
+  final coverageOrder = b.coverageMinutes.compareTo(a.coverageMinutes);
+  if (coverageOrder != 0) return coverageOrder;
   final startOrder = a.candidate.startUtc.compareTo(b.candidate.startUtc);
   if (startOrder != 0) return startOrder;
   final taskOrder = a.candidate.taskId.compareTo(b.candidate.taskId);
