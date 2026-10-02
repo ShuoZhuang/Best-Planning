@@ -239,11 +239,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
           PreviewChange(
             kind: _kindOf(change),
             title: _titleOf(widget.zones, widget.timeZoneId, change),
-            reason: explanationLabel(
-              change.after?.explanationCode ??
-                  change.before?.explanationCode ??
-                  '',
-            ),
+            reason: explanationLabel(change.reason ?? ''),
           ),
       ],
       conflicts: [
@@ -296,6 +292,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
 PreviewChangeKind _kindOf(PlanChange change) => switch (change.type) {
   PlanChangeType.added => PreviewChangeKind.added,
   PlanChangeType.moved => PreviewChangeKind.moved,
+  PlanChangeType.split => PreviewChangeKind.split,
   PlanChangeType.removed => PreviewChangeKind.removed,
 };
 
