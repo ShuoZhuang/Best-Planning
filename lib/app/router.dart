@@ -97,6 +97,21 @@ GoRouter createPlannerRouter({
           builder: (context, state) => TaskListPage(
             service: taskService,
             nowUtc: nowUtc ?? todayStartUtc,
+            // FR-TASK-03 的"批量调整"最后一环。整批共用同一天，因此**只换算一次**；
+            // 页面不认识时区，本地日期到 UTC 的换算在此完成（与"设置截止时间"同一模式）。
+            onSetDueDateForSelection: (taskIds, localDate, minute) async {
+              final dueAtUtc = zones.localDateTimeToUtc(
+                localDate,
+                minute,
+                timeZoneId,
+              );
+              var allSaved = true;
+              for (final id in taskIds) {
+                final result = await taskService.setDueDate(id, dueAtUtc);
+                allSaved = allSaved && result.isSuccess;
+              }
+              return allSaved;
+            },
           ),
         ),
         GoRoute(

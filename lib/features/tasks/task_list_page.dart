@@ -14,6 +14,7 @@ final class TaskListPage extends StatefulWidget {
   const TaskListPage({
     required this.service,
     required this.nowUtc,
+    this.onSetDueDateForSelection,
     super.key,
   });
   final TaskService service;
@@ -21,6 +22,14 @@ final class TaskListPage extends StatefulWidget {
   /// 用于派生"已逾期"（R12）：该状态不落库，只取决于"截止已过且任务未结束"，
   /// 因此必须显式传入当前时刻，不能由页面各自读时钟决定。
   final DateTime nowUtc;
+
+  /// 批量设置截止日期的入口（FR-TASK-03 的"批量调整"最后一环）。为空时不显示该控件。
+  ///
+  /// 签名收的是**一组任务 id 加一个本地日期与分钟**，而不是逐条回调：整批共用同一天，
+  /// 换算因此只需做一次。与"设置截止时间"同理，**页面不认识时区**——本地日期到 UTC 的
+  /// 换算由注入方（持有 `TimeZoneDatabase` 的路由）完成。
+  final Future<bool> Function(List<String> taskIds, DateTime localDate, int minute)?
+  onSetDueDateForSelection;
 
   @override
   State<TaskListPage> createState() => _TaskListPageState();
@@ -133,6 +142,37 @@ final class _TaskListPageState extends State<TaskListPage> {
                         }),
                       ),
                   ],
+                ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  key: const Key('batch-due-date'),
+                  onPressed:
+                      widget.onSetDueDateForSelection == null ||
+                          _selected.isEmpty
+                      ? null
+                      : () async {
+                          // 页面只交出本地日期与"当天第几分钟"；换算与写入都在注入方那边，
+                          // 且整批只换算一次（见字段说明）。
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: widget.nowUtc,
+                            firstDate: DateTime(widget.nowUtc.year - 1),
+                            lastDate: DateTime(widget.nowUtc.year + 5),
+                          );
+                          if (picked == null) return;
+                          final ids = [..._selected];
+                          final allSaved = await widget
+                              .onSetDueDateForSelection!(ids, picked, 1439);
+                          if (!mounted) return;
+                          setState(() {
+                            _selected.clear();
+                            _batchMessage = allSaved
+                                ? '已把 ${ids.length} 项设为该截止日期'
+                                : '部分任务设置失败';
+                          });
+                        },
+                  icon: const Icon(Icons.event_available_outlined),
+                  label: const Text('统一设为截止日期'),
                 ),
                 const SizedBox(width: 12),
                 FilledButton.tonal(

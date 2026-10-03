@@ -168,6 +168,47 @@ void main() {
     expect(y('写方案'), lessThan(y('跑步')));
   });
 
+  testWidgets('批量设截止日期把整批交给注入方一次，且只作用于所选项', (tester) async {
+    final recorded = <(List<String>, DateTime, int)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskListPage(
+            service: service,
+            nowUtc: _now,
+            onSetDueDateForSelection: (ids, localDate, minute) async {
+              recorded.add((ids, localDate, minute));
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('toggle-batch-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('写方案'));
+    await tester.tap(find.text('跑步'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('batch-due-date')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('20'));
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    // **一次**调用带整批 id：逐条回调会让换算重复做，且中途失败更难解释。
+    expect(recorded, hasLength(1));
+    expect(recorded.single.$1, hasLength(2));
+    expect(recorded.single.$1, containsAll(<String>['task-1', 'task-3']));
+    expect(recorded.single.$1, isNot(contains('task-2')));
+    expect(recorded.single.$2.day, 20);
+    // 当天本地 23:59：与单条"设置截止时间"同一口径。
+    expect(recorded.single.$3, 1439);
+    expect(find.text('已把 2 项设为该截止日期'), findsOneWidget);
+  });
+
   testWidgets('空选择时批量取消不可用', (tester) async {
     await pumpList(tester);
     await tester.tap(find.byKey(const Key('toggle-batch-mode')));
