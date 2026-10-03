@@ -670,7 +670,42 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 验证方式（本机实测输出）：`flutter analyze` 无问题；`flutter test` 159 项全部通过（该数字为**当时**值；本节最新一次为 323 项，见 §13.0.9）。其中新增的迁移测试会构造 v1 数据库、向每张受影响表插入数据、执行迁移，并断言既有值不变、回填时间戳恰好等于注入的迁移时刻、新列与新表可用；空库迁移另按生成的 v2 快照校验结构一致。
 
-#### 13.0.9 收尾顺序
+#### 13.0.9 验证环境（Windows 本机）
+
+**本机跑 `flutter test` 之前必须重定向临时目录。** `flutter_tools` 会在系统临时目录下创建
+`flutter_tools.<pid>.<随机>`，而在 `C:\Users\<用户>\AppData\Local\Temp` 上这一步会失败，表现为两句极具
+误导性的输出：
+
+```
+null. The flutter tool cannot access the file or directory.
+Please ensure that the SDK and/or project is installed in a location that has read/write permissions for the current user.
+```
+
+栈顶指向 `ErrorHandlingFileSystem.systemTempDirectory`
+（`flutter_tools/src/base/error_handling_io.dart`）。**它与项目代码、插件符号链接、Android SDK、conda
+都无关**；`flutter analyze` 不受影响（它不创建临时目录），因此极易被误判为代码缺陷——本轮它整整挡住了
+一次全量验证。绕过方式（新窗口执行，或写进 `$PROFILE`）：
+
+```powershell
+New-Item -ItemType Directory -Force G:\best-planing\.flutter-tmp | Out-Null
+$env:TEMP = "G:\best-planing\.flutter-tmp"
+$env:TMP  = "G:\best-planing\.flutter-tmp"
+```
+
+该目录在 worktree 之外，不会进入 git。改后 `flutter test` 立即恢复。
+
+**其余本机环境事实**（可省去重复排查）：
+
+- **必须显式把项目自带的 SDK 加进 PATH**：`G:\best-planing\.tooling\flutter-bundle\flutter\bin`
+  （Flutter 3.47.5 / Dart 3.13.4，`pubspec.yaml` 要求 `sdk: ^3.13.4`）。
+- **Windows 构建插件需要符号链接支持**，须先开启"开发人员模式"（`start ms-settings:developers`），否则
+  `flutter pub get` 报 `Building with plugins requires symlink support.`，随后 `flutter test` 同样失败。
+  注意 `flutter clean` 会删除 `windows/flutter/ephemeral`，因此**在权限确认之前不要 clean**。
+- `flutter doctor` 中 **Android SDK 缺失、Chrome 缺失、maven.google.com 超时**三项对本项目**均无影响**
+  （Windows 桌面应用）；Visual Studio 2026 与 Windows 10 SDK 已就绪，原生资产与桌面构建工具链齐备。
+- 本机已在当前提交实测：`flutter analyze` **No issues found!**，`flutter test` **401 项全部通过**。
+
+#### 13.0.10 收尾顺序
 
 1. 修正文档漂移并落实进度勾选（已完成）。
 2. 修复可定位缺陷：C3、C4、C9、C10、C11 已修复；C1 按方案 C 实施并推广；C5、C6 已按"实现以需求文档为准"实施；C2 的因子注入已全部完成（最后一项为用户期望时段，提交 `fb3eb06`），仅剩"任务级因子在候选之间恒为常数"这一机制问题；C7 判定为不可达；C8 已修复（`424a1fc`，含一处实施中发现的确认阶段连带缺陷）。
