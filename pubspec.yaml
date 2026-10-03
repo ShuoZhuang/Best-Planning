@@ -59,6 +59,9 @@ dependencies:
   sqlite3: ^3.7.0
   fl_chart: ^1.2.0
   ffi: ^2.2.0
+  # 备份要定位应用自己的数据库文件。`drift_flutter` 内部就用它解析目录（版本已在
+  # pubspec.lock 中锁定为 2.1.6），这里提升为直接依赖以便按同一条规则算出路径。
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

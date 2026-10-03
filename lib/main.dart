@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
@@ -54,8 +55,12 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 /// 在此之前 `PlannerApp` 只拿到任务与设置仓储，排程引擎、`PlanningService` 与
 /// `PlanApplicationService` 从未被构造，今日页与周视图注入的是恒空的
 /// `EmptyScheduleViewSource`，因此排程链路在真实运行中完全不可达（偏差 W1–W2）。
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 数据库路径必须在**打开数据库之前**确定：备份要复制这个文件，而用户安排的恢复也要在此
+  // 刻完成替换（见 backup_assembly.dart 对"为什么等到启动"的说明）。
+  final databasePath = await preparePlannerDatabase();
 
   const clock = SystemClock();
   final zones = TimeZoneDatabase();
@@ -72,6 +77,12 @@ void main() {
   }
 
   final database = AppDatabase.openDefault();
+  // 数据备份页所需的服务（W3 的最后一条缺失路由）。它依赖真实的数据库路径，因此在这里装。
+  final backups = await buildBackupService(
+    database: database,
+    clock: clock,
+    databasePath: databasePath,
+  );
   final taskRepository = DriftTaskRepository(database.taskDao);
   final calendarRepository = DriftCalendarRepository(database);
   final calendarService = CalendarService(
@@ -277,6 +288,7 @@ void main() {
           zones: zones,
           timeZoneId: timeZoneId,
         ),
+        backups: backups,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),

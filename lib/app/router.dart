@@ -30,7 +30,10 @@ import 'package:personal_planner/features/calendar/week_view/week_view_page.dart
 import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
+import 'package:personal_planner/application/backup_service.dart';
+import 'package:personal_planner/features/settings/data/backup_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
+import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
@@ -70,6 +73,8 @@ GoRouter createPlannerRouter({
   TagService? tagService,
   AppLockService? appLock,
   ExportService? exportService,
+  /// 数据备份页（W3 最后一条缺失路由）。为空时不出现入口，也不注册路由内容。
+  BackupService? backupService,
   FocusService? focusService,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   void Function(String action, String suggestionId)? onSuggestionAction,
@@ -324,8 +329,34 @@ GoRouter createPlannerRouter({
                   subtitle: '把全部事实导出为 JSON 文件',
                   onOpen: () => context.go('/settings/export'),
                 ),
+              if (backupService != null)
+                SettingsHubEntry(
+                  key: const Key('settings-backup'),
+                  title: '数据备份与恢复',
+                  subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
+                  onOpen: () => context.go('/settings/backup'),
+                ),
             ],
           ),
+        ),
+        GoRoute(
+          path: '/settings/backup',
+          builder: (context, state) {
+            final service = backupService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '数据备份与恢复',
+                message: '备份服务未装配，暂无法备份或恢复。',
+              );
+            }
+            // 文件选择与归档写入用的是同一个端口实例（与导出页同样的做法）。
+            // **不传 `erasure`**：永久清除同样需要"关库—换实例—重开"，因此先不显示该入口，
+            // 而不是给出一个会留下半清除状态的按钮。
+            return BackupPage(
+              backups: service,
+              files: const FileSelectorAdapter(),
+            );
+          },
         ),
         GoRoute(
           path: '/settings/rules',
