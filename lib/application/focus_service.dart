@@ -1,5 +1,6 @@
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/domain/models/interruption_reason.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 
 enum FocusPhase { running, paused, finished }
@@ -115,12 +116,17 @@ final class FocusService {
 
   /// 一次专注**被暂停**时的回调（FR-STAT-06 的"常见中断"来源）。
   ///
-  /// 口径是**默认选定**的：**暂停即记一次中断**，标签为"专注中暂停"。刻意**不设时长阈值**——
-  /// 阈值会让"中断"依赖一个没人定义过的数字；要过滤极短暂停时改这一处即可。
+  /// 口径是**默认选定**的：**暂停即记一次中断**，标签为 `InterruptionReason.neutralLabel`
+  /// （"专注中暂停"）。刻意**不设时长阈值**——阈值会让"中断"依赖一个没人定义过的数字；
+  /// 要过滤极短暂停时改这一处即可。
   /// 与 `onFinished` 同理：计时不该知道统计的存在，装配由组合根负责。
   ///
+  /// 第二个参数是**用户选择的原因**，为 `null` 表示没有选择（跳过，或界面没问）。两条路径
+  /// **都记一次中断**，只是 code 不同：因此"按原因分类"这件事不会让已有的计数变少。
+  ///
   /// 注意 `pause()` 在**已经是暂停状态**时直接返回，因此连续点击不会重复计数。
-  final void Function(FocusSession session)? onInterrupted;
+  final void Function(FocusSession session, InterruptionReason? reason)?
+  onInterrupted;
 
   FocusSession? _current;
   Duration? _lastMonotonicMark;
@@ -149,7 +155,14 @@ final class FocusService {
     return session;
   }
 
-  Future<FocusSession> pause() async {
+  /// 暂停当前专注。[reason] 是用户选择的中断原因，可以为空。
+  ///
+  /// **为什么原因由调用方在暂停时一起给出，而不是暂停后再补一次**：如果再发一个"补充原因"
+  /// 的事件，同一次中断就会在统计里出现两次；而把两次合并成一条又需要一个可变的事件记录。
+  /// 因此界面**先问原因、再暂停**——代价是暂停时刻会晚一次对话交互。**这是有意的取舍**：
+  /// 时长与暂停时刻本就按分钟级粒度记录（`activeMinutes`），而 FR-STAT-06 要的是原因的
+  /// **分布**，问清楚比抢那几秒更重要。
+  Future<FocusSession> pause({InterruptionReason? reason}) async {
     final session = _requireCurrent();
     if (session.phase == FocusPhase.paused) return session;
     if (session.phase != FocusPhase.running) {
@@ -164,7 +177,7 @@ final class FocusService {
     _current = updated;
     _lastMonotonicMark = null;
     // FR-STAT-06 的"常见中断"：**暂停即记一次**（"已经是暂停"的情形在上面已提前返回）。
-    onInterrupted?.call(updated);
+    onInterrupted?.call(updated, reason);
     return updated;
   }
 

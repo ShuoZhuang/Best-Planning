@@ -41,6 +41,7 @@ import 'package:personal_planner/data/repositories/drift_task_correction_log.dar
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/domain/models/interruption_reason.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
@@ -237,11 +238,13 @@ Future<void> main() async {
     monotonicClock: StopwatchMonotonicClock(),
     idGenerator: UuidIdGenerator(),
     onFinished: focusEvidence.recordCompletedFocus,
-    // FR-STAT-06 的"常见中断"来源：**暂停即记一次**。标签写成人类可读的"专注中暂停"，
-    // 因为统计页直接把它显示给用户（而不是显示一个内部代码）。
-    onInterrupted: (session) => analyticsEvents.record(
+    // FR-STAT-06 的"常见中断"来源：**暂停即记一次**。标签写成人类可读的话，因为统计页直接
+    // 把它显示给用户（而不是显示一个内部代码）。**按原因分类**：用户在暂停时选的原因直接
+    // 作为 code（"他人打断"这样的词）；没有选（跳过）时回落到原先那一个中性标签，因此
+    // 这次改动**不会让中断计数变少**——它只让原本全挤在一个词里的中断分出几个类别。
+    onInterrupted: (session, reason) => analyticsEvents.record(
       kind: AnalyticsEventKind.interruption,
-      code: '专注中暂停',
+      code: reason?.label ?? InterruptionReason.neutralLabel,
       observedAtUtc: clock.nowUtc(),
       entityId: session.taskId,
     ),

@@ -1,6 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/domain/models/interruption_reason.dart';
 import 'package:personal_planner/features/focus/focus_recovery_dialog.dart';
+
+/// 暂停对话框的结果：选中的原因（可为空＝跳过）。用一层包装是为了把"取消对话框"
+/// （`null`，什么都不做）与"跳过原因"（`reason == null`，照样暂停）区分开——
+/// 两者都返回 `null` 会让"取消"变成"暂停"。
+final class _PauseChoice {
+  const _PauseChoice(this.reason);
+  final InterruptionReason? reason;
+}
+
+/// 问一次"为什么暂停"（FR-STAT-06 的"常见中断"按原因分类）。
+///
+/// 每个原因一个按钮而不是下拉＋确定：中断发生时要的是**一次点击**，而两步操作会让人干脆
+/// 跳过。另给一个明确的"跳过"，见 `_pause` 的说明。
+final class _InterruptionReasonDialog extends StatelessWidget {
+  const _InterruptionReasonDialog();
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('这次是因为什么暂停？'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final reason in InterruptionReason.choices)
+          ListTile(
+            key: Key('pause-reason-${reason.name}'),
+            title: Text(reason.label),
+            contentPadding: EdgeInsets.zero,
+            onTap: () =>
+                Navigator.of(context).pop(_PauseChoice(reason)),
+          ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        key: const Key('pause-cancel'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      TextButton(
+        key: const Key('pause-skip'),
+        onPressed: () =>
+            Navigator.of(context).pop(const _PauseChoice(null)),
+        child: const Text('跳过'),
+      ),
+    ],
+  );
+}
 
 final class FocusPage extends StatefulWidget {
   const FocusPage({
@@ -71,6 +120,23 @@ final class _FocusPageState extends State<FocusPage> {
     }
   }
 
+  /// 暂停，并**先问清原因**（FR-STAT-06 的"常见中断"要按原因分类）。
+  ///
+  /// 允许"跳过"：原因是可以不填的，**跳过仍然照样暂停并照样记一次中断**（只是 code 用中性
+  /// 标签）。若不给跳过，用户就只能在"随便编一个原因"和"不让计时停"之间选，两者都糟。
+  ///
+  /// **取舍**：先问再暂停，因此暂停时刻会晚一次对话交互。这是有意的——如果再发一条"补充
+  /// 原因"的事件，同一次中断会在统计里出现两次；而时长本就按分钟级粒度记录，问清楚比抢那
+  /// 几秒更重要（同一条理由也写在 `FocusService.pause` 上）。
+  Future<void> _pause() async {
+    final choice = await showDialog<_PauseChoice>(
+      context: context,
+      builder: (dialogContext) => const _InterruptionReasonDialog(),
+    );
+    if (choice == null) return;
+    await _run(() => widget.service.pause(reason: choice.reason));
+  }
+
   /// FR-FOCUS-04 的补录：用户确实专注了但没开计时器。
   ///
   /// 补录结果**不写 `_session`**：它是已结束的历史记录，写进去会让上面的"当前状态／已专注"
@@ -119,7 +185,8 @@ final class _FocusPageState extends State<FocusPage> {
               child: const Text('开始'),
             ),
             OutlinedButton(
-              onPressed: () => _run(widget.service.pause),
+              key: const Key('focus-pause'),
+              onPressed: _pause,
               child: const Text('暂停'),
             ),
             OutlinedButton(

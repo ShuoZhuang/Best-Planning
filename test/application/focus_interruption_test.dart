@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/domain/models/interruption_reason.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 
 final _start = DateTime.utc(2026, 10, 5, 9);
@@ -47,13 +48,19 @@ void main() {
   late _Monotonic monotonic;
   late _Store store;
   late List<FocusSession> interrupted;
+  late List<InterruptionReason?> reasons;
 
   FocusService build({bool withCallback = true}) => FocusService(
     store: store,
     clock: clock,
     monotonicClock: monotonic,
     idGenerator: _Ids(),
-    onInterrupted: withCallback ? interrupted.add : null,
+    onInterrupted: withCallback
+        ? (session, reason) {
+            interrupted.add(session);
+            reasons.add(reason);
+          }
+        : null,
   );
 
   setUp(() {
@@ -61,6 +68,7 @@ void main() {
     monotonic = _Monotonic();
     store = _Store();
     interrupted = [];
+    reasons = [];
   });
 
   test('暂停记录一次中断，并带上这次专注的任务 id', () async {
@@ -105,5 +113,49 @@ void main() {
 
     expect(paused.phase, FocusPhase.paused);
     expect(interrupted, isEmpty);
+  });
+
+  group('按原因分类', () {
+    test('用户选的原因被原样带出来', () async {
+      final service = build();
+      await service.start('task-1');
+
+      await service.pause(reason: InterruptionReason.message);
+      await service.resume();
+      await service.pause(reason: InterruptionReason.interruptedByOthers);
+
+      expect(reasons, <InterruptionReason?>[
+        InterruptionReason.message,
+        InterruptionReason.interruptedByOthers,
+      ]);
+    });
+
+    test('没有选原因时仍然记一次中断，只是原因是空的', () async {
+      // **这一条是本项的关键**：按原因分类不得让"跳过"变成"不计数"。若实现成
+      // "没有原因就不记"，统计里的中断总数会凭空减少，那比只有一种 code 更糟。
+      final service = build();
+      await service.start('task-1');
+
+      await service.pause();
+
+      expect(interrupted, hasLength(1));
+      expect(reasons, <InterruptionReason?>[null]);
+    });
+
+    test('两个不同的原因在统计里是两个不同的 code', () {
+      // code 就是标签本身（统计页直接显示它），因此分类要成立，标签必须两两不同。
+      final labels = [
+        for (final reason in InterruptionReason.choices) reason.label,
+      ];
+      expect(labels.toSet(), hasLength(labels.length));
+      expect(labels, isNot(contains(InterruptionReason.neutralLabel)));
+    });
+
+    test('枚举名与标签都不是空串（改名成空标签会让统计里出现空白行）', () {
+      for (final reason in InterruptionReason.choices) {
+        expect(reason.label.trim(), isNotEmpty);
+        expect(reason.name.trim(), isNotEmpty);
+      }
+    });
   });
 }
