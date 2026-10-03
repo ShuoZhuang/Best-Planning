@@ -7,12 +7,22 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
+import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+
+final class _FakeLifeAreas implements LifeAreaLookup {
+  const _FakeLifeAreas([this.ids = const {}]);
+
+  final Set<String> ids;
+
+  @override
+  Future<Set<String>> lifeTaskIds() async => ids;
+}
 
 void main() {
   final zones = TimeZoneDatabase();
@@ -46,8 +56,10 @@ void main() {
     List<PlannerTask> tasks = const [],
     List<CalendarOccurrence> occurrences = const [],
     ConfirmedPlan? plan,
+    Set<String> lifeTaskIds = const {},
   }) => RepositoryScheduleProblemSource(
     tasks: _FakeTasks(tasks),
+    lifeAreas: _FakeLifeAreas(lifeTaskIds),
     calendar: _FakeCalendar(occurrences),
     settings: SettingsService(repository: MemorySettingsRepository()),
     plans: _FakePlans(plan),
@@ -55,6 +67,18 @@ void main() {
     timeZoneId: zoneId,
     zones: zones,
   );
+
+  test('生活标记来自领域推导并进入排程输入', () async {
+    // 该字段此前从未被设置，导致生活配额因子恒为 0。
+    final life = await source(
+      tasks: [task(id: 'life-1', minutes: 60)],
+      lifeTaskIds: {'life-1'},
+    ).load();
+    expect(life.tasks.single.isLifeTask, isTrue);
+
+    final work = await source(tasks: [task(id: 'work-1', minutes: 60)]).load();
+    expect(work.tasks.single.isLifeTask, isFalse);
+  });
 
   test('按本机时区计算未来七天的规划窗口', () async {
     final problem = await source().load();

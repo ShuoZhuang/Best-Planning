@@ -7,6 +7,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
+import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
@@ -35,6 +36,7 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   RepositoryScheduleProblemSource({
     required this.tasks,
+    required this.lifeAreas,
     required this.calendar,
     required this.settings,
     required this.plans,
@@ -47,6 +49,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
        rules = PlanningRuleResolver(settings);
 
   final TaskRepository tasks;
+  final LifeAreaLookup lifeAreas;
   final CalendarRepository calendar;
   final SettingsService settings;
   final PlanRepository plans;
@@ -70,6 +73,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
 
     final resolvedRules = await rules.resolveForWindow(startLocalDate);
     final openTasks = await tasks.watchOpenTasks().first;
+    final lifeTaskIds = await lifeAreas.lifeTaskIds();
     final occurrences = await calendar.occurrencesBetween(startUtc, endUtc);
     final confirmed = await plans.current();
 
@@ -84,6 +88,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           dueAtUtc: task.dueAtUtc,
           priority: task.priority,
           energyLevel: task.energyLevel,
+          // 生活配额因子此前恒为 0，因为这里从未设置该字段。
+          isLifeTask: lifeTaskIds.contains(task.id),
           preferredWindow: task.preferredWindow,
         ),
     ];

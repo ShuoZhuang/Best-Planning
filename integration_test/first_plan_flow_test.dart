@@ -14,6 +14,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
@@ -45,6 +46,7 @@ void main() {
     final ruleResolver = PlanningRuleResolver(settingsService);
     final problemSource = RepositoryScheduleProblemSource(
       tasks: taskRepository,
+      lifeAreas: DriftLifeAreaLookup(database),
       calendar: calendarRepository,
       settings: settingsService,
       plans: planRepository,

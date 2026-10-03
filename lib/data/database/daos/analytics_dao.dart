@@ -66,7 +66,6 @@ final class AnalyticsDao implements AnalyticsDataSource {
         ? _instant(task.updatedAtUtc)
         : null;
     final areaName = area?.name;
-    final normalized = areaName?.toLowerCase() ?? '';
     return AnalyticsTaskFact(
       id: task.id,
       title: task.title,
@@ -77,11 +76,9 @@ final class AnalyticsDao implements AnalyticsDataSource {
       estimatedMinutes: task.estimatedMinutes,
       dueAtUtc: task.dueAtUtc == null ? null : _instant(task.dueAtUtc!),
       completedAtUtc: completedAt,
-      isLifeTask:
-          normalized.contains('生活') ||
-          normalized.contains('娱乐') ||
-          normalized.contains('休息') ||
-          normalized.contains('life'),
+      // 读领域上的生活标记，而不是猜领域名：名字匹配既漏（"家庭""健身"不是生活）
+      // 又错（"生活服务业项目"会被算成生活）。见 `LifeAreaLookup`。
+      isLifeTask: area?.isLife ?? false,
     );
   }
 
