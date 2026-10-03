@@ -8,6 +8,7 @@ final class WeekViewPage extends StatefulWidget {
     required this.moveController,
     this.onProposalCreated,
     this.onOpenDay,
+    this.onCreateEvent,
     super.key,
   });
 
@@ -20,6 +21,7 @@ final class WeekViewPage extends StatefulWidget {
   ///
   /// 与周视图互为切换，因此不占用导航项；为空时不显示切换按钮。
   final ValueChanged<DateTime>? onOpenDay;
+  final VoidCallback? onCreateEvent;
 
   @override
   State<WeekViewPage> createState() => _WeekViewPageState();
@@ -64,6 +66,13 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                   onPressed: () => widget.onOpenDay!(widget.weekStart),
                   icon: const Icon(Icons.calendar_today_outlined),
                   label: const Text('查看当日'),
+                ),
+              if (widget.onCreateEvent != null)
+                FilledButton.icon(
+                  key: const Key('create-calendar-event'),
+                  onPressed: widget.onCreateEvent,
+                  icon: const Icon(Icons.add),
+                  label: const Text('新建固定日程'),
                 ),
             ],
           ),

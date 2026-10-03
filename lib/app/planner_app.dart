@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
@@ -52,6 +53,7 @@ final class PlannerApp extends StatefulWidget {
     this.onSuggestionAction,
     this.recovery,
     this.calendar,
+    this.calendarService,
     this.autoAdjustStore,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
@@ -115,6 +117,10 @@ final class PlannerApp extends StatefulWidget {
   /// 特殊日恢复服务与当日固定日程来源（Task 11）。两者缺一时该入口不显示。
   final RecoveryPlanningService? recovery;
   final CalendarRepository? calendar;
+
+  /// 固定日程的写入服务。与只读的 [calendar] 分开注入，避免只有特殊日能读日程、
+  /// 日历却没有真实的新建入口。
+  final CalendarService? calendarService;
 
   /// "信任自动调整"的内存开关。为空时自建一个默认关闭的实例。
   ///
@@ -195,6 +201,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       onSuggestionAction: widget.onSuggestionAction,
       recovery: widget.recovery,
       calendar: widget.calendar,
+      calendarService: widget.calendarService,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),

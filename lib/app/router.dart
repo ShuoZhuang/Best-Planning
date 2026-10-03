@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
@@ -21,6 +22,7 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
+import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
@@ -68,6 +70,7 @@ GoRouter createPlannerRouter({
   void Function(String action, String suggestionId)? onSuggestionAction,
   RecoveryPlanningService? recovery,
   CalendarRepository? calendar,
+  CalendarService? calendarService,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -77,8 +80,7 @@ GoRouter createPlannerRouter({
         location: state.uri.path,
         onGeneratePlan: planningService == null
             ? null
-            : (shellContext) =>
-                  _generatePlan(shellContext, planningService),
+            : (shellContext) => _generatePlan(shellContext, planningService),
         onSpecialDay: recovery == null || calendar == null
             ? null
             : (shellContext) => shellContext.go('/special-day'),
@@ -109,9 +111,7 @@ GoRouter createPlannerRouter({
             // FR-FOCUS-01 的入口。页面不认识路由，导航由这里注入。
             onStartFocus: focusService == null
                 ? null
-                : () => context.go(
-                    '/focus/${state.pathParameters['taskId']!}',
-                  ),
+                : () => context.go('/focus/${state.pathParameters['taskId']!}'),
             taskId: state.pathParameters['taskId']!,
             nowUtc: nowUtc ?? todayStartUtc,
           ),
@@ -144,9 +144,69 @@ GoRouter createPlannerRouter({
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
             // FR-CAL-03 的日视图入口：与周视图互为切换，不占导航项。
-            onOpenDay: (dayStartUtc) =>
-                context.go('/calendar/day/${dayStartUtc.microsecondsSinceEpoch}'),
+            onOpenDay: (dayStartUtc) => context.go(
+              '/calendar/day/${dayStartUtc.microsecondsSinceEpoch}',
+            ),
+            onCreateEvent: calendarService == null
+                ? null
+                : () => context.go('/calendar/new'),
           ),
+        ),
+        GoRoute(
+          path: '/calendar/new',
+          builder: (context, state) {
+            final service = calendarService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '新建固定日程',
+                message: '日历写入服务未装配，暂无法新建固定日程。',
+              );
+            }
+            final localDay = zones.toLocal(todayStartUtc, timeZoneId);
+            final startUtc = zones.localDateTimeToUtc(
+              DateTime(localDay.year, localDay.month, localDay.day),
+              9 * 60,
+              timeZoneId,
+            );
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            tooltip: '返回日历',
+                            onPressed: () => context.go('/calendar'),
+                            icon: const Icon(Icons.arrow_back),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '新建固定日程',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      EventEditorForm(
+                        service: service,
+                        initialStartUtc: startUtc,
+                        initialEndUtc: startUtc.add(const Duration(hours: 1)),
+                        timeZoneId: timeZoneId,
+                        zones: zones,
+                        onSaved: () => context.go('/calendar'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
         GoRoute(
           // 日视图（FR-CAL-03）。与周视图共用同一个数据源，只是窗口为一天。
@@ -708,9 +768,8 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       ApplyPlanStatus.staleProposal => '输入已变化，计划已过期，请重新生成',
       ApplyPlanStatus.invalidProposal => '计划未通过校验，未应用',
     };
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
     if (result.status == ApplyPlanStatus.applied) {
       context.go('/calendar');
     }
@@ -724,11 +783,7 @@ PreviewChangeKind _kindOf(PlanChange change) => switch (change.type) {
   PlanChangeType.removed => PreviewChangeKind.removed,
 };
 
-String _titleOf(
-  TimeZoneDatabase zones,
-  String timeZoneId,
-  PlanChange change,
-) {
+String _titleOf(TimeZoneDatabase zones, String timeZoneId, PlanChange change) {
   final block = change.after ?? change.before;
   if (block == null) return change.blockId;
   final start = zones.toLocal(block.startUtc, timeZoneId);

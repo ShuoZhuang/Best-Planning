@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
@@ -73,6 +74,11 @@ void main() {
   final database = AppDatabase.openDefault();
   final taskRepository = DriftTaskRepository(database.taskDao);
   final calendarRepository = DriftCalendarRepository(database);
+  final calendarService = CalendarService(
+    repository: calendarRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
 
@@ -262,6 +268,7 @@ void main() {
         // 特殊日页要装配"当日规则 + 当日固定日程"，因此两样依赖都交下去（W3）。
         recovery: recovery,
         calendar: calendarRepository,
+        calendarService: calendarService,
         planApplication: PlanApplicationService(
           source: problemSource,
           repository: planRepository,
