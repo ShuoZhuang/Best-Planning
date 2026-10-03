@@ -1,4 +1,7 @@
-// Verification for the v1 to v2 database migration (R1, R5, R10, R13).
+// Verification for the database schema migrations (R1, R5, R10, R13, FR-TASK-05).
+//
+// Every version pair is validated against the generated snapshots, and the v1 to v3
+// path additionally carries data through so the backfill is actually exercised.
 //
 // The data half of this file matters more than the schema comparison: v2 adds
 // FR-DATA-08 creation and modification timestamps to tables whose existing rows
@@ -43,18 +46,27 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('an empty v1 database migrates to the v2 schema', () async {
-    final schema = await verifier.schemaAt(1);
-    final db = AppDatabase(
-      schema.newConnection(),
-      now: () => _migrationInstant,
-    );
+  // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
+  const versions = GeneratedHelper.versions;
+  for (final (index, fromVersion) in versions.indexed) {
+    for (final toVersion in versions.skip(index + 1)) {
+      test(
+        'an empty v$fromVersion database migrates to the v$toVersion schema',
+        () async {
+          final schema = await verifier.schemaAt(fromVersion);
+          final db = AppDatabase(
+            schema.newConnection(),
+            now: () => _migrationInstant,
+          );
 
-    await verifier.migrateAndValidate(db, 2);
+          await verifier.migrateAndValidate(db, toVersion);
 
-    await db.close();
-    schema.close();
-  });
+          await db.close();
+          schema.close();
+        },
+      );
+    }
+  }
 
   test('v1 rows survive and gain the migration instant', () async {
     final schema = await verifier.schemaAt(1);
@@ -194,7 +206,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 2);
+    await verifier.migrateAndValidate(db, 3);
 
     // Pre-existing values are preserved and every timestamp column added by the
     // migration holds the migration instant rather than the sentinel.
@@ -264,6 +276,24 @@ void main() {
         .into(db.taskTags)
         .insert(TaskTagsCompanion.insert(taskId: 'task-1', tagId: 'tag-1'));
     expect((await db.select(db.tags).getSingle()).name, '深度工作');
+
+    // v3 的剩余时长修正记录表：迁移后存在、可用，且保留修正前后两个值。
+    expect(await db.select(db.taskCorrections).get(), isEmpty);
+    await db
+        .into(db.taskCorrections)
+        .insert(
+          TaskCorrectionsCompanion.insert(
+            id: 'correction-1',
+            taskId: 'task-1',
+            previousMinutes: 90,
+            correctedMinutes: 120,
+            correctedAtUtc: _migrationInstantUs,
+          ),
+        );
+    final correction = await db.select(db.taskCorrections).getSingle();
+    expect(correction.taskId, 'task-1');
+    expect(correction.previousMinutes, 90);
+    expect(correction.correctedMinutes, 120);
 
     await db.close();
     schema.close();

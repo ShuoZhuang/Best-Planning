@@ -14,6 +14,7 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
+import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -66,6 +67,7 @@ void main() {
         taskRepository: taskRepository,
         settingsRepository: settingsRepository,
         planRepository: planRepository,
+        correctionLog: DriftTaskCorrectionLog(database),
         zones: zones,
         timeZoneId: timeZoneId,
         planningService: PlanningService(

@@ -6221,6 +6221,390 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
   }
 }
 
+class $TaskCorrectionsTable extends TaskCorrections
+    with TableInfo<$TaskCorrectionsTable, TaskCorrection> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TaskCorrectionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _taskIdMeta = const VerificationMeta('taskId');
+  @override
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES tasks (id)',
+    ),
+  );
+  static const VerificationMeta _previousMinutesMeta = const VerificationMeta(
+    'previousMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> previousMinutes = GeneratedColumn<int>(
+    'previous_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _correctedMinutesMeta = const VerificationMeta(
+    'correctedMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> correctedMinutes = GeneratedColumn<int>(
+    'corrected_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _correctedAtUtcMeta = const VerificationMeta(
+    'correctedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> correctedAtUtc = GeneratedColumn<int>(
+    'corrected_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    taskId,
+    previousMinutes,
+    correctedMinutes,
+    correctedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'task_corrections';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TaskCorrection> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('task_id')) {
+      context.handle(
+        _taskIdMeta,
+        taskId.isAcceptableOrUnknown(data['task_id']!, _taskIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_taskIdMeta);
+    }
+    if (data.containsKey('previous_minutes')) {
+      context.handle(
+        _previousMinutesMeta,
+        previousMinutes.isAcceptableOrUnknown(
+          data['previous_minutes']!,
+          _previousMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_previousMinutesMeta);
+    }
+    if (data.containsKey('corrected_minutes')) {
+      context.handle(
+        _correctedMinutesMeta,
+        correctedMinutes.isAcceptableOrUnknown(
+          data['corrected_minutes']!,
+          _correctedMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_correctedMinutesMeta);
+    }
+    if (data.containsKey('corrected_at_utc')) {
+      context.handle(
+        _correctedAtUtcMeta,
+        correctedAtUtc.isAcceptableOrUnknown(
+          data['corrected_at_utc']!,
+          _correctedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_correctedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TaskCorrection map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TaskCorrection(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      )!,
+      previousMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}previous_minutes'],
+      )!,
+      correctedMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}corrected_minutes'],
+      )!,
+      correctedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}corrected_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $TaskCorrectionsTable createAlias(String alias) {
+    return $TaskCorrectionsTable(attachedDatabase, alias);
+  }
+}
+
+class TaskCorrection extends DataClass implements Insertable<TaskCorrection> {
+  final String id;
+  final String taskId;
+  final int previousMinutes;
+  final int correctedMinutes;
+  final int correctedAtUtc;
+  const TaskCorrection({
+    required this.id,
+    required this.taskId,
+    required this.previousMinutes,
+    required this.correctedMinutes,
+    required this.correctedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['task_id'] = Variable<String>(taskId);
+    map['previous_minutes'] = Variable<int>(previousMinutes);
+    map['corrected_minutes'] = Variable<int>(correctedMinutes);
+    map['corrected_at_utc'] = Variable<int>(correctedAtUtc);
+    return map;
+  }
+
+  TaskCorrectionsCompanion toCompanion(bool nullToAbsent) {
+    return TaskCorrectionsCompanion(
+      id: Value(id),
+      taskId: Value(taskId),
+      previousMinutes: Value(previousMinutes),
+      correctedMinutes: Value(correctedMinutes),
+      correctedAtUtc: Value(correctedAtUtc),
+    );
+  }
+
+  factory TaskCorrection.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TaskCorrection(
+      id: serializer.fromJson<String>(json['id']),
+      taskId: serializer.fromJson<String>(json['taskId']),
+      previousMinutes: serializer.fromJson<int>(json['previousMinutes']),
+      correctedMinutes: serializer.fromJson<int>(json['correctedMinutes']),
+      correctedAtUtc: serializer.fromJson<int>(json['correctedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'taskId': serializer.toJson<String>(taskId),
+      'previousMinutes': serializer.toJson<int>(previousMinutes),
+      'correctedMinutes': serializer.toJson<int>(correctedMinutes),
+      'correctedAtUtc': serializer.toJson<int>(correctedAtUtc),
+    };
+  }
+
+  TaskCorrection copyWith({
+    String? id,
+    String? taskId,
+    int? previousMinutes,
+    int? correctedMinutes,
+    int? correctedAtUtc,
+  }) => TaskCorrection(
+    id: id ?? this.id,
+    taskId: taskId ?? this.taskId,
+    previousMinutes: previousMinutes ?? this.previousMinutes,
+    correctedMinutes: correctedMinutes ?? this.correctedMinutes,
+    correctedAtUtc: correctedAtUtc ?? this.correctedAtUtc,
+  );
+  TaskCorrection copyWithCompanion(TaskCorrectionsCompanion data) {
+    return TaskCorrection(
+      id: data.id.present ? data.id.value : this.id,
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      previousMinutes: data.previousMinutes.present
+          ? data.previousMinutes.value
+          : this.previousMinutes,
+      correctedMinutes: data.correctedMinutes.present
+          ? data.correctedMinutes.value
+          : this.correctedMinutes,
+      correctedAtUtc: data.correctedAtUtc.present
+          ? data.correctedAtUtc.value
+          : this.correctedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskCorrection(')
+          ..write('id: $id, ')
+          ..write('taskId: $taskId, ')
+          ..write('previousMinutes: $previousMinutes, ')
+          ..write('correctedMinutes: $correctedMinutes, ')
+          ..write('correctedAtUtc: $correctedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    taskId,
+    previousMinutes,
+    correctedMinutes,
+    correctedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TaskCorrection &&
+          other.id == this.id &&
+          other.taskId == this.taskId &&
+          other.previousMinutes == this.previousMinutes &&
+          other.correctedMinutes == this.correctedMinutes &&
+          other.correctedAtUtc == this.correctedAtUtc);
+}
+
+class TaskCorrectionsCompanion extends UpdateCompanion<TaskCorrection> {
+  final Value<String> id;
+  final Value<String> taskId;
+  final Value<int> previousMinutes;
+  final Value<int> correctedMinutes;
+  final Value<int> correctedAtUtc;
+  final Value<int> rowid;
+  const TaskCorrectionsCompanion({
+    this.id = const Value.absent(),
+    this.taskId = const Value.absent(),
+    this.previousMinutes = const Value.absent(),
+    this.correctedMinutes = const Value.absent(),
+    this.correctedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TaskCorrectionsCompanion.insert({
+    required String id,
+    required String taskId,
+    required int previousMinutes,
+    required int correctedMinutes,
+    required int correctedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       taskId = Value(taskId),
+       previousMinutes = Value(previousMinutes),
+       correctedMinutes = Value(correctedMinutes),
+       correctedAtUtc = Value(correctedAtUtc);
+  static Insertable<TaskCorrection> custom({
+    Expression<String>? id,
+    Expression<String>? taskId,
+    Expression<int>? previousMinutes,
+    Expression<int>? correctedMinutes,
+    Expression<int>? correctedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (taskId != null) 'task_id': taskId,
+      if (previousMinutes != null) 'previous_minutes': previousMinutes,
+      if (correctedMinutes != null) 'corrected_minutes': correctedMinutes,
+      if (correctedAtUtc != null) 'corrected_at_utc': correctedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TaskCorrectionsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? taskId,
+    Value<int>? previousMinutes,
+    Value<int>? correctedMinutes,
+    Value<int>? correctedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return TaskCorrectionsCompanion(
+      id: id ?? this.id,
+      taskId: taskId ?? this.taskId,
+      previousMinutes: previousMinutes ?? this.previousMinutes,
+      correctedMinutes: correctedMinutes ?? this.correctedMinutes,
+      correctedAtUtc: correctedAtUtc ?? this.correctedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (previousMinutes.present) {
+      map['previous_minutes'] = Variable<int>(previousMinutes.value);
+    }
+    if (correctedMinutes.present) {
+      map['corrected_minutes'] = Variable<int>(correctedMinutes.value);
+    }
+    if (correctedAtUtc.present) {
+      map['corrected_at_utc'] = Variable<int>(correctedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskCorrectionsCompanion(')
+          ..write('id: $id, ')
+          ..write('taskId: $taskId, ')
+          ..write('previousMinutes: $previousMinutes, ')
+          ..write('correctedMinutes: $correctedMinutes, ')
+          ..write('correctedAtUtc: $correctedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $PreferenceEvidenceTable extends PreferenceEvidence
     with TableInfo<$PreferenceEvidenceTable, PreferenceEvidenceData> {
   @override
@@ -7655,6 +8039,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PlanVersionsTable planVersions = $PlanVersionsTable(this);
   late final $ScheduleBlocksTable scheduleBlocks = $ScheduleBlocksTable(this);
   late final $TimeEntriesTable timeEntries = $TimeEntriesTable(this);
+  late final $TaskCorrectionsTable taskCorrections = $TaskCorrectionsTable(
+    this,
+  );
   late final $PreferenceEvidenceTable preferenceEvidence =
       $PreferenceEvidenceTable(this);
   late final $PreferenceRulesTable preferenceRules = $PreferenceRulesTable(
@@ -7679,6 +8066,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     planVersions,
     scheduleBlocks,
     timeEntries,
+    taskCorrections,
     preferenceEvidence,
     preferenceRules,
     changeLog,
@@ -8653,6 +9041,26 @@ final class $$TasksTableReferences
       manager.$state.copyWith(prefetchedData: cache),
     );
   }
+
+  static MultiTypedResultKey<$TaskCorrectionsTable, List<TaskCorrection>>
+  _taskCorrectionsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.taskCorrections,
+    aliasName: 'tasks__id__task_corrections__task_id',
+  );
+
+  $$TaskCorrectionsTableProcessedTableManager get taskCorrectionsRefs {
+    final manager = $$TaskCorrectionsTableTableManager(
+      $_db,
+      $_db.taskCorrections,
+    ).filter((f) => f.taskId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _taskCorrectionsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
 }
 
 class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
@@ -8832,6 +9240,31 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
           }) => $$TimeEntriesTableFilterComposer(
             $db: $db,
             $table: $db.timeEntries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> taskCorrectionsRefs(
+    Expression<bool> Function($$TaskCorrectionsTableFilterComposer f) f,
+  ) {
+    final $$TaskCorrectionsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskCorrections,
+      getReferencedColumn: (t) => t.taskId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskCorrectionsTableFilterComposer(
+            $db: $db,
+            $table: $db.taskCorrections,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9127,6 +9560,31 @@ class $$TasksTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> taskCorrectionsRefs<T extends Object>(
+    Expression<T> Function($$TaskCorrectionsTableAnnotationComposer a) f,
+  ) {
+    final $$TaskCorrectionsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskCorrections,
+      getReferencedColumn: (t) => t.taskId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskCorrectionsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.taskCorrections,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$TasksTableTableManager
@@ -9147,6 +9605,7 @@ class $$TasksTableTableManager
             bool taskTagsRefs,
             bool scheduleBlocksRefs,
             bool timeEntriesRefs,
+            bool taskCorrectionsRefs,
           })
         > {
   $$TasksTableTableManager(_$AppDatabase db, $TasksTable table)
@@ -9254,6 +9713,7 @@ class $$TasksTableTableManager
                 taskTagsRefs = false,
                 scheduleBlocksRefs = false,
                 timeEntriesRefs = false,
+                taskCorrectionsRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -9261,6 +9721,7 @@ class $$TasksTableTableManager
                     if (taskTagsRefs) db.taskTags,
                     if (scheduleBlocksRefs) db.scheduleBlocks,
                     if (timeEntriesRefs) db.timeEntries,
+                    if (taskCorrectionsRefs) db.taskCorrections,
                   ],
                   addJoins:
                       <
@@ -9349,6 +9810,27 @@ class $$TasksTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (taskCorrectionsRefs)
+                        await $_getPrefetchedData<
+                          Task,
+                          $TasksTable,
+                          TaskCorrection
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TasksTableReferences
+                              ._taskCorrectionsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TasksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).taskCorrectionsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.taskId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -9374,6 +9856,7 @@ typedef $$TasksTableProcessedTableManager =
         bool taskTagsRefs,
         bool scheduleBlocksRefs,
         bool timeEntriesRefs,
+        bool taskCorrectionsRefs,
       })
     >;
 typedef $$TagsTableCreateCompanionBuilder = TagsCompanion Function({
@@ -12728,6 +13211,334 @@ typedef $$TimeEntriesTableProcessedTableManager =
       TimeEntry,
       PrefetchHooks Function({bool taskId})
     >;
+typedef $$TaskCorrectionsTableCreateCompanionBuilder =
+    TaskCorrectionsCompanion Function({
+      required String id,
+      required String taskId,
+      required int previousMinutes,
+      required int correctedMinutes,
+      required int correctedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$TaskCorrectionsTableUpdateCompanionBuilder =
+    TaskCorrectionsCompanion Function({
+      Value<String> id,
+      Value<String> taskId,
+      Value<int> previousMinutes,
+      Value<int> correctedMinutes,
+      Value<int> correctedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$TaskCorrectionsTableReferences
+    extends
+        BaseReferences<_$AppDatabase, $TaskCorrectionsTable, TaskCorrection> {
+  $$TaskCorrectionsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $TasksTable _taskIdTable(_$AppDatabase db) =>
+      db.tasks.createAlias('task_corrections__task_id__tasks__id');
+
+  $$TasksTableProcessedTableManager get taskId {
+    final $_column = $_itemColumn<String>('task_id')!;
+
+    final manager = $$TasksTableTableManager(
+      $_db,
+      $_db.tasks,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_taskIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$TaskCorrectionsTableFilterComposer
+    extends Composer<_$AppDatabase, $TaskCorrectionsTable> {
+  $$TaskCorrectionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get previousMinutes => $composableBuilder(
+    column: $table.previousMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get correctedMinutes => $composableBuilder(
+    column: $table.correctedMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get correctedAtUtc => $composableBuilder(
+    column: $table.correctedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$TasksTableFilterComposer get taskId {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableFilterComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskCorrectionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $TaskCorrectionsTable> {
+  $$TaskCorrectionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get previousMinutes => $composableBuilder(
+    column: $table.previousMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get correctedMinutes => $composableBuilder(
+    column: $table.correctedMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get correctedAtUtc => $composableBuilder(
+    column: $table.correctedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$TasksTableOrderingComposer get taskId {
+    final $$TasksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableOrderingComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskCorrectionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TaskCorrectionsTable> {
+  $$TaskCorrectionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get previousMinutes => $composableBuilder(
+    column: $table.previousMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get correctedMinutes => $composableBuilder(
+    column: $table.correctedMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get correctedAtUtc => $composableBuilder(
+    column: $table.correctedAtUtc,
+    builder: (column) => column,
+  );
+
+  $$TasksTableAnnotationComposer get taskId {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskCorrectionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TaskCorrectionsTable,
+          TaskCorrection,
+          $$TaskCorrectionsTableFilterComposer,
+          $$TaskCorrectionsTableOrderingComposer,
+          $$TaskCorrectionsTableAnnotationComposer,
+          $$TaskCorrectionsTableCreateCompanionBuilder,
+          $$TaskCorrectionsTableUpdateCompanionBuilder,
+          (TaskCorrection, $$TaskCorrectionsTableReferences),
+          TaskCorrection,
+          PrefetchHooks Function({bool taskId})
+        > {
+  $$TaskCorrectionsTableTableManager(
+    _$AppDatabase db,
+    $TaskCorrectionsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TaskCorrectionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TaskCorrectionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TaskCorrectionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> taskId = const Value.absent(),
+                Value<int> previousMinutes = const Value.absent(),
+                Value<int> correctedMinutes = const Value.absent(),
+                Value<int> correctedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TaskCorrectionsCompanion(
+                id: id,
+                taskId: taskId,
+                previousMinutes: previousMinutes,
+                correctedMinutes: correctedMinutes,
+                correctedAtUtc: correctedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String taskId,
+                required int previousMinutes,
+                required int correctedMinutes,
+                required int correctedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => TaskCorrectionsCompanion.insert(
+                id: id,
+                taskId: taskId,
+                previousMinutes: previousMinutes,
+                correctedMinutes: correctedMinutes,
+                correctedAtUtc: correctedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TaskCorrectionsTable, TaskCorrection>(table),
+                  $$TaskCorrectionsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({taskId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (taskId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.taskId,
+                        referencedTable: $$TaskCorrectionsTableReferences
+                            ._taskIdTable(db),
+                        referencedColumn: $$TaskCorrectionsTableReferences
+                            ._taskIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$TaskCorrectionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TaskCorrectionsTable,
+      TaskCorrection,
+      $$TaskCorrectionsTableFilterComposer,
+      $$TaskCorrectionsTableOrderingComposer,
+      $$TaskCorrectionsTableAnnotationComposer,
+      $$TaskCorrectionsTableCreateCompanionBuilder,
+      $$TaskCorrectionsTableUpdateCompanionBuilder,
+      (TaskCorrection, $$TaskCorrectionsTableReferences),
+      TaskCorrection,
+      PrefetchHooks Function({bool taskId})
+    >;
 typedef $$PreferenceEvidenceTableCreateCompanionBuilder =
     PreferenceEvidenceCompanion Function({
       required String id,
@@ -13535,6 +14346,8 @@ class $AppDatabaseManager {
       $$ScheduleBlocksTableTableManager(_db, _db.scheduleBlocks);
   $$TimeEntriesTableTableManager get timeEntries =>
       $$TimeEntriesTableTableManager(_db, _db.timeEntries);
+  $$TaskCorrectionsTableTableManager get taskCorrections =>
+      $$TaskCorrectionsTableTableManager(_db, _db.taskCorrections);
   $$PreferenceEvidenceTableTableManager get preferenceEvidence =>
       $$PreferenceEvidenceTableTableManager(_db, _db.preferenceEvidence);
   $$PreferenceRulesTableTableManager get preferenceRules =>

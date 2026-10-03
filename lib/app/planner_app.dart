@@ -12,6 +12,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -26,6 +27,7 @@ final class PlannerApp extends StatefulWidget {
     this.planningService,
     this.planApplication,
     this.planRepository,
+    this.correctionLog,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -41,6 +43,10 @@ final class PlannerApp extends StatefulWidget {
   final PlanningService? planningService;
   final PlanApplicationService? planApplication;
   final PlanRepository? planRepository;
+
+  /// 剩余时长修正记录的写入端口（FR-TASK-05）。为空时修正照常生效，但不留历史，
+  /// 统计也就读不到——因此生产装配必须注入。
+  final TaskCorrectionLog? correctionLog;
 
   final TimeZoneDatabase? zones;
 
@@ -81,6 +87,7 @@ final class _PlannerAppState extends State<PlannerApp> {
         repository: _repository,
         clock: clock,
         idGenerator: UuidIdGenerator(),
+        correctionLog: widget.correctionLog,
       ),
       settingsService: SettingsService(repository: _settingsRepository),
       scheduleSource: widget.scheduleSource ?? const EmptyScheduleViewSource(),

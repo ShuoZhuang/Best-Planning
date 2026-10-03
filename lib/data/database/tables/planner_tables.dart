@@ -196,6 +196,28 @@ class TimeEntries extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// 剩余时长修正记录（FR-TASK-05）。
+///
+/// 任务表只保存当前剩余值，历史必须另有出处；而统计要看的正是"用户每次修正多少、
+/// 往哪个方向修正"（§8 的预估偏差口径），因此保留**修正前后两个值**，而不是只存
+/// 一个结果。
+///
+/// 单独建表而不是塞进 `change_log`：后者的用途是"为撤销、诊断和未来同步保留最小
+/// 变更历史"，只有 `operation` 一个文本列可放内容，把两个整数编码进字符串会让统计
+/// 必须先解析文本再计算——正是本项目在别处（按领域名猜生活标记）刚移除的那类做法。
+///
+/// 记录一旦写入不再修改，因此按 FR-DATA-08 只记创建时刻 `corrected_at_utc`，
+/// 与 `plan_versions`、`preference_evidence`、`change_log` 的处理一致。
+class TaskCorrections extends Table {
+  TextColumn get id => text()();
+  TextColumn get taskId => text().references(Tasks, #id)();
+  IntColumn get previousMinutes => integer()();
+  IntColumn get correctedMinutes => integer()();
+  IntColumn get correctedAtUtc => integer()();
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 class PreferenceEvidence extends Table {
   TextColumn get id => text()();
   TextColumn get kind => text()();

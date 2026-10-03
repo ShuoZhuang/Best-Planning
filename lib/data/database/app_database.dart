@@ -21,6 +21,7 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     PlanVersions,
     ScheduleBlocks,
     TimeEntries,
+    TaskCorrections,
     PreferenceEvidence,
     PreferenceRules,
     ChangeLog,
@@ -46,7 +47,7 @@ class AppDatabase extends _$AppDatabase {
   final DateTime Function() now;
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -54,6 +55,9 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (migrator, from, to) async {
       if (from < 2) {
         await _upgradeToV2(migrator);
+      }
+      if (from < 3) {
+        await migrator.createTable(taskCorrections);
       }
     },
     beforeOpen: (details) async {
