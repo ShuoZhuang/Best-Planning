@@ -225,6 +225,41 @@ final class FocusService {
     return updated;
   }
 
+  /// 补录一段**已经完成**的专注（FR-FOCUS-04）。
+  ///
+  /// 用途：用户确实专注了，但没开计时器。补录直接以"已完成＋已确认"落库，因此会与计时
+  /// 产生的记录一样进入统计与学习证据——这正是补录的意义，否则它只是一条本地便签。
+  ///
+  /// 与 [recoverOpenEntry]／[confirmRecovery] 的分工：那两个处理**已经存在**的记录，这里
+  /// 凭空建一条，所以时长必须由调用方给出；结束时刻取"现在"，开始时刻由时长倒推，于是这条
+  /// 记录落在时间轴上的位置与真实发生的时间一致。
+  ///
+  /// **不写 `_current`**：补录不是"当前正在进行的会话"，把它塞进 `_current` 会让界面把一条
+  /// 历史记录显示成进行中。
+  Future<FocusSession> recordCompleted({
+    required String taskId,
+    required int minutes,
+    String note = '',
+  }) async {
+    if (minutes <= 0) {
+      throw const FocusTransitionException('补录时长必须大于 0 分钟');
+    }
+    final now = clock.nowUtc();
+    final session = FocusSession(
+      id: idGenerator.next(),
+      taskId: taskId,
+      startedAtUtc: now.subtract(Duration(minutes: minutes)),
+      endedAtUtc: now,
+      lastWallAtUtc: now,
+      phase: FocusPhase.finished,
+      activeDuration: Duration(minutes: minutes),
+      recoveryState: FocusRecoveryState.confirmed,
+      note: note,
+    );
+    await store.save(session);
+    return session;
+  }
+
   Future<FocusRecoveryRequest?> recoverOpenEntry() async {
     final open = await store.findOpen();
     if (open == null) return null;

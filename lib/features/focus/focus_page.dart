@@ -59,12 +59,40 @@ final class _FocusPageState extends State<FocusPage> {
     );
   }
 
+  int? _backfillMinutes;
+  String? _backfillStatus;
+
   Future<void> _run(Future<FocusSession> Function() action) async {
     try {
       final session = await action();
       if (mounted) setState(() => _session = session);
     } on FocusTransitionException catch (error) {
       if (mounted) setState(() => _error = error.message);
+    }
+  }
+
+  /// FR-FOCUS-04 的补录：用户确实专注了但没开计时器。
+  ///
+  /// 补录结果**不写 `_session`**：它是已结束的历史记录，写进去会让上面的"当前状态／已专注"
+  /// 把一条历史显示成进行中。因此这里单独用一行状态文字回报结果。
+  Future<void> _backfill() async {
+    final minutes = _backfillMinutes;
+    if (minutes == null || minutes <= 0) {
+      setState(() => _backfillStatus = '请输入大于 0 的分钟数');
+      return;
+    }
+    try {
+      final session = await widget.service.recordCompleted(
+        taskId: widget.taskId,
+        minutes: minutes,
+      );
+      if (!mounted) return;
+      setState(
+        () => _backfillStatus =
+            '已补录 ${session.activeMinutes} 分钟（${session.id}）',
+      );
+    } on FocusTransitionException catch (error) {
+      if (mounted) setState(() => _backfillStatus = error.message);
     }
   }
 
@@ -104,6 +132,34 @@ final class _FocusPageState extends State<FocusPage> {
             ),
           ],
         ),
+        const Divider(height: 32),
+        // FR-FOCUS-04 的补录：计时器没开，但确实专注过。补录以"已完成＋已确认"落库，
+        // 因此和计时产生的记录一样进入统计与学习证据。
+        Text('补录已完成的专注', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('backfill-minutes'),
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '分钟'),
+                onChanged: (value) =>
+                    _backfillMinutes = int.tryParse(value.trim()),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              key: const Key('backfill-focus'),
+              onPressed: _backfill,
+              child: const Text('补录'),
+            ),
+          ],
+        ),
+        if (_backfillStatus != null) ...[
+          const SizedBox(height: 8),
+          Text(_backfillStatus!),
+        ],
       ],
     ),
   );

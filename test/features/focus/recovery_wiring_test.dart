@@ -110,6 +110,42 @@ void main() {
     expect(store.saved.last.recoveryState, FocusRecoveryState.discarded);
   });
 
+  // FR-FOCUS-04 的补录：用户专注了但没开计时器。这条用例断言两件关键的事——补录**落库**
+  // 且状态是"已完成＋已确认"（否则统计与学习证据都不会算它），以及它**不会变成当前会话**。
+  testWidgets('补录会写出一条已确认的完成记录，且不成为当前会话', (tester) async {
+    final store = _Store(null);
+    await pumpPage(tester, store);
+
+    await tester.enterText(find.byKey(const Key('backfill-minutes')), '25');
+    await tester.tap(find.byKey(const Key('backfill-focus')));
+    await tester.pumpAndSettle();
+
+    expect(store.saved, hasLength(1));
+    expect(store.saved.single.phase, FocusPhase.finished);
+    expect(store.saved.single.recoveryState, FocusRecoveryState.confirmed);
+    expect(store.saved.single.activeDuration.inMinutes, 25);
+    expect(store.saved.single.taskId, 'task-1');
+    // 开始时刻由时长倒推：记录落在时间轴上的位置要与真实发生的时间一致。
+    expect(
+      store.saved.single.endedAtUtc!.difference(store.saved.single.startedAtUtc),
+      const Duration(minutes: 25),
+    );
+    // 补录是历史记录；上面那行"当前状态"不该因此变成"已完成"。
+    expect(find.text('当前状态：未开始'), findsOneWidget);
+  });
+
+  testWidgets('补录拒绝非正时长，且不写库', (tester) async {
+    final store = _Store(null);
+    await pumpPage(tester, store);
+
+    await tester.enterText(find.byKey(const Key('backfill-minutes')), '0');
+    await tester.tap(find.byKey(const Key('backfill-focus')));
+    await tester.pumpAndSettle();
+
+    expect(store.saved, isEmpty);
+    expect(find.text('请输入大于 0 的分钟数'), findsOneWidget);
+  });
+
   testWidgets('没有未结束记录时不提示', (tester) async {
     final store = _Store(null);
     await pumpPage(tester, store);
