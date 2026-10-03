@@ -28,11 +28,22 @@ final class PlanningService implements ProposalCreator {
     required this.source,
     required this.engine,
     this.snapshots = const InputSnapshotBuilder(),
+    this.onProposalCreated,
   });
 
   final ScheduleProblemSource source;
   final ScheduleEngine engine;
   final InputSnapshotBuilder snapshots;
+
+  /// 每次生成提案后的通知回调（与 `FocusService.onFinished` 同型）。
+  ///
+  /// 存在的理由是一件具体的事：**冲突不是持久事实，而是每次排程的产物**（只活在
+  /// `ScheduleProposal` 里），因此"当前有哪些冲突待处理"此前**没有任何来源**——应用里
+  /// 没有任何组件持有"最近一次生成的提案"，于是 R8 的"冲突待处理"通知只能被跳过而不是
+  /// 伪造一条（见 §13.0 的 R8 ③ 与 W9）。组合根用这个回调把最近提案记下来，冲突通知的
+  /// `pendingConflicts` 便有了真实来源；同一个落点将来也能产生 `replan:` 事件。
+  final void Function(ScheduleProposal proposal)? onProposalCreated;
+
   final Map<String, ScheduleProposal> _previews = {};
 
   @override
@@ -52,6 +63,7 @@ final class PlanningService implements ProposalCreator {
     // 好让确认阶段（PlanApplicationService）能用同一个覆盖重放出同样的输入哈希。
     final preview = proposal.withRuleOverride(override);
     _previews[preview.proposalId] = preview;
+    onProposalCreated?.call(preview);
     return preview;
   }
 

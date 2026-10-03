@@ -46,6 +46,7 @@ import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
+import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 /// 组合根：在这里把数据库、仓库、排程引擎与应用服务装配成一个可运行的应用。
 ///
@@ -95,6 +96,10 @@ void main() {
   final notifications = WindowsNotificationAdapter(
     hasPackageIdentity: hasWindowsPackageIdentity(),
   );
+  // 最近一次生成的提案。冲突**不是持久事实**，只活在提案里，因此"冲突待处理"通知必须有一个
+  // 持有者——此前应用里没有任何组件持有它，于是那一类通知只能被跳过而不是伪造（R8 ③；与 W9
+  // 同源：两处缺的都是"谁持有当前待处理的提案"）。声明必须在通知服务之前，因为它的来源要用它。
+  ScheduleProposal? latestProposal;
   final notificationService = NotificationService(
     plans: planRepository,
     settings: settingsService,
@@ -104,8 +109,9 @@ void main() {
     timeZoneId: timeZoneId,
     calendar: calendarRepository,
     tasks: taskRepository,
-    // 冲突不是持久事实而是每次排程的产物，这里暂不提供来源，因此"冲突待处理"通知
-    // 会被跳过而不是伪造一条。
+    // 冲突不是持久事实而是每次排程的产物：来源就是上面那个"最近一次生成的提案"。
+    // 尚未生成过提案时返回空表，该类通知因此被跳过（而不是伪造一条）。
+    pendingConflicts: () async => latestProposal?.conflicts ?? const [],
   );
 
   // 启动即同步未来七天的提醒，但不阻塞首屏：通知不是启动的必要条件，平台侧失败也不
@@ -200,9 +206,11 @@ void main() {
     }
   }());
 
+  // 排程服务：每次生成提案后把最近一份交给上面那个持有者，冲突通知因此有了真实来源。
   final planningService = PlanningService(
     source: problemSource,
     engine: DeterministicScheduleEngine(zones),
+    onProposalCreated: (proposal) => latestProposal = proposal,
   );
   // 特殊日与次日恢复保护（Task 11）。C8 修复后例外是**提案输入**而不是持久设置，
   // 因此这条链路必须真正可达：页面早已存在，却从来没有路由（W3）。

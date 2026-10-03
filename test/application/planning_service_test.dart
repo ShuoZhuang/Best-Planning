@@ -18,6 +18,29 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 void main() {
   const snapshots = InputSnapshotBuilder();
 
+  // R8 ③ 的来源：每次生成提案后都会通知调用方。
+  //
+  // 冲突**不是持久事实**，只活在提案里；组合根靠这个回调持有"最近一份提案"，于是
+  // "冲突待处理"通知第一次有了真实来源（此前该类只能被跳过，因为没有组件持有提案）。
+  test('生成提案后回调拿到那一份，且它已在预览中登记', () async {
+    final seen = <ScheduleProposal>[];
+    final planning = PlanningService(
+      source: _MutableProblemSource(_problem(requiredMinutes: 60)),
+      engine: DeterministicScheduleEngine(TimeZoneDatabase()),
+      snapshots: snapshots,
+      onProposalCreated: seen.add,
+    );
+
+    final proposal = await planning.createProposal();
+
+    expect(seen, hasLength(1));
+    expect(seen.single.proposalId, proposal.proposalId);
+    // 回调拿到的必须是**已登记进预览**的那一份：组合根据它提供冲突，若给的是另一份，
+    // 通知里的冲突就会与实际预览的不一致。
+    expect(planning.preview(proposal.proposalId), isNotNull);
+    expect(planning.preview(proposal.proposalId)!.conflicts, proposal.conflicts);
+  });
+
   test('snapshot hash ignores UI state and normalizes input list order', () {
     final problem = _problem(requiredMinutes: 60);
     final reversed = ScheduleProblem(
