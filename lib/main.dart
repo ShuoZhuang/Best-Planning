@@ -203,6 +203,14 @@ void main() {
     monotonicClock: StopwatchMonotonicClock(),
     idGenerator: UuidIdGenerator(),
     onFinished: focusEvidence.recordCompletedFocus,
+    // FR-STAT-06 的"常见中断"来源：**暂停即记一次**。标签写成人类可读的"专注中暂停"，
+    // 因为统计页直接把它显示给用户（而不是显示一个内部代码）。
+    onInterrupted: (session) => analyticsEvents.record(
+      kind: AnalyticsEventKind.interruption,
+      code: '专注中暂停',
+      observedAtUtc: clock.nowUtc(),
+      entityId: session.taskId,
+    ),
   );
 
   // "信任自动调整"是持久设置，但它驱动的只是一个内存 store；此前该 store 每次启动都是新的，

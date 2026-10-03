@@ -98,6 +98,7 @@ final class FocusService {
     required this.monotonicClock,
     required this.idGenerator,
     this.onFinished,
+    this.onInterrupted,
   });
 
   final FocusEntryStore store;
@@ -111,6 +112,15 @@ final class FocusService {
   /// 为空时只计时、不留证据。**刻意只在显式 `finish()` 上触发**——崩溃恢复后确认的那条
   /// 路径不触发，因为用户补录的时长未必反映真实偏好；这一取舍登记在 §13.0。
   final Future<void> Function(FocusSession session)? onFinished;
+
+  /// 一次专注**被暂停**时的回调（FR-STAT-06 的"常见中断"来源）。
+  ///
+  /// 口径是**默认选定**的：**暂停即记一次中断**，标签为"专注中暂停"。刻意**不设时长阈值**——
+  /// 阈值会让"中断"依赖一个没人定义过的数字；要过滤极短暂停时改这一处即可。
+  /// 与 `onFinished` 同理：计时不该知道统计的存在，装配由组合根负责。
+  ///
+  /// 注意 `pause()` 在**已经是暂停状态**时直接返回，因此连续点击不会重复计数。
+  final void Function(FocusSession session)? onInterrupted;
 
   FocusSession? _current;
   Duration? _lastMonotonicMark;
@@ -153,6 +163,8 @@ final class FocusService {
     await store.save(updated);
     _current = updated;
     _lastMonotonicMark = null;
+    // FR-STAT-06 的"常见中断"：**暂停即记一次**（"已经是暂停"的情形在上面已提前返回）。
+    onInterrupted?.call(updated);
     return updated;
   }
 
