@@ -277,6 +277,15 @@ GoRouter createPlannerRouter({
               // FR-CAL-01 的删除。页面只交回条目 id；删除端口未装配时不显示该按钮。
               // 删除后**不需要手动刷新**：日程视图由 drift 的 watch 驱动，写入会使它重新发出。
               onDeleteEvent: calendarService?.deleteEvent,
+              // FR-CAL-02 的"只删这一次"。页面只交回条目 id、起点与标题；是否为重复日程、
+              // 以及例外用哪个时区，都由仓储判定（它才摸得到规则行）。
+              onDeleteOccurrence: calendarService == null
+                  ? null
+                  : (id, startUtc, title) => calendarService.deleteOccurrence(
+                      anchorId: id,
+                      occurrenceStartUtc: startUtc,
+                      title: title,
+                    ),
             );
           },
         ),

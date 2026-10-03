@@ -17,6 +17,7 @@ final class DayViewPage extends StatelessWidget {
     required this.timeZoneId,
     this.onOpenWeek,
     this.onDeleteEvent,
+    this.onDeleteOccurrence,
     super.key,
   });
 
@@ -34,6 +35,17 @@ final class DayViewPage extends StatelessWidget {
   /// **页面不认识仓储**：它只把条目 id 交回，删除与随后的刷新由注入方负责——与
   /// `onOpenWeek` 同理。为空时整块不渲染，而不是给一个点了没反应的图标。
   final Future<bool> Function(String eventId)? onDeleteEvent;
+
+  /// 只删除重复日程的**某一次**（FR-CAL-02）。为空时对话框里不出现"只删这一次"。
+  ///
+  /// 页面只交出条目 id、这次出现的起点与标题：判定"是不是重复日程"、以及例外的时区都由
+  /// 仓储负责（它才摸得到规则行）。标题随回调带上，是因为写入的例外行就是一条日程记录。
+  final Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    String title,
+  )?
+  onDeleteOccurrence;
 
   final VoidCallback? onOpenWeek;
 
@@ -101,7 +113,12 @@ final class DayViewPage extends StatelessWidget {
                               key: Key('delete-${item.id}'),
                               tooltip: '删除这条日程',
                               icon: const Icon(Icons.delete_outline),
-                              onPressed: () => onDeleteEvent!(item.id),
+                              onPressed: () => _confirmDelete(
+                                context,
+                                item,
+                                onDeleteEvent: onDeleteEvent,
+                                onDeleteOccurrence: onDeleteOccurrence,
+                              ),
                             ),
                         ],
                       ),
@@ -115,8 +132,64 @@ final class DayViewPage extends StatelessWidget {
   );
 }
 
-final class _DayItemTile extends StatelessWidget {
-  const _DayItemTile({
+/// 删除日程前问清"只删这一次"还是"删除整条／整个系列"。
+///
+/// **为什么要问**：这两件事在数据上完全不同——"这一次"会写一条零长度的例外行，系列的其它各次
+/// 保留；"整条"会删掉锚点行，重复日程的**所有**出现随之消失。而删除**不可逆**，用一句话把两种
+/// 后果说清楚，比事后让用户困惑要好。单次日程两种选择结果相同，正文里已说明。
+///
+/// 页面不认识仓储：它只把条目 id、起点与标题交回注入的回调，判定与换算都在仓储侧。
+Future<void> _confirmDelete(
+  BuildContext context,
+  ScheduleViewItem item, {
+  required Future<bool> Function(String eventId)? onDeleteEvent,
+  required Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    String title,
+  )?
+  onDeleteOccurrence,
+}) async {
+  final choice = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('删除「${item.title}」'),
+      content: const Text(
+        '重复日程：只删这一次会保留其它各次；删除整条会连同整个系列一起删除。\n'
+        '单次日程：两种选择结果相同。',
+      ),
+      actions: [
+        TextButton(
+          key: const Key('delete-cancel'),
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('取消'),
+        ),
+        if (onDeleteOccurrence != null)
+          TextButton(
+            key: const Key('delete-this-occurrence'),
+            onPressed: () => Navigator.of(dialogContext).pop('occurrence'),
+            child: const Text('只删这一次'),
+          ),
+        TextButton(
+          key: const Key('delete-entire'),
+          onPressed: () => Navigator.of(dialogContext).pop('entire'),
+          child: const Text('删除整条'),
+        ),
+      ],
+    ),
+  );
+  if (choice == 'occurrence') {
+    await onDeleteOccurrence!(
+      item.id,
+      item.range.startUtc,
+      item.title,
+    );
+  } else if (choice == 'entire') {
+    await onDeleteEvent!(item.id);
+  }
+}
+
+final class _DayItemTile extends StatelessWidget {  const _DayItemTile({
     required this.item,
     required this.start,
     required this.end,

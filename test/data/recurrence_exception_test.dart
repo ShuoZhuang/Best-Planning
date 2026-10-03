@@ -112,4 +112,81 @@ void main() {
       DateTime.utc(2026, 10, 12, 9),
     ]);
   });
+
+  test('删除某一次会隐藏那一次，其余各次保留；重复删除不堆积例外行', () async {
+    await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+    expect(await startsOverTwoWeeks(), hasLength(2));
+
+    // 只删 10-12 那一次。
+    await repository.deleteOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      title: '数据结构课',
+      exceptionId: 'exception-delete-1',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // 那一次消失，10-05 仍在——只断言"少了一条"无法区分"删对了哪一条"。
+    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 5, 9)]);
+
+    // 再删一次（过期视图会这样）：结果不变，且**不新增例外行**。
+    await repository.deleteOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      title: '数据结构课',
+      exceptionId: 'exception-delete-2',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 5, 9)]);
+    final exceptions = await database
+        .select(database.calendarEvents)
+        .get();
+    final exceptionRows = exceptions
+        .where((row) => row.exceptionOfId == 'anchor-1')
+        .toList();
+    expect(exceptionRows, hasLength(1));
+    // 零长度是"这一次被删除"的约定（见读取端），行长度本身必须为 0。
+    expect(exceptionRows.single.startAtUtc, exceptionRows.single.endAtUtc);
+  });
+
+  test('对单次日程调用"只删这一次"会删掉该行，而不是留下孤儿例外', () async {
+    // 一条**真正独立**的单次日程（不带 `exceptionOfId`）：夹具若复用替换行，会因为那条
+    // 锚点并不存在而撞上外键约束——本文件第一版正是这样，被用例当场顶了出来。
+    await repository.save(
+      CalendarEvent(
+        id: 'single-1',
+        title: '一次性讲座',
+        startAtUtc: DateTime.utc(2026, 10, 12, 14),
+        endAtUtc: DateTime.utc(2026, 10, 12, 15),
+        timeZoneId: 'UTC',
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+    );
+    expect(await startsOverTwoWeeks(), hasLength(1));
+
+    await repository.deleteOccurrence(
+      anchorId: 'single-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 14),
+      title: '一次性讲座',
+      exceptionId: 'exception-delete-3',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // 若这里留下一条 `exceptionOfId` 非空的零长度行，该行既不出现在单次查询里、也不会被
+    // 展开，等于把这条日程悄悄藏起来一半。
+    expect(await startsOverTwoWeeks(), isEmpty);
+  });
+
+  test('对不存在的锚点删除是幂等的', () async {
+    await expectLater(
+      repository.deleteOccurrence(
+        anchorId: 'never-existed',
+        occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+        title: '不存在',
+        exceptionId: 'exception-delete-4',
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+      completes,
+    );
+  });
 }

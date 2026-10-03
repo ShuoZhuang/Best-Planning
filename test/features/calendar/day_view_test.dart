@@ -142,10 +142,74 @@ void main() {
     await tester.ensureVisible(find.byKey(const Key('delete-task-1')));
     await tester.tap(find.byKey(const Key('delete-task-1')));
     await tester.pumpAndSettle();
+    // 删除自本轮起会先确认（FR-CAL-02 要区分"只删这一次"与"删除整条"），因此这里必须
+    // 走完"删除整条"这一步——否则断言的是"没发生删除"。
+    await tester.tap(find.byKey(const Key('delete-entire')));
+    await tester.pumpAndSettle();
 
     // 交回的必须是那一条的 id：删除最危险的错误是删错对象，而"被点了"与"删对了"
     // 是两件事，只断言"发生过一次删除"证明不了后者。
     expect(deleted, <String>['task-1']);
+  });
+
+  testWidgets('删除前问清"只删这一次"还是"删除整条"，并把选择交给对应入口', (tester) async {
+    final entire = <String>[];
+    final occurrences = <(String, DateTime, String)>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // 内联构造而不是复用 pump：这条用例要的正是"同时注入两个删除入口"的那种装配。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'anchor-1',
+                title: '数据结构课',
+                kind: ScheduleItemKind.fixed,
+                startHourUtc: 9,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async {
+              entire.add(id);
+              return true;
+            },
+            onDeleteOccurrence: (id, startUtc, title) async {
+              occurrences.add((id, startUtc, title));
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('delete-anchor-1')));
+    await tester.tap(find.byKey(const Key('delete-anchor-1')));
+    await tester.pumpAndSettle();
+    // 删除不可逆，因此对话框必须把两种后果说明白。
+    expect(find.textContaining('只删这一次会保留其它各次'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('delete-this-occurrence')));
+    await tester.pumpAndSettle();
+
+    expect(occurrences, hasLength(1));
+    expect(occurrences.single.$1, 'anchor-1');
+    expect(occurrences.single.$3, '数据结构课');
+    // **"被点了"与"删对了对象"是两件事**：选了"只删这一次"，整条删除的入口就不该被调用。
+    expect(entire, isEmpty);
+
+    // 再删一次，这次选"删除整条"：应当走另一个入口，且不再走"只删这一次"。
+    await tester.tap(find.byKey(const Key('delete-anchor-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('delete-entire')));
+    await tester.pumpAndSettle();
+
+    expect(entire, <String>['anchor-1']);
+    expect(occurrences, hasLength(1));
   });
 
   testWidgets('未注入删除入口时不显示删除按钮', (tester) async {

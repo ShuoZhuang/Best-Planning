@@ -78,15 +78,22 @@ final class DriftCalendarRepository
     final replacedByAnchor = <String, List<RecurrenceException>>{};
     for (final row in exceptionRows) {
       final anchorId = row.exceptionOfId!;
+      final startUtc = _instant(row.startAtUtc);
+      // 展开器按**本地日期**对齐例外，因此这里要用规则时区换算，而不是直接取 UTC 日期。
+      final localDate = _zones.toLocal(startUtc, row.timeZoneId);
       (replacedByAnchor[anchorId] ??= <RecurrenceException>[]).add(
-        RecurrenceException.replaced(
-          // 展开器按**本地日期**对齐例外，因此这里要用规则时区换算，而不是直接取 UTC 日期。
-          localDate: _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId),
-          replacement: TimeRange(
-            startUtc: _instant(row.startAtUtc),
-            endUtc: _instant(row.endAtUtc),
-          ),
-        ),
+        // **起止相同的零长度行表示"这一次被删除"**：`calendar_events` 没有任何能表达"删除"的
+        // 列，而一条起止相同的日程本身没有任何意义，因此用它当哨兵值，并把这条约定写进规格
+        // （见 §13.0 的 R4 行）。比"新增一列走 schema v4 迁移"便宜得多，代价是需要知道它。
+        row.startAtUtc == row.endAtUtc
+            ? RecurrenceException.deleted(localDate: localDate)
+            : RecurrenceException.replaced(
+                localDate: localDate,
+                replacement: TimeRange(
+                  startUtc: startUtc,
+                  endUtc: _instant(row.endAtUtc),
+                ),
+              ),
       );
     }
 
@@ -133,6 +140,84 @@ final class DriftCalendarRepository
   /// **本次只删这一条事件行**：若它是某条重复规则的锚点，规则行本身仍然留着，而展开又依赖
   /// 锚点才发生，因此"整串消失"。**逐次例外与"改整个系列"仍属后续**（`EventEditScope` 目前
   /// 只被采集、未被使用），这一点在 §13.0 的 R4 行里写明，不在实现里假装已经支持。
+  /// 只删除重复日程里的某一次（FR-CAL-02），见端口的文档说明。
+  @override
+  Future<void> deleteOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required String title,
+    required String exceptionId,
+    required DateTime updatedAtUtc,
+  }) async {
+    final anchor = await (_database.select(_database.calendarEvents)
+          ..where((row) => row.id.equals(anchorId))
+          ..limit(1))
+        .getSingleOrNull();
+    // 锚点已经不在了：这次删除的目的已经达到（幂等）。
+    if (anchor == null) return;
+
+    final ruleId = anchor.recurrenceRuleId;
+    // 不是重复日程：它就是一条单次日程，"只删这一次"与"删整条"本就等价。若仍写一条
+    // `exceptionOfId` 非空的零长度行，那行**既不出现在单次查询里、也不会被展开**，
+    // 等于把这条日程悄悄藏起来一半——因此这里直接删掉这一行。
+    if (ruleId == null) {
+      await deleteEvent(anchorId);
+      return;
+    }
+
+    final rule = await (_database.select(_database.recurrenceRules)
+          ..where((row) => row.id.equals(ruleId))
+          ..limit(1))
+        .getSingleOrNull();
+    // 规则行缺失（正常路径由 `saveRecurring` 的事务保证）：退化为删除锚点，而不是留下例外。
+    if (rule == null) {
+      await deleteEvent(anchorId);
+      return;
+    }
+
+    // 同一天已有例外就不再写：重复点击（或来自过期视图的删除）不该让例外行不断堆积。
+    final localDate = _zones.toLocal(occurrenceStartUtc, rule.timeZoneId);
+    final existing = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+    for (final row in existing) {
+      final rowDate = _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId);
+      if (rowDate.year == localDate.year &&
+          rowDate.month == localDate.month &&
+          rowDate.day == localDate.day) {
+        return;
+      }
+    }
+
+    // 用**底层 companion** 写这行，而不是走领域模型：`CalendarEvent` 的构造会校验
+    // `endUtc > startUtc`（`TimeRange` 的域不变量），而这里恰恰要写一行**起止相同**的标记行。
+    // 这行不是"一条日程"，而是"这一次被删除"的标记；读取端也只把它当标记（见
+    // `occurrencesBetween`），因此不构造领域模型。
+    final now = updatedAtUtc.microsecondsSinceEpoch;
+    await _database
+        .into(_database.calendarEvents)
+        .insert(
+          db.CalendarEventsCompanion(
+            id: Value(exceptionId),
+            title: Value(title),
+            startAtUtc: Value(occurrenceStartUtc.microsecondsSinceEpoch),
+            endAtUtc: Value(occurrenceStartUtc.microsecondsSinceEpoch),
+            timeZoneId: Value(rule.timeZoneId),
+            exceptionOfId: Value(anchorId),
+            // R10 要求时间戳一并写入：标记行同样不该留哨兵值 0。
+            createdAtUtc: Value(now),
+            updatedAtUtc: Value(now),
+          ),
+          onConflict: DoUpdate(
+            (old) => db.CalendarEventsCompanion(
+              startAtUtc: Value(occurrenceStartUtc.microsecondsSinceEpoch),
+              endAtUtc: Value(occurrenceStartUtc.microsecondsSinceEpoch),
+              updatedAtUtc: Value(now),
+            ),
+          ),
+        );
+  }
+
   @override
   Future<void> deleteEvent(String eventId) async {
     await (_database.delete(

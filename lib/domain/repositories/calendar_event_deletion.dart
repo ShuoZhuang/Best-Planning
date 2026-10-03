@@ -15,4 +15,26 @@ abstract interface class CalendarEventDeletion {
   /// 实现方对"不存在"的处理应当是**幂等**（删不掉等于已经删掉），因为调用方拿到的 id
   /// 可能来自一次已过期的视图；把"记录不在"当异常会让界面在一次无关的竞态后报错。
   Future<void> deleteEvent(String eventId);
+
+  /// 只删除重复日程里的**某一次**（FR-CAL-02 的"修改单次实例"的删除一半）。
+  ///
+  /// 实现方据此写一行**起止相同的零长度例外**（约定见 `DriftCalendarRepository` 的读取端与
+  /// §13.0 的 R4 行）：`calendar_events` 没有能表达"删除"的列，而零长度日程本身没有意义。
+  ///
+  /// **判定"是不是重复日程"由实现方负责**（要读规则行，只有仓储摸得到表），而且例外的
+  /// `timeZoneId` 必须取**规则自己的时区**，否则本地日期换算会错位一天。锚点不带规则时，
+  /// 实现方应退化为删除该行本身——否则会留下一条既不在单次查询里、也不会被展开的孤儿例外，
+  /// 等于把这条日程悄悄藏起来一半。
+  ///
+  /// **幂等**：同一次出现再删一次不该报错，也不该让例外行不断堆积。
+  ///
+  /// 放在这个端口而不是 `RecurringCalendarRepository`：后者有 2 个测试替身，而这里**一个都没有**
+  /// （与 `deleteEvent` 当初的选择一致——为了一处功能去改若干测试替身并不划算）。
+  Future<void> deleteOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required String title,
+    required String exceptionId,
+    required DateTime updatedAtUtc,
+  });
 }

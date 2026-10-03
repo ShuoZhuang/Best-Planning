@@ -83,6 +83,28 @@ final class CalendarService {
   final IdGenerator _idGenerator;
   final TimeZoneDatabase _zones;
 
+  /// 只删除重复日程里的**某一次**（FR-CAL-02 的"修改单次实例"的删除一半）。
+  ///
+  /// 实现细节在仓储侧：写入一行**起止相同的零长度例外**（约定见 `DriftCalendarRepository`
+  /// 的读取端与 §13.0 的 R4 行），锚点不带规则时退化为删除该行本身。
+  /// 未装配重复日程端口时返回 `false`，而不是假装删掉了。
+  Future<bool> deleteOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required String title,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.deleteOccurrence(
+      anchorId: anchorId,
+      occurrenceStartUtc: occurrenceStartUtc,
+      title: title,
+      exceptionId: _idGenerator.next(),
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    return true;
+  }
+
   /// 删除一条固定日程（FR-CAL-01）。未装配删除端口时返回 false，而不是假装删掉了。
   ///
   /// 返回 `bool`：界面据此显示"已删除／未装配"。**幂等**语义让"记录已不在"也算成功——调用方
