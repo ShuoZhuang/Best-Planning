@@ -50,17 +50,47 @@ final class AnalyticsDao implements AnalyticsDataSource {
       );
     }
     final rows = await query.get();
+    final tagsByTask = await _tagNamesByTask([
+      for (final row in rows) row.readTable(database.tasks).id,
+    ]);
     return [
       for (final row in rows)
         _taskFact(
           row.readTable(database.tasks),
           row.readTableOrNull(database.projects),
           row.readTableOrNull(database.areas),
+          tagsByTask[row.readTable(database.tasks).id] ?? const {},
         ),
     ];
   }
 
-  AnalyticsTaskFact _taskFact(Task task, Project? project, Area? area) {
+  /// 一次查出这批任务的标签名，按任务分组。
+  ///
+  /// 逐任务查询会变成 N+1；这里与 `_tasks` 同样是单条 join 查询。返回的是**名称**而不是
+  /// id，因为 `AnalyticsFilter.tags` 与界面用的都是名称。
+  Future<Map<String, Set<String>>> _tagNamesByTask(List<String> taskIds) async {
+    if (taskIds.isEmpty) return const {};
+    final query = database.select(database.taskTags).join([
+      innerJoin(
+        database.tags,
+        database.tags.id.equalsExp(database.taskTags.tagId),
+      ),
+    ])..where(database.taskTags.taskId.isIn(taskIds));
+    final result = <String, Set<String>>{};
+    for (final row in await query.get()) {
+      final taskId = row.readTable(database.taskTags).taskId;
+      final name = row.readTable(database.tags).name;
+      (result[taskId] ??= <String>{}).add(name);
+    }
+    return result;
+  }
+
+  AnalyticsTaskFact _taskFact(
+    Task task,
+    Project? project,
+    Area? area,
+    Set<String> tags,
+  ) {
     final status = TaskStatus.values.byName(task.status);
     final completedAt = status == TaskStatus.completed
         ? _instant(task.updatedAtUtc)
@@ -72,6 +102,8 @@ final class AnalyticsDao implements AnalyticsDataSource {
       areaId: area?.id,
       areaName: areaName,
       projectId: project?.id,
+      // 标签此前从未填充，因此标签筛选恒返回空集——见 R1。
+      tags: tags,
       status: status,
       estimatedMinutes: task.estimatedMinutes,
       dueAtUtc: task.dueAtUtc == null ? null : _instant(task.dueAtUtc!),
