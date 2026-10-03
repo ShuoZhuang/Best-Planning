@@ -64,6 +64,30 @@ final class _TaskListPageState extends State<TaskListPage> {
                 const SizedBox(width: 8),
                 Text('已选 ${_selected.length}'),
                 const Spacer(),
+                // FR-TASK-03 的"批量调整"里的**字段改写**：状态变更在右侧，这里改优先级。
+                // 文案用内联 switch 生成，避免为一个控件新增一个只有 4 个分支的辅助函数。
+                DropdownButton<TaskPriority>(
+                  key: const Key('batch-priority'),
+                  hint: const Text('设为优先级'),
+                  onChanged: _selected.isEmpty
+                      ? null
+                      : (value) {
+                          if (value != null) _setPriorityForSelected(value);
+                        },
+                  items: [
+                    for (final priority in TaskPriority.values)
+                      DropdownMenuItem(
+                        value: priority,
+                        child: Text(switch (priority) {
+                          TaskPriority.low => '低',
+                          TaskPriority.medium => '中',
+                          TaskPriority.high => '高',
+                          TaskPriority.urgent => '紧急',
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
                 FilledButton.tonal(
                   key: const Key('batch-cancel'),
                   // 空集合时禁用：给出一个作用不到任何对象的按钮只会让人怀疑它坏了。
@@ -142,6 +166,21 @@ final class _TaskListPageState extends State<TaskListPage> {
         ],
       ),
     );
+  }
+
+  /// 批量把选中的任务设为同一优先级（FR-TASK-03 的"批量调整"里改字段的那一半）。
+  ///
+  /// 与批量取消同样串行：仓储写入是串行的，中途失败时前面的结果仍然有效。
+  Future<void> _setPriorityForSelected(TaskPriority priority) async {
+    final ids = [..._selected];
+    for (final id in ids) {
+      await widget.service.setPriority(id, priority);
+    }
+    if (!mounted) return;
+    setState(() {
+      _selected.clear();
+      _batchMessage = '已把 ${ids.length} 项设为该优先级';
+    });
   }
 
   /// 批量把选中的任务置为**已取消**（FR-TASK-03 的"状态变更"）。

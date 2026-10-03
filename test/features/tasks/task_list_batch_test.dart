@@ -111,6 +111,33 @@ void main() {
     expect(find.text('已取消 2 项'), findsOneWidget);
   });
 
+  testWidgets('批量改写优先级只作用于所选项', (tester) async {
+    await pumpList(tester);
+    await tester.tap(find.byKey(const Key('toggle-batch-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('写方案'));
+    await tester.tap(find.text('跑步'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('batch-priority')));
+    await tester.pumpAndSettle();
+    // 按**值**找到菜单项，文案改动不会让这条用例悄悄失效。
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is DropdownMenuItem<TaskPriority> &&
+            widget.value == TaskPriority.urgent,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tasks.tasks['task-1']!.priority, TaskPriority.urgent);
+    expect(tasks.tasks['task-3']!.priority, TaskPriority.urgent);
+    // 未选中的一条必须原样不动——与批量取消同理，这是"批量"最容易做错的地方。
+    expect(tasks.tasks['task-2']!.priority, TaskPriority.medium);
+    expect(find.text('已把 2 项设为该优先级'), findsOneWidget);
+  });
+
   testWidgets('空选择时批量取消不可用', (tester) async {
     await pumpList(tester);
     await tester.tap(find.byKey(const Key('toggle-batch-mode')));
