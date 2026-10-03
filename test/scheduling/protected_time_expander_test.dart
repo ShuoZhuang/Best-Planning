@@ -99,4 +99,67 @@ void main() {
     expect(lunch.range.startUtc, DateTime.utc(2026, 10, 5, 4));
     expect(lunch.range.endUtc, DateTime.utc(2026, 10, 5, 5));
   });
+
+  test('终点为 24:00 的保护时间结束于次日本地零点', () {
+    // 09:00–24:00 不跨午夜，但 endMinute 是 1440，而 localDateTimeToUtc 只接受
+    // [0, 1439]：直接传 1440 会抛参数错误，整轮排程随之失败。
+    final rules = DefaultSettings.v1().copyWith(
+      protectedTimes: [
+        ProtectedTimeRule(
+          kind: ProtectedTimeKind.fixedRest,
+          range: LocalTimeRange(
+            startMinute: 9 * 60,
+            endMinute: LocalTimeRange.minutesPerDay,
+          ),
+        ),
+      ],
+    );
+
+    final intervals = expander.expand(
+      rules: rules,
+      startUtc: DateTime.utc(2026, 10, 5),
+      endUtc: DateTime.utc(2026, 10, 7),
+      timeZoneId: 'UTC',
+    );
+
+    expect(intervals.length, 2);
+    expect(intervals.first.range.startUtc, DateTime.utc(2026, 10, 5, 9));
+    expect(intervals.first.range.endUtc, DateTime.utc(2026, 10, 6));
+    expect(intervals.first.range.durationMinutes, 15 * 60);
+    expect(intervals.last.range.endUtc, DateTime.utc(2026, 10, 7));
+  });
+
+  test('夏令时切换日仍按当地钟点展开', () {
+    // 2026-03-08 是美国夏令时开始日。当地 12:00–13:00 在 3/7 是 17:00Z（EST，
+    // UTC-5），在 3/8 与 3/9 是 16:00Z（EDT，UTC-4）。三天都应当展开出当地 12:00
+    // 的那一小时，说明换算走的是本地墙上时间而不是固定偏移。
+    final rules = DefaultSettings.v1().copyWith(
+      protectedTimes: [
+        ProtectedTimeRule(
+          kind: ProtectedTimeKind.fixedRest,
+          range: LocalTimeRange(startMinute: 12 * 60, endMinute: 13 * 60),
+        ),
+      ],
+    );
+
+    final intervals = expander.expand(
+      rules: rules,
+      startUtc: DateTime.utc(2026, 3, 7, 12),
+      // 窗口要一直覆盖到 3/9 当地中午之后，否则 3/9 那段会被正确地裁掉。
+      endUtc: DateTime.utc(2026, 3, 10),
+      timeZoneId: 'America/New_York',
+    );
+
+    expect(
+      intervals.map((item) => item.range.startUtc).toList(),
+      [
+        DateTime.utc(2026, 3, 7, 17),
+        DateTime.utc(2026, 3, 8, 16),
+        DateTime.utc(2026, 3, 9, 16),
+      ],
+    );
+    for (final item in intervals) {
+      expect(item.range.durationMinutes, 60);
+    }
+  });
 }

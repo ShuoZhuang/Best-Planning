@@ -50,13 +50,22 @@ final class ProtectedTimeExpander {
           rule.range.startMinute,
           timeZoneId,
         );
-        final end = _zones.localDateTimeToUtc(
-          rule.range.crossesMidnight
-              ? localDate.add(const Duration(days: 1))
-              : localDate,
-          rule.range.endMinute,
-          timeZoneId,
-        );
+        // 终点落在次日有两种情形：真正跨越午夜的区间（22:00–02:00），以及终点为
+        // 24:00 的区间（09:00–24:00）。后者不跨午夜但 `endMinute` 是 1440，而
+        // `localDateTimeToUtc` 只接受 [0, 1439]，直接传会抛参数错误，因此必须改用
+        // 次日本地零点(`localMidnightToUtc`)。
+        final endsAtMidnight =
+            rule.range.endMinute == LocalTimeRange.minutesPerDay;
+        final endDate = rule.range.crossesMidnight || endsAtMidnight
+            ? _shiftDate(localDate, 1)
+            : localDate;
+        final end = endsAtMidnight
+            ? _zones.localMidnightToUtc(endDate, timeZoneId)
+            : _zones.localDateTimeToUtc(
+                endDate,
+                rule.range.endMinute,
+                timeZoneId,
+              );
         if (!end.isAfter(start)) continue;
 
         final clippedStart = start.isBefore(startUtc) ? startUtc : start;
@@ -72,7 +81,7 @@ final class ProtectedTimeExpander {
           ),
         );
       }
-      localDate = localDate.add(const Duration(days: 1));
+      localDate = _shiftDate(localDate, 1);
     }
 
     return List.unmodifiable(intervals);
@@ -81,6 +90,14 @@ final class ProtectedTimeExpander {
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+/// 按日历日位移，而不是 `DateTime.add(const Duration(days: 1))`。
+///
+/// 本地 `DateTime` 的 `add` 是**绝对时间**加法：在夏令时回拨日，本地零点加 24 小时
+/// 会回到同一天的 23:00，日期不变，于是逐日展开会漏掉一天或多算一天。按
+/// `(year, month, day + n)` 构造才是真正的"下一个日历日"。
+DateTime _shiftDate(DateTime date, int days) =>
+    DateTime(date.year, date.month, date.day + days);
 
 String _dateKey(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-'
