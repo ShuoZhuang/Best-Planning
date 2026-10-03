@@ -548,6 +548,8 @@ String _signature(dynamic proposal) => jsonEncode({
   ],
   'conflicts': [
     for (final item in proposal.conflicts)
-      [item.code.name, item.taskId, item.shortageMinutes],
+      // 不要用 `item.code.name`：`item` 是 dynamic，动态派发看不到 Enum 的
+      // `name` 扩展，会在存在冲突时抛 NoSuchMethodError。
+      ['${item.code}', item.taskId, item.shortageMinutes],
   ],
 });

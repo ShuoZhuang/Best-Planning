@@ -58,9 +58,13 @@ void main() {
 
     await store.clearLearned();
 
-    expect(await settings.loadLearnedPreferences(), isNull);
+    // 清除会写入显式的"已停用"档案，而不是删除键：用户需要能区分
+    // "我清空过学习结果"与"我还没用过这个功能"。
+    final cleared = await settings.loadLearnedPreferences();
+    expect(cleared, isNotNull);
+    expect(cleared!.enabled, isFalse);
+    expect(cleared.preferredFocusMinutes, isNull);
     expect((await settings.resolveForDate(day)).rules.defaultFocusMinutes, 50);
-    // 默认构造的 enabled 为 true，因此空状态必须显式报告为未启用。
     expect((await store.loadProfile()).enabled, isFalse);
   });
 

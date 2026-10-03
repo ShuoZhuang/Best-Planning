@@ -40,7 +40,7 @@ void main() {
     final taskRepository = DriftTaskRepository(database.taskDao);
     final calendarRepository = DriftCalendarRepository(database);
     final planRepository = DriftPlanRepository(database, clock: clock);
-    final settingsRepository = DriftSettingsRepository(database, clock: clock);
+    final settingsRepository = DriftSettingsRepository(database, clock);
     final settingsService = SettingsService(repository: settingsRepository);
     final ruleResolver = PlanningRuleResolver(settingsService);
     final problemSource = RepositoryScheduleProblemSource(

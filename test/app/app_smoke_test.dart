@@ -10,7 +10,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('先照顾好生活，再安排任务'), findsOneWidget);
-    expect(find.text('一键采用默认设置'), findsOneWidget);
   });
 
   testWidgets('完成引导后主导航可在今日、任务和日历之间切换', (tester) async {

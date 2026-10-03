@@ -80,10 +80,10 @@ final class SettingsPreferenceStore implements PreferenceStore {
 
   @override
   Future<PreferenceProfile> loadProfile() async =>
-      await _settings.loadLearnedPreferences() ??
-      // 没有任何学习偏好时返回"未启用"：`PreferenceProfile.enabled` 默认是 true，
-      // 直接返回默认值会让人以为学习已启用（且 asPatch 会去应用一份空偏好）。
-      const PreferenceProfile(enabled: false);
+      // 从未学习过时返回默认值（`enabled` 为 true）。需求 8.4.1 规定偏好学习
+      // 默认"开启建议、关闭自动采用"，因此"没有数据"不等于"学习已关闭"——
+      // PreferenceAnalyzer 会依据 `enabled` 决定是否产出建议。
+      await _settings.loadLearnedPreferences() ?? const PreferenceProfile();
 
   @override
   Future<void> saveProfile(PreferenceProfile profile) =>
@@ -115,9 +115,14 @@ final class SettingsPreferenceStore implements PreferenceStore {
 
   @override
   Future<void> clearLearned() async {
-    // 学习偏好由 SettingsService 持有，清除时必须一并删除该键，
-    // 否则"清除学习结果"只清掉了建议列表，排程仍在消费旧偏好。
-    await _settings.clearLearnedPreferences();
+    // 学习偏好由 SettingsService 持有，清除时必须一并改写该键，否则"清除学习结果"
+    // 只清掉建议列表，排程仍在消费旧偏好。
+    //
+    // 这里写入的是显式的"已停用"档案，而不是删除键：删除会让状态回到"从未学习"，
+    // 而用户需要能区分"我清空过学习结果"与"我还没用过这个功能"。
+    await _settings.saveLearnedPreferences(
+      const PreferenceProfile(enabled: false),
+    );
     await _save({
       'suggestions': <Object?>[],
       'autoHistory': <Object?>[],
