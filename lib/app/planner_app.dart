@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/task_service.dart';
@@ -28,6 +29,7 @@ final class PlannerApp extends StatefulWidget {
     this.planApplication,
     this.planRepository,
     this.correctionLog,
+    this.analytics,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -47,6 +49,10 @@ final class PlannerApp extends StatefulWidget {
   /// 剩余时长修正记录的写入端口（FR-TASK-05）。为空时修正照常生效，但不留历史，
   /// 统计也就读不到——因此生产装配必须注入。
   final TaskCorrectionLog? correctionLog;
+
+  /// 统计查询服务。为空时"统计"页仍然可达，但会明确说明服务未装配——统计页此前
+  /// 根本没有路由，是 W3 登记的缺口之一。
+  final AnalyticsQuery? analytics;
 
   final TimeZoneDatabase? zones;
 
@@ -99,6 +105,9 @@ final class _PlannerAppState extends State<PlannerApp> {
       planningService: widget.planningService,
       planApplication: widget.planApplication,
       plans: widget.planRepository,
+      analytics: widget.analytics,
+      // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
+      nowUtc: clock.nowUtc(),
     );
   }
 

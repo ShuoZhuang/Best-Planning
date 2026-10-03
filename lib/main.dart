@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -10,6 +11,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/local_time_zone.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
@@ -68,6 +70,7 @@ void main() {
         settingsRepository: settingsRepository,
         planRepository: planRepository,
         correctionLog: DriftTaskCorrectionLog(database),
+        analytics: AnalyticsService(source: AnalyticsDao(database)),
         zones: zones,
         timeZoneId: timeZoneId,
         planningService: PlanningService(

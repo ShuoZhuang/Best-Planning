@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
@@ -34,6 +36,8 @@ GoRouter createPlannerRouter({
   PlanningService? planningService,
   PlanApplicationService? planApplication,
   PlanRepository? plans,
+  AnalyticsQuery? analytics,
+  DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
   routes: [
@@ -72,6 +76,23 @@ GoRouter createPlannerRouter({
             service: settingsService,
             autoAdjustStore: autoAdjustStore,
           ),
+        ),
+        GoRoute(
+          path: '/analytics',
+          builder: (context, state) {
+            final query = analytics;
+            // 与调整预览一致：依赖未装配时明确说明原因，而不是给一个点了没反应的页面。
+            if (query == null) {
+              return const _UnavailablePage(
+                title: '统计',
+                message: '统计服务未装配，暂无法展示统计报表。',
+              );
+            }
+            return AnalyticsPage(
+              analytics: query,
+              nowUtc: nowUtc ?? todayStartUtc,
+            );
+          },
         ),
         GoRoute(
           path: '/planning/preview/:proposalId',
@@ -113,7 +134,8 @@ final class _PlannerShell extends StatelessWidget {
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
     '/calendar' => 2,
-    '/settings' => 3,
+    '/analytics' => 3,
+    '/settings' => 4,
     _ => 0,
   };
 
@@ -142,7 +164,8 @@ final class _PlannerShell extends StatelessWidget {
               context.go(switch (index) {
                 1 => '/tasks',
                 2 => '/calendar',
-                3 => '/settings',
+                3 => '/analytics',
+                4 => '/settings',
                 _ => '/today',
               });
             },
@@ -163,6 +186,11 @@ final class _PlannerShell extends StatelessWidget {
                 label: Text('日历'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.insights_outlined),
+                selectedIcon: Icon(Icons.insights),
+                label: Text('统计'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.tune_outlined),
                 selectedIcon: Icon(Icons.tune),
                 label: Text('设置'),
@@ -175,6 +203,32 @@ final class _PlannerShell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 依赖未装配时的占位页。
+///
+/// 明确写出"哪个服务没装、因此什么做不到"，而不是渲染一个空页面或点了没反应的
+/// 控件——后者会让人以为功能坏了，而不是"这次没接线"。
+final class _UnavailablePage extends StatelessWidget {
+  const _UnavailablePage({required this.title, required this.message});
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center),
+        ],
+      ),
+    ),
+  );
 }
 
 /// 从内存中的提案构建真实的调整预览：与当前已确认计划做差异、带上冲突与缺口，
