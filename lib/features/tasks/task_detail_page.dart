@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/models/workspace.dart';
 
 /// 任务详情页（W3 登记缺失的"任务详情"路由）。
 ///
@@ -17,12 +19,16 @@ final class TaskDetailPage extends StatefulWidget {
     required this.service,
     required this.taskId,
     required this.nowUtc,
+    this.workspace,
     super.key,
   });
 
   final TaskService service;
   final String taskId;
   final DateTime nowUtc;
+
+  /// 领域与项目服务。为空时不显示项目选择——其余部分照常可用。
+  final WorkspaceService? workspace;
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -31,6 +37,7 @@ final class TaskDetailPage extends StatefulWidget {
 final class _TaskDetailPageState extends State<TaskDetailPage> {
   final _remaining = TextEditingController();
   PlannerTask? _task;
+  List<PlannerProject> _projects = const [];
   bool _loading = true;
   bool _saving = false;
   String? _message;
@@ -49,12 +56,46 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
 
   Future<void> _load() async {
     final task = await widget.service.findById(widget.taskId);
+    final workspace = widget.workspace;
+    // 已归档项目不出现在可选项里：归档表示"不再往里放新任务"，但它不影响已有归属，
+    // 因此当前任务的归属即使指向已归档项目也照旧显示。
+    final projects = workspace == null
+        ? const <PlannerProject>[]
+        : (await workspace.listProjects())
+              .where((item) => !item.isArchived)
+              .toList(growable: false);
     if (!mounted) return;
     setState(() {
       _task = task;
+      _projects = projects;
       _loading = false;
       if (task != null) _remaining.text = '${task.remainingMinutes}';
     });
+  }
+
+  /// 归属或取消归属项目。
+  ///
+  /// 这是任务通向领域的唯一路径：任务的领域与生活标记都经项目推导，因此用户不归属
+  /// 项目时，两者对该任务都不适用——界面必须把这个因果说出来，否则"改了没反应"
+  /// 会被当成缺陷。
+  Future<void> _assign(String? projectId) async {
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final assigned = await widget.service.assignProject(widget.taskId, projectId);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      if (!assigned) {
+        _message = '任务不存在，归属未变更';
+        return;
+      }
+      _message = projectId == null
+          ? '已取消项目归属'
+          : '已归属到该项目，领域与生活标记随之生效';
+    });
+    if (assigned) await _load();
   }
 
   Future<void> _correct() async {
@@ -131,6 +172,33 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
             Text('备注', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(task.notes),
+          ],
+          if (widget.workspace != null) ...[
+            const Divider(height: 40),
+            Text('归属项目', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            const Text(
+              '任务的领域与生活标记都经"项目 → 领域"推导；不归属项目时两者都不适用。',
+            ),
+            const SizedBox(height: 12),
+            DropdownButton<String?>(
+              value: _projects.any((item) => item.id == task.projectId)
+                  ? task.projectId
+                  : null,
+              isExpanded: true,
+              onChanged: _saving ? null : _assign,
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('不归属项目'),
+                ),
+                for (final project in _projects)
+                  DropdownMenuItem<String?>(
+                    value: project.id,
+                    child: Text(project.name),
+                  ),
+              ],
+            ),
           ],
           const Divider(height: 40),
           Text('修正剩余时长', style: Theme.of(context).textTheme.titleMedium),

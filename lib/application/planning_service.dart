@@ -31,9 +31,13 @@ final class PlanningService implements ProposalCreator {
     final rawProblem = await source.load();
     final inputHash = snapshots.hash(InputSnapshot(problem: rawProblem));
     final problem = _withInputHash(rawProblem, inputHash);
+    // Copy the engine into a local before creating the closure. Referencing the
+    // instance field directly makes the closure capture this PlanningService,
+    // including a production source that owns an unsendable SQLite connection.
+    final scheduleEngine = engine;
     final proposal = await Isolate.run(() {
       TimeZoneDatabase();
-      return engine.generate(problem);
+      return scheduleEngine.generate(problem);
     });
     _previews[proposal.proposalId] = proposal;
     return proposal;

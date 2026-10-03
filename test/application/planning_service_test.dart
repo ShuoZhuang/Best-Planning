@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
@@ -89,6 +91,20 @@ void main() {
       expect((await repository.current())?.id, 'existing-plan');
     },
   );
+
+  test('后台排程不会把问题数据源中的本地资源传入 isolate', () async {
+    final source = _UnsendableProblemSource(_problem(requiredMinutes: 60));
+    addTearDown(source.dispose);
+    final planning = PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(TimeZoneDatabase()),
+      snapshots: snapshots,
+    );
+
+    final proposal = await planning.createProposal();
+
+    expect(proposal.blocks, isNotEmpty);
+  });
 }
 
 ScheduleProblem _problem({required int requiredMinutes}) {
@@ -130,6 +146,18 @@ final class _MutableProblemSource implements ScheduleProblemSource {
   ScheduleProblem problem;
   @override
   Future<ScheduleProblem> load() async => problem;
+}
+
+final class _UnsendableProblemSource implements ScheduleProblemSource {
+  _UnsendableProblemSource(this.problem);
+
+  final ScheduleProblem problem;
+  final ReceivePort _localResource = ReceivePort();
+
+  @override
+  Future<ScheduleProblem> load() async => problem;
+
+  void dispose() => _localResource.close();
 }
 
 final class _MemoryPlanRepository implements PlanRepository {

@@ -128,6 +128,9 @@ void main() {
         settingsRepository: settingsRepository,
         planRepository: planRepository,
         correctionLog: DriftTaskCorrectionLog(database),
+        // 与启动时的默认领域初始化共用同一实例：任务详情页要用它列出项目，
+        // 用户才能把任务归属到领域下的项目（R2）。
+        workspaceService: workspaceService,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

@@ -6,6 +6,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
@@ -41,6 +42,7 @@ GoRouter createPlannerRouter({
   PlanRepository? plans,
   AnalyticsQuery? analytics,
   PreferenceService? preferences,
+  WorkspaceService? workspaceService,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -73,6 +75,7 @@ GoRouter createPlannerRouter({
           path: '/tasks/:taskId',
           builder: (context, state) => TaskDetailPage(
             service: taskService,
+            workspace: workspaceService,
             taskId: state.pathParameters['taskId']!,
             nowUtc: nowUtc ?? todayStartUtc,
           ),

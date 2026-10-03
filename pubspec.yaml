@@ -128,14 +128,16 @@ flutter:
 # 为什么发布必须用 MSIX：技术设计 §10 只排一次性本地通知，而可靠的通知取消与查询
 # 能力依赖 Windows 包身份；仅有 release EXE 时通知行为不可靠。
 #
-# identity_name 与签名证书主体一经发布不可更改——改动等于换一个应用，用户数据不会
-# 自动迁移。因此在首次发布前必须确认下面三项，而不是沿用示例值。
+# v1 使用稳定的侧载身份；未来接入 Microsoft Store 时，商店渠道必须使用后台分配的
+# identity/publisher，并作为独立发布渠道迁移，不能悄悄覆盖这个身份。
 msix_config:
   display_name: 智能日程
-  # 待确认：应与最终签名证书主体一致。
   publisher_display_name: Personal Planner
-  # 待确认：建议使用自有的反向域名（例如 io.github.<组织>.personalplanner）。
-  identity_name: com.example.personal_planner
+  identity_name: PersonalPlanner.StudentScheduler
+  publisher: CN=Personal Planner
   # 必须与 pubspec.yaml 的 version 对应（MSIX 要求四段式）。
   msix_version: 1.0.0.0
+  output_name: personal_planner_1.0.0_x64
+  # 构建过程不得静默修改本机的受信任证书库；安装测试单独请求用户授权。
+  install_certificate: false
 

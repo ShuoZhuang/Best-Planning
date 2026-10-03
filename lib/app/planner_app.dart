@@ -8,6 +8,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
@@ -34,6 +35,7 @@ final class PlannerApp extends StatefulWidget {
     this.analytics,
     this.preferences,
     this.notifications,
+    this.workspaceService,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -64,6 +66,9 @@ final class PlannerApp extends StatefulWidget {
   /// 通知端口。除了安排提醒，它还负责把"用户点击了通知"交回来（FR-NOTIFY-04 的
   /// 快捷入口）；为空时不会有任何点击来源，启动也照常。
   final NotificationPort? notifications;
+
+  /// 领域与项目服务。为空时任务详情页不提供项目选择，其余功能不受影响。
+  final WorkspaceService? workspaceService;
 
   final TimeZoneDatabase? zones;
 
@@ -117,6 +122,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       planApplication: widget.planApplication,
       plans: widget.planRepository,
       analytics: widget.analytics,
+      workspaceService: widget.workspaceService,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
