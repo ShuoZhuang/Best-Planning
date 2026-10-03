@@ -178,6 +178,90 @@ void main() {
     );
     expect(withoutOverride.status, ApplyPlanStatus.staleProposal);
   });
+
+  // B5：通知此前**只在应用启动时同步一次**（`main.dart` 里那唯一一处调用），因此应用开着的
+  // 时候确认新计划、改截止时间都不会重排提醒——已排的提醒会与当前计划不一致。这三条把
+  // "只有真的改变了计划才重新同步"钉住：漏了会退化成"提醒永远不更新"，多调了会退化成
+  // "每次确认失败也重排一遍"，还会掩盖失败。
+  group('B5 计划被真的改变后才重新同步提醒', () {
+    var calls = 0;
+    setUp(() => calls = 0);
+
+    PlanApplicationService serviceOver(ScheduleProblem problem) =>
+        PlanApplicationService(
+          source: _ProblemSource(problem),
+          repository: repository,
+          zones: TimeZoneDatabase(),
+          snapshots: const InputSnapshotBuilder(),
+          onPlanChanged: () async => calls++,
+        );
+
+    test('应用成功时回调恰好一次', () async {
+      const snapshots = InputSnapshotBuilder();
+      final problem = _validationProblem();
+      final hash = snapshots.hash(InputSnapshot(problem: problem));
+
+      final result = await serviceOver(
+        problem,
+      ).apply(_overrideProposal(inputHash: hash, override: null));
+
+      expect(result.status, ApplyPlanStatus.applied);
+      expect(calls, 1);
+    });
+
+    test('过期提案不回调（计划没变，重排只会掩盖这次确认失败）', () async {
+      final result = await serviceOver(
+        _validationProblem(),
+      ).apply(_overrideProposal(inputHash: 'stale-hash', override: null));
+
+      expect(result.status, ApplyPlanStatus.staleProposal);
+      expect(calls, 0);
+    });
+
+    test('非法提案不回调', () async {
+      const snapshots = InputSnapshotBuilder();
+      final problem = _validationProblem();
+      final hash = snapshots.hash(InputSnapshot(problem: problem));
+
+      // 两个互相重叠的块：校验器必须拦下它，因此计划没有被改变。
+      final result = await serviceOver(problem).apply(
+        ScheduleProposal(
+          proposalId: 'overlapping',
+          inputHash: hash,
+          algorithmVersion: '1',
+          blocks: [
+            PlannedBlock(
+              id: 'one',
+              taskId: 'task',
+              range: TimeRange(
+                startUtc: DateTime.utc(2026, 10, 5, 9),
+                endUtc: DateTime.utc(2026, 10, 5, 10),
+              ),
+            ),
+            PlannedBlock(
+              id: 'two',
+              taskId: 'task',
+              range: TimeRange(
+                startUtc: DateTime.utc(2026, 10, 5, 9, 30),
+                endUtc: DateTime.utc(2026, 10, 5, 10, 30),
+              ),
+            ),
+          ],
+          unscheduled: const [],
+          conflicts: const [],
+          explanations: const [],
+          metrics: const ProposalMetrics(
+            isFullyFeasible: true,
+            scheduledMinutes: 120,
+            unscheduledMinutes: 0,
+          ),
+        ),
+      );
+
+      expect(result.status, ApplyPlanStatus.invalidProposal);
+      expect(calls, 0);
+    });
+  });
 }
 
 ScheduleProposal _proposal() {

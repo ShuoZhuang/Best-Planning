@@ -173,13 +173,21 @@ Future<void> main() async {
 
   // 启动即同步未来七天的提醒，但不阻塞首屏：通知不是启动的必要条件，平台侧失败也不
   // 应让应用起不来。
-  unawaited(() async {
+  //
+  // **B5：同步不能只在启动做一次。** 此前全库只有这一处调用 `syncNextSevenDays()`，因此
+  // 应用开着的时候新建任务、改截止时间、确认新计划都**不会**重排提醒——已排的提醒会与当前
+  // 计划不一致（用户会收到一条指向早已改变的安排的提醒，或者根本收不到新的那条）。
+  // 下面把它抽成一个可复用的函数，接到三处"当前计划/相关输入真的变了"的地方。
+  Future<void> resyncNotifications() async {
     try {
       await notificationService.syncNextSevenDays();
     } on Object catch (error) {
-      debugPrint('启动时同步提醒失败：$error');
+      // 与启动时同一口径：通知不是主流程的必要条件，失败只记日志，不让用户的操作失败。
+      debugPrint('同步提醒失败：$error');
     }
-  }());
+  }
+
+  unawaited(resyncNotifications());
 
   // 首次运行建立默认领域。生活标记只存在于领域上，因此没有领域，`is_life` 就无人赋值，
   // 生活配额与统计的"生活"分类都不会生效——默认领域是这两条链路的前置条件，不是示例数据。
@@ -321,6 +329,8 @@ Future<void> main() async {
     source: problemSource,
     repository: planRepository,
     zones: zones,
+    // B5：计划被真的改变后重新同步提醒。
+    onPlanChanged: resyncNotifications,
   );
 
   // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
@@ -348,6 +358,9 @@ Future<void> main() async {
       observedAtUtc: clock.nowUtc(),
     );
     replanning.onDomainChange(DomainChange(change.kind));
+    // B5：截止时间等排程输入直接决定"截止提醒"，因此这类变化也必须重新同步——只靠
+    // "计划被应用"那两处是不够的（改截止日期并不一定伴随一次计划确认）。
+    unawaited(resyncNotifications());
   };
 
   runApp(

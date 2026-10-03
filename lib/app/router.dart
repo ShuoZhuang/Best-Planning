@@ -1011,6 +1011,11 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
                 try {
                   await PlanUndoService(
                     repository: widget.planHistory!,
+                    // B5：撤销同样改变"当前计划"，因此要让提醒重新同步，否则撤销之后提醒还停在
+                    // 被撤销的那一版上。**复用 `application` 上那同一个回调**，而不是再穿一条
+                    // main→PlannerApp→router 的参数链——上一行注释就是这条先例（那要多 4 处装配），
+                    // 而且两处要做的本来就是同一件事。
+                    onPlanChanged: widget.application?.onPlanChanged,
                   ).undoLastAppliedPlan();
                   return true;
                 } on StateError {
