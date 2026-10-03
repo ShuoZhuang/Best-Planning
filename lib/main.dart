@@ -28,6 +28,7 @@ import 'package:personal_planner/data/repositories/drift_workspace_repository.da
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
+import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
 /// 组合根：在这里把数据库、仓库、排程引擎与应用服务装配成一个可运行的应用。
@@ -44,10 +45,9 @@ void main() {
   // 需求 §13 要求以本机当前时区保存和展示。Dart 读不到 IANA 标识，因此按本机
   // 当前偏移解析（见 LocalTimeZoneResolver）。解析不出精确匹配时仍取最接近的
   // 时区，但会在诊断里说明——目前只在开发期记录，用户可见的提示待首次引导实现。
-  final resolvedZone = LocalTimeZoneResolver(zones).resolve(
-    localOffset: DateTime.now().timeZoneOffset,
-    nowUtc: clock.nowUtc(),
-  );
+  final resolvedZone = LocalTimeZoneResolver(
+    zones,
+  ).resolve(localOffset: DateTime.now().timeZoneOffset, nowUtc: clock.nowUtc());
   final timeZoneId = resolvedZone.timeZoneId;
   if (!resolvedZone.exact) {
     debugPrint('未能精确匹配本机时区：${resolvedZone.diagnostic}');
@@ -76,10 +76,9 @@ void main() {
   // 与点击回调虽然都已实现并有测试，却没有任何调用方，因此真实运行中永远不会安排
   // 提醒。这里把它接上。
   //
-  // `hasPackageIdentity` 取默认的 false：运行时无法判定当前是否以 MSIX 安装启动，
-  // 而报 false 只会让"可靠取消"降级为不可用并给出诊断，方向是安全的——不会假装
-  // 能取消掉已经交给系统的旧提醒。首次发布前需补上真实判定（见 Task 20）。
-  final notifications = WindowsNotificationAdapter();
+  final notifications = WindowsNotificationAdapter(
+    hasPackageIdentity: hasWindowsPackageIdentity(),
+  );
   final notificationService = NotificationService(
     plans: planRepository,
     settings: settingsService,
