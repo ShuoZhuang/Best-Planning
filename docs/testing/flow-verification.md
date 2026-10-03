@@ -382,30 +382,42 @@ CLSID 与代码里的 `FlutterWindowsNotificationBackend.activatorGuid` 一致�
 （`windows_notification_activator_config_test.dart`）守着这个跨文件一致性。签名 `Valid`，
 安装为 `1.0.2.0`（`Status: Ok`）。
 
-### 新盲点：`initialize()` 似乎根本没跑到，而失败没有任何可查线索
+### 更正：那个"决定性实验"的**预期是错的**，结论也就错了（并有诊断文件为证）
 
-用一个**决定性实验**验证 A①：删掉插件写的那个 AUMID 注册表键
-（`HKCU\Software\Classes\AppUserModelId\PersonalPlanner.Desktop.App`），再以包身份重启应用，
-然后看它重建出哪一个。
+我在上一轮把下面这段写成了结论："删掉插件写的注册表键、重启后一个键都没重建 ⇒ `initialize()` 根本
+没跑到"。**这个结论是错的**，而且错在实验设计上：
 
-**结果：一个键都没有重建。**
+1. **插件确实无条件注册**。`src/ffi_api.cpp:22-38` 的 `init` 第一件事就是
+   `plugin->registerApp(aumId, appName, guid, icon, callback)`，而 `plugin.cpp:176-181` 的
+   `registerApp` 又无条件 `UpdateRegistry(...)`。没有"打包时跳过"的分支。
+2. **诊断文件证明同步跑完了**。加了这个日志之后读到的三行是：
+   ```
+   [00:19:09.491] 进程启动
+   [00:19:09.496] 通知：hasPackageIdentity=true appUserModelId=ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner
+   [00:19:09.537] 提醒同步完成：scheduled=0 cancelled=0 canSchedule=true canCancelReliably=true
+   ```
+   `syncNextSevenDays()` **没有抛**（我原先推的"在 L200 之前就抛了"不成立）；而且 A① 也确实生效：
+   拿到的**是真实 AUMID**，不是回退常量。
+3. **写入真的发生了，只是被 MSIX 虚拟化了**。打包应用的 `HKCU\Software` 写入会落到包私有的
+   虚拟注册表库里。实测：把 `SystemAppData\Helium\UserClasses.dat` 拷出来（应用关掉才能读，
+   文件被它独占着）搜索，里面含 **真实 AUMID**、路径片段 `AppUserModelId`、`CustomActivator`、
+   以及**激活器 CLSID** `7D40D6B0-…`。也就是说插件按真实 AUMID 写对了，只是那一份**在普通注册表
+   里看不到**。
 
-插件源码是无条件写这个键的（`src/plugin.cpp:176-181` 的 `registerApp` → `UpdateRegistry`），
-插件 Dart 侧也是把 `settings.appUserModelId` 原样交给原生（`plugin/lib/src/plugin/ffi.dart:87-104`）。
-因此"没有任何键"只能说明：**这次运行里 `initialize()` 压根没被调用**（或调用即抛且被吞）。
+**我先前在 `HKCU:\Software\Classes\AppUserModelId` 下看到的 `PersonalPlanner.Desktop.App`，是未打包
+运行（开发期的 EXE / `flutter run`）留下的真实键**，不是打包进程写的。
 
-而 `NotificationService.syncNextSevenDays()` 在 L200 **无条件**调用
-`notifications.pendingNotifications()`，后者会 `await _ensureInitialized()`。所以最可能的解释是
-**该方法在 L200 之前就抛了**——而组合根的 `resyncNotifications()` 用 `try/catch` 把异常吞成
-`debugPrint`，**Release 构建里 `debugPrint` 抓不到**（实测：把包内进程的 stdout 重定向到文件，
-只拿到引擎那行 Impeller 输出，没有任何 Dart 侧输出）。
+**教训（比结论本身更值钱）**：一个**预期设错的实验**会给出一个**自信的错误结论**——"删掉再重启看它
+重建哪一个"预设了"打包进程的注册表写入在普通注册表里可见"，而这个前提不成立。**纠正我的不是更聪明
+的推理，而是把系统变可观测**（那份落到文件的诊断）。这也正是上一轮加日志的价值：它一次就推翻了我
+两轮的推断。
 
-**后果（这是本轮真正要紧的发现）**：一旦同步失败，**既不会有提醒，也不会有任何可查的线索**——
-用户看到的只是"通知不弹"，而开发者在 Release 里连一行日志都拿不到。这与本次会话里其它"失败被
-静默吞掉"的问题（`on Object` 吞异常导致探针不可用与确实没有包身份无法区分）是同一类。
+### 对"点击通知"这条链路的意义
 
-### 下一轮的做法（不猜，先让它可观测）
+既然打包进程的 `CustomActivator` 写在**虚拟化**的库里、对操作系统的激活路径不可见，那么打包应用的
+点击激活就**必须靠清单声明**——也就是 A②。清单里现在确实有了
+（`windows.toastNotificationActivation` + `comServer`/`ExeServer` + 同一个 CLSID，见上一节实测）。
 
-给"提醒同步失败"加一个**落到文件的诊断**（而不是只 `debugPrint`），放在数据库旁边；然后重打包、
-重启、读那个文件，就能看清 `syncNextSevenDays()` 到底在哪一步抛、抛了什么。**在拿到那份输出之前，
-不对原因下结论。**
+**因此：A① 仍然是对的（要传真实 AUMID），但它不是打包场景下点击激活的机制；A② 才是。**
+而这套是否真的让"点击→激活运行中的实例→跳到任务页"生效，**只能由人点一次来确认**——本轮不声称
+已修好，只声称已把有证据的根因修掉、且清单内容已实测确认。
