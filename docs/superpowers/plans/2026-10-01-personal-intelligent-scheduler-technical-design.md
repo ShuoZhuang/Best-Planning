@@ -164,7 +164,7 @@ personal_planner/
 目录结构说明：
 
 - `lib/app/providers.dart` 从未创建：Riverpod 状态目前由各页面自行组织，依赖注入集中在 `main.dart` 与 `PlannerApp` 构造参数，本计划不再要求该文件。若后续需要集中 provider 定义，应作为独立任务引入。
-- 迁移入口在 `lib/data/database/app_database.dart` 的 `AppDatabase.migration`，drift 生成的逐版本步骤助手在 `lib/data/database/app_database.steps.dart`：当前 schemaVersion 为 2，已实现 v1→v2 的 `onUpgrade`（新增标签两表、任务期望时段两列、领域 `is_life` 列，并回填历史行时间戳）。schema 快照在 `drift_schemas/app_database/`，迁移测试在 `test/drift/app_database/`。后续每次改表都按 §4.2 的流程提升版本、导出快照并补迁移测试。
+- 迁移入口在 `lib/data/database/app_database.dart` 的 `AppDatabase.migration`，drift 生成的逐版本步骤助手在 `lib/data/database/app_database.steps.dart`：当前 schemaVersion 为 3：v1→v2 新增标签两表、任务期望时段两列、领域 `is_life` 列，并回填历史行时间戳；v1→v3 再建剩余时长修正记录表。schema 快照在 `drift_schemas/app_database/`（v1–v3），迁移测试在 `test/drift/app_database/schema_migration_test.dart`，覆盖全部版本组合（v1→v2、v1→v3、v2→v3），并对 v1→v3 做数据完整性验证。后续每次改表都按 §4.2 的流程提升版本、导出快照并补迁移测试。
 - `integration_test/` 属于 Task 20 交付物，当前不存在。
 
 ## 3. 核心领域接口
@@ -237,6 +237,7 @@ abstract interface class ScheduleEngine {
 | `plan_versions` | `id`, `created_at_utc`, `input_hash`, `algorithm_version`, `status`, `summary_json` | 已确认、已被替代和已撤销的持久化计划版本；未确认提案只保存在内存。 |
 | `schedule_blocks` | `id`, `plan_version_id`, `task_id`, `start_at_utc`, `end_at_utc`, `locked`, `explanation_code`, `created_at_utc`, `updated_at_utc` | 每个计划版本的任务块。 |
 | `time_entries` | `id`, `task_id`, `started_at_utc`, `ended_at_utc`, `paused_minutes`, `source`, `recovery_state`, `created_at_utc`, `updated_at_utc` | 实际投入；未确认恢复记录不计入统计。专注计时期间反复保存不得重置创建时间。 |
+| `task_corrections` | `id`, `task_id`, `previous_minutes`, `corrected_minutes`, `corrected_at_utc` | 剩余时长修正历史（FR-TASK-05）。保留修正前后两个值而不是只存结果，因为统计要看的正是每次修正的幅度与方向。记录不可变，故只记创建时刻。 |
 | `preference_evidence` | `id`, `kind`, `subject_key`, `observed_at_utc`, `numeric_value`, `special_day`, `metadata_json` | 原始偏好证据，可追溯。 |
 | `preference_rules` | `id`, `kind`, `subject_key`, `value_json`, `confidence`, `status`, `source`, `updated_at_utc` | 建议、已确认、自动采用、停用状态。 |
 | `change_log` | `id`, `entity_type`, `entity_id`, `operation`, `changed_at_utc`, `revision` | 为撤销、诊断和未来同步保留最小变更历史。 |
@@ -252,7 +253,7 @@ abstract interface class ScheduleEngine {
 - 所有时间戳列都是微秒为单位的 UTC 整数（`microsecondsSinceEpoch`），全库统一，不混用毫秒。
 - 新增的 `NOT NULL` 时间戳列带哨兵默认值 0：SQLite 不允许对已有数据的表直接 `ADD COLUMN ... NOT NULL` 而不给默认值，因此迁移先加列、再把历史行回填为迁移时刻。哨兵 0 的含义是"尚未设置"，仓库层必须在写入时给出真实值。
 - 每条核心数据都包含唯一标识、创建时间和修改时间（FR-DATA-08）。改写既有记录只推进修改时间，创建时间保持首次写入的值；`plan_versions`、`preference_evidence`、`change_log` 是不可变记录，各自只有创建时刻。
-- Drift schema 每次变化都提高 `schemaVersion`、导出 schema 快照并运行生成的迁移测试（当前 schemaVersion 为 2）。
+- Drift schema 每次变化都提高 `schemaVersion`、导出 schema 快照并运行生成的迁移测试（当前 schemaVersion 为 3）。
 
 ## 5. 排程引擎设计
 
@@ -568,7 +569,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | R6 | FR-SCHED-04 十因子评分 | **候选层面已全部注入**（`8e4c868` 版本 7、`be6accb` 版本 8、`fb3eb06` 版本 9）：连续性、类别切换、移动成本、用户期望时段四项此前恒为 0 的因子均已接通并各有判别性验证。**剩余**：8 个任务级因子在同一任务的候选之间恒为常数（见 C2），要让它们影响决策需把任务排序纳入评分 |
 | R7 | FR-SCHED-08 移动原因、FR-REPLAN-02 拆分与原因 | **已实现**（提交 `ee3dcbc`）：`PlanChangeType` 增加 `split`，`PlanChange` 增加 `reason`（取自片段的 `explanationCode`，保持稳定码约定，界面用 `explanationLabel` 渲染）。规则：任务在原计划已有块且提案中块数变多 → 新块记为 `split`；原计划没有该任务的块 → 记为 `added`。既有的按 ID 比较逻辑未改动，因此原有差异测试的期望 `[moved, removed, added]` 仍然成立（已用同一场景实测）。`router.dart` 的 `PlanChangeType` switch 同步补上 `split` 分支——否则新增枚举值会让该 switch 失去穷尽性而无法编译 |
 | R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | **已于服务层实现**（提交 `2d14142`）：固定日程即将开始、截止临近、冲突待处理三类都可安排，`NotificationPreferences` 增加了冲突类型的提前时间（FR-NOTIFY-02 要求每类都能设置），存于设置 JSON、无需迁移，旧数据回退默认值。三类来源以可选依赖注入，未装配时跳过该类而不是伪造。**顺带修掉一个既有缺陷**：默认截止提前时间为 24 小时，20 小时后到期的任务其提醒时刻落在过去而被静默丢弃，用户永远收不到提醒；现在已过的提醒时刻改为"尽快提醒"。**剩余**：FR-NOTIFY-04 的快捷入口——`windows_notification_adapter` 仍未注册点击回调，且该服务尚未在 `main.dart` 中装配 |
-| R9 | FR-TASK-03 批量调整、FR-TASK-04 任务转固定日程、FR-REPLAN-07 处理入口、FR-FOCUS-04/05 补录与重算、FR-STAT-05 精力与休息统计、FR-PREF-05 修改偏好值 | 未实现或无入口。**其中 FR-TASK-05 修正剩余时长已完成服务层**（提交 `e06d26e`）：`TaskService.correctRemainingMinutes` 只改剩余时长、不改预计时长（§8 的预估偏差口径依赖后者），非正值被拒绝（完成任务应走 `changeStatus`），允许上调（低估正是该功能存在的理由），并经 `TaskCorrectionLog` 端口保留前后值与方向。**剩余**：该端口的 drift 实现（写入 `change_log`）与界面入口尚未接线，故统计暂时读不到修正历史 |
+| R9 | FR-TASK-03 批量调整、FR-TASK-04 任务转固定日程、FR-REPLAN-07 处理入口、FR-FOCUS-04/05 补录与重算、FR-STAT-05 精力与休息统计、FR-PREF-05 修改偏好值 | 未实现或无入口。**FR-TASK-05 修正剩余时长已全部落地到数据层与服务层**：服务语义见提交 `e06d26e`（只改剩余时长不改预计时长、非正值被拒绝、允许上调，并经 `TaskCorrectionLog` 保留前后值与方向）；本轮补上 drift 实现并接入生产装配（`task_corrections` 表随 schema v3 落地，`DriftTaskCorrectionLog` 在 `main.dart` 注入，`PlannerApp.correctionLog` 转交 `TaskService`）。**仍缺**：任务编辑界面上的"修正剩余时长"入口，因此用户目前无法触发它——数据与逻辑已就绪，只差界面 |
 | R10 | FR-DATA-08 核心数据含创建与修改时间 | **范围已扩充（复核发现漏登记）**：除原列的 `Areas`、`Projects`、`ScheduleBlocks`、`TimeEntries` 与 `CalendarEvents.createdAtUtc` 外，**`RecurrenceRules`、`EnergyWindows` 同样没有任何时间戳，`Settings` 缺 `createdAtUtc`**——FR-DATA-08 要求"每条核心数据"都包含，因此一并纳入。**已决策（用户选择方案 1）**：历史行时间戳填**迁移时刻**，列保持非空。技术约束：SQLite **不允许**直接 `ADD COLUMN ... NOT NULL` 而没有默认值，因此实现为"声明 `NOT NULL DEFAULT 0` + 迁移时 `UPDATE ... WHERE 列 = 0` 回填迁移时刻"，并在仓库层保证新建记录始终写入真实时间；哨兵值 0 的含义（尚未设置）需在 §4.2 写明。`PlanVersions`/`PreferenceEvidence`/`ChangeLog` 属于不可变记录，各自已有创建时刻且不需要修改时刻，保持不变 |
 | R11 | spec §13 以本机当前时区保存和展示 | **主体已实现**（提交 `bd3603e`、`f2a051a`）：新增 `LocalTimeZoneResolver` 按本机当前 UTC 偏移定位 IANA 标识、计入夏令时、区分"精确匹配"与"近似"；组合根 `main.dart` 已改为在启动时解析并传下去，**不再写死 `'Asia/Shanghai'`**。**已知局限**：同一偏移可能对应夏令时规则不同的多个时区，仅凭偏移无法区分；彻底解决需平台能力（Windows `GetDynamicTimeZoneInformation`）或首次引导中的用户选择——近似情形目前只在开发期记录诊断，用户可见提示待首次引导实现。**剩余**：`special_day_page.dart` 仍在用字面量，需把时区参数经路由传入（该文件与其调用链只能语法门禁） |
 | R12 | spec §7.1 任务状态 8 种 | **已实现**（提交 `39ed7b7`）：补上 `scheduled`（已安排）与 `overdue`（已逾期）。两者**由事实派生、不落库**——`overdue` 只取决于"截止已过且任务未结束"，时间流逝本身即可成立，没有写入时机；`scheduled` 取决于"已确认计划中是否存在该任务的块"，若另行落库就会产生第二个事实来源，撤销与重排必然不同步。`PlannerTask.statusAt` 定义优先级：已结束 > 已逾期 > 进行中 > 已安排 > 用户设置的状态；`TaskStatusSemantics.isClosed` / `isStored` 标明哪些值可持久化。**待接线**：统计的按状态筛选读的是数据库列，因此暂不支持按这两个派生状态筛选；任务列表仍只有完成勾选框，未展示派生状态 |
@@ -1632,7 +1633,7 @@ git commit -m "release: complete personal planner MVP"
 | 需求规格范围 | 主要实施任务 | 计划核心验证 | 真实状态 |
 | --- | --- | --- | --- |
 | FR-TODAY-01 至 04 | Task 10、12、13 | 今日页状态、快捷操作、完成后重排 | 部分：今日页已接入真实数据源（固定日程、保护时间、已确认计划块）（W2 已解决）；仍无"当前/下一项/剩余时间"汇总（FR-TODAY-01）、无跳过与延期入口（FR-TODAY-02）、无进度与休息提示（FR-TODAY-03）。偏差 W2 |
-| FR-TASK-01 至 05 | Task 2、4 | 快速录入、完整编辑、筛选、批量调整和剩余时长 | 部分：快速录入已实现；分类/项目/标签不可用（R1、R2）；无批量调整（R9）；任务转固定日程与修正剩余时长未实现（R9） |
+| FR-TASK-01 至 05 | Task 2、4 | 快速录入、完整编辑、筛选、批量调整和剩余时长 | 部分：快速录入已实现；分类/项目/标签不可用（R1、R2）；无批量调整（R9）；任务转固定日程未实现（R9）；修正剩余时长已具备数据与服务层并接入生产装配，仅缺界面入口（R9） |
 | FR-CAL-01 至 06 | Task 4、5、10 | 一次性/重复日程、单次例外、周视图、拖动与冲突 | 部分：一次性事件 CRUD 缺 delete；重复日程未展开、单次/系列编辑被丢弃（R4）；无日视图（R3）；四类时间块的区分现已显示真实数据（W2 已解决），但拖动仍禁用（R9）；创建时不检测冲突 |
 | FR-RULE-01 至 06 | Task 2、10A、11 | 作息、精力、配额、工作日/周末和指定日期例外 | 基本实现：作息/精力/配额/工作日与周末规则已实现；指定日期例外机制正确但无 UI 入口 |
 | FR-DEFAULT-01 至 08 | Task 2、10A、19、20 | 默认值、中性回退、首次引导、优先级、记录与撤销 | 部分：默认值与优先级正确；首次引导门控为死代码（W4）；自动采用无门控（FR-DEFAULT-05）；变更日志不记前后值（FR-DEFAULT-07） |
