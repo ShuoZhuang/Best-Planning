@@ -3,8 +3,11 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:personal_planner/application/backup_service.dart';
+import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/domain/repositories/notification_port.dart';
+import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/files/backup_archive_adapter.dart';
 import 'package:personal_planner/platform/files/sqlite_database_lifecycle_adapter.dart';
 
@@ -18,7 +21,12 @@ const appVersion = '1.0.0';
 /// 待恢复文件的路径：恢复**不立刻**替换正在使用的数据库，而是写到这里，等下次启动时生效。
 String pendingRestorePath(String databasePath) => '$databasePath.restore-pending';
 
-/// 解析数据库文件路径，并在打开数据库**之前**应用待生效的恢复。
+/// 待清除标记的路径：永久清除**不立刻**删库，而是写下这个标记，等下次启动时执行。
+///
+/// 与 [pendingRestorePath] 完全对称——两件事都必须发生在**没有运行中的连接**的时候。
+String pendingErasurePath(String databasePath) => '$databasePath.erase-pending';
+
+/// 解析数据库文件路径，并在打开数据库**之前**应用待生效的清除与恢复。
 ///
 /// **路径必须按 `drift_flutter` 的同一条规则算出**：包内默认是
 /// `getApplicationDocumentsDirectory()` 拼 `<name>.sqlite`（读包源码确认，见 pub 缓存
@@ -30,12 +38,43 @@ String pendingRestorePath(String databasePath) => '$databasePath.restore-pending
 /// 等十余处服务持有，"关掉当前库再打开"等于要它们全部换用新实例。在运行中替换文件而连接仍
 /// 指向旧文件会留下**半恢复状态**，因此这里改成"启动前替换"：没有运行中的连接，就没有这个
 /// 问题，而且用户看到的提示与真实行为一致。
+///
+/// **为什么清除也要等到启动**：同一个理由，而且更严重——`eraseAll` 在 `DataErasureService`
+/// 里是**最后一步**，前面已经清掉了密码锁凭据与全部通知。若此时删库在 Windows 上因共享冲突
+/// 抛错，用户会留下**半清除状态**（锁没了、提醒没了、数据还在），而屏幕上只有一条错误。
 Future<String> preparePlannerDatabase() async {
   final documents = await getApplicationDocumentsDirectory();
   final databasePath =
       '${documents.path}${Platform.pathSeparator}personal_planner.sqlite';
-  await applyPendingRestoreFor(databasePath);
+  // **顺序是刻意的：先处理清除**。若先应用恢复，被恢复的数据会活过这一整个会话，而用户
+  // 上一次的动作明明是"永久清除"。
+  final erased = await applyPendingErasureFor(databasePath);
+  if (!erased) await applyPendingRestoreFor(databasePath);
   return databasePath;
+}
+
+/// 应用待生效的**永久清除**：删掉数据库、它的 sidecar，以及任何残留的待恢复/回滚文件。
+///
+/// **必须一并删掉 `.restore-pending` 与 `.restore-old`**：否则一个残留的待恢复文件会在下次
+/// 启动把数据搬回来——用户以为已经清干净了，数据却"复活"了。这是本函数最重要的一条不变量。
+///
+/// 返回是否真的执行了清除（没有标记时为 `false`）。公开而不是私有，是为了能被直接测试：
+/// 它会**删除用户的数据库文件**，属于本文件里风险最高的一处。
+Future<bool> applyPendingErasureFor(String databasePath) async {
+  final marker = File(pendingErasurePath(databasePath));
+  if (!await marker.exists()) return false;
+  for (final path in [
+    databasePath,
+    '$databasePath-wal',
+    '$databasePath-shm',
+    pendingRestorePath(databasePath),
+    '$databasePath.restore-old',
+  ]) {
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  }
+  await marker.delete();
+  return true;
 }
 
 /// 应用待生效的恢复：把 `<库>.restore-pending` 换成当前数据库。
@@ -66,7 +105,7 @@ Future<BackupService> buildBackupService({
   required String databasePath,
 }) async {
   return BackupService(
-    database: _PendingRestoreLifecycle(
+    database: _DeferredLifecycle(
       databasePath: databasePath,
       supportedSchemaVersion: database.schemaVersion,
     ),
@@ -83,20 +122,21 @@ Future<BackupService> buildBackupService({
   );
 }
 
-/// 备份用的数据库生命周期端口：**读取型操作复用既有适配器，替换改为写入待恢复文件**。
+/// 备份与**永久清除**用的数据库生命周期端口：**读取型操作复用既有适配器，破坏性操作改为
+/// 写待处理文件**。
 ///
 /// 复用而不是重写：`createConsistentSnapshot` 会先 checkpoint WAL 再复制（技术设计 §11.1），
-/// `inspect` 会用 `sqlite3.open` 复核完整性，这些都需要真正打开文件；只有"替换正在使用的文件"
-/// 这一件事必须换掉（见 [preparePlannerDatabase] 的说明）。
-final class _PendingRestoreLifecycle implements DatabaseLifecyclePort {
-  _PendingRestoreLifecycle({
+/// `inspect` 会用 `sqlite3.open` 复核完整性，这些都需要真正打开文件；只有"替换/删除正在使用
+/// 的文件"这两件事必须换掉（见 [preparePlannerDatabase] 的说明）。
+final class _DeferredLifecycle implements DatabaseLifecyclePort {
+  _DeferredLifecycle({
     required String databasePath,
     required this.supportedSchemaVersion,
   }) : _delegate = SqliteDatabaseLifecycleAdapter(
          databasePath: databasePath,
          supportedSchemaVersion: supportedSchemaVersion,
-         // 两个回调在这条路径上**不会被调用**（替换已改为"写待恢复文件"），因此留空实现并
-         // 在这里写明，而不是假装它们能安全地关掉并重开十余处服务持有的库实例。
+         // 两个回调在这条路径上**不会被调用**（替换与删除都已改为"写待处理文件"），因此留空
+         // 实现并在这里写明，而不是假装它们能安全地关掉并重开十余处服务持有的库实例。
          closeDatabase: () async {},
          reopenDatabase: () async {},
        ),
@@ -123,6 +163,37 @@ final class _PendingRestoreLifecycle implements DatabaseLifecyclePort {
     await File(validatedDatabase).copy(pending.path);
   }
 
+  /// 写下"待清除"标记，而不是当场删库。
+  ///
+  /// 直接委托 `SqliteDatabaseLifecycleAdapter.eraseAll()` 会**立刻删除**数据库文件与
+  /// `-wal`/`-shm`，而运行中的 drift 连接仍指向那个文件：要么界面还显示着数据、重启后才真的
+  /// 空，要么在 Windows 上因共享冲突直接抛错——而它是 `DataErasureService` 的**最后一步**，
+  /// 前面已经清掉凭据与通知，失败就会留下半清除状态。因此与 [replaceWith] 一样写成待处理标记，
+  /// 由下次启动的 [applyPendingErasureFor] 在没有连接的情况下执行。
   @override
-  Future<void> eraseAll() => _delegate.eraseAll();
+  Future<void> eraseAll() async {
+    final marker = File(pendingErasurePath(_databasePath));
+    await marker.parent.create(recursive: true);
+    await marker.writeAsString('pending');
+  }
 }
+
+/// 装配**永久清除**服务（FR-DATA-04／spec §18 第 18 项）。
+///
+/// **刻意不传 `backupIndex`**：`BackupIndexPort` 目前在生产里**没有任何写入方**
+/// （`FileBackupIndexAdapter` 只被测试构造），因此生产里没有"备份索引"这个东西可清。传一个
+/// 指向没人写过的文件的适配器，等于用一个假依赖把接口填满——那正是"看起来接好了、其实没有"。
+/// 该参数因此改为可选，服务在为空时跳过它。
+DataErasureService buildDataErasureService({
+  required AppDatabase database,
+  required String databasePath,
+  required NotificationPort notifications,
+  required AppLockCredentialStore credentials,
+}) => DataErasureService(
+  database: _DeferredLifecycle(
+    databasePath: databasePath,
+    supportedSchemaVersion: database.schemaVersion,
+  ),
+  notifications: notifications,
+  credentials: credentials,
+);

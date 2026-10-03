@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
@@ -53,6 +54,8 @@ final class PlannerApp extends StatefulWidget {
     this.exportService,
     /// 数据备份与恢复服务（W3 最后一条缺失路由）。为空时设置入口页不显示该入口。
     this.backups,
+    /// 永久清除服务（FR-DATA-04）。为空时备份页不显示该入口（不给一个点了不生效的按钮）。
+    this.erasure,
     this.focusService,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
@@ -119,6 +122,9 @@ final class PlannerApp extends StatefulWidget {
 
   /// 数据备份与恢复。为空时设置入口页不显示该入口（宁可没有，也不要点不动的入口）。
   final BackupService? backups;
+
+  /// 永久清除服务（FR-DATA-04）。为空时备份页不显示那一块。
+  final DataErasureService? erasure;
 
   /// 专注计时服务（FR-FOCUS）。为空时任务详情页不显示"开始专注"，`/focus/:taskId`
   /// 也会说明服务未装配。
@@ -287,6 +293,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       appLock: widget.appLock,
       exportService: widget.exportService,
       backupService: widget.backups,
+      erasure: widget.erasure,
       focusService: widget.focusService,
       loadPreferenceEvidence: widget.loadPreferenceEvidence,
       onSuggestionAction: widget.onSuggestionAction,

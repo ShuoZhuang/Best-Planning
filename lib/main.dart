@@ -208,6 +208,17 @@ Future<void> main() async {
     store: SettingsAppLockCredentialStore(settingsRepository),
   );
 
+  // 永久清除（FR-DATA-04／spec §18 第 18 项）。此前**服务、组件与页面那一块都在，也有测试，
+  // 但组合根从不构造它、路由器也刻意不传 `erasure`**，因此真实用户路径上没有这个入口——
+  // 又一处"结构就绪 ≠ 需求兑现"。清除本身**延迟到下次启动**执行（见 `backup_assembly.dart`），
+  // 因此界面必须如实说"重启后生效"。
+  final erasure = buildDataErasureService(
+    database: database,
+    databasePath: databasePath,
+    notifications: notifications,
+    credentials: SettingsAppLockCredentialStore(settingsRepository),
+  );
+
   // 数据导出（FR-DATA-06）。服务、数据源与文件适配器此前都已写好并有测试，但生产代码里
   // 从未构造过任何一个，因此"导出"在真实运行中不可达（W3/W6 同类的"没装配"）。
   // 注意目录选择与写文件是平台行为，本机只能经假端口验证，见 §13.0。
@@ -357,6 +368,7 @@ Future<void> main() async {
           timeZoneId: timeZoneId,
         ),
         backups: backups,
+        erasure: erasure,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),

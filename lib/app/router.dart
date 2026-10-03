@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
@@ -77,6 +78,7 @@ GoRouter createPlannerRouter({
   ExportService? exportService,
   /// 数据备份页（W3 最后一条缺失路由）。为空时不出现入口，也不注册路由内容。
   BackupService? backupService,
+  DataErasureService? erasure,
   FocusService? focusService,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   void Function(String action, String suggestionId)? onSuggestionAction,
@@ -474,10 +476,15 @@ GoRouter createPlannerRouter({
               );
             }
             // 文件选择与归档写入用的是同一个端口实例（与导出页同样的做法）。
-            // **不传 `erasure`**：永久清除同样需要"关库—换实例—重开"，因此先不显示该入口，
-            // 而不是给出一个会留下半清除状态的按钮。
+            //
+            // **永久清除的入口现在是接通的**（spec §18 第 18 项此前因此未勾选）。原先不传
+            // `erasure` 是因为"删库需要关库—换实例—重开"；现改为**延迟到下次启动执行**
+            // （与恢复那条路径同一个套路，见 `backup_assembly.dart`），因此不需要在运行中
+            // 换库实例。`erasure` 为空时（测试或未装配）那一块仍然不渲染——不给一个点了
+            // 不生效的按钮。
             return BackupPage(
               backups: service,
+              erasure: erasure,
               files: const FileSelectorAdapter(),
             );
           },

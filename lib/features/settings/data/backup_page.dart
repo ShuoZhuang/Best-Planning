@@ -95,7 +95,10 @@ final class _BackupPageState extends State<BackupPage> {
         return '确认短语不匹配，没有删除任何数据。';
       }
       _confirmation.clear();
-      return '本机应用数据已永久清除；自行导出的外部文件未删除。';
+      // **必须说"重启后生效"**：删除安排在下次启动执行（运行中的数据库连接仍指向那个文件），
+      // 说成"已清除"而用户重启前还能看到数据，就是在用一句好听的话掩盖真实行为。
+      return '已安排永久清除：本机应用数据将在**下次启动**时删除；'
+          '自行导出的外部文件不在清除范围内。';
     });
   }
 
@@ -143,9 +146,17 @@ final class _BackupPageState extends State<BackupPage> {
           const Divider(height: 48),
           Text('永久清除', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          const Text('此操作清除本机数据库、备份索引、通知和应用锁凭据，但不会删除自行导出的外部文件。'),
+          // **文案要点明两件事**：① 清除范围（外部导出文件不在其中——那是用户自己的文件）；
+          // ② **重启后生效**——删除发生在下次启动、没有数据库连接的时候，不写清楚，用户会以为
+          // 点了没反应。原先这里还写着"备份索引"，而生产里根本没有备份索引这个东西（见
+          // `buildDataErasureService` 的说明），因此从文案里去掉，不留一句做不到的承诺。
+          const Text(
+            '此操作清除本机数据库、通知与应用锁凭据，但不会删除自行导出的外部文件。'
+            '清除在**下次启动**时执行，因此需要重启程序才会看到数据被清空。',
+          ),
           const SizedBox(height: 12),
           TextField(
+            key: const Key('erasure-confirmation'),
             controller: _confirmation,
             decoration: const InputDecoration(
               labelText: '输入确认短语',
@@ -156,6 +167,7 @@ final class _BackupPageState extends State<BackupPage> {
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.tonalIcon(
+              key: const Key('erasure-submit'),
               onPressed: _busy ? null : _erase,
               icon: const Icon(Icons.delete_forever_outlined),
               label: const Text('永久清除本机数据'),
