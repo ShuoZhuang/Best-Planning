@@ -310,3 +310,54 @@ Windows 真的由 toast 拉起进程时才为 true，本机无法构造；测试
 **下一步的最小实验**（能一次分开"冷启动路径坏"与"`onTapped` 路径也坏"）：**让应用保持运行，
 在它运行期间点击通知**。若运行期间点击能正确跳转，则坏的只是冷启动路径；若同样不跳，则
 `onTapped` 也没接上，问题更靠前。
+---
+
+## 九、点击通知不跳转的**根因**：传给插件的 AUMID 与打包身份不一致
+
+第八节留下了两个候选原因。现在**根因已定位，且是硬证据**。
+
+### 证据链
+
+| 项 | 值 |
+| --- | --- |
+| 我们传给插件的 AUMID（`windows_notification_adapter.dart` 里**硬编码**） | `PersonalPlanner.Desktop.App` |
+| 注册表里实际被插件写入激活器的键 | `HKCU\Software\Classes\AppUserModelId\PersonalPlanner.Desktop.App` —— **存在，与上面一致** |
+| 打包身份的真实 AUMID（`包族名!应用Id`） | `ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner` |
+
+**两者不一致。**
+
+### 为什么这会让点击失效（机制来自插件源码）
+
+插件靠 `registerApp` 做两件事（`flutter_local_notifications_windows` 的 `src/plugin.cpp:117-181`）：
+
+1. 往 `HKCU\Software\Classes\AppUserModelId\<传入的 aumid>` 写 `DisplayName`/`IconUri`/
+   **`CustomActivator` = {guid}**；
+2. `CoRegisterClassObject(clsid, factory, CLSCTX_LOCAL_SERVER, …)` 把 COM 类对象注册在**当前进程**里，
+   于是 Windows 激活 toast 时能回调到本进程，再由插件转发给 Dart 的
+   `onDidReceiveNotificationResponse`。
+
+而**打包应用**的 toast 是带着**包身份 AUMID** 创建的。点击时 Windows 去查
+`AppUserModelId\<包身份 AUMID>` 下的 `CustomActivator` —— 那里**没有**（插件的键写在另一个 AUMID 下），
+于是**回退成"按 AUMID 直接启动应用"**：新起一个进程、不带任何激活负载。
+
+### 这一条解释了全部观察
+
+| 观察 | 解释 |
+| --- | --- |
+| 通知正常弹出 | 创建 toast 不需要激活器 |
+| 点击后**新开了一个窗口**（应用已在运行也一样） | 没有 `CustomActivator` → 回退为直接启动，不是激活已有实例 |
+| 落在**今日安排页**而非任务详情 | 新进程没有激活负载 → 走默认路由 |
+| `onTapped` 在应用运行时也没被调用 | 运行中的进程从未被 Windows 联系过 |
+| 注册表里多出一个 `PersonalPlanner.Desktop.App` 键 | 插件按**我们传的** AUMID 写了激活器 |
+
+### 修法方向（尚未实施）
+
+1. **让初始化时的 AUMID 等于 `<PackageFamilyName>!<ApplicationId>`**：它不该是硬编码常量——包族名
+   含发布者哈希、随签名证书变化，写死必然再次失配。应在运行时取（`GetCurrentPackageFamilyName`
+   已在本仓库的 `windows_package_identity.dart` 里做过同类 FFI 调用；应用 Id 取自清单，当前为
+   `personalplanner`），或由组合根注入一个与清单一致的常量并加测试守住。
+2. **很可能还要在清单里声明 toast 激活器**（`msix_config` 的 `toast_activator_clsid` 等）：
+   打包应用走的是清单声明而不是上面那套注册表约定，这正是之前登记的候选原因之一。
+3. 改完必须**重新打包安装**（`msix_version` 需大于已安装的 `1.0.1.0`）并**重跑点击验证**。
+
+**这一项不计入通过。** 通知能弹只兑现了两个未验证项里的一个；"点击进入正确页面"仍未兑现。
