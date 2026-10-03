@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 void main() {
@@ -91,13 +92,15 @@ void main() {
 final class _ImmediateCreator implements ProposalCreator {
   int calls = 0;
   @override
-  Future<ScheduleProposal> createProposal() async => _proposal('p-${++calls}');
+  Future<ScheduleProposal> createProposal({
+    ScheduleRuleOverride? override,
+  }) async => _proposal('p-${++calls}');
 }
 
 final class _DeferredCreator implements ProposalCreator {
   final List<Completer<ScheduleProposal>> pending = [];
   @override
-  Future<ScheduleProposal> createProposal() {
+  Future<ScheduleProposal> createProposal({ScheduleRuleOverride? override}) {
     final completer = Completer<ScheduleProposal>();
     pending.add(completer);
     return completer.future;

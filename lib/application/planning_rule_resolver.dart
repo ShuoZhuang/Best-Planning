@@ -15,10 +15,12 @@ final class PlanningRuleResolver {
 
   final SettingsService settings;
 
-  Future<PlanningRules> resolveForWindow(DateTime startLocalDate) async {
-    final startRules = (await settings.resolveForDate(startLocalDate)).rules;
-    final weekendRules =
-        (await settings.resolveForDate(_nextWeekend(startLocalDate))).rules;
+  Future<PlanningRules> resolveForWindow(
+    DateTime startLocalDate, {
+    ScheduleRuleOverride? override,
+  }) async {
+    final startRules = await _rulesFor(startLocalDate, override);
+    final weekendRules = await _rulesFor(_nextWeekend(startLocalDate), override);
 
     return startRules.copyWith(
       energyWindows: _mergeDistinct(
@@ -36,6 +38,19 @@ final class PlanningRuleResolver {
             '${item.range.startMinute}|${item.range.endMinute}',
       ),
     );
+  }
+
+  /// 解析某一天的规则，并在该天被 [override] 命中时叠加一次性覆盖。
+  ///
+  /// 覆盖叠加在 `resolveForDate` 的结果之上，因此用户**显式保存**的当日例外仍然优先，
+  /// 一次性覆盖只是本次生成计划时多出来的一层，不会覆盖用户的持久设置。
+  Future<PlanningRules> _rulesFor(
+    DateTime date,
+    ScheduleRuleOverride? override,
+  ) async {
+    final rules = (await settings.resolveForDate(date)).rules;
+    if (override == null || !override.appliesTo(date)) return rules;
+    return override.patch.applyTo(rules);
   }
 }
 

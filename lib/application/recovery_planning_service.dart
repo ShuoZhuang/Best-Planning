@@ -71,12 +71,10 @@ final class RecoveryPlan {
 
 final class RecoveryPlanningService {
   const RecoveryPlanningService({
-    required this.settings,
     required this.planning,
     required this.zones,
   });
 
-  final SettingsService settings;
   final ProposalCreator planning;
   final TimeZoneDatabase zones;
 
@@ -121,9 +119,17 @@ final class RecoveryPlanningService {
 
     final localStart = zones.toLocal(draft.actualEndUtc, draft.timeZoneId);
     final localEnd = zones.toLocal(earliest, draft.timeZoneId);
-    await settings.saveDateOverride(
-      draft.recoveryDate,
-      PlanningRulesPatch(
+    // 例外是**提案输入**，不是持久设置。
+    //
+    // 此前这里调用 `settings.saveDateOverride` 先把例外写进设置再生成提案，理由是
+    // `SettingsService.resolveForDate` 会读取该例外，不先写入则提案不含当次恢复保护。
+    // 但那样做等于"预览即落库"：用户只要生成过一次恢复方案（哪怕随后取消、从未应用），
+    // 该日期的睡眠例外就会永久生效，而全库没有任何清除路径。需求 FR-RECOVERY-05 要求
+    // 针对**单次事件**处理、FR-RECOVERY-06 要求特殊日数据不直接更新长期作息偏好，
+    // 技术设计 §12 也要求"取消编辑不会污染数据库"，因此改为把例外作为一次性覆盖传入。
+    final override = ScheduleRuleOverride(
+      localDate: draft.recoveryDate,
+      patch: PlanningRulesPatch(
         sleepRange: LocalTimeRange(
           startMinute: localStart.hour * 60 + localStart.minute,
           endMinute: localEnd.hour * 60 + localEnd.minute,
@@ -135,7 +141,7 @@ final class RecoveryPlanningService {
       ),
     );
 
-    final proposal = await planning.createProposal();
+    final proposal = await planning.createProposal(override: override);
     return RecoveryPlan(
       recoveryDate: draft.recoveryDate,
       earliestSchedulableUtc: earliest,

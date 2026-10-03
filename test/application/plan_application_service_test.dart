@@ -7,6 +7,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -137,6 +138,46 @@ void main() {
     expect(result.status, ApplyPlanStatus.invalidProposal);
     expect(await database.select(database.planVersions).get(), isEmpty);
   });
+
+  test('确认时必须重放生成提案时的一次性规则覆盖', () async {
+    // 特殊日恢复的一次性例外只存在于生成提案的那一次输入里。如果确认阶段不把它
+    // 重放出来，重新装配的规则与提案不一致，哈希必然不同，合法提案会被判为过期。
+    const snapshots = InputSnapshotBuilder();
+    final base = _overrideProblem();
+    final override = ScheduleRuleOverride(
+      localDate: DateTime(2026, 10, 5),
+      patch: PlanningRulesPatch(
+        sleepRange: LocalTimeRange(startMinute: 60, endMinute: 8 * 60),
+      ),
+    );
+    final overridden = _withRules(base, override.patch.applyTo(base.rules));
+    final overriddenHash = snapshots.hash(InputSnapshot(problem: overridden));
+    expect(
+      overriddenHash,
+      isNot(snapshots.hash(InputSnapshot(problem: base))),
+      reason: '例外必须改变输入哈希，否则"过期提案"检测形同虚设',
+    );
+
+    final source = _OverrideAwareSource(base);
+    final service = PlanApplicationService(
+      source: source,
+      repository: repository,
+      zones: TimeZoneDatabase(),
+      snapshots: snapshots,
+    );
+
+    final replayed = await service.apply(
+      _overrideProposal(inputHash: overriddenHash, override: override),
+    );
+    expect(source.received, same(override));
+    expect(replayed.status, ApplyPlanStatus.applied);
+
+    // 对照：哈希相同但不带覆盖，说明重放缺失会让提案永久无法应用。
+    final withoutOverride = await service.apply(
+      _overrideProposal(inputHash: overriddenHash, override: null),
+    );
+    expect(withoutOverride.status, ApplyPlanStatus.staleProposal);
+  });
 }
 
 ScheduleProposal _proposal() {
@@ -206,5 +247,89 @@ final class _ProblemSource implements ScheduleProblemSource {
   const _ProblemSource(this.problem);
   final ScheduleProblem problem;
   @override
-  Future<ScheduleProblem> load() async => problem;
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
+      problem;
 }
+
+/// 按传入的一次性覆盖重新装配规则，模拟生产用 `RepositoryScheduleProblemSource`
+/// 在 `resolveForWindow(override: ...)` 下的行为。
+final class _OverrideAwareSource implements ScheduleProblemSource {
+  _OverrideAwareSource(this.base);
+  final ScheduleProblem base;
+  ScheduleRuleOverride? received;
+
+  @override
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+    received = override;
+    if (override == null) return base;
+    return _withRules(base, override.patch.applyTo(base.rules));
+  }
+}
+
+ScheduleProblem _withRules(ScheduleProblem problem, PlanningRules rules) =>
+    ScheduleProblem(
+      planningWindow: problem.planningWindow,
+      timeZoneId: problem.timeZoneId,
+      tasks: problem.tasks,
+      fixedIntervals: problem.fixedIntervals,
+      protectedIntervals: problem.protectedIntervals,
+      lockedBlocks: problem.lockedBlocks,
+      existingBlocks: problem.existingBlocks,
+      rules: rules,
+      preferences: problem.preferences,
+      inputHash: problem.inputHash,
+    );
+
+ScheduleProblem _overrideProblem() {
+  final day = DateTime.utc(2026, 10, 5);
+  return ScheduleProblem(
+    planningWindow: TimeRange(
+      startUtc: day,
+      endUtc: day.add(const Duration(days: 1)),
+    ),
+    timeZoneId: 'UTC',
+    tasks: const [
+      SchedulableTask(
+        id: 'task',
+        requiredMinutes: 60,
+        splitMode: TaskSplitMode.splittable,
+        minChunkMinutes: 30,
+        maxChunkMinutes: 90,
+      ),
+    ],
+    fixedIntervals: const [],
+    protectedIntervals: const [],
+    lockedBlocks: const [],
+    rules: DefaultSettings.v1(),
+    preferences: const PreferenceProfile(),
+    inputHash: 'ignored',
+  );
+}
+
+ScheduleProposal _overrideProposal({
+  required String inputHash,
+  required ScheduleRuleOverride? override,
+}) => ScheduleProposal(
+  proposalId: 'recovery-proposal',
+  inputHash: inputHash,
+  algorithmVersion: '1',
+  blocks: [
+    PlannedBlock(
+      id: 'block-0',
+      taskId: 'task',
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 9),
+        endUtc: DateTime.utc(2026, 10, 5, 10),
+      ),
+    ),
+  ],
+  unscheduled: const [],
+  conflicts: const [],
+  explanations: const [],
+  metrics: const ProposalMetrics(
+    isFullyFeasible: true,
+    scheduledMinutes: 60,
+    unscheduledMinutes: 0,
+  ),
+  ruleOverride: override,
+);

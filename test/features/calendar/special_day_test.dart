@@ -46,7 +46,9 @@ void main() {
 
     expect(submitted?.resolution, RecoveryResolution.acceptShorterSleep);
     expect(submitted?.acceptedSleepMinutes, 360);
-    expect(find.text('恢复保护已加入当日例外'), findsOneWidget);
+    // 文案必须与真实行为一致：例外只用于本次方案，预览不会留下持久设置。
+    expect(find.text('恢复保护已用于本次方案'), findsOneWidget);
+    expect(find.text('仅作用于本次生成的计划，不会写入长期作息偏好。'), findsOneWidget);
   });
 
   testWidgets('最低睡眠与早课冲突时明确保留早课', (tester) async {

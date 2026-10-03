@@ -4,6 +4,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -62,7 +63,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   final PlanningRuleResolver rules;
 
   @override
-  Future<ScheduleProblem> load() async {
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
     final nowUtc = clock.nowUtc();
     final startLocalDate = _dateOnly(zones.toLocal(nowUtc, timeZoneId));
     final startUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
@@ -71,7 +72,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       timeZoneId,
     );
 
-    final resolvedRules = await rules.resolveForWindow(startLocalDate);
+    final resolvedRules = await rules.resolveForWindow(
+      startLocalDate,
+      override: override,
+    );
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
     final occurrences = await calendar.occurrencesBetween(startUtc, endUtc);

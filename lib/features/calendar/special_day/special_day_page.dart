@@ -149,8 +149,8 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
             const Card(
               child: ListTile(
                 leading: Icon(Icons.shield_outlined),
-                title: Text('恢复保护已加入当日例外'),
-                subtitle: Text('常规睡眠和学习偏好未被修改。'),
+                title: Text('恢复保护已用于本次方案'),
+                subtitle: Text('仅作用于本次生成的计划，不会写入长期作息偏好。'),
               ),
             ),
             for (final conflict in _result!.conflicts)

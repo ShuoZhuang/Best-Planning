@@ -189,6 +189,37 @@ final class PlanningRulesPatch {
   );
 }
 
+/// 只对某一天生效、且**不落库**的规则覆盖。
+///
+/// 与 `SettingsService.saveDateOverride` 的关键区别是生命周期：这里是排程输入的一部分，
+/// 随一次提案生成而存在，用完即弃，不会写入设置。特殊日恢复使用它，因为
+/// FR-RECOVERY-05 要求处理"针对单次事件"、FR-RECOVERY-06 要求特殊日数据不直接更新
+/// 长期作息偏好，且技术设计 §12 要求"取消编辑不会污染数据库"——预览过的恢复方案
+/// 即使随后被取消，也不得留下任何持久痕迹。
+///
+/// [localDate] 指明覆盖作用于哪一天：该日是工作日还是周末决定按哪一套规则解析。
+/// 注意 `ScheduleProblem.rules` 是覆盖整个窗口的单一对象，因此睡眠与最低睡眠这类
+/// "整窗口唯一"的字段只有在 [localDate] 是窗口首日时才可能生效；这是既有限制，
+/// 不是本类型引入的。
+final class ScheduleRuleOverride {
+  const ScheduleRuleOverride({required this.localDate, required this.patch});
+
+  /// 覆盖生效的本地日期（只比较年月日，不比较时刻）。
+  final DateTime localDate;
+
+  final PlanningRulesPatch patch;
+
+  /// 该覆盖是否作用于 [date]。
+  ///
+  /// 逐字段比较年月日而不是使用 `==`：`DateTime` 的相等还要求时刻与 UTC 标志一致，
+  /// 而日期来源既有 `DateTime(y, m, d)` 也有 `zones.toLocal(...)`，后者带有时刻。
+  /// 沿用这一刻度会让"同一天"被判为不同，从而静默丢弃覆盖。
+  bool appliesTo(DateTime date) =>
+      localDate.year == date.year &&
+      localDate.month == date.month &&
+      localDate.day == date.day;
+}
+
 void _requirePositive(int value, String name) {
   if (value <= 0) throw ArgumentError.value(value, name, 'Must be positive.');
 }

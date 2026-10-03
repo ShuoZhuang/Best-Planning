@@ -4,6 +4,7 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -11,6 +12,7 @@ import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -182,6 +184,54 @@ void main() {
     for (final block in proposal.blocks) {
       expect(problem.planningWindow.contains(block.startUtc), isTrue);
     }
+  });
+
+  test('一次性恢复例外进入排程输入但不写入设置', () async {
+    // C8 的端到端验证：走真实装配链路（真实 SettingsService + 真实装配器）。
+    // 窗口首日是东八区的 2026-10-05。
+    final settings = SettingsService(repository: MemorySettingsRepository());
+    final problemSource = RepositoryScheduleProblemSource(
+      tasks: _FakeTasks(const []),
+      lifeAreas: const _FakeLifeAreas(),
+      calendar: _FakeCalendar(const []),
+      settings: settings,
+      plans: _FakePlans(null),
+      clock: clock,
+      timeZoneId: zoneId,
+      zones: zones,
+    );
+    LocalTimeRange recoveredSleep() =>
+        LocalTimeRange(startMinute: 60, endMinute: 8 * 60);
+
+    final plain = await problemSource.load();
+    final recovered = await problemSource.load(
+      override: ScheduleRuleOverride(
+        localDate: DateTime(2026, 10, 5),
+        patch: PlanningRulesPatch(sleepRange: recoveredSleep()),
+      ),
+    );
+
+    expect(plain.rules.sleepRange, DefaultSettings.v1().sleepRange);
+    expect(recovered.rules.sleepRange, recoveredSleep());
+    expect(
+      recovered.inputHash,
+      isNot(plain.inputHash),
+      reason: '恢复保护改变了规则就必须改变输入哈希，否则确认阶段认不出输入已变化',
+    );
+
+    // 例外只作用于命中的那一天。窗口首日之外的日期无法承载"整窗口唯一"的睡眠字段，
+    // 这是 `ScheduleProblem.rules` 单一对象的既有限制（见 §13.0 的 C8 登记）。
+    final otherDay = await problemSource.load(
+      override: ScheduleRuleOverride(
+        localDate: DateTime(2026, 10, 6),
+        patch: PlanningRulesPatch(sleepRange: recoveredSleep()),
+      ),
+    );
+    expect(otherDay.rules.sleepRange, DefaultSettings.v1().sleepRange);
+
+    // 整条链路走完后设置里不得留下痕迹——此前这里会被 saveDateOverride 永久写入。
+    final resolved = await settings.resolveForDate(DateTime(2026, 10, 5));
+    expect(resolved.rules.sleepRange, DefaultSettings.v1().sleepRange);
   });
 }
 

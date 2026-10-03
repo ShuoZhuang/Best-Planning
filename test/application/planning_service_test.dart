@@ -5,6 +5,7 @@ import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -105,6 +106,34 @@ void main() {
 
     expect(proposal.blocks, isNotEmpty);
   });
+
+  test('一次性覆盖同时进入输入装配并被附在提案上', () async {
+    // 两件事都必须发生：装配时用它（否则提案不含恢复保护），随提案带走
+    // （否则确认阶段重放不出同一个哈希）。
+    final source = _MutableProblemSource(_problem(requiredMinutes: 60));
+    final planning = PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(TimeZoneDatabase()),
+      snapshots: snapshots,
+    );
+    final override = ScheduleRuleOverride(
+      localDate: DateTime(2026, 10, 5),
+      patch: PlanningRulesPatch(
+        sleepRange: LocalTimeRange(startMinute: 60, endMinute: 8 * 60),
+      ),
+    );
+
+    final proposal = await planning.createProposal(override: override);
+
+    expect(source.lastOverride, same(override));
+    expect(proposal.ruleOverride, same(override));
+    expect(planning.preview(proposal.proposalId)?.ruleOverride, same(override));
+
+    // 普通生成路径不得凭空带出一个覆盖。
+    final plain = await planning.createProposal();
+    expect(source.lastOverride, isNull);
+    expect(plain.ruleOverride, isNull);
+  });
 }
 
 ScheduleProblem _problem({required int requiredMinutes}) {
@@ -144,8 +173,12 @@ ScheduleProblem _problem({required int requiredMinutes}) {
 final class _MutableProblemSource implements ScheduleProblemSource {
   _MutableProblemSource(this.problem);
   ScheduleProblem problem;
+  ScheduleRuleOverride? lastOverride;
   @override
-  Future<ScheduleProblem> load() async => problem;
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+    lastOverride = override;
+    return problem;
+  }
 }
 
 final class _UnsendableProblemSource implements ScheduleProblemSource {
@@ -155,7 +188,8 @@ final class _UnsendableProblemSource implements ScheduleProblemSource {
   final ReceivePort _localResource = ReceivePort();
 
   @override
-  Future<ScheduleProblem> load() async => problem;
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
+      problem;
 
   void dispose() => _localResource.close();
 }
