@@ -220,3 +220,46 @@ Windows 应用程序日志里有两条 `personal_planner.exe`（版本 `1.0.0.1`
 观察**，不足以断言"不再崩"——旧版的崩溃本身也不是每次都在同一时刻（20:56 与 22:05 两批之间
 相差一小时）。所以做通知验证时**仍然要留意应用程序日志**：若验证期间出现 `0xc0000409`，那是
 新信息（说明还有一条更晚的触发路径），而不是"已知的老问题"。
+
+---
+
+## 七、通知 toast 人工验证：第一次尝试失败的原因（**是给指令的人错了**）
+
+给的操作步骤是"建一个截止时间在 24 小时内的任务 → 重启应用 → 约 1 分钟后应弹出截止提醒"。
+**没有弹出。** 排查如下。
+
+**先排除的项**（都有实测依据）：
+
+| 检查 | 结果 |
+| --- | --- |
+| 应用是否在跑、是否崩 | 在跑、响应正常、无崩溃 |
+| 截止时间是否真的设上 | **设上了**：任务「测试」`due_at_utc = 1791043140000000` µs = **今天 23:59 本地**（直接读 `F:\Documents\personal_planner.sqlite`） |
+| 是否生成过计划 | **没有**（`plan_versions` 为空）→ "任务开始提醒"这条分支本就不适用，唯一可能触发的是截止提醒 |
+| 任务是否算"未结束" | 算：`TaskStatus.inbox` 不在 `isClosed`（completed/skipped/cancelled）内 |
+| 通知开关与提前量 | 均正常：`notifications.v1` 里 `deadlineEnabled: true`、`deadlineLeadMinutes: 1440` |
+| `capability.canSchedule` | **恒为 true**（`windows_notification_adapter.dart:125` 无条件返回）→ 不是它挡住的 |
+
+**真正原因：应用内设置里的免打扰时段。** `notifications.v1` 中是
+`"quietHours":{"startMinute":1410,"endMinute":450}`，即 **23:30 → 07:30**，而操作时刻是 **23:40**，
+正好落在里面。`syncNextSevenDays` 对每条候选提醒**先** `_clampToFuture`（已过去 → 现在 +1 分钟）
+**再** `_delayPastQuietHours`，后者在免打扰期间把时刻推到**免打扰结束时刻**
+（`notification_service.dart:230-252`）。因此这条提醒被**推迟到次日 07:30**。
+
+**结论：程序的行为符合设计，错的是"1 分钟后弹"这个预期——写那份步骤时没有先看免打扰时段。**
+要当晚验证，必须先把免打扰时段移开当前时刻。
+
+**尚未分清的一点（不猜）**：读 Windows 通知平台数据库
+（`%LOCALAPPDATA%\Microsoft\Windows\Notifications\wpndatabase.db`）时，既没有本应用的
+`NotificationHandler` 记录，`TimedNotification` 也是 0 行。这**可能只是快照滞后**（WPN 有内存缓存，
+落盘时机不保证），**也可能排定确实没发生**。把免打扰时段移开后的下一次实验能一次分清：若那时仍无
+记录且无 toast，就是后者，需继续往插件 `initialize`/`schedule` 里查。
+
+### 同一轮发现：设置页一句话与代码不一致（属口径问题）
+
+设置页对用户写着「普通通知在免打扰期间延后；**冲突待处理提醒仍会保留**」
+（`notification_preferences_section.dart:101`），而代码对冲突通知**同样**调用了
+`_delayPastQuietHours`（`notification_service.dart:176-179`）。
+
+两种读法都讲得通：若"仍会保留"指**不被丢弃**，代码没问题；若指**不被延后**（用户更可能这样理解），
+这句承诺没有兑现。**这是口径问题而非实现笔误**，按 §20 应由产品侧确认再决定改文案还是改行为；
+本轮只登记，不擅自改。
