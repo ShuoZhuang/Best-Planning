@@ -7,6 +7,7 @@ final class WeekViewPage extends StatefulWidget {
     required this.weekStart,
     required this.moveController,
     this.onProposalCreated,
+    this.onOpenDay,
     super.key,
   });
 
@@ -14,6 +15,11 @@ final class WeekViewPage extends StatefulWidget {
   final DateTime weekStart;
   final WeekMoveController moveController;
   final ValueChanged<String>? onProposalCreated;
+
+  /// 打开某一天的日视图（FR-CAL-03）。参数是该日本地 00:00 对应的 UTC 时刻。
+  ///
+  /// 与周视图互为切换，因此不占用导航项；为空时不显示切换按钮。
+  final ValueChanged<DateTime>? onOpenDay;
 
   @override
   State<WeekViewPage> createState() => _WeekViewPageState();
@@ -42,7 +48,25 @@ final class _WeekViewPageState extends State<WeekViewPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('七日日历', style: Theme.of(context).textTheme.headlineMedium),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '七日日历',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              if (widget.onOpenDay != null)
+                TextButton.icon(
+                  key: const Key('open-day-view'),
+                  // `weekStart` 是当前显示区间的第一天，而路由器传进来的就是"今天的本地
+                  // 零点"，因此它正好是日视图要的那一天。
+                  onPressed: () => widget.onOpenDay!(widget.weekStart),
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  label: const Text('查看当日'),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<List<ScheduleViewItem>>(

@@ -20,6 +20,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
+import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
@@ -142,7 +143,35 @@ GoRouter createPlannerRouter({
             moveController: moveController,
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
+            // FR-CAL-03 的日视图入口：与周视图互为切换，不占导航项。
+            onOpenDay: (dayStartUtc) =>
+                context.go('/calendar/day/${dayStartUtc.microsecondsSinceEpoch}'),
           ),
+        ),
+        GoRoute(
+          // 日视图（FR-CAL-03）。与周视图共用同一个数据源，只是窗口为一天。
+          path: '/calendar/day/:dayStartMicros',
+          builder: (context, state) {
+            final micros = int.tryParse(
+              state.pathParameters['dayStartMicros'] ?? '',
+            );
+            if (micros == null) {
+              return const _UnavailablePage(
+                title: '日视图',
+                message: '日期参数无效，无法显示这一天。',
+              );
+            }
+            return DayViewPage(
+              source: scheduleSource,
+              dayStartUtc: DateTime.fromMicrosecondsSinceEpoch(
+                micros,
+                isUtc: true,
+              ),
+              zones: zones,
+              timeZoneId: timeZoneId,
+              onOpenWeek: () => context.go('/calendar'),
+            );
+          },
         ),
         GoRoute(
           // 需求的信息架构把"项目与分类管理"归在任务之下，因此它是任务的同级入口，
@@ -462,7 +491,8 @@ final class _PlannerShell extends StatelessWidget {
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
     '/workspace' => 2,
-    '/calendar' => 3,
+    // 周视图与日视图同属"日历"，因此按前缀判断而不是逐条列举。
+    final path when path.startsWith('/calendar') => 3,
     '/analytics' => 4,
     // 设置类页面都归在"设置"这一项下，因此按前缀判断而不是逐条列举。
     final path when path.startsWith('/settings') => 5,
