@@ -135,7 +135,9 @@ msix_config:
   display_name: 智能日程
   publisher_display_name: Personal Planner
   identity_name: PersonalPlanner.StudentScheduler
-  publisher: CN=Personal Planner
+  # 当前个人测试版使用 msix 包自带的测试证书；面向公众发布前必须替换为
+  # Microsoft Store 分配的发布者或自己的代码签名证书。
+  publisher: CN=Msix Testing, O=Msix Testing Corporation, S=Some-State, C=US
   # 必须与 pubspec.yaml 的 version 对应（MSIX 要求四段式）。
   msix_version: 1.0.0.0
   output_name: personal_planner_1.0.0_x64
