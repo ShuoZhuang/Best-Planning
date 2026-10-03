@@ -212,6 +212,87 @@ void main() {
     expect(occurrences, hasLength(1));
   });
 
+  testWidgets('"改这一次"把新时间交给注入的回调，非法输入留在对话框里', (tester) async {
+    final replaced = <(String, DateTime, DateTime, DateTime)>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'anchor-1',
+                title: '数据结构课',
+                kind: ScheduleItemKind.fixed,
+                startHourUtc: 9,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onReplaceOccurrence:
+                (id, startUtc, newStart, newEnd, title) async {
+                  replaced.add((id, startUtc, newStart, newEnd));
+                  return true;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('edit-anchor-1')));
+    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.pumpAndSettle();
+
+    // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法值交给下游。
+    await tester.enterText(
+      find.byKey(const Key('occurrence-start')),
+      '不是时间',
+    );
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('时间格式应为'), findsOneWidget);
+    expect(replaced, isEmpty);
+
+    // 再改成合法时间：解析结果交给回调（本地时刻，UTC 换算由路由负责）。
+    await tester.enterText(
+      find.byKey(const Key('occurrence-start')),
+      '2026-10-05 14:00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('occurrence-end')),
+      '2026-10-05 15:00',
+    );
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(replaced, hasLength(1));
+    expect(replaced.single.$1, 'anchor-1');
+    expect(replaced.single.$3.hour, 14);
+    expect(replaced.single.$4.hour, 15);
+  });
+
+  testWidgets('未注入改写入口时不显示该按钮', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+    );
+
+    expect(find.byKey(const Key('edit-fixed-1')), findsNothing);
+  });
+
   testWidgets('未注入删除入口时不显示删除按钮', (tester) async {
     await pump(
       tester,

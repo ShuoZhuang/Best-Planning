@@ -9,6 +9,10 @@
 ///
 /// 与 `CalendarRepository` 分开还有一层语义上的好处：**读日程**的调用方（周视图、日视图、
 /// 统计）与**改日程**的调用方本身是两类，端口分开后前者的替身不必为后者提供空实现。
+/// **写入型**日程改动的端口：删除（整条／某一次）与**改写某一次**。
+///
+/// 文件名是历史遗留（最初只有删除），这里保留它而不是重命名——重命名要牵动实现、服务与组合根，
+/// 对行为没有影响。端口本身很小，因此不值得为名字发动一次改名。
 abstract interface class CalendarEventDeletion {
   /// 删除一条固定日程。
   ///
@@ -33,6 +37,27 @@ abstract interface class CalendarEventDeletion {
   Future<void> deleteOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
+    required String title,
+    required String exceptionId,
+    required DateTime updatedAtUtc,
+  });
+
+  /// **改写**重复日程里的某一次（FR-CAL-02 的"修改单次实例"的修改一半）。
+  ///
+  /// 与 [deleteOccurrence] 相对：那条写的是"起止相同的零长度行＝这一次被删除"，这条写的是一条
+  /// **正常长度**的替换行，展开器据此把这一次显示成新时间。
+  ///
+  /// 实现方同样要判断"是不是重复日程"：**单次日程**就直接改它自己那一行（"只改这一次"与
+  /// "改整条"在单次日程上是同一件事）；**重复日程**则写一条例外，且例外的 `timeZoneId` 取
+  /// **规则自己的时区**。
+  ///
+  /// **同一天已有例外时必须复用它那一行的 id**：写第二条会让展开器按遍历顺序二选一，结果
+  /// 不确定——那是一种"有时生效有时不生效"的缺陷。
+  Future<void> replaceOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
     required String title,
     required String exceptionId,
     required DateTime updatedAtUtc,

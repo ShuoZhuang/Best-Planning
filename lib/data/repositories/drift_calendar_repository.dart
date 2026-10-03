@@ -140,6 +140,83 @@ final class DriftCalendarRepository
   /// **本次只删这一条事件行**：若它是某条重复规则的锚点，规则行本身仍然留着，而展开又依赖
   /// 锚点才发生，因此"整串消失"。**逐次例外与"改整个系列"仍属后续**（`EventEditScope` 目前
   /// 只被采集、未被使用），这一点在 §13.0 的 R4 行里写明，不在实现里假装已经支持。
+  /// 改写重复日程里的某一次（FR-CAL-02），见端口的文档说明。
+  @override
+  Future<void> replaceOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required String title,
+    required String exceptionId,
+    required DateTime updatedAtUtc,
+  }) async {
+    if (!newEndUtc.isAfter(newStartUtc)) {
+      throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
+    }
+    final anchor = await (_database.select(_database.calendarEvents)
+          ..where((row) => row.id.equals(anchorId))
+          ..limit(1))
+        .getSingleOrNull();
+    // 锚点已经不在了：与删除同样按幂等处理。
+    if (anchor == null) return;
+
+    final ruleId = anchor.recurrenceRuleId;
+    if (ruleId == null) {
+      // 单次日程：直接改它自己那一行。"只改这一次"与"改整条"在单次日程上是同一件事，
+      // 因此不必（也不该）留下一条替换例外——那会让这条日程变成"系列的一次"。
+      await save(
+        domain.CalendarEvent(
+          id: anchor.id,
+          title: title,
+          startAtUtc: newStartUtc,
+          endAtUtc: newEndUtc,
+          timeZoneId: anchor.timeZoneId,
+          exceptionOfId: anchor.exceptionOfId,
+          locked: anchor.locked,
+          areaId: anchor.areaId,
+          updatedAtUtc: updatedAtUtc,
+        ),
+      );
+      return;
+    }
+
+    final rule = await (_database.select(_database.recurrenceRules)
+          ..where((row) => row.id.equals(ruleId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (rule == null) return;
+
+    // 同一天已有例外就**复用那一行的 id**：再写一条会让展开器按遍历顺序二选一，结果不确定。
+    final localDate = _zones.toLocal(occurrenceStartUtc, rule.timeZoneId);
+    var targetId = exceptionId;
+    final existing = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+    for (final row in existing) {
+      final rowDate = _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId);
+      if (rowDate.year == localDate.year &&
+          rowDate.month == localDate.month &&
+          rowDate.day == localDate.day) {
+        targetId = row.id;
+        break;
+      }
+    }
+
+    await save(
+      domain.CalendarEvent(
+        id: targetId,
+        title: title,
+        startAtUtc: newStartUtc,
+        endAtUtc: newEndUtc,
+        // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
+        timeZoneId: rule.timeZoneId,
+        exceptionOfId: anchorId,
+        updatedAtUtc: updatedAtUtc,
+      ),
+    );
+  }
+
   /// 只删除重复日程里的某一次（FR-CAL-02），见端口的文档说明。
   @override
   Future<void> deleteOccurrence({

@@ -83,6 +83,31 @@ final class CalendarService {
   final IdGenerator _idGenerator;
   final TimeZoneDatabase _zones;
 
+  /// 改写重复日程里的某一次（FR-CAL-02 的"修改单次实例"）。
+  ///
+  /// 与 [deleteOccurrence] 同路：判定"是不是重复日程"与例外的时区都在仓储侧（它才摸得到规则
+  /// 行）。未装配该端口时返回 `false`，而不是假装改掉了。
+  Future<bool> replaceOccurrence({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required String title,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.replaceOccurrence(
+      anchorId: anchorId,
+      occurrenceStartUtc: occurrenceStartUtc,
+      newStartUtc: newStartUtc,
+      newEndUtc: newEndUtc,
+      title: title,
+      exceptionId: _idGenerator.next(),
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    return true;
+  }
+
   /// 只删除重复日程里的**某一次**（FR-CAL-02 的"修改单次实例"的删除一半）。
   ///
   /// 实现细节在仓储侧：写入一行**起止相同的零长度例外**（约定见 `DriftCalendarRepository`

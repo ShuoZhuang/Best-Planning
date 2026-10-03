@@ -189,4 +189,89 @@ void main() {
       completes,
     );
   });
+
+  Future<int> exceptionRowCount() async {
+    final rows = await database.select(database.calendarEvents).get();
+    return rows.where((row) => row.exceptionOfId == 'anchor-1').length;
+  }
+
+  test('改写某一次会把那一次移到新时间，其余各次不动', () async {
+    await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+
+    await repository.replaceOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      newStartUtc: DateTime.utc(2026, 10, 12, 16),
+      newEndUtc: DateTime.utc(2026, 10, 12, 17),
+      title: '数据结构课',
+      exceptionId: 'exception-replace-1',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // 只有 10-12 换了时间：断言整串而不是"某个时间出现过"，否则无法区分改对了哪一次。
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 5, 9),
+      DateTime.utc(2026, 10, 12, 16),
+    ]);
+    expect(await exceptionRowCount(), 1);
+  });
+
+  test('同一天重复改写**复用同一条例外行**，不会堆积', () async {
+    await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+
+    await repository.replaceOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      newStartUtc: DateTime.utc(2026, 10, 12, 16),
+      newEndUtc: DateTime.utc(2026, 10, 12, 17),
+      title: '数据结构课',
+      exceptionId: 'exception-replace-1',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+    await repository.replaceOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      newStartUtc: DateTime.utc(2026, 10, 12, 18),
+      newEndUtc: DateTime.utc(2026, 10, 12, 19),
+      title: '数据结构课',
+      exceptionId: 'exception-replace-2',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // 写第二条会让展开器按遍历顺序二选一——那是一种"有时生效有时不生效"的缺陷。
+    expect(await exceptionRowCount(), 1);
+    // 而且第二次的值必须胜出。
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 5, 9),
+      DateTime.utc(2026, 10, 12, 18),
+    ]);
+  });
+
+  test('对单次日程"改这一次"直接改那一行，不产生例外行', () async {
+    await repository.save(
+      CalendarEvent(
+        id: 'single-2',
+        title: '一次性讲座',
+        startAtUtc: DateTime.utc(2026, 10, 12, 14),
+        endAtUtc: DateTime.utc(2026, 10, 12, 15),
+        timeZoneId: 'UTC',
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+    );
+
+    await repository.replaceOccurrence(
+      anchorId: 'single-2',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 14),
+      newStartUtc: DateTime.utc(2026, 10, 12, 16),
+      newEndUtc: DateTime.utc(2026, 10, 12, 17),
+      title: '一次性讲座',
+      exceptionId: 'exception-replace-3',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 12, 16)]);
+    final rows = await database.select(database.calendarEvents).get();
+    // 单次日程若被写成"系列的一次"，它从此必须依赖规则才可见——那会把一条独立日程绑死。
+    expect(rows.where((row) => row.exceptionOfId != null), isEmpty);
+  });
 }

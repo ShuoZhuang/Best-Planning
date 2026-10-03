@@ -308,6 +308,30 @@ GoRouter createPlannerRouter({
                       occurrenceStartUtc: startUtc,
                       title: title,
                     ),
+              // FR-CAL-02 的"改这一次"。页面交回**本地**时刻，UTC 换算在这里做（路由持有
+              // `zones` 与时区标识），与截止时间、事件编辑器两处的分工一致。
+              onReplaceOccurrence: calendarService == null
+                  ? null
+                  : (id, startUtc, newStart, newEnd, title) =>
+                        calendarService.replaceOccurrence(
+                          anchorId: id,
+                          occurrenceStartUtc: startUtc,
+                          newStartUtc: zones.localDateTimeToUtc(
+                            DateTime(
+                              newStart.year,
+                              newStart.month,
+                              newStart.day,
+                            ),
+                            newStart.hour * 60 + newStart.minute,
+                            timeZoneId,
+                          ),
+                          newEndUtc: zones.localDateTimeToUtc(
+                            DateTime(newEnd.year, newEnd.month, newEnd.day),
+                            newEnd.hour * 60 + newEnd.minute,
+                            timeZoneId,
+                          ),
+                          title: title,
+                        ),
             );
           },
         ),

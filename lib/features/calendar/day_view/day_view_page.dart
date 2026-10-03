@@ -18,6 +18,7 @@ final class DayViewPage extends StatelessWidget {
     this.onOpenWeek,
     this.onDeleteEvent,
     this.onDeleteOccurrence,
+    this.onReplaceOccurrence,
     super.key,
   });
 
@@ -46,6 +47,20 @@ final class DayViewPage extends StatelessWidget {
     String title,
   )?
   onDeleteOccurrence;
+
+  /// **改写**某一次（FR-CAL-02 的"修改单次实例"）。为空时不显示该按钮。
+  ///
+  /// 交回的是**本地时刻**：与 `onDeleteOccurrence` 同理，页面不做时区换算，换算由注入方
+  /// （持有 `TimeZoneDatabase` 的路由）负责。单次日程与重复日程在这一层的表现相同，"改这一次"
+  /// 与"改整条"是否等价由仓储按数据判断。
+  final Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+    String title,
+  )?
+  onReplaceOccurrence;
 
   final VoidCallback? onOpenWeek;
 
@@ -120,6 +135,20 @@ final class DayViewPage extends StatelessWidget {
                                 onDeleteOccurrence: onDeleteOccurrence,
                               ),
                             ),
+                          if (onReplaceOccurrence != null)
+                            IconButton(
+                              key: Key('edit-${item.id}'),
+                              tooltip: '改这一次',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () =>
+                                  _editOccurrence(
+                                    context,
+                                    item,
+                                    onReplaceOccurrence: onReplaceOccurrence,
+                                    zones: zones,
+                                    timeZoneId: timeZoneId,
+                                  ),
+                            ),
                         ],
                       ),
                   ],
@@ -129,6 +158,172 @@ final class DayViewPage extends StatelessWidget {
         ),
       );
     },
+  );
+}
+
+/// 改写某一次的对话框：两个文本框（本地时刻），保存时把解析结果交给注入的回调。
+///
+/// 用文本框而不是日期/时间选择器：**格式与事件编辑器一致**（`YYYY-MM-DD HH:mm`），用户在两个
+/// 地方看到同一种写法；也让这条路径能在测试里被直接驱动。
+Future<void> _editOccurrence(
+  BuildContext context,
+  ScheduleViewItem item, {
+  required Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+    String title,
+  )?
+  onReplaceOccurrence,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+}) async {
+  final result = await showDialog<(DateTime, DateTime)>(
+    context: context,
+    // 控制器由对话框**自己**持有并释放。在 `showDialog` 返回后立刻 dispose 会在退出动画
+    // 期间触发 "A TextEditingController was used after being disposed"——本文件第一版正是
+    // 这样写的，五条既有用例一起把它顶了出来。
+    builder: (dialogContext) => _OccurrenceEditDialog(
+      title: item.title,
+      initialStart: _formatLocal(item.range.startUtc, zones, timeZoneId),
+      initialEnd: _formatLocal(item.range.endUtc, zones, timeZoneId),
+    ),
+  );
+  if (result == null) return;
+  await onReplaceOccurrence!(
+    item.id,
+    item.range.startUtc,
+    result.$1,
+    result.$2,
+    item.title,
+  );
+}
+
+/// "改这一次"的对话框：两个文本框（本地时刻），保存时把解析结果交回调用方。
+///
+/// 用文本框而不是日期/时间选择器：**格式与事件编辑器一致**（`YYYY-MM-DD HH:mm`），用户在两个
+/// 地方看到同一种写法；也让这条路径能在测试里被直接驱动。
+final class _OccurrenceEditDialog extends StatefulWidget {
+  const _OccurrenceEditDialog({
+    required this.title,
+    required this.initialStart,
+    required this.initialEnd,
+  });
+
+  final String title;
+  final String initialStart;
+  final String initialEnd;
+
+  @override
+  State<_OccurrenceEditDialog> createState() => _OccurrenceEditDialogState();
+}
+
+final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
+  late final TextEditingController _start;
+  late final TextEditingController _end;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _start = TextEditingController(text: widget.initialStart);
+    _end = TextEditingController(text: widget.initialEnd);
+  }
+
+  @override
+  void dispose() {
+    _start.dispose();
+    _end.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final start = _parseLocalDateTime(_start.text);
+    final end = _parseLocalDateTime(_end.text);
+    // **在对话框内校验**：解析失败或结束不晚于开始时留在对话框里说明，而不是把非法输入交给
+    // 下游、让用户在外面收到一个更含糊的错误。
+    if (start == null || end == null) {
+      setState(() => _error = '时间格式应为 YYYY-MM-DD HH:mm');
+      return;
+    }
+    if (!end.isAfter(start)) {
+      setState(() => _error = '结束时间必须晚于开始时间');
+      return;
+    }
+    Navigator.of(context).pop((start, end));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('改「${widget.title}」的这一次'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('occurrence-start'),
+          controller: _start,
+          decoration: const InputDecoration(
+            labelText: '开始（本地，如 2026-10-12 14:00）',
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const Key('occurrence-end'),
+          controller: _end,
+          decoration: const InputDecoration(labelText: '结束（本地）'),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        key: const Key('occurrence-cancel'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      TextButton(
+        key: const Key('occurrence-save'),
+        onPressed: _save,
+        child: const Text('保存'),
+      ),
+    ],
+  );
+}
+
+/// 把 UTC 时刻按**应用时区**格式化成预填文本。
+///
+/// 刻意不用 `DateTime.toLocal()`：那走的是**系统**时区，而列表本身按应用解析出的 `timeZoneId`
+/// 显示。两者不一致时，预填文本会与用户看到的时刻差一个偏移，保存后又会再偏一次。
+String _formatLocal(
+  DateTime instantUtc,
+  TimeZoneDatabase zones,
+  String timeZoneId,
+) {
+  final local = zones.toLocal(instantUtc, timeZoneId);
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
+DateTime? _parseLocalDateTime(String raw) {
+  final match = RegExp(
+    r'^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$',
+  ).firstMatch(raw.trim());
+  if (match == null) return null;
+  return DateTime(
+    int.parse(match.group(1)!),
+    int.parse(match.group(2)!),
+    int.parse(match.group(3)!),
+    int.parse(match.group(4)!),
+    int.parse(match.group(5)!),
   );
 }
 
