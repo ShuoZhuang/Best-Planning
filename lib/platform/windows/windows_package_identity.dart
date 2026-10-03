@@ -23,7 +23,18 @@ typedef _NativePackageFullNameProbe = Int32 Function(
 /// portable EXE. A packaged process uses the documented two-call buffer flow.
 /// Any unexpected platform error degrades to `false` so notification startup
 /// remains non-fatal and never claims reliable cancellation without evidence.
-bool hasWindowsPackageIdentity({PackageFullNameProbe? probe, bool? isWindows}) {
+///
+/// [onProbeFailure] 把"探针**不可用**"与"确实**没有**包身份"区分开。两者的返回值都是
+/// `false`，但含义完全不同：前者是需要排查的环境问题（DLL 打不开、符号名写错、调用约定不对），
+/// 后者是这个未打包进程的正常状态。**只返回 `false` 会让这两种情况长得一模一样**——本文件的
+/// 用例一度因此失去判别力：把符号名改成 `GetCurrentPackageFullNameX`，"真实调用"那条用例
+/// **照过不误**，因为异常被 `catch` 吞掉之后返回值没有任何变化。加上这个回调，那条用例才真的
+/// 能发现绑定断掉，组合根也才有东西可记进诊断。
+bool hasWindowsPackageIdentity({
+  PackageFullNameProbe? probe,
+  bool? isWindows,
+  void Function(Object error)? onProbeFailure,
+}) {
   if (!(isWindows ?? Platform.isWindows)) return false;
 
   try {
@@ -50,7 +61,8 @@ bool hasWindowsPackageIdentity({PackageFullNameProbe? probe, bool? isWindows}) {
     } finally {
       calloc.free(length);
     }
-  } on Object {
+  } on Object catch (error) {
+    onProbeFailure?.call(error);
     return false;
   }
 }

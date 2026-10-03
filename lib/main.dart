@@ -146,7 +146,12 @@ Future<void> main() async {
   // 提醒。这里把它接上。
   //
   final notifications = WindowsNotificationAdapter(
-    hasPackageIdentity: hasWindowsPackageIdentity(),
+    hasPackageIdentity: hasWindowsPackageIdentity(
+      // 探针不可用时记一条诊断：它的返回值与"确实没有包身份"**一样都是 false**，但后者是
+      // 未打包进程的正常状态，前者是需要排查的环境问题（DLL／符号名／调用约定）。不把两者
+      // 分开，用户看到的"通知无法可靠取消"就没有任何可查的线索。
+      onProbeFailure: (error) => debugPrint('包身份探针不可用：$error'),
+    ),
   );
   // 最近一次生成的提案。冲突**不是持久事实**，只活在提案里，因此"冲突待处理"通知必须有一个
   // 持有者——此前应用里没有任何组件持有它，于是那一类通知只能被跳过而不是伪造（R8 ③；与 W9
