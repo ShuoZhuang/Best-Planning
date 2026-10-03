@@ -145,13 +145,32 @@ Future<void> main() async {
   // 与点击回调虽然都已实现并有测试，却没有任何调用方，因此真实运行中永远不会安排
   // 提醒。这里把它接上。
   //
+  //
+  // **AUMID 必须与打包身份一致，且不能写死**（A①）。此前这里传的是硬编码的
+  // `PersonalPlanner.Desktop.App`，而打包身份的真实 AUMID 是
+  // `ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner`。插件的激活器是写在**传入的**
+  // AUMID 下的（`HKCU\Software\Classes\AppUserModelId\<aumid>` + `CoRegisterClassObject`），
+  // 而打包应用的 toast 带的是包身份 AUMID——两者不符时 Windows 找不到激活器，点击退化成
+  // "重新启动一个进程"，表现就是**窗口到了前台但没有跳转**（实测，见
+  // `docs/testing/flow-verification.md` 第九节）。
+  final hasPackageIdentity = hasWindowsPackageIdentity(
+    // 探针不可用时记一条诊断：它的返回值与"确实没有包身份"**一样都是 false**，但后者是
+    // 未打包进程的正常状态，前者是需要排查的环境问题（DLL／符号名／调用约定）。不把两者
+    // 分开，用户看到的"通知无法可靠取消"就没有任何可查的线索。
+    onProbeFailure: (error) => debugPrint('包身份探针不可用：$error'),
+  );
+  final appUserModelId = currentApplicationUserModelId(
+    onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
+  );
+  if (hasPackageIdentity && (appUserModelId == null || appUserModelId.isEmpty)) {
+    // **这是一个缺陷状态，不是一个可接受的降级**：有包身份却取不到 AUMID，说明取 AUMID 的
+    // 调用出了问题，而回退常量与包身份必然不符——通知点击将无法正确激活。因此这里明确记一条
+    // 诊断，而不是安静地回退。
+    debugPrint('有包身份但取不到 AUMID：通知点击将无法正确激活');
+  }
   final notifications = WindowsNotificationAdapter(
-    hasPackageIdentity: hasWindowsPackageIdentity(
-      // 探针不可用时记一条诊断：它的返回值与"确实没有包身份"**一样都是 false**，但后者是
-      // 未打包进程的正常状态，前者是需要排查的环境问题（DLL／符号名／调用约定）。不把两者
-      // 分开，用户看到的"通知无法可靠取消"就没有任何可查的线索。
-      onProbeFailure: (error) => debugPrint('包身份探针不可用：$error'),
-    ),
+    hasPackageIdentity: hasPackageIdentity,
+    appUserModelId: appUserModelId,
   );
   // 最近一次生成的提案。冲突**不是持久事实**，只活在提案里，因此"冲突待处理"通知必须有一个
   // 持有者——此前应用里没有任何组件持有它，于是那一类通知只能被跳过而不是伪造（R8 ③；与 W9

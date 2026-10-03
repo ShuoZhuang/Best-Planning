@@ -97,4 +97,58 @@ void main() {
       reason: '探针失败也会返回 false——不把两者分开，这条用例对"绑定是否真的可用"没有判别力',
     );
   });
+
+  // A①：取真实 AUMID 的那条调用。与上面同一套路——**不注入探针**，让真正的 kernel32 调用执行。
+  group('currentApplicationUserModelId', () {
+    test('真实调用路径下返回 null，且探针本身没有失败（不注入探针）', () {
+      // 测试进程没有包身份，因此 `GetCurrentApplicationUserModelId` 返回
+      // APPMODEL_ERROR_NO_PACKAGE，我们把它映射成 null。
+      //
+      // **判别力说明**：与上面那条同型，`onProbeFailure` 的断言才是关键——符号名或调用约定
+      // 写错时异常会被吞掉，返回值同样是 null，只看返回值分不出"确实没有包身份"与"探针不可用"。
+      Object? failure;
+      final result = currentApplicationUserModelId(
+        onProbeFailure: (error) => failure = error,
+      );
+
+      expect(result, isNull);
+      expect(
+        failure,
+        isNull,
+        reason: '探针失败也会返回 null——不把两者分开，这条用例对"绑定是否真的可用"没有判别力',
+      );
+    });
+
+    test('非 Windows 平台不调用原生探针', () {
+      var probed = false;
+      final result = currentApplicationUserModelId(
+        isWindows: false,
+        probe: (_, _) {
+          probed = true;
+          return 0;
+        },
+      );
+
+      expect(result, isNull);
+      expect(probed, isFalse);
+    });
+
+    test('两段式调用失败时不返回半截结果', () {
+      // 第一次给长度、第二次仍不成功：必须返回 null，而不是把未填充的缓冲当成名字。
+      var calls = 0;
+      final result = currentApplicationUserModelId(
+        probe: (length, buffer) {
+          calls++;
+          if (calls == 1) {
+            length.value = 8;
+            return 122; // ERROR_INSUFFICIENT_BUFFER
+          }
+          return 5; // 任意非 0 错误
+        },
+      );
+
+      expect(result, isNull);
+      expect(calls, 2);
+    });
+  });
 }

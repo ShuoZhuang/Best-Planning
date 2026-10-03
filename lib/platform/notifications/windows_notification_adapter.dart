@@ -26,14 +26,28 @@ abstract interface class WindowsNotificationBackend {
 
 final class FlutterWindowsNotificationBackend
     implements WindowsNotificationBackend {
-  FlutterWindowsNotificationBackend({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  FlutterWindowsNotificationBackend({
+    FlutterLocalNotificationsPlugin? plugin,
+    this.appUserModelId,
+  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
-  static const _initialization = WindowsInitializationSettings(
-    appName: '智能日程',
-    appUserModelId: 'PersonalPlanner.Desktop.App',
-    guid: '7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4',
-  );
+  /// 通知点击的**激活器 CLSID**。
+  ///
+  /// 这个东西有两处必须**完全一致**，否则点击不会回到本应用：
+  /// ① 这里传给插件的 `guid`（插件据此把 `CustomActivator` 写进注册表、并用
+  /// `CoRegisterClassObject` 把 COM 类对象注册进本进程）；
+  /// ② 打包时清单里声明的 toast 激活器（`msix_config` 的 `toast_activator_clsid`）——
+  /// **打包应用走的是清单声明**，不是上面那套注册表约定。
+  static const activatorGuid = '7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4';
+
+  /// 未打包（免安装 EXE）时回退用的 AUMID。
+  ///
+  /// 这条回退**只对免安装 EXE 有意义**：那种进程没有包身份，插件的注册表激活器约定才适用。
+  /// 打包进程**必须**用真实的 `<包族名>!<应用Id>`——否则 Windows 按包身份 AUMID 去找激活器
+  /// 会找不到，点击退化成"重新启动一个进程"，表现就是"窗口到了前台但没跳转"（实测，见
+  /// `docs/testing/flow-verification.md` 第九节）。组合根会在"有包身份却取不到 AUMID"时记诊断。
+  static const fallbackAppUserModelId = 'PersonalPlanner.Desktop.App';
+
   static const _details = NotificationDetails(
     windows: WindowsNotificationDetails(
       duration: WindowsNotificationDuration.short,
@@ -42,12 +56,30 @@ final class FlutterWindowsNotificationBackend
 
   final FlutterLocalNotificationsPlugin _plugin;
 
+  /// 真实 AUMID；为空时用 [fallbackAppUserModelId]（仅对免安装 EXE 成立）。
+  final String? appUserModelId;
+
+  /// 实际会传给插件的 AUMID（回退也在这里体现）。
+  ///
+  /// **公开是刻意的**：这样测试能直接断言「打包时必须用真实值、回退只对免安装 EXE 成立」，
+  /// 而不必去读私有的初始化设置对象。
+  String get effectiveAppUserModelId =>
+      appUserModelId ?? fallbackAppUserModelId;
+
+  WindowsInitializationSettings get _initialization =>
+      WindowsInitializationSettings(
+        appName: '智能日程',
+        appUserModelId: effectiveAppUserModelId,
+        guid: activatorGuid,
+      );
+
   @override
   Future<void> initialize({
     DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
   }) async {
     await _plugin.initialize(
-      settings: const InitializationSettings(windows: _initialization),
+      // 不再是 `const`：AUMID 现在是运行时决定的（见 `effectiveAppUserModelId`）。
+      settings: InitializationSettings(windows: _initialization),
       onDidReceiveNotificationResponse: onDidReceiveNotificationResponse,
     );
   }
@@ -86,8 +118,19 @@ final class WindowsNotificationAdapter implements NotificationPort {
     FlutterLocalNotificationsPlugin? plugin,
     WindowsNotificationBackend? backend,
     this.hasPackageIdentity = false,
+    /// 真实 AUMID（`<包族名>!<应用Id>`，由 `currentApplicationUserModelId()` 取得）。
+    ///
+    /// 为空时后端回退到 [FlutterWindowsNotificationBackend.fallbackAppUserModelId]——那条回退
+    /// **只对免安装 EXE 成立**；打包进程若走了回退，点击通知就无法正确激活（见后端里 `effectiveAppUserModelId`
+    /// 的说明）。因此组合根在"有包身份却取不到 AUMID"时会记一条诊断。
+    String? appUserModelId,
   }) : assert(plugin == null || backend == null),
-       _backend = backend ?? FlutterWindowsNotificationBackend(plugin: plugin);
+       _backend =
+           backend ??
+           FlutterWindowsNotificationBackend(
+             plugin: plugin,
+             appUserModelId: appUserModelId,
+           );
 
   final WindowsNotificationBackend _backend;
   final bool hasPackageIdentity;

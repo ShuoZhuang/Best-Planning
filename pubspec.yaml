@@ -179,6 +179,17 @@ msix_config:
   # （含首帧崩溃修复之前的那一版），因此这一版取 `1.0.1.0`，同时 `version` 提到 `1.0.1+2`。
   msix_version: 1.0.1.0
   output_name: personal_planner_1.0.1_x64
+  # 通知点击的**激活器**（A②）。打包应用走的是**清单声明**，不是插件那套
+  # `HKCU\Software\Classes\AppUserModelId\<aumid>` 注册表约定——这正是"点通知只把窗口带到
+  # 前台、不跳转"的原因之一（实测证据见 `docs/testing/flow-verification.md` 第九节）。
+  #
+  # **clsid 必须与代码里的 `FlutterWindowsNotificationBackend.activatorGuid` 完全一致**：
+  # 一边是清单里 Windows 用来创建激活器的 ID，另一边是插件 `CoRegisterClassObject` 注册的
+  # ID，两者不符时 Windows 仍然找不到处理器。有一条例用测试守着这个一致性
+  # （`test/platform/windows_notification_activator_config_test.dart`）。
+  toast_activator:
+    clsid: 7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4
+    display_name: 智能日程
   # 构建过程不得静默修改本机的受信任证书库；安装测试单独请求用户授权。
   install_certificate: false
 
