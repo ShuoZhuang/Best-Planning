@@ -120,22 +120,25 @@ void main() {
     // 门控存在但没有设置密码的入口时，锁永远不会开启——这条断言把两件事连起来。
     await pumpApp(tester, appLock: freshService());
 
-    await tester.tap(find.text('应用锁'));
-    await tester.pump();
-    await tester.pump();
+    // 应用锁不再是导航栏的一项，而是设置入口页下的一条（信息架构整理）。
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-app-lock')));
+    await tester.pumpAndSettle();
 
     expect(find.byType(AppLockPage), findsOneWidget);
     expect(find.text('应用锁服务未装配，暂无法开启或关闭应用锁。'), findsNothing);
   });
 
-  testWidgets('应用锁服务未装配时该路由说明原因而不是空白页', (tester) async {
+  testWidgets('应用锁服务未装配时设置入口页不列出该项', (tester) async {
     await pumpApp(tester);
 
-    await tester.tap(find.text('应用锁'));
-    await tester.pump();
-    await tester.pump();
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
 
-    expect(find.text('应用锁服务未装配，暂无法开启或关闭应用锁。'), findsOneWidget);
-    expect(find.byType(AppLockPage), findsNothing);
+    // 入口页只列出**实际装配好的**子页：未装配时不留下一条点了才知道没装 的入口。
+    // 该路由本身仍在（可直接经 URL 到达并给出说明），只是不再从界面指向它。
+    expect(find.byKey(const Key('settings-app-lock')), findsNothing);
+    expect(find.byKey(const Key('settings-rules')), findsOneWidget);
   });
 }

@@ -73,22 +73,24 @@ void main() {
   testWidgets('侧边导航可以进入数据导出页', (tester) async {
     await pumpApp(tester, exportService: _service());
 
-    await tester.tap(find.text('导出'));
-    await tester.pump();
-    await tester.pump();
+    // 数据导出不再是导航栏的一项，而是设置入口页下的一条（信息架构整理）。
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-export')));
+    await tester.pumpAndSettle();
 
     expect(find.byType(ExportPage), findsOneWidget);
     expect(find.text('导出服务未装配，暂无法导出数据。'), findsNothing);
   });
 
-  testWidgets('导出服务未装配时说明原因而不是空白页', (tester) async {
+  testWidgets('导出服务未装配时设置入口页不列出该项', (tester) async {
     await pumpApp(tester);
 
-    await tester.tap(find.text('导出'));
-    await tester.pump();
-    await tester.pump();
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
 
-    expect(find.text('导出服务未装配，暂无法导出数据。'), findsOneWidget);
-    expect(find.byType(ExportPage), findsNothing);
+    // 入口页只列出实际装配好的子页（见 app_lock_gate_test 的同类断言）。
+    expect(find.byKey(const Key('settings-export')), findsNothing);
+    expect(find.byKey(const Key('settings-rules')), findsOneWidget);
   });
 }

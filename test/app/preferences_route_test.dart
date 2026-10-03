@@ -2,6 +2,7 @@
 //
 // 与 analytics_route_test 同样只验证"可达性"：偏好本身的语义由
 // preference_service_test 与 preferences_page_test 覆盖。
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -38,22 +39,24 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('偏好'));
-    await tester.pump();
-    await tester.pump();
+    // 偏好页不再是导航栏的一项，而是设置入口页下的一条（信息架构整理）。
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-preferences')));
+    await tester.pumpAndSettle();
 
     expect(find.byType(PreferencesPage), findsOneWidget);
     expect(find.text('偏好服务未装配，暂无法查看或调整学习到的偏好。'), findsNothing);
   });
 
-  testWidgets('偏好服务未装配时说明原因而不是空白页', (tester) async {
+  testWidgets('偏好服务未装配时设置入口页不列出该项', (tester) async {
     await pumpApp(tester);
 
-    await tester.tap(find.text('偏好'));
-    await tester.pump();
-    await tester.pump();
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
 
-    expect(find.text('偏好服务未装配，暂无法查看或调整学习到的偏好。'), findsOneWidget);
-    expect(find.byType(PreferencesPage), findsNothing);
+    // 入口页只列出实际装配好的子页；未装配时不留一条"点了才知道没装"的入口。
+    expect(find.byKey(const Key('settings-preferences')), findsNothing);
+    expect(find.byKey(const Key('settings-rules')), findsOneWidget);
   });
 }

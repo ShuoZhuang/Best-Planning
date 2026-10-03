@@ -29,6 +29,7 @@ import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
+import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
@@ -159,7 +160,43 @@ GoRouter createPlannerRouter({
           },
         ),
         GoRoute(
+          // 设置成为入口页：其下再列子页，导航栏因此不必每加一个设置页就长一项（W3 的
+          // "信息架构提醒"）。只列出实际装配好的子页。
           path: '/settings',
+          builder: (context, state) => SettingsHubPage(
+            entries: [
+              SettingsHubEntry(
+                key: const Key('settings-rules'),
+                title: '规划规则与默认值',
+                subtitle: '作息、精力区间、保护时间、每日上限与生活配额',
+                onOpen: () => context.go('/settings/rules'),
+              ),
+              if (preferences != null)
+                SettingsHubEntry(
+                  key: const Key('settings-preferences'),
+                  title: '学习偏好',
+                  subtitle: '查看、确认或停用从行为中学到的偏好',
+                  onOpen: () => context.go('/settings/preferences'),
+                ),
+              if (appLock != null)
+                SettingsHubEntry(
+                  key: const Key('settings-app-lock'),
+                  title: '应用锁',
+                  subtitle: '启动时需要密码；不宣称加密数据库',
+                  onOpen: () => context.go('/settings/app-lock'),
+                ),
+              if (exportService != null)
+                SettingsHubEntry(
+                  key: const Key('settings-export'),
+                  title: '数据导出',
+                  subtitle: '把全部事实导出为 JSON 文件',
+                  onOpen: () => context.go('/settings/export'),
+                ),
+            ],
+          ),
+        ),
+        GoRoute(
+          path: '/settings/rules',
           builder: (context, state) => PlanningRulesPage(
             service: settingsService,
             autoAdjustStore: autoAdjustStore,
@@ -216,7 +253,8 @@ GoRouter createPlannerRouter({
           },
         ),
         GoRoute(
-          path: '/preferences',
+          // 设置类页面统一挂在 /settings 之下，入口页按前缀判断导航选中项。
+          path: '/settings/preferences',
           builder: (context, state) {
             final service = preferences;
             if (service == null) {
@@ -423,10 +461,8 @@ final class _PlannerShell extends StatelessWidget {
     '/workspace' => 2,
     '/calendar' => 3,
     '/analytics' => 4,
-    '/preferences' => 5,
-    '/settings' => 6,
-    '/settings/app-lock' => 7,
-    '/settings/export' => 8,
+    // 设置类页面都归在"设置"这一项下，因此按前缀判断而不是逐条列举。
+    final path when path.startsWith('/settings') => 5,
     _ => 0,
   };
 
@@ -465,10 +501,7 @@ final class _PlannerShell extends StatelessWidget {
                 2 => '/workspace',
                 3 => '/calendar',
                 4 => '/analytics',
-                5 => '/preferences',
-                6 => '/settings',
-                7 => '/settings/app-lock',
-                8 => '/settings/export',
+                5 => '/settings',
                 _ => '/today',
               });
             },
@@ -499,24 +532,9 @@ final class _PlannerShell extends StatelessWidget {
                 label: Text('统计'),
               ),
               NavigationRailDestination(
-                icon: Icon(Icons.psychology_outlined),
-                selectedIcon: Icon(Icons.psychology),
-                label: Text('偏好'),
-              ),
-              NavigationRailDestination(
                 icon: Icon(Icons.tune_outlined),
                 selectedIcon: Icon(Icons.tune),
                 label: Text('设置'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.lock_outline),
-                selectedIcon: Icon(Icons.lock),
-                label: Text('应用锁'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.download_outlined),
-                selectedIcon: Icon(Icons.download),
-                label: Text('导出'),
               ),
             ],
           ),
