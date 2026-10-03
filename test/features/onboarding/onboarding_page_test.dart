@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 
@@ -53,12 +54,70 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('onboarding-focus-minutes')), findsOneWidget);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -300));
-    await tester.pumpAndSettle();
+    await tester.dragUntilVisible(
+      find.text('保存修改'),
+      find.byType(ListView),
+      const Offset(0, -500),
+    );
     expect(find.text('保存修改'), findsOneWidget);
     expect(find.text('稍后设置'), findsOneWidget);
     await tester.tap(find.text('稍后设置'));
     await tester.pumpAndSettle();
     expect(await repository.read(OnboardingPage.schemaVersionKey), '1');
+  });
+
+  testWidgets('修改设置覆盖全部关键排程默认值并持久化', (tester) async {
+    final repository = MemorySettingsRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnboardingPage(repository: repository, onComplete: () {}),
+      ),
+    );
+
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('修改设置'));
+    await tester.pumpAndSettle();
+
+    for (final key in <String>[
+      'onboarding-high-start',
+      'onboarding-medium-start',
+      'onboarding-low-start',
+      'onboarding-sleep-start',
+      'onboarding-minimum-sleep',
+      'onboarding-lunch-start',
+      'onboarding-dinner-start',
+      'onboarding-focus-minutes',
+      'onboarding-break-minutes',
+      'onboarding-min-chunk',
+      'onboarding-max-chunk',
+      'onboarding-daily-limit',
+      'onboarding-life-quota',
+      'onboarding-trust-auto-adjust',
+    ]) {
+      expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+    }
+
+    await tester.enterText(
+      find.byKey(const Key('onboarding-high-start')),
+      '08:30',
+    );
+    await tester.enterText(
+      find.byKey(const Key('onboarding-focus-minutes')),
+      '45',
+    );
+    await tester.dragUntilVisible(
+      find.text('保存修改'),
+      find.byType(ListView),
+      const Offset(0, -500),
+    );
+    await tester.tap(find.text('保存修改'));
+    await tester.pumpAndSettle();
+
+    final resolved = await SettingsService(repository: repository)
+        .resolveForDate(DateTime(2026, 10, 5));
+    expect(resolved.rules.energyWindows.first.range.startMinute, 8 * 60 + 30);
+    expect(resolved.rules.defaultFocusMinutes, 45);
+    expect(resolved.trustAutoAdjust, isFalse);
   });
 }
