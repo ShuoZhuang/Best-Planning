@@ -87,7 +87,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(
+        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
           settingsRepository: settings,
           recovery: withRecovery ? recovery : null,
           calendar: withRecovery ? const _NoEvents() : null,

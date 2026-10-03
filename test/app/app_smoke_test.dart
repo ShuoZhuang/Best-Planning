@@ -6,7 +6,7 @@ import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 
 void main() {
   testWidgets('首次启动先显示默认设置引导', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: PlannerApp()));
+    await tester.pumpWidget(const ProviderScope(child: PlannerApp(timeZoneId: 'Asia/Shanghai', )));
     await tester.pumpAndSettle();
 
     expect(find.text('先照顾好生活，再安排任务'), findsOneWidget);
@@ -19,7 +19,7 @@ void main() {
       OnboardingPage.currentSchemaVersion.toString(),
     );
     await tester.pumpWidget(
-      ProviderScope(child: PlannerApp(settingsRepository: settings)),
+      ProviderScope(child: PlannerApp(timeZoneId: 'Asia/Shanghai', settingsRepository: settings)),
     );
     await tester.pumpAndSettle();
 

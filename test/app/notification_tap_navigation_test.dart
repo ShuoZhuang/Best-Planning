@@ -94,7 +94,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(
+        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           notifications: notifications,
@@ -220,7 +220,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(
+        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           appLock: lock,

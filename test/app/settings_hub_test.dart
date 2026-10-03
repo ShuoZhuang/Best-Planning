@@ -71,7 +71,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(
+        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
           settingsRepository: settings,
           // 四个子页都装配，入口页才应列出四条。
           preferences: PreferenceService(

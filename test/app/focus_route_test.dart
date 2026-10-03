@@ -112,7 +112,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(
+        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           focusService: focusService,

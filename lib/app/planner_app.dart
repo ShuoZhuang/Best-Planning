@@ -56,7 +56,11 @@ final class PlannerApp extends StatefulWidget {
     this.calendarService,
     this.autoAdjustStore,
     this.zones,
-    this.timeZoneId = 'Asia/Shanghai',
+    // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
+    // 本地时间（作息、日界、"今天"是哪一天），而在别的时区只表现为"时间算错"、不报错。
+    // 改为必填后"忘记传"是编译错误。这是 R11 的最后一块：`NotificationService` 与
+    // `EventDraft` 的同类默认值此前已改必填。
+    required this.timeZoneId,
     super.key,
   });
 
