@@ -164,7 +164,7 @@ personal_planner/
 目录结构说明：
 
 - `lib/app/providers.dart` 从未创建：Riverpod 状态目前由各页面自行组织，依赖注入集中在 `main.dart` 与 `PlannerApp` 构造参数，本计划不再要求该文件。若后续需要集中 provider 定义，应作为独立任务引入。
-- `lib/data/database/migrations/` 尚未创建：当前 schemaVersion 为 1，只有 `onCreate`，无迁移代码。首次提升 schemaVersion 时必须创建该目录、导出 schema 快照并补充迁移测试（见 §4.2 与 Task 3）。
+- 迁移入口在 `lib/data/database/app_database.dart` 的 `AppDatabase.migration`，drift 生成的逐版本步骤助手在 `lib/data/database/app_database.steps.dart`：当前 schemaVersion 为 2，已实现 v1→v2 的 `onUpgrade`（新增标签两表、任务期望时段两列、领域 `is_life` 列，并回填历史行时间戳）。schema 快照在 `drift_schemas/app_database/`，迁移测试在 `test/drift/app_database/`。后续每次改表都按 §4.2 的流程提升版本、导出快照并补迁移测试。
 - `integration_test/` 属于 Task 20 交付物，当前不存在。
 
 ## 3. 核心领域接口
@@ -225,16 +225,18 @@ abstract interface class ScheduleEngine {
 
 | 表 | 关键字段 | 说明 |
 | --- | --- | --- |
-| `areas` | `id`, `name`, `color`, `sort_order` | 学业、科研、生活等领域，可自定义。 |
-| `projects` | `id`, `area_id`, `name`, `archived_at_utc` | 项目归属领域。 |
-| `tasks` | `id`, `project_id`, `title`, `notes`, `priority`, `estimated_minutes`, `remaining_minutes`, `due_at_utc`, `energy_level`, `split_mode`, `min_chunk_minutes`, `max_chunk_minutes`, `status`, `created_at_utc`, `updated_at_utc` | 任务事实数据，不直接保存派生日程。 |
-| `calendar_events` | `id`, `title`, `start_at_utc`, `end_at_utc`, `time_zone_id`, `recurrence_rule_id`, `exception_of_id`, `locked`, `area_id`, `updated_at_utc` | 一次性事件和重复事件实例例外。 |
-| `recurrence_rules` | `id`, `weekdays_mask`, `local_start_minute`, `duration_minutes`, `valid_from_local_date`, `valid_until_local_date`, `time_zone_id` | 首版只实现按周重复。 |
-| `energy_windows` | `id`, `day_kind`, `start_minute`, `end_minute`, `energy_level`, `source` | 工作日、周末或指定日期精力段。 |
-| `settings` | `key`, `json_value`, `updated_at_utc` | 带 schema 的设置值；不保存无法验证的任意对象。 |
+| `areas` | `id`, `name`, `color`, `sort_order`, `is_life`, `created_at_utc`, `updated_at_utc` | 学业、科研、生活等领域，可自定义。`is_life` 标记生活领域；任务是否算生活任务由项目归属推导，不单独存字段。 |
+| `projects` | `id`, `area_id`, `name`, `archived_at_utc`, `created_at_utc`, `updated_at_utc` | 项目归属领域。 |
+| `tasks` | `id`, `project_id`, `title`, `notes`, `priority`, `estimated_minutes`, `remaining_minutes`, `due_at_utc`, `energy_level`, `split_mode`, `min_chunk_minutes`, `max_chunk_minutes`, `preferred_start_minute`, `preferred_end_minute`, `status`, `created_at_utc`, `updated_at_utc` | 任务事实数据，不直接保存派生日程。期望时段是可空的本地分钟区间，为空表示无偏好。 |
+| `tags` | `id`, `name`, `created_at_utc`, `updated_at_utc` | 自定义标签（FR-TASK-02）。独立成表而非任务上的文本列，以便按标签精确筛选与统计，不做子串匹配。 |
+| `task_tags` | `task_id`, `tag_id`, `created_at_utc` | 任务与标签的关联。复合主键即行标识；关联只会创建或删除，不会改写，故只记创建时间。 |
+| `calendar_events` | `id`, `title`, `start_at_utc`, `end_at_utc`, `time_zone_id`, `recurrence_rule_id`, `exception_of_id`, `locked`, `area_id`, `created_at_utc`, `updated_at_utc` | 一次性事件和重复事件实例例外。 |
+| `recurrence_rules` | `id`, `weekdays_mask`, `local_start_minute`, `duration_minutes`, `valid_from_local_date`, `valid_until_local_date`, `time_zone_id`, `created_at_utc`, `updated_at_utc` | 首版只实现按周重复。 |
+| `energy_windows` | `id`, `day_kind`, `start_minute`, `end_minute`, `energy_level`, `source`, `created_at_utc`, `updated_at_utc` | 工作日、周末或指定日期精力段。 |
+| `settings` | `key`, `json_value`, `created_at_utc`, `updated_at_utc` | 带 schema 的设置值；不保存无法验证的任意对象。改写同一键时保留创建时间，只推进修改时间。 |
 | `plan_versions` | `id`, `created_at_utc`, `input_hash`, `algorithm_version`, `status`, `summary_json` | 已确认、已被替代和已撤销的持久化计划版本；未确认提案只保存在内存。 |
-| `schedule_blocks` | `id`, `plan_version_id`, `task_id`, `start_at_utc`, `end_at_utc`, `locked`, `explanation_code` | 每个计划版本的任务块。 |
-| `time_entries` | `id`, `task_id`, `started_at_utc`, `ended_at_utc`, `paused_minutes`, `source`, `recovery_state` | 实际投入；未确认恢复记录不计入统计。 |
+| `schedule_blocks` | `id`, `plan_version_id`, `task_id`, `start_at_utc`, `end_at_utc`, `locked`, `explanation_code`, `created_at_utc`, `updated_at_utc` | 每个计划版本的任务块。 |
+| `time_entries` | `id`, `task_id`, `started_at_utc`, `ended_at_utc`, `paused_minutes`, `source`, `recovery_state`, `created_at_utc`, `updated_at_utc` | 实际投入；未确认恢复记录不计入统计。专注计时期间反复保存不得重置创建时间。 |
 | `preference_evidence` | `id`, `kind`, `subject_key`, `observed_at_utc`, `numeric_value`, `special_day`, `metadata_json` | 原始偏好证据，可追溯。 |
 | `preference_rules` | `id`, `kind`, `subject_key`, `value_json`, `confidence`, `status`, `source`, `updated_at_utc` | 建议、已确认、自动采用、停用状态。 |
 | `change_log` | `id`, `entity_type`, `entity_id`, `operation`, `changed_at_utc`, `revision` | 为撤销、诊断和未来同步保留最小变更历史。 |
@@ -247,7 +249,10 @@ abstract interface class ScheduleEngine {
 - `schedule_blocks` 必须引用存在的 `plan_versions` 和 `tasks`，外键在每次连接打开时启用。
 - 删除任务默认采用状态转换而非物理删除；永久清除数据除外。
 - 日期实例使用 UTC；重复规则使用本地日期、墙上时间和时区 ID，展开后生成 UTC occurrence。
-- Drift schema 每次变化都提高 `schemaVersion`、导出 schema 快照并运行生成的迁移测试。
+- 所有时间戳列都是微秒为单位的 UTC 整数（`microsecondsSinceEpoch`），全库统一，不混用毫秒。
+- 新增的 `NOT NULL` 时间戳列带哨兵默认值 0：SQLite 不允许对已有数据的表直接 `ADD COLUMN ... NOT NULL` 而不给默认值，因此迁移先加列、再把历史行回填为迁移时刻。哨兵 0 的含义是"尚未设置"，仓库层必须在写入时给出真实值。
+- 每条核心数据都包含唯一标识、创建时间和修改时间（FR-DATA-08）。改写既有记录只推进修改时间，创建时间保持首次写入的值；`plan_versions`、`preference_evidence`、`change_log` 是不可变记录，各自只有创建时刻。
+- Drift schema 每次变化都提高 `schemaVersion`、导出 schema 快照并运行生成的迁移测试（当前 schemaVersion 为 2）。
 
 ## 5. 排程引擎设计
 
@@ -554,11 +559,11 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 | 编号 | 需求 | 现状 |
 | --- | --- | --- |
-| R1 | FR-TASK-02 自定义标签、FR-STAT-02 按标签筛选 | **被环境阻塞**（见 13.0.8）：需新增 tags 表与任务关联，属数据库结构变更；当前环境无法运行 `build_runner` 生成迁移与快照 |
-| R2 | FR-TASK-02 项目、FR-STAT-02 按项目/领域筛选 | `projects`/`areas` 表已建但无任何创建入口，`task.projectId` 恒为空，领域统计退化为"未分类" |
+| R1 | FR-TASK-02 自定义标签、FR-STAT-02 按标签筛选 | **结构已就绪，功能未接入**：`tags` 表与 `task_tags` 关联表（复合主键）已随 schema v2 落地，迁移、快照与测试均已提交。仍缺：标签仓库、任务打标签入口，以及统计页按标签筛选——该处当前仍靠子串匹配 |
+| R2 | FR-TASK-02 项目、FR-STAT-02 按项目/领域筛选 | `projects`/`areas` 表已建但无任何创建入口，`task.projectId` 恒为空，领域统计退化为"未分类"。**R2 现同时是两条需求的必经之路**：R13 的 `areas.is_life` 只能经领域/项目编辑入口赋值，而领域、项目两表在 schema v2 已获得 `created_at_utc`/`updated_at_utc`/`is_life`，创建路径必须写入这些列，否则会留下哨兵值 0 |
 | R3 | FR-CAL-03 日视图 | 未实现；本方案亦未列出该任务 |
 | R4 | FR-CAL-02 按周重复、单次/系列编辑、删除 | `recurrence_rules` 无写入方，`RecurrenceExpander` 仅测试引用，`occurrencesBetween` 不展开重复，`editScope` 被表单采集后丢弃，仓储无 delete |
-| R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | **被环境阻塞**：需要给任务表加列并生成迁移与 schema 快照，而 `dart run build_runner`（drift_dev 代码生成）需要派生子进程，当前环境拒绝创建子进程。手改 `app_database.g.dart` 会造成生成代码与 schema 不一致，因此不在此环境实施。该字段是 `preferredTimeScore` 因子（§5.4 最后一项目前未注入的因子）的前置条件 |
+| R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | **结构已就绪，评分未接入**：`preferred_start_minute` / `preferred_end_minute`（可空、本地分钟，沿用既有本地时段概念）已随 schema v2 落地。仍缺：把 `preferredTimeScore` 注入评分（§5.4 最后一项目前仍未注入的因子）与编辑入口 |
 | R6 | FR-SCHED-04 十因子评分 | **大部分已实现**（`8e4c868` 版本 7、`be6accb` 版本 8）：同任务连续性、类别切换成本、移动成本三个因子已注入并各有判别性验证。**剩余**：用户期望时段需要任务模型新增字段（§7.1 要求），属数据库结构变更，见 R5；另有 8 个任务级因子在同一任务的候选之间恒为常数（见 C2） |
 | R7 | FR-SCHED-08 移动原因、FR-REPLAN-02 拆分与原因 | **已实现**（提交 `ee3dcbc`）：`PlanChangeType` 增加 `split`，`PlanChange` 增加 `reason`（取自片段的 `explanationCode`，保持稳定码约定，界面用 `explanationLabel` 渲染）。规则：任务在原计划已有块且提案中块数变多 → 新块记为 `split`；原计划没有该任务的块 → 记为 `added`。既有的按 ID 比较逻辑未改动，因此原有差异测试的期望 `[moved, removed, added]` 仍然成立（已用同一场景实测）。`router.dart` 的 `PlanChangeType` switch 同步补上 `split` 分支——否则新增枚举值会让该 switch 失去穷尽性而无法编译 |
 | R8 | FR-NOTIFY-01/02 其余三类通知、FR-NOTIFY-04 快捷入口 | **已于服务层实现**（提交 `2d14142`）：固定日程即将开始、截止临近、冲突待处理三类都可安排，`NotificationPreferences` 增加了冲突类型的提前时间（FR-NOTIFY-02 要求每类都能设置），存于设置 JSON、无需迁移，旧数据回退默认值。三类来源以可选依赖注入，未装配时跳过该类而不是伪造。**顺带修掉一个既有缺陷**：默认截止提前时间为 24 小时，20 小时后到期的任务其提醒时刻落在过去而被静默丢弃，用户永远收不到提醒；现在已过的提醒时刻改为"尽快提醒"。**剩余**：FR-NOTIFY-04 的快捷入口——`windows_notification_adapter` 仍未注册点击回调，且该服务尚未在 `main.dart` 中装配 |
@@ -566,7 +571,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | R10 | FR-DATA-08 核心数据含创建与修改时间 | **范围已扩充（复核发现漏登记）**：除原列的 `Areas`、`Projects`、`ScheduleBlocks`、`TimeEntries` 与 `CalendarEvents.createdAtUtc` 外，**`RecurrenceRules`、`EnergyWindows` 同样没有任何时间戳，`Settings` 缺 `createdAtUtc`**——FR-DATA-08 要求"每条核心数据"都包含，因此一并纳入。**已决策（用户选择方案 1）**：历史行时间戳填**迁移时刻**，列保持非空。技术约束：SQLite **不允许**直接 `ADD COLUMN ... NOT NULL` 而没有默认值，因此实现为"声明 `NOT NULL DEFAULT 0` + 迁移时 `UPDATE ... WHERE 列 = 0` 回填迁移时刻"，并在仓库层保证新建记录始终写入真实时间；哨兵值 0 的含义（尚未设置）需在 §4.2 写明。`PlanVersions`/`PreferenceEvidence`/`ChangeLog` 属于不可变记录，各自已有创建时刻且不需要修改时刻，保持不变 |
 | R11 | spec §13 以本机当前时区保存和展示 | **主体已实现**（提交 `bd3603e`、`f2a051a`）：新增 `LocalTimeZoneResolver` 按本机当前 UTC 偏移定位 IANA 标识、计入夏令时、区分"精确匹配"与"近似"；组合根 `main.dart` 已改为在启动时解析并传下去，**不再写死 `'Asia/Shanghai'`**。**已知局限**：同一偏移可能对应夏令时规则不同的多个时区，仅凭偏移无法区分；彻底解决需平台能力（Windows `GetDynamicTimeZoneInformation`）或首次引导中的用户选择——近似情形目前只在开发期记录诊断，用户可见提示待首次引导实现。**剩余**：`special_day_page.dart` 仍在用字面量，需把时区参数经路由传入（该文件与其调用链只能语法门禁） |
 | R12 | spec §7.1 任务状态 8 种 | **已实现**（提交 `39ed7b7`）：补上 `scheduled`（已安排）与 `overdue`（已逾期）。两者**由事实派生、不落库**——`overdue` 只取决于"截止已过且任务未结束"，时间流逝本身即可成立，没有写入时机；`scheduled` 取决于"已确认计划中是否存在该任务的块"，若另行落库就会产生第二个事实来源，撤销与重排必然不同步。`PlannerTask.statusAt` 定义优先级：已结束 > 已逾期 > 进行中 > 已安排 > 用户设置的状态；`TaskStatusSemantics.isClosed` / `isStored` 标明哪些值可持久化。**待接线**：统计的按状态筛选读的是数据库列，因此暂不支持按这两个派生状态筛选；任务列表仍只有完成勾选框，未展示派生状态 |
-| R13 | 生活任务标记无数据来源 | **被环境阻塞**（见 13.0.8）：需给任务表加标记列。其后果：① 生活娱乐配额对任何任务都不生效（评分的 `lifeQuota` 因子恒为 0）；② 周视图的"生活"类别无数据来源。与 R1、R2 同源。片段间休息曾按该标记豁免，已取消区分，故该标记不再影响休息规则 |
+| R13 | 生活任务标记无数据来源 | **结构已就绪，尚未接线**：按用户决策改为领域级 `areas.is_life`，由任务的项目归属推导，该列已随 schema v2 落地。仍缺：① 领域/项目创建与编辑入口（R2）——它同时是写入 `is_life` 的唯一路径，故本行依赖 R2 先行；② 生活娱乐配额仍对任何任务都不生效（评分 `lifeQuota` 因子恒为 0）；③ 周视图"生活"类别仍无数据来源。片段间休息已按用户决定对所有任务一律强制，不再读取该标记 |
 
 #### 13.0.6 测试与流程
 
@@ -639,29 +644,36 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 
 任务紧迫度实际由 `_compareTasks` 的 `_effectiveSlack`（截止前容量 − 目标）决定，这部分实现是合理的梯度而非布尔判断。因此问题不在"`deadlineRisk` 太粗糙"，而在于 §5.4 的评分表把 10 个因子描述为主要决策依据，而其中 8 个在候选层面不生效。修正方向应为文档与实现二选一：如实修订 §5.4/§9.4（任务排序按松弛时间、候选排序按覆盖度与能量/碎片化），或重构为以评分为主决策机制。后者会改变全部排程输出，属于设计变更而非缺陷修复。
 
-#### 13.0.8 环境阻塞说明
+#### 13.0.8 结构变更已落地（原环境阻塞已解除）
 
-以下四项都需要**数据库结构变更**（加表、加列、导出 schema 快照、生成迁移），而这些必须由 `dart run build_runner build` 完成。当前开发环境拒绝派生子进程（`dart run`、`dart analyze`、`flutter test` 均因此不可用），因此无法生成代码；**手工编辑 `app_database.g.dart` 会让生成代码与 schema 声明不一致**，故不实施：
+本节四项结构变更曾因开发环境拒绝派生子进程、无法执行 `dart run build_runner` 而搁置。该限制已解除，`build_runner`、`flutter analyze`、`flutter test` 均可运行，四项已全部实施并提交（提交 `8f9c013`）。表格中的"仍缺"是要如实区分"结构已就绪"与"需求已实现"：
 
-| 编号 | 内容 | 阻塞点 |
+| 编号 | 内容 | 落地情况 |
 | --- | --- | --- |
-| R1 | 自定义标签（FR-TASK-02、FR-STAT-02） | 需新增 tags 表与关联，属结构变更 |
-| R5 | 期望时段字段（spec §7.1） | 需给任务表加列；也是 §5.4 最后一个未注入因子的前置条件 |
-| R10 | 核心数据时间戳（FR-DATA-08） | 需给 `Areas`/`Projects`/`ScheduleBlocks`/`TimeEntries` 加列，并补齐 `CalendarEvents.createdAtUtc` |
-| R13 | 生活任务标记（生活配额、日历"生活"类别） | 需给任务表加列 |
+| R1 | 自定义标签（FR-TASK-02、FR-STAT-02） | `tags` 表 + `task_tags` 关联表（复合主键）已建；标签仓库、打标签入口与按标签筛选仍缺 |
+| R5 | 期望时段字段（spec §7.1） | `tasks.preferred_start_minute` / `preferred_end_minute`（可空）已建；`preferredTimeScore` 仍未注入评分 |
+| R10 | 核心数据时间戳（FR-DATA-08） | 除原登记的表外，复核发现 `RecurrenceRules`、`EnergyWindows` 与 `Settings.createdAtUtc` 同样缺失，一并补齐 |
+| R13 | 生活标记 | 按决策采用领域级 `areas.is_life`（经项目归属推导）；赋值入口仍依赖 R2 |
 
-在能运行 `build_runner` 的环境里，这四项应按"加列 → 提升 `schemaVersion` → 导出快照 → 生成迁移测试"的顺序补齐，并同时更新 §4.1 的表结构说明。
+实施要点，其中第 1 条是与原登记的描述不同的技术约束，第 3 条是实施中发现并修正的语义问题：
+
+1. **SQLite 不允许对已有数据的表直接 `ADD COLUMN ... NOT NULL` 而不给默认值**，drift 迁移器同样不接受。因此新增时间戳列声明为 `NOT NULL DEFAULT 0`，迁移随后把历史行回填为迁移时刻（即用户选定的方案 1：历史值填迁移时刻、列保持非空）。哨兵值 0 的含义是"尚未设置"，仓库层保证新建记录始终写入真实时刻。若要数据库层面严格拒绝 0，需用 drift `TableMigration` + `columnTransformer` 逐表重建，更强但风险更高，暂不作为默认方案，记录于此备选。
+2. 时间单位遵循代码库既有约定：**微秒**（`microsecondsSinceEpoch`）。回填最初误用毫秒，已修正并纳入测试断言。
+3. 三处 upsert（设置、日程事件、专注记录）改为 `insert(... onConflict: DoUpdate(...))`，冲突分支只更新修改时间、**保留首次写入的创建时间**。若沿用 `insertOnConflictUpdate`，每次保存都会重置创建时间，与 FR-DATA-08 语义不符。
+4. `Areas`、`Projects`、`RecurrenceRules`、`EnergyWindows`目前仍无任何写入路径（R2/R4）；相应入口落地时必须一并写入 `created_at_utc`/`updated_at_utc`（领域表另需 `is_life`），否则会留下哨兵值 0。
+
+验证方式（本机实测输出）：`flutter analyze` 无问题；`flutter test` 159 项全部通过。其中新增的迁移测试会构造 v1 数据库、向每张受影响表插入数据、执行迁移，并断言既有值不变、回填时间戳恰好等于注入的迁移时刻、新列与新表可用；空库迁移另按生成的 v2 快照校验结构一致。
 
 #### 13.0.9 收尾顺序
 
 1. 修正文档漂移并落实进度勾选（已完成）。
-2. 修复可定位缺陷：C3、C4、C9、C10 已修复；C1 按方案 C 实施并推广；C5、C6 已按"实现以需求文档为准"实施；C2 已注入三个因子，仅剩期望时段受环境阻塞；C7 判定为不可达；C8 仍待修。
+2. 修复可定位缺陷：C3、C4、C9、C10 已修复；C1 按方案 C 实施并推广；C5、C6 已按"实现以需求文档为准"实施；C2 已注入三个因子，仅剩期望时段（R5 结构已就绪，待注入 `preferredTimeScore`）；C7 判定为不可达；C8 仍待修。
 3. 排程链路已接线（W1、W2、W4、W7 已解决）；W3 仍缺统计、专注、偏好设置、数据管理、特殊日与任务详情的路由，另有 R9 的手动移动入口。
 4. 补齐 T4 缺失的测试类型，并清理 T2/T3 中不可信的用例。
 5. 完成 Task 20 剩余部分：端到端验收与 Windows 发布配置（首次引导门控与 MSIX 配置已完成），逐项核对 spec §18 后再勾选验收清单。
-6. 在可运行 `build_runner` 的环境里处理 13.0.8 的四项结构变更。
+6. 13.0.8 的四项结构变更已落地（已完成，见上）。
 
-C8、R2、R3、R8、R9、R11、W3、W5、W6 需要实现，其中涉及 Flutter 或 drift 的部分在当前环境只能做语法门禁，无法类型检查或运行。
+C8、R2、R3、R8、R9、R11、W3、W5、W6 仍需实现。此前的环境限制已解除，`flutter analyze` 与 `flutter test` 均可在本机运行，因此这些改动必须实测通过后才算完成；仍需人工或真机执行的部分（Windows 端到端测试、MSIX 打包、spec §18 手工验收清单）单独标注，不得混入"已验证"。
 
 ---
 
