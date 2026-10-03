@@ -5,6 +5,7 @@ import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
@@ -90,7 +91,12 @@ GoRouter createPlannerRouter({
         location: state.uri.path,
         onGeneratePlan: planningService == null
             ? null
-            : (shellContext) => _generatePlan(shellContext, planningService),
+            : (shellContext) => _generatePlan(
+                shellContext,
+                planningService,
+                planApplication,
+                autoAdjustStore,
+              ),
         onSpecialDay: recovery == null || calendar == null
             ? null
             : (shellContext) => shellContext.go('/special-day'),
@@ -626,9 +632,31 @@ final class _FocusLoaderState extends State<_FocusLoader> {
 Future<void> _generatePlan(
   BuildContext context,
   PlanningService planning,
+  PlanApplicationService? application,
+  AutoAdjustStore autoAdjustStore,
 ) async {
   final proposal = await planning.createProposal();
   if (!context.mounted) return;
+
+  // FR-REPLAN-03/04：默认只打开预览等确认；"信任自动调整"开启时**直接应用**，而历史与原因
+  // 仍会写入（应用本身会落新计划版本与变更日志），因此"开启后仍记录"不是额外要做的事。
+  // 分支抽在 `PlanGenerationFlow` 里，那段逻辑因此有测试——路由在本仓库从不被测试覆盖。
+  final outcome = await PlanGenerationFlow(
+    // 未装配应用服务时**不自动应用**：宁可回落到"去预览确认"，也不假装应用了。
+    isTrusted: () => autoAdjustStore.enabled && application != null,
+  ).run(
+    proposal: proposal,
+    // 不可达的兜底：`application == null` 时上面的 isTrusted 为 false，apply 不会被调用。
+    apply: application == null
+        ? (proposal) async => ApplyPlanResult.stale()
+        : application.apply,
+  );
+  if (!context.mounted) return;
+  if (outcome.message.isNotEmpty) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(outcome.message)));
+  }
   context.go('/planning/preview/${proposal.proposalId}');
 }
 
