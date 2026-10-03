@@ -170,6 +170,23 @@ final class SettingsService {
     );
   }
 
+  /// 读取某一天的临时例外；没有则返回 `null`。
+  ///
+  /// **为什么需要它**：例外此前**只能写不能读**（`_loadPatch` 是私有的），因此界面上无法
+  /// 显示"这一天被放宽成了多少"，统计也无法说明"哪一天用户临时放宽过"（FR-STAT-05 的
+  /// 休息保护情况正是缺这一项）。看不到自己设过的例外，用户就只能靠猜。
+  Future<PlanningRulesPatch?> loadDateOverride(DateTime localDate) =>
+      _loadPatch(_overrideKey(localDate));
+
+  /// 清除某一天的临时例外（FR-REPLAN-07 的"临时放宽"必须可逆）。
+  ///
+  /// **这一条是 C8 的教训直接要求的**：C8 记录的原缺陷正是"`saveDateOverride` 有唯一写入方
+  /// 却**没有任何清除路径**，于是用户只要预览过一次恢复方案，那一天的睡眠例外就永久生效"。
+  /// 因此"临时放宽"这条入口在设计上就必须自带撤销——它放宽的是**硬约束**
+  /// （每日可移动任务上限），留下一个清不掉的放宽比没有这条入口更糟。
+  Future<void> clearDateOverride(DateTime localDate) =>
+      repository.remove(_overrideKey(localDate));
+
   Future<void> saveLearnedPreferences(PreferenceProfile profile) =>
       repository.write(
         _learnedPreferencesKey,

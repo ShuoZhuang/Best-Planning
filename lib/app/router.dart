@@ -37,6 +37,7 @@ import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
+import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
@@ -411,8 +412,56 @@ GoRouter createPlannerRouter({
                   subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
                   onOpen: () => context.go('/settings/backup'),
                 ),
+              SettingsHubEntry(
+                key: const Key('settings-relaxation'),
+                title: '临时放宽每日上限',
+                subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
+                onOpen: () => context.go('/settings/relaxation'),
+              ),
             ],
           ),
+        ),
+        GoRoute(
+          // FR-REPLAN-07 的"临时放宽每日上限"处理入口。此前**这条入口完全不存在**：
+          // `saveDateOverride` 是既有的写入方法，但全库**没有任何调用方**，
+          // 因此"临时例外"这一层从来没有被用户碰过。
+          //
+          // 入口放在设置里而不是只挂在"无可行计划"报告上：需求只要求"提供处理入口"，
+          // 而用户想在计划变得不可行**之前**主动腾出时间也是合理的（例如知道今晚要加班）。
+          path: '/settings/relaxation',
+          builder: (context, state) {
+            // `todayStartUtc` 就是"今天本地零点"，因此它的本地日历日就是今天——
+            // 不必再向路由器引入一个时钟（那会让"今天"有两个来源）。
+            final today = zones.toLocal(todayStartUtc, timeZoneId);
+            final localDate = DateTime(today.year, today.month, today.day);
+            Future<int> effectiveLimit() async => (await settingsService
+                    .resolveForDate(localDate))
+                .rules
+                .dailyMovableTaskLimitMinutes;
+            Future<int?> overrideMinutes() async =>
+                (await settingsService.loadDateOverride(localDate))
+                    ?.dailyMovableTaskLimitMinutes;
+            return RelaxationPage(
+              localDate: localDate,
+              loadEffectiveLimitMinutes: effectiveLimit,
+              loadOverrideMinutes: overrideMinutes,
+              onSave: (minutes) async {
+                // 例外的**全部**内容就是"这一天把上限改成多少"。用 patch 而不是复制整份
+                // 规则：复制整份会让今天之后任何规则改动都和这条例外脱节。
+                await settingsService.saveDateOverride(
+                  localDate,
+                  PlanningRulesPatch(
+                    dailyMovableTaskLimitMinutes: minutes,
+                  ),
+                );
+                return true;
+              },
+              onClear: () async {
+                await settingsService.clearDateOverride(localDate);
+                return true;
+              },
+            );
+          },
         ),
         GoRoute(
           path: '/settings/backup',
