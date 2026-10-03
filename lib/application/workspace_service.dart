@@ -99,6 +99,12 @@ final class WorkspaceService {
     ),
   );
 
+  /// 项目改名。与领域改名同口径：只推进修改时间，创建时间保持不变。
+  Future<void> renameProject(PlannerProject project, String name) =>
+      repository.saveProject(
+        project.copyWith(name: name, updatedAtUtc: clock.nowUtc()),
+      );
+
   /// 首次运行时建立默认领域，返回新建数量。
   ///
   /// 只在**一个领域都没有**时写入：这是"初始化"而不是"补齐"。用户删掉某个默认领域是

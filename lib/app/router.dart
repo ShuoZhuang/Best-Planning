@@ -18,6 +18,7 @@ import 'package:personal_planner/features/settings/preferences/preferences_page.
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
+import 'package:personal_planner/features/workspace/workspace_management_page.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
 import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -89,6 +90,22 @@ GoRouter createPlannerRouter({
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
           ),
+        ),
+        GoRoute(
+          // 需求的信息架构把"项目与分类管理"归在任务之下，因此它是任务的同级入口，
+          // 而不是又一个设置页。管理界面本身此前完全不存在：服务层、仓库与
+          // "新建项目并归属"都已就绪，但用户改不了名字、标记不了生活、归档不了项目。
+          path: '/workspace',
+          builder: (context, state) {
+            final service = workspaceService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '领域与项目',
+                message: '领域服务未装配，暂无法管理领域与项目。',
+              );
+            }
+            return WorkspaceManagementPage(workspace: service);
+          },
         ),
         GoRoute(
           path: '/settings',
@@ -166,10 +183,11 @@ final class _PlannerShell extends StatelessWidget {
 
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
-    '/calendar' => 2,
-    '/analytics' => 3,
-    '/preferences' => 4,
-    '/settings' => 5,
+    '/workspace' => 2,
+    '/calendar' => 3,
+    '/analytics' => 4,
+    '/preferences' => 5,
+    '/settings' => 6,
     _ => 0,
   };
 
@@ -197,10 +215,11 @@ final class _PlannerShell extends StatelessWidget {
             onDestinationSelected: (index) {
               context.go(switch (index) {
                 1 => '/tasks',
-                2 => '/calendar',
-                3 => '/analytics',
-                4 => '/preferences',
-                5 => '/settings',
+                2 => '/workspace',
+                3 => '/calendar',
+                4 => '/analytics',
+                5 => '/preferences',
+                6 => '/settings',
                 _ => '/today',
               });
             },
@@ -214,6 +233,11 @@ final class _PlannerShell extends StatelessWidget {
                 icon: Icon(Icons.checklist_outlined),
                 selectedIcon: Icon(Icons.checklist),
                 label: Text('任务'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.account_tree_outlined),
+                selectedIcon: Icon(Icons.account_tree),
+                label: Text('领域'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.calendar_view_week_outlined),

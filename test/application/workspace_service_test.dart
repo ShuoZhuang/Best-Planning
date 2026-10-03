@@ -109,6 +109,23 @@ void main() {
     expect(await service.listProjects(), isEmpty);
   });
 
+  test('项目改名只推进修改时间，归档状态不受影响', () async {
+    final area = await service.createArea('科研');
+    final project = await service.createProject(name: '论文', areaId: area.id);
+    await service.archiveProject(project, archived: true);
+    final archived = (await service.listProjects()).single;
+
+    await service.renameProject(archived, '毕业论文');
+
+    final renamed = (await service.listProjects()).single;
+    expect(renamed.name, '毕业论文');
+    expect(renamed.createdAtUtc, archived.createdAtUtc);
+    expect(renamed.updatedAtUtc, _now);
+    // 改名不应顺手取消归档：归档是项目自身的状态。
+    expect(renamed.isArchived, isTrue);
+    expect(renamed.archivedAtUtc, archived.archivedAtUtc);
+  });
+
   test('默认领域只在全新安装时建立，重复调用不重复写入', () async {
     expect(await service.ensureDefaultAreas(), 3);
 
