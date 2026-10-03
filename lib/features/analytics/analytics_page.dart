@@ -13,12 +13,19 @@ final class AnalyticsPage extends StatefulWidget {
     required this.analytics,
     required this.nowUtc,
     this.feedbackMessages = const [],
+    this.loadTagNames,
     super.key,
   });
 
   final AnalyticsQuery analytics;
   final DateTime nowUtc;
   final List<FeedbackMessage> feedbackMessages;
+
+  /// 读取可筛选的标签名；为空时不显示标签筛选。
+  ///
+  /// 由外部注入而不是让统计页自己去查标签表：统计页只需要"可以按哪些标签筛选"，
+  /// 不需要知道标签存在哪里。为空时整块不渲染，而不是给一个空的下拉。
+  final Future<Set<String>> Function()? loadTagNames;
 
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
@@ -29,6 +36,7 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   AnalyticsReport? _report;
   Object? _error;
   bool _loading = true;
+  Set<String> _availableTags = const {};
 
   @override
   void initState() {
@@ -40,6 +48,15 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       endUtc: day.add(const Duration(days: 1)),
     );
     _load();
+    _loadTagNames();
+  }
+
+  Future<void> _loadTagNames() async {
+    final loader = widget.loadTagNames;
+    if (loader == null) return;
+    final names = await loader();
+    if (!mounted) return;
+    setState(() => _availableTags = names);
   }
 
   Future<void> _load() async {
@@ -113,9 +130,33 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
 
   void _setRange(DateTime start, DateTime end) {
     setState(() {
-      _filter = AnalyticsFilter(startUtc: start, endUtc: end);
+      // 换时间范围必须保留已选标签：两处都从现有 filter 出发，否则换一次范围就会把
+      // 标签筛选悄悄丢掉，而界面上的标签看起来仍然是选中的。
+      _filter = AnalyticsFilter(
+        startUtc: start,
+        endUtc: end,
+        tags: _filter.tags,
+      );
     });
     _load();
+  }
+
+  void _setTags(Set<String> tags) {
+    setState(() {
+      _filter = AnalyticsFilter(
+        startUtc: _filter.startUtc,
+        endUtc: _filter.endUtc,
+        tags: tags,
+      );
+    });
+    _load();
+  }
+
+  /// 多选是"同时满足"而不是"满足任意一个"，因此用集合而不是单选。
+  void _toggleTag(String name) {
+    final next = {..._filter.tags};
+    if (!next.remove(name)) next.add(name);
+    _setTags(next);
   }
 
   @override
@@ -144,6 +185,15 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                   onMonth: _selectMonth,
                   onCustom: _selectCustom,
                 ),
+                if (widget.loadTagNames != null) ...[
+                  const SizedBox(height: 14),
+                  _TagFilter(
+                    available: _availableTags,
+                    selected: _filter.tags,
+                    onToggle: _toggleTag,
+                    onClear: () => _setTags(const {}),
+                  ),
+                ],
                 if (_loading) ...[
                   const SizedBox(height: 18),
                   const LinearProgressIndicator(),
@@ -180,6 +230,72 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
     ),
   );
+}
+
+final class _TagFilter extends StatelessWidget {
+  const _TagFilter({
+    required this.available,
+    required this.selected,
+    required this.onToggle,
+    required this.onClear,
+  });
+
+  final Set<String> available;
+  final Set<String> selected;
+  final ValueChanged<String> onToggle;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = available.toList()..sort();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '按标签筛选',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (selected.isNotEmpty)
+                  TextButton(
+                    key: const Key('analytics-clear-tags'),
+                    onPressed: onClear,
+                    child: const Text('清除标签筛选'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // 说清语义：多选是交集而不是并集，否则用户会以为多选等于"任一命中"。
+            const Text('可多选：只有同时带上全部所选标签的任务才会被统计。'),
+            const SizedBox(height: 12),
+            if (names.isEmpty)
+              // 空列表要说明原因与下一步，否则看起来像筛选功能坏了。
+              const Text('尚无标签。在任务详情页给任务打上标签后，这里就能按标签筛选。')
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final name in names)
+                    FilterChip(
+                      key: Key('analytics-tag-$name'),
+                      label: Text(name),
+                      selected: selected.contains(name),
+                      onSelected: (_) => onToggle(name),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 final class _RangeControls extends StatelessWidget {

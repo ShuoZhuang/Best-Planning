@@ -132,6 +132,8 @@ GoRouter createPlannerRouter({
             return AnalyticsPage(
               analytics: query,
               nowUtc: nowUtc ?? todayStartUtc,
+              // FR-STAT-02 的标签筛选。标签服务未装配时整块不渲染。
+              loadTagNames: tagService?.allTagNames,
             );
           },
         ),
