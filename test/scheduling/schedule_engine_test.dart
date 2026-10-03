@@ -458,6 +458,105 @@ void main() {
       PlanChangeType.added,
     ]);
   });
+
+  // T4：golden fixture 固定 `"timeZoneId": "UTC"`，因此精确 golden 只在 UTC 下跑过。
+  // 这里用**同一份 fixture**、只把时区换成 America/New_York（观测夏令时），并断言
+  // **不依赖精确输出**的不变量。为什么不直接加第二个精确 golden：本 fixture 内嵌
+  // `expected.blocks`，新时区的期望值只能由引擎自己生成，那样的 golden 会永远通过——
+  // 它只能钉住未来回归，不能验证当前行为。
+  //
+  // **这条用例的限界（变异验证得出，不是推测）**：把 `availability_builder` 里
+  // "本地钟点 → UTC"的换算改成忽略时区（即当作 UTC 用），本用例**依然通过**。原因是这份
+  // fixture 容量宽裕（7 天 × 每日 8 小时余量），引擎把块放进"两种解释都允许"的区间就够了，
+  // 两种语义下都满足不变量。因此它**不能**证明时区换算正确，只是一条非 UTC 下的冒烟检查。
+  // 要真正判别，需要一个**在两种解释下自由时段不同且容量紧张**的场景——那要新造 fixture，
+  // 属"先界定场景再写"，已登记为 T4 的剩余部分。
+  test('golden week 换到非 UTC 时区后，不变量仍然成立', () {
+    final fixture =
+        jsonDecode(
+              File(
+                'test/fixtures/scheduling/golden_week.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, Object?>;
+    // 只改时区：规则里的睡眠与精力是**本地钟点**（20:00–08:00 等），因此在纽约它们对应的
+    // UTC 区间与在 UTC 下相差 4 小时。若引擎把本地钟点当 UTC 用，下面的睡眠断言会失败。
+    final problem = _problemFromFixture({
+      ...fixture,
+      'timeZoneId': 'America/New_York',
+    });
+
+    final proposal = engine.generate(problem);
+
+    // ① 块之间互不重叠，且都落在规划窗口内。
+    final ordered = [...proposal.blocks]
+      ..sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
+    for (var index = 0; index < ordered.length; index++) {
+      final block = ordered[index];
+      expect(
+        block.range.startUtc.isBefore(problem.planningWindow.endUtc),
+        isTrue,
+        reason: '块 ${block.id} 落在窗口之外',
+      );
+      expect(block.range.endUtc.isAfter(block.range.startUtc), isTrue);
+      if (index > 0) {
+        expect(
+          ordered[index - 1].range.endUtc.isAfter(block.range.startUtc),
+          isFalse,
+          reason: '块 ${ordered[index - 1].id} 与 ${block.id} 重叠',
+        );
+      }
+    }
+
+    // ② 睡眠按**当地钟点**成立：20:00–08:00（跨零点）在纽约对应 00:00Z–12:00Z，
+    //    因此没有块可以落进那个区间。
+    final localStart = zones.toLocal(
+      problem.planningWindow.startUtc,
+      problem.timeZoneId,
+    );
+    for (var dayOffset = -1; dayOffset <= 8; dayOffset++) {
+      final day = DateTime(
+        localStart.year,
+        localStart.month,
+        localStart.day,
+      ).add(Duration(days: dayOffset));
+      final sleepStart = zones.localDateTimeToUtc(
+        day,
+        problem.rules.sleepRange.startMinute,
+        problem.timeZoneId,
+      );
+      final sleepEnd = zones.localDateTimeToUtc(
+        day.add(const Duration(days: 1)),
+        problem.rules.sleepRange.endMinute,
+        problem.timeZoneId,
+      );
+      for (final block in proposal.blocks) {
+        expect(
+          block.range.startUtc.isBefore(sleepEnd) &&
+              block.range.endUtc.isAfter(sleepStart),
+          isFalse,
+          reason:
+              '块 ${block.id} 落入当地睡眠区间 '
+              '${sleepStart.toIso8601String()}–${sleepEnd.toIso8601String()}',
+        );
+      }
+    }
+
+    // ③ 每个任务：已排时长 + 未排缺口 = 需求时长（缺口必须如实报告，不能悄悄吞掉）。
+    for (final task in problem.tasks) {
+      final scheduled = proposal.blocks
+          .where((block) => block.taskId == task.id)
+          .fold<int>(0, (sum, block) => sum + block.range.durationMinutes);
+      final shortage = proposal.unscheduled
+          .where((item) => item.taskId == task.id)
+          .fold<int>(0, (sum, item) => sum + item.shortageMinutes);
+      expect(
+        scheduled + shortage,
+        task.requiredMinutes,
+        reason: '任务 ${task.id} 的已排与缺口之和不等于需求时长',
+      );
+    }
+  });
 }
 
 ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {
