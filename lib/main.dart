@@ -10,6 +10,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/local_time_zone.dart';
@@ -22,6 +23,7 @@ import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
@@ -97,6 +99,22 @@ void main() {
       await notificationService.syncNextSevenDays();
     } on Object catch (error) {
       debugPrint('启动时同步提醒失败：$error');
+    }
+  }());
+
+  // 首次运行建立默认领域。生活标记只存在于领域上，因此没有领域，`is_life` 就无人赋值，
+  // 生活配额与统计的"生活"分类都不会生效——默认领域是这两条链路的前置条件，不是示例数据。
+  // `ensureDefaultAreas` 只在**一个领域都没有**时写入，因此不会覆盖用户自己的整理结果。
+  final workspaceService = WorkspaceService(
+    repository: DriftWorkspaceRepository(database),
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  unawaited(() async {
+    try {
+      await workspaceService.ensureDefaultAreas();
+    } on Object catch (error) {
+      debugPrint('建立默认领域失败：$error');
     }
   }());
 
