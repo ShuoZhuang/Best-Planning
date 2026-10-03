@@ -46,6 +46,7 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
+import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -65,6 +66,12 @@ Future<void> main() async {
   // 数据库路径必须在**打开数据库之前**确定：备份要复制这个文件，而用户安排的恢复也要在此
   // 刻完成替换（见 backup_assembly.dart 对"为什么等到启动"的说明）。
   final databasePath = await preparePlannerDatabase();
+
+  // 诊断落到数据库旁边。**Release 里没有它就没有任何线索**：`debugPrint` 在打包后的 Windows
+  // 应用里抓不到（实测——把包内进程的 stdout 重定向到文件，只有引擎那行输出），因此"提醒
+  // 同步失败"这类被 catch 吞掉的错误此前既不产生提醒、也不留下任何可查的痕迹。
+  final diagnostics = FileDiagnosticLog('$databasePath.diagnostics.log');
+  diagnostics.write('进程启动');
 
   const clock = SystemClock();
   final zones = TimeZoneDatabase();
@@ -165,9 +172,13 @@ Future<void> main() async {
   if (hasPackageIdentity && (appUserModelId == null || appUserModelId.isEmpty)) {
     // **这是一个缺陷状态，不是一个可接受的降级**：有包身份却取不到 AUMID，说明取 AUMID 的
     // 调用出了问题，而回退常量与包身份必然不符——通知点击将无法正确激活。因此这里明确记一条
-    // 诊断，而不是安静地回退。
+    // 诊断（**落到文件**：Release 里 debugPrint 抓不到），而不是安静地回退。
     debugPrint('有包身份但取不到 AUMID：通知点击将无法正确激活');
   }
+  diagnostics.write(
+    '通知：hasPackageIdentity=$hasPackageIdentity '
+    'appUserModelId=${appUserModelId ?? '(取不到 → 回退 ${FlutterWindowsNotificationBackend.fallbackAppUserModelId})'}',
+  );
   final notifications = WindowsNotificationAdapter(
     hasPackageIdentity: hasPackageIdentity,
     appUserModelId: appUserModelId,
@@ -199,10 +210,20 @@ Future<void> main() async {
   // 下面把它抽成一个可复用的函数，接到三处"当前计划/相关输入真的变了"的地方。
   Future<void> resyncNotifications() async {
     try {
-      await notificationService.syncNextSevenDays();
-    } on Object catch (error) {
-      // 与启动时同一口径：通知不是主流程的必要条件，失败只记日志，不让用户的操作失败。
+      final result = await notificationService.syncNextSevenDays();
+      // **成功也要记**：只有失败有记录时，读日志的人无法区分"没跑"与"跑了但没事发生"。
+      // 这三项正好覆盖"到底有没有安排、有没有取消、以及平台能力判定"。
+      diagnostics.write(
+        '提醒同步完成：scheduled=${result.scheduledCount} '
+        'cancelled=${result.cancelledCount} '
+        'canSchedule=${result.capability.canSchedule} '
+        'canCancelReliably=${result.capability.canCancelReliably}',
+      );
+    } on Object catch (error, stackTrace) {
+      // 与启动时同一口径：通知不是主流程的必要条件，失败不阻断用户的操作。
+      // **但绝不静默**——写到文件里，连栈一起，否则"通知不弹"将没有任何可查的线索。
       debugPrint('同步提醒失败：$error');
+      diagnostics.write('提醒同步失败：$error\n$stackTrace');
     }
   }
 
