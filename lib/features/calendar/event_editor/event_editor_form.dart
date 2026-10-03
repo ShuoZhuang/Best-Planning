@@ -41,6 +41,8 @@ final class _EventEditorFormState extends State<EventEditorForm> {
   Map<String, String> _errors = const {};
   String? _status;
   EventEditScope _scope = EventEditScope.singleOccurrence;
+  bool _weekly = false;
+  late Set<int> _weekdays;
 
   @override
   void initState() {
@@ -50,6 +52,7 @@ final class _EventEditorFormState extends State<EventEditorForm> {
       widget.timeZoneId,
     );
     final end = widget.zones.toLocal(widget.initialEndUtc, widget.timeZoneId);
+    _weekdays = {start.weekday};
     _startDateController = TextEditingController(text: _date(start));
     _startTimeController = TextEditingController(text: _time(start));
     _endDateController = TextEditingController(text: _date(end));
@@ -90,6 +93,7 @@ final class _EventEditorFormState extends State<EventEditorForm> {
         timeZoneId: widget.timeZoneId,
         recurrenceRuleId: widget.recurrenceRuleId,
         editScope: _scope,
+        recurrenceWeekdays: _weekly ? _weekdays : const {},
       ),
     );
     if (!mounted) return;
@@ -164,6 +168,45 @@ final class _EventEditorFormState extends State<EventEditorForm> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
+        SwitchListTile(
+          key: const Key('event-weekly'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('每周重复'),
+          subtitle: const Text('适合课程、例会和固定训练'),
+          value: _weekly,
+          onChanged: (value) => setState(() => _weekly = value),
+        ),
+        if (_weekly) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+                FilterChip(
+                  key: Key('event-weekday-$day'),
+                  label: Text(_weekdayLabel(day)),
+                  selected: _weekdays.contains(day),
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        _weekdays.add(day);
+                      } else if (_weekdays.length > 1) {
+                        _weekdays.remove(day);
+                      }
+                    });
+                  },
+                ),
+            ],
+          ),
+          if (_errors['recurrence'] != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _errors['recurrence']!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
         if (widget.recurrenceRuleId != null)
           SegmentedButton<EventEditScope>(
             segments: const [
@@ -246,3 +289,13 @@ String _date(DateTime value) =>
 String _time(DateTime value) =>
     '${value.hour.toString().padLeft(2, '0')}:'
     '${value.minute.toString().padLeft(2, '0')}';
+
+String _weekdayLabel(int weekday) => switch (weekday) {
+  DateTime.monday => '周一',
+  DateTime.tuesday => '周二',
+  DateTime.wednesday => '周三',
+  DateTime.thursday => '周四',
+  DateTime.friday => '周五',
+  DateTime.saturday => '周六',
+  _ => '周日',
+};

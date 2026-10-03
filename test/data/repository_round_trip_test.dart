@@ -81,6 +81,40 @@ void main() {
     expect(occurrences.single.range.endUtc, event.endAtUtc);
   });
 
+  test('按周重复日程保存后会在查询窗口内展开每次实例', () async {
+    final calendarRepository = DriftCalendarRepository(database);
+    final rule = RecurrenceRule(
+      id: 'rule-1',
+      weekdays: const {DateTime.monday},
+      localStartMinute: 9 * 60,
+      durationMinutes: 90,
+      validFromLocalDate: DateTime(2026, 10, 5),
+      timeZoneId: 'Asia/Shanghai',
+    );
+    final event = CalendarEvent(
+      id: 'event-weekly',
+      title: '每周实验室例会',
+      startAtUtc: DateTime.utc(2026, 10, 5, 1),
+      endAtUtc: DateTime.utc(2026, 10, 5, 2, 30),
+      timeZoneId: 'Asia/Shanghai',
+      recurrenceRuleId: rule.id,
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    await calendarRepository.saveRecurring(event, rule);
+    final occurrences = await calendarRepository.occurrencesBetween(
+      DateTime.utc(2026, 10, 4, 16),
+      DateTime.utc(2026, 10, 20, 16),
+    );
+
+    expect(occurrences, hasLength(3));
+    expect(occurrences.map((item) => item.range.startUtc), [
+      DateTime.utc(2026, 10, 5, 1),
+      DateTime.utc(2026, 10, 12, 1),
+      DateTime.utc(2026, 10, 19, 1),
+    ]);
+  });
+
   test('计划 repository 返回最新的已确认版本', () async {
     await database.customInsert("""
       INSERT INTO plan_versions

@@ -76,8 +76,10 @@ void main() {
   final calendarRepository = DriftCalendarRepository(database);
   final calendarService = CalendarService(
     repository: calendarRepository,
+    recurringRepository: calendarRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
+    zones: zones,
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);

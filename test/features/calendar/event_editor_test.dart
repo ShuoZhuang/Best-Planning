@@ -13,8 +13,10 @@ void main() {
     final repository = _MemoryCalendarRepository();
     final service = CalendarService(
       repository: repository,
+      recurringRepository: repository,
       clock: _Clock(),
       idGenerator: _Ids(),
+      zones: TimeZoneDatabase(),
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -46,8 +48,10 @@ void main() {
     final repository = _MemoryCalendarRepository();
     final service = CalendarService(
       repository: repository,
+      recurringRepository: repository,
       clock: _Clock(),
       idGenerator: _Ids(),
+      zones: TimeZoneDatabase(),
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -84,10 +88,56 @@ void main() {
     );
     expect(repository.saved.single.endAtUtc, DateTime.utc(2026, 10, 3, 18));
   });
+
+  testWidgets('勾选每周重复后保存星期规则与模板日程', (tester) async {
+    final repository = _MemoryCalendarRepository();
+    final service = CalendarService(
+      repository: repository,
+      recurringRepository: repository,
+      clock: _Clock(),
+      idGenerator: _Ids(),
+      zones: TimeZoneDatabase(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EventEditorForm(
+            service: service,
+            initialStartUtc: DateTime.utc(2026, 10, 2, 1),
+            initialEndUtc: DateTime.utc(2026, 10, 2, 2, 30),
+            timeZoneId: 'Asia/Shanghai',
+            zones: TimeZoneDatabase(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byKey(const Key('event-title')), '每周课程');
+    await tester.tap(find.byKey(const Key('event-weekly')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('event-weekday-1')));
+    await tester.tap(find.text('保存日程'));
+    await tester.pumpAndSettle();
+
+    expect(repository.saved, hasLength(1));
+    expect(repository.rules, hasLength(1));
+    expect(
+      repository.saved.single.recurrenceRuleId,
+      repository.rules.single.id,
+    );
+    expect(repository.rules.single.weekdays, {
+      DateTime.monday,
+      DateTime.friday,
+    });
+    expect(repository.rules.single.localStartMinute, 9 * 60);
+    expect(repository.rules.single.durationMinutes, 90);
+  });
 }
 
-final class _MemoryCalendarRepository implements CalendarRepository {
+final class _MemoryCalendarRepository
+    implements CalendarRepository, RecurringCalendarRepository {
   final List<CalendarEvent> saved = [];
+  final List<RecurrenceRule> rules = [];
   @override
   Future<List<CalendarOccurrence>> occurrencesBetween(
     DateTime startUtc,
@@ -95,6 +145,12 @@ final class _MemoryCalendarRepository implements CalendarRepository {
   ) async => [];
   @override
   Future<void> save(CalendarEvent event) async => saved.add(event);
+
+  @override
+  Future<void> saveRecurring(CalendarEvent event, RecurrenceRule rule) async {
+    saved.add(event);
+    rules.add(rule);
+  }
 }
 
 final class _Clock implements Clock {

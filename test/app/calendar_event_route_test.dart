@@ -5,6 +5,7 @@ import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
@@ -25,8 +26,10 @@ void main() {
           calendar: repository,
           calendarService: CalendarService(
             repository: repository,
+            recurringRepository: repository,
             clock: const _Clock(),
             idGenerator: _Ids(),
+            zones: TimeZoneDatabase(),
           ),
         ),
       ),
@@ -50,7 +53,8 @@ void main() {
   });
 }
 
-final class _MemoryCalendarRepository implements CalendarRepository {
+final class _MemoryCalendarRepository
+    implements CalendarRepository, RecurringCalendarRepository {
   final List<CalendarEvent> saved = [];
 
   @override
@@ -61,6 +65,11 @@ final class _MemoryCalendarRepository implements CalendarRepository {
 
   @override
   Future<void> save(CalendarEvent event) async => saved.add(event);
+
+  @override
+  Future<void> saveRecurring(CalendarEvent event, RecurrenceRule rule) async {
+    saved.add(event);
+  }
 }
 
 final class _Clock implements Clock {

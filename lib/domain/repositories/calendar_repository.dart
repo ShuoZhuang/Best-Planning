@@ -7,3 +7,8 @@ abstract interface class CalendarRepository {
   );
   Future<void> save(CalendarEvent event);
 }
+
+/// 能把重复规则与其模板日程作为一个原子操作保存的日历仓储。
+abstract interface class RecurringCalendarRepository {
+  Future<void> saveRecurring(CalendarEvent event, RecurrenceRule rule);
+}
