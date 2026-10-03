@@ -64,7 +64,11 @@ final class PlannerTask {
       throw ArgumentError.value(title, 'title', 'Cannot be empty.');
     }
     _requirePositive(estimatedMinutes, 'estimatedMinutes');
-    _requirePositive(remainingMinutes, 'remainingMinutes');
+    // **剩余时长允许为 0**（本轮放宽，见 §13.0 的 R9 行）：0 表示"没有剩余工作"，而这正是
+    // "按专注记录重算"的合法结果。此前要求 > 0，会把"专注时长已覆盖预计时长"这种情况逼成
+    // 一处**钳到 1 分钟**的假数字——界面显示"还剩 1 分钟"，而用户其实已经做完了。
+    // 负数仍然非法。
+    _requireNonNegative(remainingMinutes, 'remainingMinutes');
     _requirePositive(minChunkMinutes, 'minChunkMinutes');
     _requirePositive(maxChunkMinutes, 'maxChunkMinutes');
     if (minChunkMinutes > maxChunkMinutes) {
@@ -169,8 +173,14 @@ final class PlannerTask {
 
 int _roundToFive(int value) => ((value + 4) ~/ 5) * 5;
 
-void _requirePositive(int value, String name) {
-  if (value <= 0) throw ArgumentError.value(value, name, 'Must be positive.');
+/// 允许 0 的校验：`remainingMinutes` 用它，因为"没有剩余工作"是合法状态。
+void _requireNonNegative(int value, String name) {
+  if (value < 0) {
+    throw ArgumentError.value(value, name, 'must not be negative');
+  }
+}
+
+void _requirePositive(int value, String name) {  if (value <= 0) throw ArgumentError.value(value, name, 'Must be positive.');
 }
 
 void _requireUtc(DateTime value, String name) {

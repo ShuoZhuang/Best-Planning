@@ -59,14 +59,18 @@ void main() {
     expect(log.entries.single.deltaMinutes, 120);
   });
 
-  test('非正剩余时长与不存在的任务都被拒绝且不写库', () async {
+  test('负剩余时长与不存在的任务都被拒绝且不写库', () async {
     final created = await service.quickAdd('任务', 60);
     final id = created.task!.id;
     final savesBefore = repository.saveCount;
 
-    expect((await service.correctRemainingMinutes(id, 0)).isSuccess, isFalse);
+    // **0 现在是合法值**（§13.0 的 R9：剩余为 0 表示"没有剩余工作"），因此这条用例改用负数
+    // 验证拒绝路径——它原来用 0，已随契约变更而更新，而不是把断言放宽。
     expect((await service.correctRemainingMinutes(id, -30)).isSuccess, isFalse);
-    expect((await service.correctRemainingMinutes('missing', 30)).isSuccess, isFalse);
+    expect(
+      (await service.correctRemainingMinutes('missing', 30)).isSuccess,
+      isFalse,
+    );
 
     expect(repository.saveCount, savesBefore);
     expect(log.entries, isEmpty);

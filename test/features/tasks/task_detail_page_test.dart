@@ -226,10 +226,12 @@ void main() {
     expect(find.text('150 分钟'), findsOneWidget);
   });
 
-  testWidgets('非正剩余时长被拒绝且不留下历史', (tester) async {
+  testWidgets('负剩余时长被拒绝且不留下历史', (tester) async {
     await pumpDetail(tester, 'task-1');
 
-    await tester.enterText(find.byKey(const Key('remaining-minutes')), '0');
+    // **0 现在是合法值**（见 §13.0 的 R9：剩余为 0 表示"没有剩余工作"，是"按专注重算"的
+    // 合法结果），因此这里用负数验证拒绝路径——原来这条用例用 0，已随契约变更而更新。
+    await tester.enterText(find.byKey(const Key('remaining-minutes')), '-5');
     // 页面较长，必须先滚动到可见位置再点，否则 tap 落在视口外不会生效。
     await tester.ensureVisible(find.text('保存'));
     await tester.tap(find.text('保存'));
@@ -237,7 +239,7 @@ void main() {
 
     expect(tasks.tasks['task-1']!.remainingMinutes, 90);
     expect(corrections.recorded, isEmpty);
-    expect(find.textContaining('剩余时长必须大于 0'), findsOneWidget);
+    expect(find.textContaining('剩余时长不能为负数'), findsOneWidget);
   });
 
   // FR-TASK-04：任务转固定日程。两条用例：交出的是**这条任务的标题**（转换的入口必须带上

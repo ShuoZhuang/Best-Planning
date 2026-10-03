@@ -26,6 +26,7 @@ final class TaskDetailPage extends StatefulWidget {
     this.onStartFocus,
     this.onSetDueDate,
     this.onCreateEvent,
+    this.onRecomputeFromFocus,
     super.key,
   });
 
@@ -63,6 +64,11 @@ final class TaskDetailPage extends StatefulWidget {
   /// "**不动任务**"——因此界面上必须同时显示那句提示，否则用户会在同一件事上被排两次
   /// （固定日程占住时间，任务仍留在待办里等着被排）。
   final void Function(String title)? onCreateEvent;
+
+  /// 按专注记录重算剩余时长（FR-FOCUS-05）。为空时不显示该按钮。
+  ///
+  /// 页面**不认识专注模块**：它只请求"重算"，汇总专注时长与写库都由注入方负责。
+  final Future<bool> Function()? onRecomputeFromFocus;
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -444,6 +450,29 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               child: Text(
                 '只创建一条固定日程；这条任务仍在待办中，需要你自行处理。',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+          // FR-FOCUS-05：按已确认的专注记录重算剩余时长。页面不认识专注模块，也不做汇总——
+          // 它只请求"重算"，汇总与写库都在组合根。
+          if (widget.onRecomputeFromFocus != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const Key('recompute-from-focus'),
+                onPressed: () async {
+                  final ok = await widget.onRecomputeFromFocus!();
+                  if (!mounted) return;
+                  setState(
+                    () => _message = ok
+                        ? '已按专注记录重算剩余时长'
+                        : '重算失败，任务可能已不存在',
+                  );
+                  await _load();
+                },
+                icon: const Icon(Icons.calculate_outlined),
+                label: const Text('按专注记录重算'),
               ),
             ),
           ],

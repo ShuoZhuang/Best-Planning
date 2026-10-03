@@ -156,6 +156,22 @@ GoRouter createPlannerRouter({
                 : (title) => context.go(
                     '/calendar/new?title=${Uri.encodeComponent(title)}',
                   ),
+            // FR-FOCUS-05：汇总这条任务**已确认**的专注分钟，再按它重算剩余时长。
+            // 汇总放在组合根——只有它能同时看到专注记录与任务服务，而两个服务彼此不必认识。
+            onRecomputeFromFocus: focusService == null
+                ? null
+                : () async {
+                    final taskId = state.pathParameters['taskId']!;
+                    final entries = await focusService.store.confirmedEntries();
+                    final actualMinutes = entries
+                        .where((entry) => entry.taskId == taskId)
+                        .fold<int>(0, (sum, entry) => sum + entry.activeMinutes);
+                    final result = await taskService.applyFocusRecompute(
+                      taskId: taskId,
+                      actualMinutes: actualMinutes,
+                    );
+                    return result.isSuccess;
+                  },
           ),
         ),
         GoRoute(

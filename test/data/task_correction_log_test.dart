@@ -103,8 +103,8 @@ void main() {
   test('被拒绝的修正不留下记录', () async {
     await seedTask();
 
-    // 非正值在写库之前就被拒绝（完成任务应走 changeStatus），因此不该产生任何历史。
-    expect((await service.correctRemainingMinutes('task-1', 0)).isSuccess, isFalse);
+    // **只有负值会在写库之前被拒绝**（0 自本轮起合法：剩余为 0 表示"没有剩余工作"，见
+    // §13.0 的 R9），因此这条用例改用负数验证"拒绝不留历史"这条契约。
     expect(
       (await service.correctRemainingMinutes('task-1', -30)).isSuccess,
       isFalse,

@@ -121,8 +121,9 @@ final class TaskService {
   /// 只改 `remainingMinutes`，**不改预计时长**：预计时长是原始估算，§8 的预估偏差
   /// 口径正是用它与实际投入对照；改写它会污染该统计。
   ///
-  /// 剩余时长必须大于 0：把任务做完了应当走 `changeStatus(completed)`，而不是把
-  /// 剩余时长归零——后者会让任务仍处于未完成状态却没有可排时长。
+  /// 剩余时长**允许为 0**（本轮放宽，见 §13.0 的 R9 行）：0 表示"没有剩余工作"，是"按专注
+  /// 记录重算"的合法结果。此前要求 > 0，会把"专注已覆盖预计时长"逼成一处**钳到 1 分钟**的
+  /// 假数字——界面显示"还剩 1 分钟"，而用户其实已经做完了。负数仍然拒绝。
   ///
   /// 修正记录通过 [TaskCorrectionLog] 落库供统计分析。未注入该端口时修正照常完成，
   /// 但不会留下历史，因此生产装配必须注入。
@@ -130,9 +131,9 @@ final class TaskService {
     String taskId,
     int remainingMinutes,
   ) async {
-    if (remainingMinutes <= 0) {
+    if (remainingMinutes < 0) {
       return TaskSaveResult.invalid({
-        'remainingMinutes': '剩余时长必须大于 0 分钟',
+        'remainingMinutes': '剩余时长不能为负数',
       });
     }
     final existing = await _repository.getById(taskId);
@@ -155,6 +156,39 @@ final class TaskService {
       ),
     );
     return TaskSaveResult.success(updated);
+  }
+
+  /// 按**已确认的专注记录**重算剩余时长（FR-FOCUS-05）。
+  ///
+  /// 口径（按默认选定）：`remaining = max(0, 预计时长 − 实际专注分钟)`；算到 0 时**同时把任务
+  /// 标记为已完成**——0 剩余与"做完了"是同一件事的两种表达，留着状态不改会让任务留在待排
+  /// 池里却没有任何可排时长。
+  ///
+  /// `actualMinutes` 由调用方给出（组合根从专注记录里汇总）：本服务不认识专注模块，与
+  /// `FocusService` 不认识任务是同一个边界。
+  Future<TaskSaveResult> applyFocusRecompute({
+    required String taskId,
+    required int actualMinutes,
+  }) async {
+    if (actualMinutes < 0) {
+      return TaskSaveResult.invalid({'actualMinutes': '实际专注时长不能为负数'});
+    }
+    final existing = await _repository.getById(taskId);
+    if (existing == null) {
+      return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    }
+    final remaining = existing.estimatedMinutes - actualMinutes;
+    final result = await correctRemainingMinutes(
+      taskId,
+      remaining < 0 ? 0 : remaining,
+    );
+    if (!result.isSuccess) return result;
+    if (remaining <= 0 && existing.status != TaskStatus.completed) {
+      await changeStatus(taskId, TaskStatus.completed);
+      final reloaded = await _repository.getById(taskId);
+      if (reloaded != null) return TaskSaveResult.success(reloaded);
+    }
+    return result;
   }
 
   /// 设置或清除任务截止时间（FR-REPLAN-07 的处理入口之一）。
