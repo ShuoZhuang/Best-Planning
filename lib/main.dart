@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
@@ -26,6 +27,7 @@ import 'package:personal_planner/data/repositories/drift_export_data_source.dart
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
+import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
@@ -114,8 +116,9 @@ void main() {
   // 首次运行建立默认领域。生活标记只存在于领域上，因此没有领域，`is_life` 就无人赋值，
   // 生活配额与统计的"生活"分类都不会生效——默认领域是这两条链路的前置条件，不是示例数据。
   // `ensureDefaultAreas` 只在**一个领域都没有**时写入，因此不会覆盖用户自己的整理结果。
+  final workspaceRepository = DriftWorkspaceRepository(database);
   final workspaceService = WorkspaceService(
-    repository: DriftWorkspaceRepository(database),
+    repository: workspaceRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
   );
@@ -152,13 +155,26 @@ void main() {
     clock: clock,
   );
 
-  // 专注计时（FR-FOCUS）。计时状态机、崩溃恢复与异常确认都已实现并有测试，但
-  // `FocusService` 从未在生产构造、`/focus/:taskId` 也从无路由，因此整条链路不可达（W3）。
+  // 偏好学习的闭环（FR-PREF-01/03/04）。此前两端都断：`PreferenceEvidence` 零构造
+  // （没有任何代码写证据），且 `PreferenceService.refresh(evidence)` 没有任何生产调用方
+  // （只有测试调用），因此建议永远不会被生成。这里把两端接上——专注结束时写证据，
+  // 打开偏好页时按证据重新分析。
+  final preferenceEvidence = DriftPreferenceEvidenceRepository(database);
+  final focusEvidence = FocusEvidenceRecorder(
+    evidence: preferenceEvidence,
+    tasks: taskRepository,
+    workspace: workspaceRepository,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final focusService = FocusService(
     store: DriftFocusEntryStore(database),
     clock: clock,
     monotonicClock: StopwatchMonotonicClock(),
     idGenerator: UuidIdGenerator(),
+    onFinished: focusEvidence.recordCompletedFocus,
   );
 
   runApp(
@@ -180,6 +196,10 @@ void main() {
         exportService: exportService,
         // 任务详情页的"开始专注"入口与 /focus/:taskId 路由（FR-FOCUS-01）。
         focusService: focusService,
+        // 偏好页的分析输入（FR-PREF-03 的样本积累靠历史证据，因此给一个足够长的窗口）。
+        loadPreferenceEvidence: () => preferenceEvidence.since(
+          clock.nowUtc().subtract(const Duration(days: 180)),
+        ),
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

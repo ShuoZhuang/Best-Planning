@@ -21,6 +21,7 @@ import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
@@ -45,6 +46,7 @@ final class PlannerApp extends StatefulWidget {
     this.appLock,
     this.exportService,
     this.focusService,
+    this.loadPreferenceEvidence,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -95,6 +97,9 @@ final class PlannerApp extends StatefulWidget {
   /// 专注计时服务（FR-FOCUS）。为空时任务详情页不显示"开始专注"，`/focus/:taskId`
   /// 也会说明服务未装配。
   final FocusService? focusService;
+
+  /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
+  final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
 
   final TimeZoneDatabase? zones;
 
@@ -165,6 +170,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       appLock: widget.appLock,
       exportService: widget.exportService,
       focusService: widget.focusService,
+      loadPreferenceEvidence: widget.loadPreferenceEvidence,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),

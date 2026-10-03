@@ -97,12 +97,20 @@ final class FocusService {
     required this.clock,
     required this.monotonicClock,
     required this.idGenerator,
+    this.onFinished,
   });
 
   final FocusEntryStore store;
   final Clock clock;
   final MonotonicClock monotonicClock;
   final IdGenerator idGenerator;
+
+  /// 一次专注正常结束后的回调（FR-PREF-01 的证据来源）。
+  ///
+  /// 用回调而不是直接依赖偏好模块：计时不该知道偏好学习的存在，装配由组合根负责。
+  /// 为空时只计时、不留证据。**刻意只在显式 `finish()` 上触发**——崩溃恢复后确认的那条
+  /// 路径不触发，因为用户补录的时长未必反映真实偏好；这一取舍登记在 §13.0。
+  final Future<void> Function(FocusSession session)? onFinished;
 
   FocusSession? _current;
   Duration? _lastMonotonicMark;
@@ -181,6 +189,15 @@ final class FocusService {
     await store.save(updated);
     _current = updated;
     _lastMonotonicMark = null;
+    // 证据留痕不该影响计时结果：回调失败只丢一条证据，不能让"完成"看起来失败。
+    final finished = onFinished;
+    if (finished != null) {
+      try {
+        await finished(updated);
+      } on Object {
+        // 有意吞掉：见上。
+      }
+    }
     return updated;
   }
 

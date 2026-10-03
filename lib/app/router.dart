@@ -13,6 +13,7 @@ import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -56,6 +57,7 @@ GoRouter createPlannerRouter({
   AppLockService? appLock,
   ExportService? exportService,
   FocusService? focusService,
+  Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -213,7 +215,11 @@ GoRouter createPlannerRouter({
                 message: '偏好服务未装配，暂无法查看或调整学习到的偏好。',
               );
             }
-            return PreferencesPage(service: service);
+            return PreferencesPage(
+              service: service,
+              // FR-PREF-01/03 的输入端：没有它，这一页永远列不出建议。
+              loadEvidence: loadPreferenceEvidence,
+            );
           },
         ),
         GoRoute(

@@ -4,9 +4,16 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
 final class PreferencesPage extends StatefulWidget {
-  const PreferencesPage({required this.service, super.key});
+  const PreferencesPage({required this.service, this.loadEvidence, super.key});
 
   final PreferenceService service;
+
+  /// 读取用于重新分析的历史证据；为空时只列出已保存的建议，不重新分析。
+  ///
+  /// `PreferenceService.refresh(evidence)` 此前**没有任何生产调用方**（全库只有测试调用），
+  /// 因此建议永远不会被生成——偏好页列出的是一份永远空着的名单，即便证据已在积累。
+  /// 这一页是它最自然的触发点：分析结果就是这一页要展示的内容。
+  final Future<List<PreferenceEvidence>> Function()? loadEvidence;
 
   @override
   State<PreferencesPage> createState() => _PreferencesPageState();
@@ -23,6 +30,12 @@ final class _PreferencesPageState extends State<PreferencesPage> {
   }
 
   Future<void> _reload() async {
+    final loadEvidence = widget.loadEvidence;
+    if (loadEvidence != null) {
+      // 先按证据重新分析，再把结果列出来；否则这一页永远只显示"没有建议"。
+      // autoApply 保持默认的 false：FR-PREF-04 要求默认由用户确认后才影响排程。
+      await widget.service.refresh(await loadEvidence());
+    }
     final values = await widget.service.list();
     if (!mounted) return;
     setState(() {
