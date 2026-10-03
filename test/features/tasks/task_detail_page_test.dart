@@ -240,6 +240,51 @@ void main() {
     expect(find.textContaining('剩余时长必须大于 0'), findsOneWidget);
   });
 
+  // FR-TASK-04：任务转固定日程。两条用例：交出的是**这条任务的标题**（转换的入口必须带上
+  // 它，否则用户到了编辑器还要重新输入），以及**未接线时不显示按钮**（不留死控件）。
+  testWidgets('转为固定日程把任务标题交给注入的入口，并提示任务仍在待办中', (tester) async {
+    final titles = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+            onCreateEvent: titles.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('create-event-from-task')));
+    await tester.tap(find.byKey(const Key('create-event-from-task')));
+    await tester.pumpAndSettle();
+
+    expect(titles, <String>[tasks.tasks['task-1']!.title]);
+    // 提示不是装饰：默认选定"不动任务"，没有这句话用户就会把同一件事排两次。
+    expect(find.textContaining('仍在待办中'), findsOneWidget);
+  });
+
+  testWidgets('未接线时不显示转为固定日程的入口', (tester) async {
+    // 内联构造而不是复用 `pumpDetail`：这条用例要的正是"没有注入回调"的那种装配。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('create-event-from-task')), findsNothing);
+  });
+
   testWidgets('任务不存在时明确说明而不是空白页', (tester) async {
     await pumpDetail(tester, 'missing');
 

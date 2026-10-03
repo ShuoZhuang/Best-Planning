@@ -25,6 +25,7 @@ final class TaskDetailPage extends StatefulWidget {
     this.tags,
     this.onStartFocus,
     this.onSetDueDate,
+    this.onCreateEvent,
     super.key,
   });
 
@@ -55,6 +56,13 @@ final class TaskDetailPage extends StatefulWidget {
   /// `TimeZoneDatabase` 的路由换算成 UTC 再落库。时区属于"环境知识"，与导航一样由外部
   /// 注入——否则每个用到日期的页面都要自己拿一份时区，并各自决定换算口径。
   final Future<bool> Function(DateTime localDate, int minute)? onSetDueDate;
+
+  /// 把这条任务转成固定日程的入口（FR-TASK-04）。为空时不显示该按钮。
+  ///
+  /// **只交出标题**：事件的时刻由用户在编辑器里定，而"转换后任务怎样"按**默认选定**为
+  /// "**不动任务**"——因此界面上必须同时显示那句提示，否则用户会在同一件事上被排两次
+  /// （固定日程占住时间，任务仍留在待办里等着被排）。
+  final void Function(String title)? onCreateEvent;
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -417,6 +425,28 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           // 设置一个日期要把本地日期换算成 UTC，而本页没有时区（`zones` 未注入），
           // 因此"设置"那一半仍需先打通时区，已登记在 §13.0 的 R9。
           // 这里只给出能工作的清除，而不放一个点了不知道会发生什么的"设置"。
+          // FR-TASK-04：把任务转成固定日程。**不自动改任务状态**（默认选定）——因此这里必须
+          // 明说"任务仍在待办中"，否则同一件事会被排两次：固定日程占住时间，任务又等着被排。
+          // 用户看到这句话就能自己决定是否把它标记完成。
+          if (widget.onCreateEvent != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const Key('create-event-from-task'),
+                onPressed: () => widget.onCreateEvent!(task.title),
+                icon: const Icon(Icons.event_outlined),
+                label: const Text('转为固定日程'),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '只创建一条固定日程；这条任务仍在待办中，需要你自行处理。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
           // FR-REPLAN-07 的"修改截止日期"里**不需要时区换算的那一半**：清除（置空不需要换算）。
           if (task.dueAtUtc != null) ...[
             const SizedBox(height: 4),

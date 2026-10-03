@@ -143,6 +143,14 @@ GoRouter createPlannerRouter({
               );
               return result.isSuccess;
             },
+            // FR-TASK-04：任务转固定日程。**只预填标题**——事件编辑器没有"所属领域"控件，
+            // 因此领域无从预填（这一点已登记，而不是假装填了）；任务本身**不动**，任务页上
+            // 有对应提示，避免同一件事被排两次。
+            onCreateEvent: calendarService == null
+                ? null
+                : (title) => context.go(
+                    '/calendar/new?title=${Uri.encodeComponent(title)}',
+                  ),
           ),
         ),
         GoRoute(
@@ -228,6 +236,8 @@ GoRouter createPlannerRouter({
                         initialEndUtc: startUtc.add(const Duration(hours: 1)),
                         timeZoneId: timeZoneId,
                         zones: zones,
+                        // FR-TASK-04：从任务页跳来时预填标题（`?title=...`）。
+                        initialTitle: state.uri.queryParameters['title'] ?? '',
                         onSaved: () => context.go('/calendar'),
                       ),
                     ],

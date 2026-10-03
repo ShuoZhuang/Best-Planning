@@ -10,6 +10,7 @@ final class EventEditorForm extends StatefulWidget {
     required this.timeZoneId,
     required this.zones,
     this.recurrenceRuleId,
+    this.initialTitle = '',
     this.onSaved,
     super.key,
   });
@@ -26,6 +27,13 @@ final class EventEditorForm extends StatefulWidget {
   final TimeZoneDatabase zones;
 
   final String? recurrenceRuleId;
+
+  /// 打开表单时预填的标题（FR-TASK-04 的"任务转固定日程"）。
+  ///
+  /// 只预填标题：表单**没有"所属领域"控件**（切片 A 未加），因此领域无从预填——与其做一个
+  /// 只有标题像是"转换"的入口，不如把这一点写明，让用户知道创建完还需要自己补领域。
+  final String initialTitle;
+
   final VoidCallback? onSaved;
 
   @override
@@ -53,6 +61,8 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     );
     final end = widget.zones.toLocal(widget.initialEndUtc, widget.timeZoneId);
     _weekdays = {start.weekday};
+    // 预填标题（可能为空串）：带默认值而不是可空，表单因此不必在渲染时判空。
+    _titleController.text = widget.initialTitle;
     _startDateController = TextEditingController(text: _date(start));
     _startTimeController = TextEditingController(text: _time(start));
     _endDateController = TextEditingController(text: _date(end));
