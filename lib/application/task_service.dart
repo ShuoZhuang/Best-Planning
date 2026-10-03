@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 
@@ -172,6 +173,52 @@ final class TaskService {
     if (existing.projectId == projectId) return true;
     await _repository.save(
       existing.copyWith(projectId: projectId, updatedAtUtc: _clock.nowUtc()),
+    );
+    return true;
+  }
+
+  /// 设置或清除任务的期望时段（spec §7.1）。
+  ///
+  /// 期望时段是**软约束**：它参与评分但不参与硬约束，因此非法取值不该抛给调用方——
+  /// 界面拿到 `false` 就能给出提示，不必自己镜像一遍 `LocalTimeRange` 的校验规则。
+  /// 两个参数同为 null 表示清除偏好；只给一个、起点不早于终点、或超出一日范围都返回
+  /// `false` 且不写库。
+  Future<bool> setPreferredWindow(
+    String taskId, {
+    int? startMinute,
+    int? endMinute,
+  }) async {
+    final existing = await _repository.getById(taskId);
+    if (existing == null) return false;
+
+    LocalTimeRange? window;
+    if (startMinute != null || endMinute != null) {
+      if (startMinute == null || endMinute == null) return false;
+      try {
+        window = LocalTimeRange(
+          startMinute: startMinute,
+          endMinute: endMinute,
+        );
+      } on ArgumentError {
+        return false;
+      }
+    }
+
+    final current = existing.preferredWindow;
+    if (current == null && window == null) return true;
+    if (current != null &&
+        window != null &&
+        current.startMinute == window.startMinute &&
+        current.endMinute == window.endMinute) {
+      // 偏好未变化时不写入，避免"最近修改"被无谓推进。
+      return true;
+    }
+
+    await _repository.save(
+      existing.copyWith(
+        preferredWindow: window,
+        updatedAtUtc: _clock.nowUtc(),
+      ),
     );
     return true;
   }
