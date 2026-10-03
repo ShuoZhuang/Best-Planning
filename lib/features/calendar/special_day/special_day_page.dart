@@ -11,14 +11,22 @@ final class SpecialDayPage extends StatefulWidget {
     required this.rules,
     required this.fixedEvents,
     required this.onCreateOverride,
-    this.timeZoneId = 'Asia/Shanghai',
+    required this.timeZoneId,
     super.key,
   });
 
   final DateTime recoveryDate;
   final PlanningRules rules;
   final List<CalendarOccurrence> fixedEvents;
+
+  /// IANA 时区标识，用于把用户填写的"结束时间"解释为本地墙上时间。
+  ///
+  /// 该参数**必须显式传入**：此前它默认 `'Asia/Shanghai'`，任何忘记传的调用方都会
+  /// 静默按东八区解释时间，而需求 §13 要求以本机当前时区保存和展示（R11）。组合根
+  /// 在启动时解析本机时区并逐层传下来，这里改为必填，让"忘记传"变成编译错误而不是
+  /// 一个只在别的时区才暴露的错误结果。
   final String timeZoneId;
+
   final Future<RecoveryPlan> Function(SpecialDayDraft draft) onCreateOverride;
 
   @override

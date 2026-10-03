@@ -15,6 +15,7 @@ void main() {
         home: SpecialDayPage(
           recoveryDate: DateTime(2026, 10, 3),
           rules: DefaultSettings.v1(),
+          timeZoneId: 'UTC',
           fixedEvents: const [],
           onCreateOverride: (draft) async {
             submitted = draft;
@@ -63,6 +64,7 @@ void main() {
         home: SpecialDayPage(
           recoveryDate: DateTime(2026, 10, 3),
           rules: DefaultSettings.v1(),
+          timeZoneId: 'UTC',
           fixedEvents: [earlyClass],
           onCreateOverride: (_) async => _result(
             conflicts: [
