@@ -6,6 +6,7 @@ final class EventEditorForm extends StatefulWidget {
     required this.service,
     required this.initialStartUtc,
     required this.initialEndUtc,
+    required this.timeZoneId,
     this.recurrenceRuleId,
     super.key,
   });
@@ -13,6 +14,13 @@ final class EventEditorForm extends StatefulWidget {
   final CalendarService service;
   final DateTime initialStartUtc;
   final DateTime initialEndUtc;
+
+  /// 保存本次日程时记录的 IANA 时区标识，必须由调用方给出。
+  ///
+  /// 必填而不是带默认值：此前的默认值让这个表单**静默**把所有日程记成东八区，
+  /// 而需求 §13 要求以本机当前时区保存（R11）。
+  final String timeZoneId;
+
   final String? recurrenceRuleId;
 
   @override
@@ -37,6 +45,7 @@ final class _EventEditorFormState extends State<EventEditorForm> {
         title: _titleController.text,
         startAtUtc: widget.initialStartUtc,
         endAtUtc: widget.initialEndUtc,
+        timeZoneId: widget.timeZoneId,
         recurrenceRuleId: widget.recurrenceRuleId,
         editScope: _scope,
       ),

@@ -12,7 +12,10 @@ final class EventDraft {
     required this.title,
     required this.startAtUtc,
     required this.endAtUtc,
-    this.timeZoneId = 'Asia/Shanghai',
+    // 必填：此前默认 'Asia/Shanghai'，而唯一的构造方 `EventEditorForm` 并没有传它，
+    // 于是界面上保存的日程一律被标记为东八区——与需求 §13"以本机当前时区保存和展示"相悖，
+    // 且只在别的时区表现为结果错误，不报错（R11）。
+    required this.timeZoneId,
     this.recurrenceRuleId,
     this.exceptionOfId,
     this.locked = true,

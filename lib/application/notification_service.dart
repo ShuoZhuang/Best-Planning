@@ -27,7 +27,9 @@ final class NotificationService {
     required this.notifications,
     required this.clock,
     required this.zones,
-    this.timeZoneId = 'Asia/Shanghai',
+    // 必填：此前默认 'Asia/Shanghai'，忘记传就会把提醒按东八区解释，而在别的时区只表现为
+    // "时间算错"、不报错（R11）。改为必填后"忘记传"是编译错误。
+    required this.timeZoneId,
     this.calendar,
     this.tasks,
     this.pendingConflicts,

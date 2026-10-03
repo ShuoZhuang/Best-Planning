@@ -8,7 +8,7 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 
 void main() {
-  testWidgets('固定日程表单保存一次性事件', (tester) async {
+  testWidgets('固定日程表单保存一次性事件，并记录调用方给出的时区', (tester) async {
     final repository = _MemoryCalendarRepository();
     final service = CalendarService(
       repository: repository,
@@ -22,6 +22,9 @@ void main() {
             service: service,
             initialStartUtc: DateTime.utc(2026, 10, 2, 1),
             initialEndUtc: DateTime.utc(2026, 10, 2, 3),
+            // 刻意用一个**不是**东八区的值：此前的默认值会让这个表单静默把所有日程
+            // 记成 'Asia/Shanghai'，用东八区做断言就抓不到那个缺陷（R11）。
+            timeZoneId: 'Europe/Berlin',
           ),
         ),
       ),
@@ -33,6 +36,7 @@ void main() {
 
     expect(repository.saved, hasLength(1));
     expect(repository.saved.single.title, '社团会议');
+    expect(repository.saved.single.timeZoneId, 'Europe/Berlin');
     expect(find.text('日程已保存'), findsOneWidget);
   });
 }
