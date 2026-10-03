@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/export_service.dart';
+import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
@@ -10,11 +11,13 @@ import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
+import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
@@ -52,6 +55,7 @@ GoRouter createPlannerRouter({
   TagService? tagService,
   AppLockService? appLock,
   ExportService? exportService,
+  FocusService? focusService,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -87,9 +91,34 @@ GoRouter createPlannerRouter({
             workspace: workspaceService,
             // FR-TASK-02 的标签入口。为空时该区不显示，其余部分照常可用。
             tags: tagService,
+            // FR-FOCUS-01 的入口。页面不认识路由，导航由这里注入。
+            onStartFocus: focusService == null
+                ? null
+                : () => context.go(
+                    '/focus/${state.pathParameters['taskId']!}',
+                  ),
             taskId: state.pathParameters['taskId']!,
             nowUtc: nowUtc ?? todayStartUtc,
           ),
+        ),
+        GoRoute(
+          // 专注计时（FR-FOCUS-01）。页面早已存在，但从未有路由，也没有任何界面指向它，
+          // 因此计时在真实运行中完全不可达（W3）。
+          path: '/focus/:taskId',
+          builder: (context, state) {
+            final service = focusService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '专注计时',
+                message: '专注服务未装配，暂无法计时。',
+              );
+            }
+            return _FocusLoader(
+              focus: service,
+              tasks: taskService,
+              taskId: state.pathParameters['taskId']!,
+            );
+          },
         ),
         GoRoute(
           path: '/calendar',
@@ -203,6 +232,51 @@ GoRouter createPlannerRouter({
     ),
   ],
 );
+
+/// 专注页需要"任务身份"（标题），因此这里先把任务读出来再渲染页面。
+///
+/// 任务不存在时给出明确说明而不是一个空标题：通知 payload 的 `route` 也会指向任务，
+/// 而任务可能已被永久清除，此时用户需要知道发生了什么。
+final class _FocusLoader extends StatefulWidget {
+  const _FocusLoader({
+    required this.focus,
+    required this.tasks,
+    required this.taskId,
+  });
+
+  final FocusService focus;
+  final TaskService tasks;
+  final String taskId;
+
+  @override
+  State<_FocusLoader> createState() => _FocusLoaderState();
+}
+
+final class _FocusLoaderState extends State<_FocusLoader> {
+  late final Future<PlannerTask?> _task = widget.tasks.findById(widget.taskId);
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PlannerTask?>(
+    future: _task,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      final task = snapshot.data;
+      if (task == null) {
+        return const _UnavailablePage(
+          title: '专注计时',
+          message: '该任务不存在或已被永久删除，无法计时。',
+        );
+      }
+      return FocusPage(
+        service: widget.focus,
+        taskId: task.id,
+        taskTitle: task.title,
+      );
+    },
+  );
+}
 
 Future<void> _generatePlan(
   BuildContext context,

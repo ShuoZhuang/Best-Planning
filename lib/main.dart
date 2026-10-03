@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/export_service.dart';
+import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
@@ -22,6 +23,7 @@ import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
+import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
@@ -34,6 +36,7 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_sourc
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
+import 'package:personal_planner/platform/monotonic_clock.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
@@ -149,6 +152,15 @@ void main() {
     clock: clock,
   );
 
+  // 专注计时（FR-FOCUS）。计时状态机、崩溃恢复与异常确认都已实现并有测试，但
+  // `FocusService` 从未在生产构造、`/focus/:taskId` 也从无路由，因此整条链路不可达（W3）。
+  final focusService = FocusService(
+    store: DriftFocusEntryStore(database),
+    clock: clock,
+    monotonicClock: StopwatchMonotonicClock(),
+    idGenerator: UuidIdGenerator(),
+  );
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -166,6 +178,8 @@ void main() {
         // 启动门控：锁开启时必须先解锁；设置页也用它开启/关闭（需求 §11.3）。
         appLock: appLockService,
         exportService: exportService,
+        // 任务详情页的"开始专注"入口与 /focus/:taskId 路由（FR-FOCUS-01）。
+        focusService: focusService,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

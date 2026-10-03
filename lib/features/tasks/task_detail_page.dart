@@ -23,6 +23,7 @@ final class TaskDetailPage extends StatefulWidget {
     required this.nowUtc,
     this.workspace,
     this.tags,
+    this.onStartFocus,
     super.key,
   });
 
@@ -39,6 +40,13 @@ final class TaskDetailPage extends StatefulWidget {
   /// 在此之前标签只有两张表：没有任何界面能建立标签或把它打到任务上，因此统计侧
   /// 即便能按标签筛选也没有数据可筛（见 R1）。
   final TagService? tags;
+
+  /// 进入专注计时的入口（FR-FOCUS-01）。为空时不显示该按钮。
+  ///
+  /// 专注页一直是 `/focus/:taskId` 这样的按任务路由，而全库没有这条路由，也没有任何
+  /// 界面指向它，因此计时功能在真实运行中完全不可达（W3）。导航回调由路由器注入，
+  /// 页面本身不认识路由。
+  final VoidCallback? onStartFocus;
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -301,6 +309,15 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               Chip(label: Text(_priorityLabel(task.priority))),
             ],
           ),
+          if (widget.onStartFocus != null) ...[
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              key: const Key('start-focus'),
+              onPressed: widget.onStartFocus,
+              icon: const Icon(Icons.timer_outlined),
+              label: const Text('开始专注'),
+            ),
+          ],
           const SizedBox(height: 20),
           _Fact(label: '预计时长', value: '${task.estimatedMinutes} 分钟'),
           _Fact(label: '剩余时长', value: '${task.remainingMinutes} 分钟'),
