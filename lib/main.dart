@@ -30,6 +30,7 @@ import 'package:personal_planner/data/repositories/drift_workspace_repository.da
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
+import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
@@ -128,6 +129,13 @@ void main() {
     idGenerator: UuidIdGenerator(),
   );
 
+  // 应用锁此前只有设置页与服务：`AppLockService.verify` 没有启动调用方，因此锁只能被
+  // 开启、永远不会拦住任何人（W6）。凭据存在设置仓库里，与设置页共用同一份，
+  // 因为"是否上锁"必须与"能否解锁"来自同一个来源。
+  final appLockService = AppLockService(
+    store: SettingsAppLockCredentialStore(settingsRepository),
+  );
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -142,6 +150,8 @@ void main() {
         workspaceService: workspaceService,
         // 任务详情页的标签区（FR-TASK-02）。与统计的标签筛选读的是同一批表。
         tagService: tagService,
+        // 启动门控：锁开启时必须先解锁；设置页也用它开启/关闭（需求 §11.3）。
+        appLock: appLockService,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

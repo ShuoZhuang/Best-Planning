@@ -10,10 +10,12 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
+import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
@@ -46,6 +48,7 @@ GoRouter createPlannerRouter({
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
   TagService? tagService,
+  AppLockService? appLock,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -117,6 +120,21 @@ GoRouter createPlannerRouter({
             service: settingsService,
             autoAdjustStore: autoAdjustStore,
           ),
+        ),
+        GoRoute(
+          // 应用锁必须可达，否则它只能"被开启"却无法被开启：启动门控已经存在，但设置
+          // 密码的入口此前没有任何路由，用户永远无法让锁生效（W6 + W3）。
+          path: '/settings/app-lock',
+          builder: (context, state) {
+            final service = appLock;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '应用锁',
+                message: '应用锁服务未装配，暂无法开启或关闭应用锁。',
+              );
+            }
+            return AppLockPage(service: service);
+          },
         ),
         GoRoute(
           path: '/analytics',
@@ -194,6 +212,7 @@ final class _PlannerShell extends StatelessWidget {
     '/analytics' => 4,
     '/preferences' => 5,
     '/settings' => 6,
+    '/settings/app-lock' => 7,
     _ => 0,
   };
 
@@ -226,6 +245,7 @@ final class _PlannerShell extends StatelessWidget {
                 4 => '/analytics',
                 5 => '/preferences',
                 6 => '/settings',
+                7 => '/settings/app-lock',
                 _ => '/today',
               });
             },
@@ -264,6 +284,11 @@ final class _PlannerShell extends StatelessWidget {
                 icon: Icon(Icons.tune_outlined),
                 selectedIcon: Icon(Icons.tune),
                 label: Text('设置'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.lock_outline),
+                selectedIcon: Icon(Icons.lock),
+                label: Text('应用锁'),
               ),
             ],
           ),

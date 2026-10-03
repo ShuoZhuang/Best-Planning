@@ -23,6 +23,8 @@ import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
+import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
+import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 
 final class PlannerApp extends StatefulWidget {
   const PlannerApp({
@@ -38,6 +40,7 @@ final class PlannerApp extends StatefulWidget {
     this.notifications,
     this.workspaceService,
     this.tagService,
+    this.appLock,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -76,6 +79,12 @@ final class PlannerApp extends StatefulWidget {
   /// 数据可筛——标签此前只有两张表，没有任何写入方（R1）。
   final TagService? tagService;
 
+  /// 应用锁服务（需求 §11.3）。为空时不启用启动门控——即"没有应用锁"。
+  ///
+  /// 此前 `AppLockService.verify` 没有任何启动调用方，锁只能被开启、不会拦住任何人；
+  /// 门控必须发生在启动路径上，因此由这里决定先显示解锁界面还是应用内容。
+  final AppLockService? appLock;
+
   final TimeZoneDatabase? zones;
 
   /// IANA 时区标识。目前由调用方显式给出；自动识别本机时区见偏差登记 R11。
@@ -92,9 +101,21 @@ final class _PlannerAppState extends State<PlannerApp> {
   late final Future<bool> _onboardingRequired;
   bool _onboardingCompleted = false;
 
+  /// 启动时是否仍处于锁定状态；null 表示尚未判定完（此时显示进度，不显示内容）。
+  bool? _locked;
+
   @override
   void initState() {
     super.initState();
+    final lock = widget.appLock;
+    if (lock == null) {
+      _locked = false;
+    } else {
+      // 未装配应用锁时同步判定为"未上锁"；装配了就必须先问出来，不能默认放行。
+      lock.isEnabled().then((enabled) {
+        if (mounted) setState(() => _locked = enabled);
+      });
+    }
     _repository = widget.taskRepository ?? _MemoryTaskRepository();
     _settingsRepository =
         widget.settingsRepository ?? MemorySettingsRepository();
@@ -130,6 +151,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       analytics: widget.analytics,
       workspaceService: widget.workspaceService,
       tagService: widget.tagService,
+      appLock: widget.appLock,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
@@ -159,29 +181,37 @@ final class _PlannerAppState extends State<PlannerApp> {
 
   @override
   Widget build(BuildContext context) {
+    // 应用锁先于一切：锁定状态下连首次引导都不显示，否则"锁"只挡得住主界面，
+    // 却把设置与引导暴露在外。
+    final locked = _locked;
+    if (locked == null) {
+      return _shell(
+        const Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
+    if (locked) {
+      return _shell(
+        AppLockUnlockView(
+          service: widget.appLock!,
+          onUnlocked: () => setState(() => _locked = false),
+        ),
+      );
+    }
     return FutureBuilder<bool>(
       future: _onboardingRequired,
       builder: (context, snapshot) {
         final required = snapshot.data;
         if (required == null) {
-          return MaterialApp(
-            title: '智能日程',
-            debugShowCheckedModeBanner: false,
-            theme: _theme,
-            home: const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            ),
+          return _shell(
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
           );
         }
         // 首次启动（或引导 schema 升级）时先展示关键默认值，再进入主界面。
         // 完成状态由 onboarding schema 版本决定，因此未来新增关键默认值可以
         // 只做增量提示，而不必重复整个引导。
         if (required && !_onboardingCompleted) {
-          return MaterialApp(
-            title: '智能日程',
-            debugShowCheckedModeBanner: false,
-            theme: _theme,
-            home: OnboardingPage(
+          return _shell(
+            OnboardingPage(
               repository: _settingsRepository,
               onComplete: () => setState(() => _onboardingCompleted = true),
             ),
@@ -196,6 +226,14 @@ final class _PlannerAppState extends State<PlannerApp> {
       },
     );
   }
+
+  /// 非路由状态的统一外壳：引导、解锁与加载都共用同一套标题与主题。
+  Widget _shell(Widget home) => MaterialApp(
+    title: '智能日程',
+    debugShowCheckedModeBanner: false,
+    theme: _theme,
+    home: home,
+  );
 }
 
 DateTime _dateOnly(DateTime value) =>
