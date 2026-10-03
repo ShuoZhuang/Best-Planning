@@ -11,8 +11,10 @@ import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
@@ -95,6 +97,13 @@ Future<void> main() async {
     database,
     idGenerator: UuidIdGenerator(),
   );
+  // "排程输入变了"的统一落点：**两个来源共用一份定义**——先记一条统计原因（FR-STAT-06），
+  // 再按领域变化的**类别**决定要不要重排（FR-REPLAN-01 起，见下面的 `ReplanningCoordinator`）。
+  //
+  // 声明在前、赋值在后：日历服务在构造时就要拿到它，而协调器需要排程服务与计划应用服务，
+  // 两者都在更下面。两个服务都只在**回调被调用时**才读它（不是构造时），因此 `late` 安全；
+  // 若改成在这里直接求值，会立刻抛 `LateInitializationError`。
+  late final void Function(ScheduleInputChange change) onScheduleInputChange;
   final calendarService = CalendarService(
     repository: calendarRepository,
     recurringRepository: calendarRepository,
@@ -108,11 +117,7 @@ Future<void> main() async {
     // 固定日程占用的时间是排程的硬约束，因此它的增删改同样会改变排程；此前这条路径登记为
     // "未覆盖"（§13.0 W9 的 (a)），于是统计里的"重排原因"看起来像完整分布，实际缺了日历
     // 这一整类。两个写入方共用同一份 lambda 形状与同一个事件端口，此处不新造一套口径。
-    onScheduleInputChanged: (reasonCode) => analyticsEvents.record(
-      kind: AnalyticsEventKind.replan,
-      code: reasonCode,
-      observedAtUtc: clock.nowUtc(),
-    ),
+    onScheduleInputChanged: (change) => onScheduleInputChange(change),
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
@@ -267,6 +272,41 @@ Future<void> main() async {
     zones: zones,
   );
 
+  // 计划应用（FR-REPLAN-05 的过期拒绝也在这里）。提成具名变量是因为**自动重排也要用它**：
+  // 与顶栏"生成计划"按钮走的是同一个应用入口，"信任自动调整"的两条路径因此不会各写一份。
+  final planApplication = PlanApplicationService(
+    source: problemSource,
+    repository: planRepository,
+    zones: zones,
+  );
+
+  // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
+  //
+  // 此前 `ReplanningCoordinator` **在生产里从未被构造**，于是"改了任务会自动重算计划"这件事
+  // 根本不成立——唯一的排程入口是外壳顶栏那个按钮。现在两条来源（任务侧的截止日期／优先级／
+  // 剩余时长／状态，日历侧的创建／删除／改写）都经**同一个回调**喂给它：记录统计原因之后，
+  // 再按领域变化的类别决定要不要重排。判断"要不要应用"复用既有的 `PlanGenerationFlow`
+  // （信任自动调整开启才直接应用），因此不会出现第二份会漂移的策略。
+  final replanOutcome = ValueNotifier<ReplanOutcome?>(null);
+  final replanning = ReplanningCoordinator(
+    planning: planningService,
+    flow: PlanGenerationFlow(isTrusted: () => autoAdjustStore.enabled),
+    apply: planApplication.apply,
+    onProposal: (proposal) => latestProposal = proposal,
+    // 界面提示交给 `PlannerApp`：它同时持有路由与 `ScaffoldMessenger`，而且组合根里拿到
+    // 路由实例既别扭又不可测。这里只把结果交出去。
+    onOutcome: (outcome) => replanOutcome.value = outcome,
+    onError: (error) => debugPrint('自动重排失败（原有计划保留）：$error'),
+  );
+  onScheduleInputChange = (change) {
+    analyticsEvents.record(
+      kind: AnalyticsEventKind.replan,
+      code: change.label,
+      observedAtUtc: clock.nowUtc(),
+    );
+    replanning.onDomainChange(DomainChange(change.kind));
+  };
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -297,13 +337,11 @@ Future<void> main() async {
           observedAtUtc: clock.nowUtc(),
           entityId: suggestionId,
         ),
-        // FR-STAT-06 的"重排原因"来源：任务的截止日期／优先级／剩余时长／状态变化各记一条
-        // `replan:` 事件。此前这一类**没有任何写入方**，统计页那一行因此永远空着（W5）。
-        onScheduleInputChanged: (reasonCode) => analyticsEvents.record(
-          kind: AnalyticsEventKind.replan,
-          code: reasonCode,
-          observedAtUtc: clock.nowUtc(),
-        ),
+        // FR-STAT-06 的"重排原因"来源之一（任务侧；日历侧在 `CalendarService` 构造处）。
+        // 两处都用上面那份统一定义，因此统计与重排**要么都发生、要么都不发生**。
+        onScheduleInputChanged: (change) => onScheduleInputChange(change),
+        // 自动重排的结果（在 `PlannerApp` 里弹提示并给出预览入口）。
+        replanOutcome: replanOutcome,
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
@@ -327,11 +365,7 @@ Future<void> main() async {
         recovery: recovery,
         calendar: calendarRepository,
         calendarService: calendarService,
-        planApplication: PlanApplicationService(
-          source: problemSource,
-          repository: planRepository,
-          zones: zones,
-        ),
+        planApplication: planApplication,
         scheduleSource: RepositoryScheduleViewSource(
           tasks: taskRepository,
           calendar: calendarRepository,

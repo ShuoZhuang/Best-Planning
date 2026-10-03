@@ -9,6 +9,7 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
@@ -55,8 +56,10 @@ final class PlannerApp extends StatefulWidget {
     this.focusService,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
-    /// 任务排程输入变化时的原因回调（FR-STAT-06 的"重排原因"来源）。
+    /// 任务排程输入变化时的原因回调（FR-STAT-06 的"重排原因"来源，并驱动自动重排）。
     this.onScheduleInputChanged,
+    /// 自动重排的结果流；见字段说明。
+    this.replanOutcome,
     this.recovery,
     this.calendar,
     this.calendarService,
@@ -133,7 +136,12 @@ final class PlannerApp extends StatefulWidget {
   ///
   /// 由组合根接到统计事件日志上（`replan:` 前缀），统计页据此显示"重排原因"。为空时只是
   /// 不留原因，不影响任何行为。
-  final void Function(String reasonCode)? onScheduleInputChanged;
+  final void Function(ScheduleInputChange change)? onScheduleInputChanged;
+
+  /// 自动重排的结果流（组合根在 `ReplanningCoordinator.onOutcome` 里写入）。
+  ///
+  /// 为空表示未装配自动重排，此时不弹任何提示——而不是弹一个点了没反应的提示。
+  final ValueNotifier<ReplanOutcome?>? replanOutcome;
 
   /// 特殊日恢复服务与当日固定日程来源（Task 11）。两者缺一时该入口不显示。
   final RecoveryPlanningService? recovery;
@@ -172,9 +180,49 @@ final class _PlannerAppState extends State<PlannerApp> {
   /// 启动时是否仍处于锁定状态；null 表示尚未判定完（此时显示进度，不显示内容）。
   bool? _locked;
 
+  /// 自动重排完成后的提示监听器（`ReplanningCoordinator.onOutcome` 写入）。
+  ///
+  /// **为什么提示放在这里而不是组合根**：要给出"查看调整"这个可点击的去处就得有路由，
+  /// 而路由是 `PlannerApp` 建的。组合根里拿路由实例既别扭又不可测；放在这里还能用
+  /// widget 测试驱动（推一个结果进去，断言提示真的出现且带入口）。
+  final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+
+  VoidCallback? _replanListener;
+
+  /// 已经提示过的提案 id。连续改动会连发多次结果，同一个提案只提示一次——否则用户会看到
+  /// 一串内容相同的提示，而真正**新**的那一条被淹没。
+  String? _lastPromptedProposalId;
+
+  void _onReplanOutcomeChanged() {
+    final outcome = widget.replanOutcome?.value;
+    if (outcome == null || !mounted) return;
+    if (outcome.proposalId == _lastPromptedProposalId) return;
+    _lastPromptedProposalId = outcome.proposalId;
+    final messenger = _messengerKey.currentState;
+    if (messenger == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(outcome.message.isEmpty ? '计划已更新' : outcome.message),
+        action: outcome.applied
+            ? null
+            : SnackBarAction(
+                label: '查看调整',
+                onPressed: () =>
+                    _router.go('/planning/preview/${outcome.proposalId}'),
+              ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    final replanOutcome = widget.replanOutcome;
+    if (replanOutcome != null) {
+      _replanListener = _onReplanOutcomeChanged;
+      replanOutcome.addListener(_replanListener!);
+    }
     final lock = widget.appLock;
     if (lock == null) {
       _locked = false;
@@ -269,6 +317,8 @@ final class _PlannerAppState extends State<PlannerApp> {
 
   @override
   void dispose() {
+    final listener = _replanListener;
+    if (listener != null) widget.replanOutcome?.removeListener(listener);
     _router.dispose();
     if (_repository case final _MemoryTaskRepository memory) {
       memory.dispose();
@@ -325,6 +375,9 @@ final class _PlannerAppState extends State<PlannerApp> {
         return MaterialApp.router(
           title: '智能日程',
           debugShowCheckedModeBanner: false,
+          // 自动重排的提示要走这个 key：State 的 context 在 MaterialApp **之上**，
+          // 从那里 ScaffoldMessenger.maybeOf 找不到下面这个 messenger（实测：提示不出现）。
+          scaffoldMessengerKey: _messengerKey,
           routerConfig: _router,
           theme: _theme,
         );
@@ -336,6 +389,7 @@ final class _PlannerAppState extends State<PlannerApp> {
   Widget _shell(Widget home) => MaterialApp(
     title: '智能日程',
     debugShowCheckedModeBanner: false,
+    scaffoldMessengerKey: _messengerKey,
     theme: _theme,
     home: home,
   );

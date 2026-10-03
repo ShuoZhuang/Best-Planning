@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -54,7 +55,7 @@ final class TaskService {
     required Clock clock,
     required IdGenerator idGenerator,
     TaskCorrectionLog? correctionLog,
-    void Function(String reasonCode)? onScheduleInputChanged,
+    void Function(ScheduleInputChange change)? onScheduleInputChanged,
   }) : this._(
          repository,
          clock,
@@ -88,7 +89,7 @@ final class TaskService {
   /// 输入，此前登记为"本服务看不到它"（§13.0 W9 的 (a) 末句）。现由 `CalendarService` 的同名
   /// 回调各自记一条，装配点仍是组合根那一个 lambda——**同一份"重排原因"由两个写入方提供**，
   /// 而不是让任务服务去读日历。
-  final void Function(String reasonCode)? _onScheduleInputChanged;
+  final void Function(ScheduleInputChange change)? _onScheduleInputChanged;
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
 
@@ -177,7 +178,7 @@ final class TaskService {
         correctedAtUtc: now,
       ),
     );
-    _onScheduleInputChanged?.call('剩余时长修正');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '剩余时长修正', kind: DomainChangeKind.taskSchedulingChanged));
     return TaskSaveResult.success(updated);
   }
 
@@ -235,7 +236,7 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
-    _onScheduleInputChanged?.call('截止日期变化');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '截止日期变化', kind: DomainChangeKind.taskSchedulingChanged));
     return TaskSaveResult.success(updated);
   }
 
@@ -255,7 +256,7 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
-    _onScheduleInputChanged?.call('优先级变化');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '优先级变化', kind: DomainChangeKind.taskSchedulingChanged));
     return TaskSaveResult.success(updated);
   }
 
@@ -332,7 +333,19 @@ final class TaskService {
       existing.copyWith(status: status, updatedAtUtc: _clock.nowUtc()),
     );
     // 状态变化会改变"可排任务集合"（完成／取消后不再参与排程），因此同样是一条重排原因。
-    _onScheduleInputChanged?.call('状态变化');
+    // 类别按**新状态**细分：完成与跳过对排程的含义不同，而这一层正好知道新状态是什么——
+    // 若只报一个笼统的"状态变化"，协调器就只能靠猜。
+    _onScheduleInputChanged?.call(
+      ScheduleInputChange(
+        label: '状态变化',
+        kind: switch (status) {
+          TaskStatus.completed => DomainChangeKind.taskCompleted,
+          TaskStatus.skipped => DomainChangeKind.taskSkipped,
+          TaskStatus.cancelled => DomainChangeKind.taskCancelled,
+          _ => DomainChangeKind.taskSchedulingChanged,
+        },
+      ),
+    );
     return true;
   }
 }

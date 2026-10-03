@@ -11,6 +11,7 @@
 // 3. 未装配回调时照常写入，只是不留原因——日历服务不该依赖统计是否可用。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -92,6 +93,7 @@ final class _Deletion implements CalendarEventDeletion {
 void main() {
   late _Calendar calendar;
   late _Deletion deletion;
+  late List<ScheduleInputChange> changes;
   late List<String> reasons;
 
   CalendarService build({
@@ -104,7 +106,12 @@ void main() {
     clock: const _Clock(),
     idGenerator: _Ids(),
     zones: TimeZoneDatabase(),
-    onScheduleInputChanged: withCallback ? reasons.add : null,
+    onScheduleInputChanged: withCallback
+        ? (change) {
+            changes.add(change);
+            reasons.add(change.label);
+          }
+        : null,
   );
 
   EventDraft draft({Set<int> weekdays = const {}, String title = '社团会议'}) =>
@@ -119,6 +126,7 @@ void main() {
   setUp(() {
     calendar = _Calendar();
     deletion = _Deletion();
+    changes = [];
     reasons = [];
   });
 
@@ -202,6 +210,33 @@ void main() {
     );
 
     expect(reasons, isEmpty);
+  });
+
+  test('创建报 fixedEventCreated，删除与改写一律报 fixedEventChanged', () async {
+    // 协调器按**类别**决定要不要重排，因此类别必须区分"新增了一项占用"与"改动了已有占用"。
+    final service = build();
+    await service.save(draft());
+    await service.deleteEvent('event-1');
+    await service.deleteOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
+      title: '每周课程',
+    );
+    await service.replaceSeries(
+      anchorId: 'anchor-1',
+      newStartUtc: DateTime.utc(2026, 10, 12, 6),
+      newEndUtc: DateTime.utc(2026, 10, 12, 8),
+    );
+
+    expect(
+      [for (final change in changes) change.kind],
+      <DomainChangeKind>[
+        DomainChangeKind.fixedEventCreated,
+        DomainChangeKind.fixedEventChanged,
+        DomainChangeKind.fixedEventChanged,
+        DomainChangeKind.fixedEventChanged,
+      ],
+    );
   });
 
   test('未装配回调时照常写入，只是不留原因', () async {

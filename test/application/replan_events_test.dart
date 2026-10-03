@@ -4,6 +4,7 @@
 // 本文件钉住四类变化各自的原因码——原因码会**直接显示给用户**，所以它必须是人话而不是内部
 // 枚举名；另外钉住"未装配回调时不报错"，因为任务服务不该依赖统计是否可用。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
@@ -54,17 +55,24 @@ PlannerTask _task() => PlannerTask(
 
 void main() {
   late _Tasks tasks;
+  late List<ScheduleInputChange> changes;
   late List<String> reasons;
 
   TaskService build({bool withCallback = true}) => TaskService(
     repository: tasks,
     clock: const _Clock(),
     idGenerator: _Ids(),
-    onScheduleInputChanged: withCallback ? reasons.add : null,
+    onScheduleInputChanged: withCallback
+        ? (change) {
+            changes.add(change);
+            reasons.add(change.label);
+          }
+        : null,
   );
 
   setUp(() {
     tasks = _Tasks({'task-1': _task()});
+    changes = [];
     reasons = [];
   });
 
@@ -90,6 +98,37 @@ void main() {
     await build().changeStatus('task-1', TaskStatus.completed);
 
     expect(reasons, <String>['状态变化']);
+  });
+
+  test('类别按新状态细分，而不是一律"排程字段变了"', () async {
+    // 标签是给人看的（统计页"重排原因"），类别是给协调器用的。若这里只报一个笼统的
+    // 类别，协调器就无从区分"完成了一个任务"与"改了一个截止日期"。
+    await build().changeStatus('task-1', TaskStatus.completed);
+    await build().changeStatus('task-1', TaskStatus.skipped);
+    await build().changeStatus('task-1', TaskStatus.cancelled);
+    await build().changeStatus('task-1', TaskStatus.open);
+
+    expect(
+      [for (final change in changes) change.kind],
+      <DomainChangeKind>[
+        DomainChangeKind.taskCompleted,
+        DomainChangeKind.taskSkipped,
+        DomainChangeKind.taskCancelled,
+        DomainChangeKind.taskSchedulingChanged,
+      ],
+    );
+  });
+
+  test('三类排程字段变化都报 taskSchedulingChanged', () async {
+    await build().setDueDate('task-1', DateTime.utc(2026, 10, 20));
+    await build().setPriority('task-1', TaskPriority.high);
+    await build().correctRemainingMinutes('task-1', 30);
+
+    expect(changes, hasLength(3));
+    expect(
+      [for (final change in changes) change.kind],
+      everyElement(DomainChangeKind.taskSchedulingChanged),
+    );
   });
 
   test('失败的修改不记原因（改不动就没有重排）', () async {

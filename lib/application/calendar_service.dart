@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -58,7 +59,7 @@ final class CalendarService {
     required Clock clock,
     required IdGenerator idGenerator,
     required TimeZoneDatabase zones,
-    void Function(String reasonCode)? onScheduleInputChanged,
+    void Function(ScheduleInputChange change)? onScheduleInputChanged,
   }) : this._(
          repository,
          recurringRepository,
@@ -100,7 +101,7 @@ final class CalendarService {
   /// **只记成功的写入**（与任务侧一致：改不动就没有重排）。唯一无法区分的情形是幂等删除——端口
   /// 的 `deleteEvent` 不返回"是否真的删掉了"，因此拿一个已过期的 id 来删也会记一条原因。这里选择
   /// 宁可多记一次意图，也不改动端口签名（它在 5 个测试替身里被实现，改签名会一次牵动 5 个文件）。
-  final void Function(String reasonCode)? _onScheduleInputChanged;
+  final void Function(ScheduleInputChange change)? _onScheduleInputChanged;
 
   /// 改写整个系列（FR-CAL-02 的"整个系列"编辑一半）。所有各次一起换到新时间。
   ///
@@ -118,7 +119,7 @@ final class CalendarService {
       newEndUtc: newEndUtc,
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call('固定日程系列改写');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程系列改写', kind: DomainChangeKind.fixedEventChanged));
     return true;
   }
 
@@ -144,7 +145,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call('固定日程单次改写');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程单次改写', kind: DomainChangeKind.fixedEventChanged));
     return true;
   }
 
@@ -167,7 +168,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call('固定日程单次删除');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程单次删除', kind: DomainChangeKind.fixedEventChanged));
     return true;
   }
 
@@ -179,7 +180,7 @@ final class CalendarService {
     final deletion = _deletion;
     if (deletion == null) return false;
     await deletion.deleteEvent(eventId);
-    _onScheduleInputChanged?.call('固定日程删除');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程删除', kind: DomainChangeKind.fixedEventChanged));
     return true;
   }
 
@@ -233,7 +234,7 @@ final class CalendarService {
     } else {
       await _repository.save(event);
     }
-    _onScheduleInputChanged?.call('固定日程创建');
+    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程创建', kind: DomainChangeKind.fixedEventCreated));
     return EventSaveResult.success(event);
   }
 }
