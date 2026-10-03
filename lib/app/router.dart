@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
@@ -16,6 +17,7 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_model
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
+import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
@@ -49,6 +51,7 @@ GoRouter createPlannerRouter({
   WorkspaceService? workspaceService,
   TagService? tagService,
   AppLockService? appLock,
+  ExportService? exportService,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -137,6 +140,22 @@ GoRouter createPlannerRouter({
           },
         ),
         GoRoute(
+          // 数据导出（FR-DATA-06）。服务与适配器早已写好并有测试，但从未在生产装配，
+          // 因此"导出"在真实运行中不可达。
+          path: '/settings/export',
+          builder: (context, state) {
+            final service = exportService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '数据导出',
+                message: '导出服务未装配，暂无法导出数据。',
+              );
+            }
+            // 目录选择与写入用的是同一个端口实例，这里直接复用服务里那一份。
+            return ExportPage(service: service, files: service.files);
+          },
+        ),
+        GoRoute(
           path: '/analytics',
           builder: (context, state) {
             final query = analytics;
@@ -213,6 +232,7 @@ final class _PlannerShell extends StatelessWidget {
     '/preferences' => 5,
     '/settings' => 6,
     '/settings/app-lock' => 7,
+    '/settings/export' => 8,
     _ => 0,
   };
 
@@ -246,6 +266,7 @@ final class _PlannerShell extends StatelessWidget {
                 5 => '/preferences',
                 6 => '/settings',
                 7 => '/settings/app-lock',
+                8 => '/settings/export',
                 _ => '/today',
               });
             },
@@ -289,6 +310,11 @@ final class _PlannerShell extends StatelessWidget {
                 icon: Icon(Icons.lock_outline),
                 selectedIcon: Icon(Icons.lock),
                 label: Text('应用锁'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.download_outlined),
+                selectedIcon: Icon(Icons.download),
+                label: Text('导出'),
               ),
             ],
           ),

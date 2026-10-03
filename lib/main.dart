@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
@@ -20,6 +21,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
@@ -30,6 +32,7 @@ import 'package:personal_planner/data/repositories/drift_workspace_repository.da
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
+import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -136,6 +139,16 @@ void main() {
     store: SettingsAppLockCredentialStore(settingsRepository),
   );
 
+  // 数据导出（FR-DATA-06）。服务、数据源与文件适配器此前都已写好并有测试，但生产代码里
+  // 从未构造过任何一个，因此"导出"在真实运行中不可达（W3/W6 同类的"没装配"）。
+  // 注意目录选择与写文件是平台行为，本机只能经假端口验证，见 §13.0。
+  const exportFiles = FileSelectorAdapter();
+  final exportService = ExportService(
+    source: DriftExportDataSource(database),
+    files: exportFiles,
+    clock: clock,
+  );
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -152,6 +165,7 @@ void main() {
         tagService: tagService,
         // 启动门控：锁开启时必须先解锁；设置页也用它开启/关闭（需求 §11.3）。
         appLock: appLockService,
+        exportService: exportService,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

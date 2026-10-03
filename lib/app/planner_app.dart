@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
@@ -41,6 +42,7 @@ final class PlannerApp extends StatefulWidget {
     this.workspaceService,
     this.tagService,
     this.appLock,
+    this.exportService,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -84,6 +86,9 @@ final class PlannerApp extends StatefulWidget {
   /// 此前 `AppLockService.verify` 没有任何启动调用方，锁只能被开启、不会拦住任何人；
   /// 门控必须发生在启动路径上，因此由这里决定先显示解锁界面还是应用内容。
   final AppLockService? appLock;
+
+  /// 数据导出服务（FR-DATA-06）。为空时该路由说明服务未装配。
+  final ExportService? exportService;
 
   final TimeZoneDatabase? zones;
 
@@ -152,6 +157,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       workspaceService: widget.workspaceService,
       tagService: widget.tagService,
       appLock: widget.appLock,
+      exportService: widget.exportService,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
