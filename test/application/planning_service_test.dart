@@ -39,6 +39,24 @@ void main() {
     // 通知里的冲突就会与实际预览的不一致。
     expect(planning.preview(proposal.proposalId), isNotNull);
     expect(planning.preview(proposal.proposalId)!.conflicts, proposal.conflicts);
+
+    // **覆盖场景**（恢复保护／特殊日）才是这条回调存在的理由：通知读的是
+    // `latestProposal.conflicts`，因此回调必须给出**已经应用覆盖**的那一份。若实现传的是
+    // `proposal` 而不是 `preview`（`withRuleOverride` 之前的那份），下面两条会失败，
+    // 而只断言 proposalId 与 conflicts 的写法**可能照样通过**——这正是本条用例存在的意义。
+    final override = ScheduleRuleOverride(
+      localDate: DateTime(2026, 10, 2),
+      patch: const PlanningRulesPatch(defaultFocusMinutes: 65),
+    );
+    final withOverride = await planning.createProposal(override: override);
+
+    expect(seen, hasLength(2));
+    expect(seen.last.proposalId, withOverride.proposalId);
+    expect(
+      seen.last.ruleOverride,
+      isNotNull,
+      reason: '回调必须拿到应用了覆盖的提案，否则通知里的冲突与实际预览不是同一份',
+    );
   });
 
   test('snapshot hash ignores UI state and normalizes input list order', () {
