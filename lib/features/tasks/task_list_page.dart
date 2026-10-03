@@ -4,6 +4,12 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/features/tasks/quick_add_form.dart';
 
+/// 清单的排序方式（FR-TASK-03 要求支持排序）。
+///
+/// `none` 表示**保持仓储给出的顺序**（即录入顺序）：排序是用户显式选择的结果，不该在
+/// 用户没要求时改变他熟悉的顺序。
+enum _TaskSort { none, dueDate, priority, estimatedMinutes }
+
 final class TaskListPage extends StatefulWidget {
   const TaskListPage({
     required this.service,
@@ -31,6 +37,23 @@ final class _TaskListPageState extends State<TaskListPage> {
   final Set<String> _selected = {};
   String? _batchMessage;
 
+  _TaskSort _sort = _TaskSort.none;
+
+  /// 排序在**筛选之后**执行：顺序只影响呈现，不应改变"哪些任务入选"。
+  int _compare(PlannerTask a, PlannerTask b) => switch (_sort) {
+    _TaskSort.none => 0,
+    // 没有截止时间的排最后：它们不是"最早到期"，但也不该因为缺少字段而挤到最前。
+    _TaskSort.dueDate => _dueKey(a).compareTo(_dueKey(b)),
+    // 高优先级在前：枚举顺序是 low→urgent，因此取反。
+    _TaskSort.priority => b.priority.index.compareTo(a.priority.index),
+    _TaskSort.estimatedMinutes => a.estimatedMinutes.compareTo(
+      b.estimatedMinutes,
+    ),
+  };
+
+  static DateTime _dueKey(PlannerTask task) =>
+      task.dueAtUtc ?? DateTime.utc(9999);
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -42,10 +65,34 @@ final class _TaskListPageState extends State<TaskListPage> {
           const SizedBox(height: 16),
           QuickAddForm(service: widget.service),
           const SizedBox(height: 16),
-          SearchBar(
-            hintText: '搜索任务',
-            leading: const Icon(Icons.search),
-            onChanged: (value) => setState(() => _query = value.trim()),
+          Row(
+            children: [
+              Expanded(
+                child: SearchBar(
+                  hintText: '搜索任务',
+                  leading: const Icon(Icons.search),
+                  onChanged: (value) =>
+                      setState(() => _query = value.trim()),
+                ),
+              ),
+              const SizedBox(width: 12),
+              DropdownButton<_TaskSort>(
+                key: const Key('task-sort'),
+                value: _sort,
+                onChanged: (value) => setState(
+                  () => _sort = value ?? _TaskSort.none,
+                ),
+                items: const [
+                  DropdownMenuItem(value: _TaskSort.none, child: Text('默认顺序')),
+                  DropdownMenuItem(value: _TaskSort.dueDate, child: Text('按截止时间')),
+                  DropdownMenuItem(value: _TaskSort.priority, child: Text('按优先级')),
+                  DropdownMenuItem(
+                    value: _TaskSort.estimatedMinutes,
+                    child: Text('按预计时长'),
+                  ),
+                ],
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Row(
@@ -113,6 +160,9 @@ final class _TaskListPageState extends State<TaskListPage> {
                       ),
                     )
                     .toList();
+                // 只有用户真的选了排序才调用 `sort`：Dart 的 `List.sort` **不保证稳定**，
+                // 用"全部返回 0"的比较器去"保持原顺序"是不可靠的，因此默认顺序干脆不排。
+                if (_sort != _TaskSort.none) tasks.sort(_compare);
                 if (tasks.isEmpty) return const Center(child: Text('暂无匹配任务'));
                 return ListView.builder(
                   itemCount: tasks.length,

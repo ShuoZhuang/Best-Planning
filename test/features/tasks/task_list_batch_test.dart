@@ -41,11 +41,15 @@ final class _Tasks implements TaskRepository {
   Future<void> save(PlannerTask task) async => tasks[task.id] = task;
 }
 
-PlannerTask _task(String id, String title) => PlannerTask(
+PlannerTask _task(
+  String id,
+  String title, {
+  TaskPriority priority = TaskPriority.medium,
+}) => PlannerTask(
   id: id,
   title: title,
   notes: '',
-  priority: TaskPriority.medium,
+  priority: priority,
   estimatedMinutes: 30,
   remainingMinutes: 30,
   dueAtUtc: null,
@@ -136,6 +140,32 @@ void main() {
     // 未选中的一条必须原样不动——与批量取消同理，这是"批量"最容易做错的地方。
     expect(tasks.tasks['task-2']!.priority, TaskPriority.medium);
     expect(find.text('已把 2 项设为该优先级'), findsOneWidget);
+  });
+
+  testWidgets('排序真的改变呈现顺序：默认序与按优先级序相反', (tester) async {
+    // 让三条优先级不同，否则"按优先级排序"与默认序无法区分。
+    tasks.tasks['task-2'] = _task(
+      'task-2',
+      '读论文',
+      priority: TaskPriority.urgent,
+    );
+    tasks.tasks['task-3'] = _task('task-3', '跑步', priority: TaskPriority.low);
+    await pumpList(tester);
+
+    double y(String title) => tester.getTopLeft(find.text(title)).dy;
+
+    // 默认是仓储顺序（录入顺序）：task-1 在最前。
+    expect(y('写方案'), lessThan(y('读论文')));
+
+    await tester.tap(find.byKey(const Key('task-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('按优先级').last);
+    await tester.pumpAndSettle();
+
+    // 按优先级后顺序**反转**：urgent 在前、low 在最后。
+    // 只断言"三条都还在"是不够的——那与顺序无关，排序坏掉也照样通过。
+    expect(y('读论文'), lessThan(y('写方案')));
+    expect(y('写方案'), lessThan(y('跑步')));
   });
 
   testWidgets('空选择时批量取消不可用', (tester) async {
