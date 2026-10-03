@@ -54,6 +54,8 @@ final class PlannerApp extends StatefulWidget {
     this.focusService,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
+    /// 任务排程输入变化时的原因回调（FR-STAT-06 的"重排原因"来源）。
+    this.onScheduleInputChanged,
     this.recovery,
     this.calendar,
     this.calendarService,
@@ -124,6 +126,12 @@ final class PlannerApp extends StatefulWidget {
   /// 为空时偏好页的一切照旧，只是统计里那一项仍为空——即改动前的状态。
   final void Function(String action, String suggestionId)? onSuggestionAction;
 
+  /// 任务的截止日期／优先级／剩余时长／状态变化时回调一个**人类可读的原因码**。
+  ///
+  /// 由组合根接到统计事件日志上（`replan:` 前缀），统计页据此显示"重排原因"。为空时只是
+  /// 不留原因，不影响任何行为。
+  final void Function(String reasonCode)? onScheduleInputChanged;
+
   /// 特殊日恢复服务与当日固定日程来源（Task 11）。两者缺一时该入口不显示。
   final RecoveryPlanningService? recovery;
   final CalendarRepository? calendar;
@@ -190,6 +198,7 @@ final class _PlannerAppState extends State<PlannerApp> {
         clock: clock,
         idGenerator: UuidIdGenerator(),
         correctionLog: widget.correctionLog,
+        onScheduleInputChanged: widget.onScheduleInputChanged,
       ),
       settingsService: SettingsService(repository: _settingsRepository),
       scheduleSource: widget.scheduleSource ?? const EmptyScheduleViewSource(),

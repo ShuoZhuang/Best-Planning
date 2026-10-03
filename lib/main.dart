@@ -279,6 +279,13 @@ Future<void> main() async {
           observedAtUtc: clock.nowUtc(),
           entityId: suggestionId,
         ),
+        // FR-STAT-06 的"重排原因"来源：任务的截止日期／优先级／剩余时长／状态变化各记一条
+        // `replan:` 事件。此前这一类**没有任何写入方**，统计页那一行因此永远空着（W5）。
+        onScheduleInputChanged: (reasonCode) => analyticsEvents.record(
+          kind: AnalyticsEventKind.replan,
+          code: reasonCode,
+          observedAtUtc: clock.nowUtc(),
+        ),
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
         analytics: AnalyticsService(

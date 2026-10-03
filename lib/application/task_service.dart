@@ -54,19 +54,39 @@ final class TaskService {
     required Clock clock,
     required IdGenerator idGenerator,
     TaskCorrectionLog? correctionLog,
-  }) : this._(repository, clock, idGenerator, correctionLog);
+    void Function(String reasonCode)? onScheduleInputChanged,
+  }) : this._(
+         repository,
+         clock,
+         idGenerator,
+         correctionLog,
+         onScheduleInputChanged,
+       );
 
   const TaskService._(
     this._repository,
     this._clock,
     this._idGenerator,
     this._correctionLog,
+    this._onScheduleInputChanged,
   );
 
   final TaskRepository _repository;
   final Clock _clock;
   final IdGenerator _idGenerator;
   final TaskCorrectionLog? _correctionLog;
+
+  /// 任务的**排程输入发生变化**时的回调（FR-STAT-06 的"重排原因"来源）。
+  ///
+  /// 口径（按默认选定）：**截止日期／优先级／剩余时长／状态**这四类变化会让排程结果可能改变，
+  /// 因此各记一条 `replan:` 事件。用人类可读的原因码，因为统计页直接把它显示给用户。
+  ///
+  /// 用回调而不是直接依赖统计模块：任务服务不该知道统计的存在，装配由组合根负责；
+  /// 未装配时只是不留原因，不影响任何行为。
+  ///
+  /// **未覆盖**：固定日程的创建与删除也会使排程变化，但那条路径在日历服务里，本服务看不到它
+  /// ——这一点登记在 §13.0，而不是假装"重排原因"已经覆盖所有来源。
+  final void Function(String reasonCode)? _onScheduleInputChanged;
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
 
@@ -155,6 +175,7 @@ final class TaskService {
         correctedAtUtc: now,
       ),
     );
+    _onScheduleInputChanged?.call('剩余时长修正');
     return TaskSaveResult.success(updated);
   }
 
@@ -212,6 +233,7 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
+    _onScheduleInputChanged?.call('截止日期变化');
     return TaskSaveResult.success(updated);
   }
 
@@ -231,6 +253,7 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
+    _onScheduleInputChanged?.call('优先级变化');
     return TaskSaveResult.success(updated);
   }
 
@@ -306,6 +329,8 @@ final class TaskService {
     await _repository.save(
       existing.copyWith(status: status, updatedAtUtc: _clock.nowUtc()),
     );
+    // 状态变化会改变"可排任务集合"（完成／取消后不再参与排程），因此同样是一条重排原因。
+    _onScheduleInputChanged?.call('状态变化');
     return true;
   }
 }
