@@ -186,6 +186,10 @@ final class _FixedClock implements Clock {
 final class _RecordingPort implements NotificationPort {
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {}
+
+  @override
+  Future<NotificationPayload?> launchPayload() async => null;
+
   _RecordingPort({this.pending = const []});
   final List<PendingNotification> pending;
   final List<NotificationRequest> scheduled = [];

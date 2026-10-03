@@ -172,6 +172,10 @@ final class _MemoryPlanRepository implements PlanRepository {
 final class _RecordingNotificationPort implements NotificationPort {
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {}
+
+  @override
+  Future<NotificationPayload?> launchPayload() async => null;
+
   final List<NotificationRequest> scheduled = [];
   final List<String> cancelled = [];
   final List<PendingNotification> pending = [];

@@ -166,6 +166,18 @@ final class _PlannerAppState extends State<PlannerApp> {
     // 生成并写在 payload 中（见 `NotificationPayload`），读取端不自行拼路径，因此这里
     // 直接用；`route` 指向的任务若已被删除，详情页会明确说明而不是崩溃。
     widget.notifications?.onTapped((payload) => _router.go(payload.route));
+    // R8 ① 冷启动：应用是被点击通知拉起来的，那种情况平台的点击回调不会到达，必须显式
+    // 读一次启动详情。导航发生在门控之下（此时界面还可能是解锁页或引导页），因此这不构成
+    // 绕过应用锁的后门——锁着时先看到解锁界面，解锁后才落在通知指定的去处。
+    unawaited(_handleLaunchPayload());
+  }
+
+  Future<void> _handleLaunchPayload() async {
+    final notifications = widget.notifications;
+    if (notifications == null) return;
+    final payload = await notifications.launchPayload();
+    if (payload == null || !mounted) return;
+    _router.go(payload.route);
   }
 
   @override

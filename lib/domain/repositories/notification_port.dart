@@ -138,4 +138,14 @@ abstract interface class NotificationPort {
   /// 重复注册以最后一次为准。平台的点击回调在初始化时一次性注册，处理器却在之后才
   /// 可能被替换，因此实现必须每次调用时读取当前处理器，而不是把处理器捕获进回调。
   void onTapped(void Function(NotificationPayload payload) handler);
+
+  /// 应用**因用户点击通知而启动**时那一次点击的 payload；不是这种情况时为 null。
+  ///
+  /// 与 [onTapped] 的分工正是冷启动这条缺口：[onTapped] 只在应用**已经运行**时被平台的
+  /// 回调触发，而冷启动时该回调根本不会到达，必须显式读取启动详情。此前没有任何代码读它，
+  /// 因此"点了通知启动应用"会停在首屏而不是那条提醒的落点（R8 ①）。
+  ///
+  /// 实现应当只读取一次性的启动详情，并沿用与 [onTapped] 相同的解码规则：解不出来的
+  /// payload 一律当作 null，而不是抛错——旧版本留下的 payload 不该让应用起不来。
+  Future<NotificationPayload?> launchPayload();
 }

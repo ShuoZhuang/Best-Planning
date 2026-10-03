@@ -41,6 +41,16 @@ final class WindowsNotificationAdapter implements NotificationPort {
   }
 
   @override
+  Future<NotificationPayload?> launchPayload() async {
+    await _ensureInitialized();
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details == null || !details.didNotificationLaunchApp) return null;
+    // 与 _handleResponse 同一份解码、同一条"解不出就忽略"的规则：旧版本留下的 payload
+    // 不该让启动失败，也不该伪造一次导航。
+    return NotificationPayload.decode(details.notificationResponse?.payload);
+  }
+
+  @override
   Future<NotificationCapability> capability() async => NotificationCapability(
     canSchedule: true,
     canCancelReliably: hasPackageIdentity,

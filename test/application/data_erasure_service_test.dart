@@ -60,6 +60,10 @@ final class _Notifications implements NotificationPort {
   final cancelled = <String>{};
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {}
+
+  @override
+  Future<NotificationPayload?> launchPayload() async => null;
+
   @override
   Future<void> cancel(String id) async => cancelled.add(id);
   @override
