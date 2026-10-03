@@ -235,6 +235,11 @@ final class SettingsService {
   Future<void> setTrustAutoAdjust(bool value) =>
       repository.write(_trustAutoAdjustKey, value.toString());
 
+  /// 读取"信任自动调整"。此前只有 setter，加上 `resolveForDate` 里那次内联解析，
+  /// 启动路径上没有读取它的入口（W8）。
+  Future<bool> loadTrustAutoAdjust() async =>
+      (await repository.read(_trustAutoAdjustKey)) == 'true';
+
   /// 读取已确认/已自动采用的学习偏好。
   ///
   /// 这是学习偏好的唯一读取入口：排程通过 `resolveForDate` 消费它，偏好页面

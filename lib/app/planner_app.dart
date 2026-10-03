@@ -47,6 +47,7 @@ final class PlannerApp extends StatefulWidget {
     this.exportService,
     this.focusService,
     this.loadPreferenceEvidence,
+    this.autoAdjustStore,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -100,6 +101,12 @@ final class PlannerApp extends StatefulWidget {
 
   /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
   final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
+
+  /// "信任自动调整"的内存开关。为空时自建一个默认关闭的实例。
+  ///
+  /// 由组合根注入而不是每次自建：该值来自持久设置，此前只有打开设置页时才会被灌进来，
+  /// 因此同一个设置在不同启动里表现不同（W8）。
+  final AutoAdjustStore? autoAdjustStore;
 
   final TimeZoneDatabase? zones;
 
@@ -157,7 +164,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       settingsService: SettingsService(repository: _settingsRepository),
       scheduleSource: widget.scheduleSource ?? const EmptyScheduleViewSource(),
       moveController: const DisabledWeekMoveController(),
-      autoAdjustStore: MemoryAutoAdjustStore(),
+      autoAdjustStore: widget.autoAdjustStore ?? MemoryAutoAdjustStore(),
       todayStartUtc: todayStartUtc,
       zones: zones,
       timeZoneId: widget.timeZoneId,

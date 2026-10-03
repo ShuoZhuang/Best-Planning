@@ -35,6 +35,7 @@ import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
+import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -177,6 +178,18 @@ void main() {
     onFinished: focusEvidence.recordCompletedFocus,
   );
 
+  // "信任自动调整"是持久设置，但它驱动的只是一个内存 store；此前该 store 每次启动都是新的，
+  // 且只有打开设置页时才被灌入持久值——于是同一个设置在不同启动里表现不同（W8）。
+  // 这里在启动时就用持久值初始化它，与默认领域、应用锁同在组合根。
+  final autoAdjustStore = MemoryAutoAdjustStore();
+  unawaited(() async {
+    try {
+      autoAdjustStore.setEnabled(await settingsService.loadTrustAutoAdjust());
+    } on Object catch (error) {
+      debugPrint('读取"信任自动调整"设置失败：$error');
+    }
+  }());
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -200,6 +213,8 @@ void main() {
         loadPreferenceEvidence: () => preferenceEvidence.since(
           clock.nowUtc().subtract(const Duration(days: 180)),
         ),
+        // 启动时已按持久设置初始化（W8）。
+        autoAdjustStore: autoAdjustStore,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
