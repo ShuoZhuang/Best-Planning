@@ -34,6 +34,14 @@ void main() {
 
     expect(query.filters.last.startUtc, DateTime.utc(2026, 10, 1));
     expect(query.filters.last.endUtc, DateTime.utc(2026, 11, 1));
+    // 温和反馈（FR-STAT-08 呈现侧）要求页面**再取一次对照窗口**：紧邻其前的等长区间，
+    // 因此它以**当前窗口的起点**收尾。当前月窗口是 10-01→11-01（以 11-01 收尾），所以
+    // "以 10-01 收尾的查询"就是那一次对照。断言不依赖查询位置（本用例中间切换过范围）。
+    expect(
+      query.filters.where((f) => f.endUtc == DateTime.utc(2026, 10, 1)),
+      isNotEmpty,
+      reason: '缺少以当前窗口起点收尾的查询，说明对照窗口没有被请求，反馈区将永不出现',
+    );
   });
 }
 
