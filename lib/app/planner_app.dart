@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/app/router.dart';
@@ -30,6 +31,7 @@ final class PlannerApp extends StatefulWidget {
     this.planRepository,
     this.correctionLog,
     this.analytics,
+    this.preferences,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -53,6 +55,9 @@ final class PlannerApp extends StatefulWidget {
   /// 统计查询服务。为空时"统计"页仍然可达，但会明确说明服务未装配——统计页此前
   /// 根本没有路由，是 W3 登记的缺口之一。
   final AnalyticsQuery? analytics;
+
+  /// 学习偏好的读取与调整服务。为空时"偏好"页仍然可达，但会说明服务未装配。
+  final PreferenceService? preferences;
 
   final TimeZoneDatabase? zones;
 
@@ -106,6 +111,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       planApplication: widget.planApplication,
       plans: widget.planRepository,
       analytics: widget.analytics,
+      preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
     );

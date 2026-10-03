@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -12,6 +13,7 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_model
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
+import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
@@ -37,6 +39,7 @@ GoRouter createPlannerRouter({
   PlanApplicationService? planApplication,
   PlanRepository? plans,
   AnalyticsQuery? analytics,
+  PreferenceService? preferences,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -95,6 +98,19 @@ GoRouter createPlannerRouter({
           },
         ),
         GoRoute(
+          path: '/preferences',
+          builder: (context, state) {
+            final service = preferences;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '偏好设置',
+                message: '偏好服务未装配，暂无法查看或调整学习到的偏好。',
+              );
+            }
+            return PreferencesPage(service: service);
+          },
+        ),
+        GoRoute(
           path: '/planning/preview/:proposalId',
           builder: (context, state) => _PlanPreviewLoader(
             proposalId: state.pathParameters['proposalId']!,
@@ -135,7 +151,8 @@ final class _PlannerShell extends StatelessWidget {
     '/tasks' => 1,
     '/calendar' => 2,
     '/analytics' => 3,
-    '/settings' => 4,
+    '/preferences' => 4,
+    '/settings' => 5,
     _ => 0,
   };
 
@@ -165,7 +182,8 @@ final class _PlannerShell extends StatelessWidget {
                 1 => '/tasks',
                 2 => '/calendar',
                 3 => '/analytics',
-                4 => '/settings',
+                4 => '/preferences',
+                5 => '/settings',
                 _ => '/today',
               });
             },
@@ -189,6 +207,11 @@ final class _PlannerShell extends StatelessWidget {
                 icon: Icon(Icons.insights_outlined),
                 selectedIcon: Icon(Icons.insights),
                 label: Text('统计'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.psychology_outlined),
+                selectedIcon: Icon(Icons.psychology),
+                label: Text('偏好'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.tune_outlined),

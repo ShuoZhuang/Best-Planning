@@ -4,6 +4,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -18,6 +19,7 @@ import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
@@ -71,6 +73,10 @@ void main() {
         planRepository: planRepository,
         correctionLog: DriftTaskCorrectionLog(database),
         analytics: AnalyticsService(source: AnalyticsDao(database)),
+        preferences: PreferenceService(
+          analyzer: const RuleBasedPreferenceAnalyzer(),
+          store: SettingsPreferenceStore(settingsRepository),
+        ),
         zones: zones,
         timeZoneId: timeZoneId,
         planningService: PlanningService(
