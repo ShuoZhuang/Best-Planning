@@ -136,6 +136,17 @@ final class TaskService {
       updatedAtUtc: now,
     );
     await _repository.save(task);
+    // FR-REPLAN-01 的"新增事项后"：新建任务会改变可排任务集合，因此是一条重排原因。
+    //
+    // **此前这个类别在生产里没有发出者**（§13.0 的 W9 行登记过）：`DomainChangeKind.taskCreated`
+    // 在枚举里躺着，但没有任何代码发出它，于是"新建任务即自动重算计划"不成立——只有改截止日期／
+    // 优先级／剩余时长／状态这四类会触发。`quickAdd` 也走这个方法，因此两个录入入口都覆盖到了。
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '新建任务',
+        kind: DomainChangeKind.taskCreated,
+      ),
+    );
     return TaskSaveResult.success(task);
   }
 

@@ -140,6 +140,40 @@ void main() {
     expect(reasons, isEmpty);
   });
 
+  group('新建任务（此前这个类别没有发出者）', () {
+    // `DomainChangeKind.taskCreated` 曾在枚举里躺着而**没有任何代码发出它**，于是"新建任务
+    // 即自动重算计划"不成立——只有改截止日期／优先级／剩余时长／状态这四类会触发。这三条把
+    // 两个录入入口都钉住，否则它会悄悄退回去。
+    test('快速录入记一条"新建任务"，类别是 taskCreated', () async {
+      await build().quickAdd('写方案', 60);
+
+      expect(reasons, <String>['新建任务']);
+      expect(changes.single.kind, DomainChangeKind.taskCreated);
+    });
+
+    test('完整草稿保存同样记一条"新建任务"', () async {
+      final result = await build().saveDraft(
+        const TaskDraft(title: '写方案', estimatedMinutes: 60),
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(changes.single.kind, DomainChangeKind.taskCreated);
+    });
+
+    test('校验不通过的草稿不记原因，也不落库', () async {
+      final service = build();
+
+      final result = await service.saveDraft(
+        const TaskDraft(title: '  ', estimatedMinutes: 60),
+      );
+
+      expect(result.isSuccess, isFalse);
+      expect(reasons, isEmpty);
+      // 与"失败的修改不记原因"同一口径：没写进去就没有重排。
+      expect(tasks.tasks, hasLength(1));
+    });
+  });
+
   test('未装配回调时照常改任务，只是不留原因', () async {
     final service = build(withCallback: false);
 

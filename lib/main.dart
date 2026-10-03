@@ -259,7 +259,25 @@ Future<void> main() async {
     clock: clock,
     monotonicClock: StopwatchMonotonicClock(),
     idGenerator: UuidIdGenerator(),
-    onFinished: focusEvidence.recordCompletedFocus,
+    onFinished: (session) async {
+      await focusEvidence.recordCompletedFocus(session);
+      // FR-REPLAN-01 的"实际投入变了"：专注结束时任务的剩余时长会随专注记录重算（见
+      // `FocusService`／FR-TASK-05 的口径），因此排程输入变了，应当重算计划。
+      //
+      // **此前 `DomainChangeKind.focusActualChanged` 在生产里同样没有发出者**：枚举里有它，
+      // 但没有任何代码发出它。这里的标签写"专注结束"，因为统计页的"重排原因"会把它直接显示给
+      // 用户。
+      //
+      // **这条接线在组合根里，按本仓库的既有口径没有自动化测试覆盖**（组合根历来如此）——两端的
+      // 契约各有测试：`FocusService.onFinished` 会被调用、`onScheduleInputChange` 会把变化交给
+      // 统计与协调器；未被覆盖的只是把它们接起来的这一行。
+      onScheduleInputChange(
+        const ScheduleInputChange(
+          label: '专注结束',
+          kind: DomainChangeKind.focusActualChanged,
+        ),
+      );
+    },
     // FR-STAT-06 的"常见中断"来源：**暂停即记一次**。标签写成人类可读的话，因为统计页直接
     // 把它显示给用户（而不是显示一个内部代码）。**按原因分类**：用户在暂停时选的原因直接
     // 作为 code（"他人打断"这样的词）；没有选（跳过）时回落到原先那一个中性标签，因此
