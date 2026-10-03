@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/feedback_service.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/feedback_message.dart';
 import 'package:personal_planner/features/analytics/feedback_cards.dart';
@@ -38,6 +39,14 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   bool _loading = true;
   Set<String> _availableTags = const {};
 
+  /// 由**本页自己算出来**的温和反馈（FR-STAT-08 的呈现侧）。
+  ///
+  /// 此前 `FeedbackService.generate` 已完整实现（且有单测）却**全库无人调用**，本页虽然接收
+  /// `feedbackMessages` 并在有内容时渲染（渲染也有测试），但**没有任何生产者**，因此那一块
+  /// **永远不显示**（见 §13.0 的 W10）。这里让页面用**已有的** `analytics` 查询自行取
+  /// "紧邻其前的等长窗口"作对照，生产者因此不必穿透组合根四层。
+  List<FeedbackMessage> _feedback = const [];
+
   @override
   void initState() {
     super.initState();
@@ -65,15 +74,37 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       _error = null;
     });
     try {
+      // **顺序是刻意的**：先取对照窗口、再取当前窗口。既有的 widget 测试以"最后一次查询即
+      // 用户所选窗口"来断言筛选器（`filters.last`），把当前窗口放在最后可以不动那些断言。
+      // 那里的位置耦合是既有事实，本处不新增耦合，但也不假装它不存在。
+      final length = _filter.endUtc.difference(_filter.startUtc);
+      final previous = await widget.analytics.query(
+        AnalyticsFilter(
+          startUtc: _filter.startUtc.subtract(length),
+          endUtc: _filter.startUtc,
+          areaIds: _filter.areaIds,
+          projectIds: _filter.projectIds,
+          tags: _filter.tags,
+          statuses: _filter.statuses,
+        ),
+      );
       final report = await widget.analytics.query(_filter);
       if (!mounted) return;
-      setState(() => _report = report);
+      setState(() {
+        _report = report;
+        _feedback = const FeedbackService().generate(report, previous);
+      });
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// 外部注入的 `feedbackMessages` 优先（测试与显式装配用），否则用本页按对照窗口算出的结果。
+  List<FeedbackMessage> get _messages => widget.feedbackMessages.isNotEmpty
+      ? widget.feedbackMessages
+      : _feedback;
 
   void _selectToday() {
     final now = widget.nowUtc;
@@ -211,10 +242,10 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                 if (_report case final report?) ...[
                   const SizedBox(height: 22),
                   _Overview(report: report),
-                  if (widget.feedbackMessages.isNotEmpty) ...[
+                  if (_messages.isNotEmpty) ...[
                     const SizedBox(height: 20),
                     FeedbackCards(
-                      messages: widget.feedbackMessages,
+                      messages: _messages,
                       filter: report.filter,
                     ),
                   ],
