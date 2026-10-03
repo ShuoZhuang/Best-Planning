@@ -29,6 +29,7 @@ final class FocusEvidenceRecorder {
     required this.timeZoneId,
     required this.clock,
     required this.idGenerator,
+    this.isSpecialDay,
   });
 
   final PreferenceEvidenceRepository evidence;
@@ -39,6 +40,23 @@ final class FocusEvidenceRecorder {
   final Clock clock;
   final IdGenerator idGenerator;
 
+  /// 某个**本地日**是否为"特殊日"（FR-PREF-07）。为空时一律按普通日记录。
+  ///
+  /// **此前这里是硬编码的 `specialDay: false`**，而分析器 `preference_analyzer.dart` 里确有
+  /// "排除特殊日证据"的逻辑（`evidence.where((item) => !item.specialDay)`）——于是那条逻辑
+  /// **永远筛不掉任何东西**：结构就绪、数据恒为常量、运行期不生效。这与"标签从未被读出"是
+  /// 同一类失效，因此这里改成注入一个信号，而不是继续猜一个值。
+  ///
+  /// **口径**（与 spec §8.9 已写下的那条一致）：**当天存在按日例外**
+  /// （`planning.dateOverride.<日期>`，即用户在"临时放宽每日上限"里显式放宽过的那一天）即视为
+  /// 特殊日。用回调而不是直接依赖 `SettingsService`：记录器不该知道设置存在哪里，装配由组合根
+  /// 负责——与 `FocusService` 的 `onFinished`／`onInterrupted` 同一分工。
+  ///
+  /// **已知局限，如实记下而不假装覆盖**：其它类型的特殊日——例如通过"特殊日"页声明的晚归／
+  /// 加班——目前**没有以"某一天的事实"的形式被持久化**（恢复保护是**提案输入**而不是持久例外，
+  /// 见 §13.0 的 C8）。要让那类特殊日也进入排除，得先让它们落地成按日事实。
+  final Future<bool> Function(DateTime localDate)? isSpecialDay;
+
   /// 记录一次已结束的专注；返回是否真的写入了（任务无归属领域时为 false）。
   Future<bool> recordCompletedFocus(FocusSession session) async {
     final subjectKey = await _subjectKeyFor(session.taskId);
@@ -46,6 +64,15 @@ final class FocusEvidenceRecorder {
 
     final localStart = zones.toLocal(session.startedAtUtc, timeZoneId);
     final minutes = session.activeDuration.inMinutes;
+    // 按**会话开始的那个本地日**判定：跨午夜的专注算在开始那天，与元数据里的
+    // `timeBucket`／`startedAtLocalHour` 取自同一时刻，不会出现"时段算今天、特殊日算明天"。
+    final localDate = DateTime(
+      localStart.year,
+      localStart.month,
+      localStart.day,
+    );
+    final specialDay = await isSpecialDay?.call(localDate) ?? false;
+
     await evidence.save(
       PreferenceEvidence(
         id: idGenerator.next(),
@@ -53,9 +80,8 @@ final class FocusEvidenceRecorder {
         subjectKey: subjectKey,
         observedAtUtc: clock.nowUtc(),
         numericValue: minutes.toDouble(),
-        // FR-PREF-07 要求特殊日降低权重或排除。专注流程目前不知道当天是否是特殊日，
-        // 因此一律按普通日记录；这一点登记为缺口而不是猜一个值。
-        specialDay: false,
+        // FR-PREF-07 要求特殊日降低权重或排除。
+        specialDay: specialDay,
         metadata: {
           'timeBucket': _bucketOf(localStart.hour),
           'minutes': minutes,

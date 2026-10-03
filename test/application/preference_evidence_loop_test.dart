@@ -201,6 +201,80 @@ void main() {
     expect(await repository.since(DateTime.utc(2026, 1, 1)), isEmpty);
   });
 
+  group('FR-PREF-07 特殊日排除', () {
+    // 此前记录器**硬编码 `specialDay: false`**，而分析器里
+    // `evidence.where((item) => !item.specialDay)` 那条排除逻辑一直都在——于是它永远筛不掉
+    // 任何东西。下面三条把这个信号钉住，否则"结构就绪、数据恒为常量"会再次发生。
+    test('回调说这天是特殊日时，证据被标为特殊日', () async {
+      final recorder = FocusEvidenceRecorder(
+        evidence: repository,
+        tasks: _Tasks({'task-1': _task(projectId: 'project-1')}),
+        workspace: _Workspace(projects: [_project()]),
+        zones: TimeZoneDatabase(),
+        timeZoneId: 'UTC',
+        clock: clock,
+        idGenerator: _Ids(),
+        isSpecialDay: (date) async => date == DateTime(2026, 9, 5),
+      );
+
+      await recorder.recordCompletedFocus(
+        _session(
+          id: 's-1',
+          startedAtUtc: DateTime.utc(2026, 9, 5, 9),
+          minutes: 50,
+        ),
+      );
+
+      final all = await repository.since(DateTime.utc(2026, 1, 1));
+      expect(all.single.specialDay, isTrue);
+    });
+
+    test('判定用的是**会话开始的那个本地日**，不是"今天"', () async {
+      // 时钟停在 9-06，而会话开始于 9-05：若实现里用了 `clock.nowUtc()` 的日期，
+      // 这条就会失败。
+      clock.value = DateTime.utc(2026, 9, 6, 10);
+      final seen = <DateTime>[];
+      final recorder = FocusEvidenceRecorder(
+        evidence: repository,
+        tasks: _Tasks({'task-1': _task(projectId: 'project-1')}),
+        workspace: _Workspace(projects: [_project()]),
+        zones: TimeZoneDatabase(),
+        timeZoneId: 'UTC',
+        clock: clock,
+        idGenerator: _Ids(),
+        isSpecialDay: (date) async {
+          seen.add(date);
+          return false;
+        },
+      );
+
+      await recorder.recordCompletedFocus(
+        _session(
+          id: 's-1',
+          startedAtUtc: DateTime.utc(2026, 9, 5, 9),
+          minutes: 50,
+        ),
+      );
+
+      expect(seen, <DateTime>[DateTime(2026, 9, 5)]);
+    });
+
+    test('没有装配回调时按普通日记录（既有行为不变）', () async {
+      final recorder = recorderFor(_Workspace(projects: [_project()]));
+
+      await recorder.recordCompletedFocus(
+        _session(
+          id: 's-1',
+          startedAtUtc: DateTime.utc(2026, 9, 5, 9),
+          minutes: 50,
+        ),
+      );
+
+      final all = await repository.since(DateTime.utc(2026, 1, 1));
+      expect(all.single.specialDay, isFalse);
+    });
+  });
+
   test('走完整条链后分析器真的产出建议', () async {
     final recorder = recorderFor(_Workspace(projects: [_project()]));
 

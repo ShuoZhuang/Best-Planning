@@ -247,6 +247,12 @@ Future<void> main() async {
     timeZoneId: timeZoneId,
     clock: clock,
     idGenerator: UuidIdGenerator(),
+    // FR-PREF-07 的"特殊日排除"。此前记录器**硬编码 `specialDay: false`**，而分析器里
+    // 那条排除逻辑一直都在——于是它永远筛不掉任何东西（结构就绪、数据恒为常量）。
+    // 这里的口径与 spec §8.9 写下的一致：**当天存在按日例外即视为特殊日**，而按日例外的
+    // 唯一写入方就是"临时放宽每日上限"那条入口（`SettingsService.saveDateOverride`）。
+    isSpecialDay: (localDate) async =>
+        (await settingsService.loadDateOverride(localDate)) != null,
   );
   final focusService = FocusService(
     store: DriftFocusEntryStore(database),
