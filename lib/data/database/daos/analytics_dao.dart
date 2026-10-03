@@ -20,6 +20,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
     final events = await _events(filter);
     return AnalyticsDataset(
       weeklyLifeQuotaMinutes: await _weeklyLifeQuota(),
+      energyWindows: await _energyWindows(),
       tasks: tasks,
       plannedBlocks: planned,
       actualEntries: actual,
@@ -215,6 +216,56 @@ final class AnalyticsDao implements AnalyticsDataSource {
       );
     }
     return result;
+  }
+
+  /// 读取用户的精力区间（**本地时刻**），供统计侧把实际投入分桶（FR-STAT-05）。
+  ///
+  /// 与 `_weeklyLifeQuota` 走同一个设置键与同一条 `common` 路径。**缺设置或格式异常时返回
+  /// 空列表**：统计侧据此**不显示**该节，而不是显示一个空壳区间——"没有数据"与"有区间但
+  /// 没人投入"是两回事，不该长得一样。
+  Future<List<AnalyticsEnergyWindow>> _energyWindows() async {
+    final query = database.select(database.settings)
+      ..where((row) => row.key.equals('planning.userRules.v1'))
+      ..limit(1);
+    final setting = await query.getSingleOrNull();
+    if (setting == null) return const [];
+    try {
+      final json = jsonDecode(setting.jsonValue) as Map<String, Object?>;
+      final common = json['common'] as Map<String, Object?>?;
+      final raw = common?['energyWindows'] as List<Object?>?;
+      if (raw == null) return const [];
+      return [
+        for (final item in raw)
+          if (item is Map<String, Object?>)
+            AnalyticsEnergyWindow(
+              // 标签在这里定，统计模型因此不必依赖排程的 `EnergyLevel`。
+              label: switch (item['level']) {
+                'high' => '高精力',
+                'medium' => '中精力',
+                'low' => '低精力',
+                _ => '未标记精力',
+              },
+              startMinute: _minuteOf(item['range'], 'startMinute'),
+              endMinute: _minuteOf(item['range'], 'endMinute'),
+              isWeekend: switch (item['dayKind']) {
+                'weekend' => true,
+                'weekday' => false,
+                _ => null,
+              },
+            ),
+      ];
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  /// 取本地区间的分钟数；缺字段或类型不对时按 0 处理（宁可这一段不参与分桶，也不抛给界面）。
+  int _minuteOf(Object? range, String key) {
+    if (range is Map<String, Object?>) {
+      final value = range[key];
+      if (value is int) return value.clamp(0, 24 * 60);
+    }
+    return 0;
   }
 
   Future<int> _weeklyLifeQuota() async {

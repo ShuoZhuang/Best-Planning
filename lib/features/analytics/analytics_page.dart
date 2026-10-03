@@ -715,8 +715,18 @@ final class _EvidenceLists extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('中断与调整', style: Theme.of(context).textTheme.titleLarge),
+          Text('精力、中断与调整', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 10),
+          // FR-STAT-05 的"不同精力时段的完成效果"。区间为空（未设置时区，或用户还没设过
+          // 精力区间）时整节不显示——一个空壳比没有更让人困惑。
+          if (report.energyPeriods.isNotEmpty) ...[
+            for (final period in report.energyPeriods)
+              Text(
+                '${period.label}：投入 ${period.actualMinutes} 分钟，'
+                '完成 ${period.completedTasks} 项',
+              ),
+            const SizedBox(height: 10),
+          ],
           Text(_rankedText('常见中断', report.commonInterruptions)),
           const SizedBox(height: 6),
           Text(_rankedText('重排原因', report.replanReasons)),

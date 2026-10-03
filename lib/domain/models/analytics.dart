@@ -115,6 +115,45 @@ final class SuggestionBehaviorMetric {
   );
 }
 
+/// 一个精力区间，用**本地时刻**的分钟数表示（0–1439）。
+///
+/// 与排程侧的 `EnergyWindow` 分开定义，而且这里只带**标签字符串**而不是 `EnergyLevel`：
+/// 统计模型因此不必依赖排程规则模型，两个模块各自演进时不会互相牵动。
+final class AnalyticsEnergyWindow {
+  const AnalyticsEnergyWindow({
+    required this.label,
+    required this.startMinute,
+    required this.endMinute,
+    required this.isWeekend,
+  });
+
+  final String label;
+  final int startMinute;
+  final int endMinute;
+
+  /// `true` 只适用于周末、`false` 只适用于工作日、**`null` 表示每天都适用**。
+  ///
+  /// 用三态而不是布尔：用户的默认区间是"不分工作日与周末"（`DayKind.any`），把它当成
+  /// "只适用工作日"会让周末的投入全部落进"未标记"，看起来像数据丢了。
+  final bool? isWeekend;
+}
+
+/// 某个精力时段里的**完成效果**（FR-STAT-05）。
+///
+/// 两个数字都按**本地时刻**归桶：实际投入按每段专注的开始时刻所在区间计入，完成数按任务
+/// 完成时刻所在区间计入——因此"高精力时段"说的是用户自己的生活时间，与库里存的 UTC 无关。
+final class EnergyPeriodMetric {
+  const EnergyPeriodMetric({
+    required this.label,
+    required this.actualMinutes,
+    required this.completedTasks,
+  });
+
+  final String label;
+  final int actualMinutes;
+  final int completedTasks;
+}
+
 final class AnalyticsReport {
   AnalyticsReport({
     required this.filter,
@@ -129,11 +168,15 @@ final class AnalyticsReport {
     required List<DailyTimeMetric> trend,
     required List<RankedMetric> commonInterruptions,
     required List<RankedMetric> replanReasons,
+    // 带默认值：**"没有精力区间这一节"是合法状态**（未设置时区或用户还没设过区间），
+    // 因此不强制每个构造点都写出一个空列表。
+    List<EnergyPeriodMetric> energyPeriods = const [],
     required this.suggestionBehavior,
   }) : domainDistribution = UnmodifiableListView(domainDistribution),
        trend = UnmodifiableListView(trend),
        commonInterruptions = UnmodifiableListView(commonInterruptions),
-       replanReasons = UnmodifiableListView(replanReasons);
+       replanReasons = UnmodifiableListView(replanReasons),
+       energyPeriods = UnmodifiableListView(energyPeriods);
 
   final AnalyticsFilter filter;
   final int plannedMinutes;
@@ -147,6 +190,7 @@ final class AnalyticsReport {
   final List<DailyTimeMetric> trend;
   final List<RankedMetric> commonInterruptions;
   final List<RankedMetric> replanReasons;
+  final List<EnergyPeriodMetric> energyPeriods;
   final SuggestionBehaviorMetric suggestionBehavior;
 }
 
@@ -221,16 +265,21 @@ final class AnalyticsEventFact {
 final class AnalyticsDataset {
   AnalyticsDataset({
     required this.weeklyLifeQuotaMinutes,
+    List<AnalyticsEnergyWindow> energyWindows = const [],
     List<AnalyticsTaskFact> tasks = const [],
     List<AnalyticsPlannedFact> plannedBlocks = const [],
     List<AnalyticsActualFact> actualEntries = const [],
     List<AnalyticsEventFact> events = const [],
-  }) : tasks = UnmodifiableListView(tasks),
+  }) : energyWindows = UnmodifiableListView(energyWindows),
+       tasks = UnmodifiableListView(tasks),
        plannedBlocks = UnmodifiableListView(plannedBlocks),
        actualEntries = UnmodifiableListView(actualEntries),
        events = UnmodifiableListView(events);
 
   final int weeklyLifeQuotaMinutes;
+
+  /// 用户的精力区间（本地时刻）。为空时统计侧**不显示**该节，而不是显示一个空壳。
+  final List<AnalyticsEnergyWindow> energyWindows;
   final List<AnalyticsTaskFact> tasks;
   final List<AnalyticsPlannedFact> plannedBlocks;
   final List<AnalyticsActualFact> actualEntries;

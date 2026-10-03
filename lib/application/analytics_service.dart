@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/task.dart';
 
@@ -12,9 +13,20 @@ abstract interface class AnalyticsQuery {
 }
 
 final class AnalyticsService implements AnalyticsQuery {
-  const AnalyticsService({required this.source});
+  const AnalyticsService({
+    required this.source,
+    this.zones,
+    this.timeZoneId,
+  });
 
   final AnalyticsDataSource source;
+
+  /// 精力分桶要按**本地时刻**（精力区间是本地时间），因此需要时区。
+  ///
+  /// 未装配时**不显示该节**，而不是按 UTC 归桶——那会把"高精力时段"算成用户从未设置过的
+  /// 时刻，看起来像数据，实际是错的。
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
 
   @override
   Future<AnalyticsReport> query(AnalyticsFilter filter) async {
@@ -159,6 +171,16 @@ final class AnalyticsService implements AnalyticsQuery {
       trend: trend,
       commonInterruptions: _ranked(events, AnalyticsEventKind.interruption),
       replanReasons: _ranked(events, AnalyticsEventKind.replan),
+      // FR-STAT-05 的"不同精力时段的完成效果"。窗口来自数据集（用户设置），归桶在这里做：
+      // 只有服务层同时握有"按筛选条件选出的任务"与"每条实际投入的分钟数"。
+      energyPeriods: _energyPeriods(
+        windows: dataset.energyWindows,
+        actualByEntry: actualByEntry,
+        tasks: tasks,
+        filter: filter,
+        zones: zones,
+        timeZoneId: timeZoneId,
+      ),
       suggestionBehavior: SuggestionBehaviorMetric(
         accepted: suggestionCodes.where((code) => code == 'accepted').length,
         modified: suggestionCodes.where((code) => code == 'modified').length,
@@ -370,4 +392,71 @@ final class _MutableDomain {
 final class _MutableDay {
   int planned = 0;
   int actual = 0;
+}
+
+/// 把实际投入与完成数按**本地时刻**归入用户的精力区间（FR-STAT-05）。
+///
+/// 三条口径，写下来是因为它们决定了页面上的数字：
+/// ① **一段专注算在它开始的那个区间**——按开始时刻归属，而不是把一段跨区间的专注切成两半，
+///    否则两个区间各拿一部分、两边都不代表用户实际做了什么；
+/// ② **完成数按任务的完成时刻**归属，而不是按任务的计划时刻——"完成效果"问的是结果发生在
+///    哪个精力时段；
+/// ③ **区间之外（含未标记时段）的投入不计入任何一行**，因为没有一行能诚实地代表它。
+List<EnergyPeriodMetric> _energyPeriods({
+  required List<AnalyticsEnergyWindow> windows,
+  required Map<AnalyticsActualFact, int> actualByEntry,
+  required List<AnalyticsTaskFact> tasks,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return const [];
+
+  String? labelOf(DateTime instantUtc) {
+    final local = zones.toLocal(instantUtc, timeZoneId);
+    final minuteOfDay = local.hour * 60 + local.minute;
+    final isWeekend = local.weekday >= DateTime.saturday;
+    for (final window in windows) {
+      if (window.isWeekend != null && window.isWeekend != isWeekend) continue;
+      if (minuteOfDay >= window.startMinute && minuteOfDay < window.endMinute) {
+        return window.label;
+      }
+    }
+    return null;
+  }
+
+  final minutes = <String, int>{};
+  for (final entry in actualByEntry.entries) {
+    final label = labelOf(entry.key.startUtc);
+    if (label == null) continue;
+    minutes.update(
+      label,
+      (value) => value + entry.value,
+      ifAbsent: () => entry.value,
+    );
+  }
+
+  final completed = <String, int>{};
+  for (final task in tasks) {
+    final completedAt = task.completedAtUtc;
+    if (completedAt == null || !_inside(completedAt, filter)) continue;
+    final label = labelOf(completedAt);
+    if (label == null) continue;
+    completed.update(label, (value) => value + 1, ifAbsent: () => 1);
+  }
+
+  final labels = <String>{for (final window in windows) window.label};
+  final result = [
+    for (final label in labels)
+      EnergyPeriodMetric(
+        label: label,
+        actualMinutes: minutes[label] ?? 0,
+        completedTasks: completed[label] ?? 0,
+      ),
+  ];
+  result.sort((a, b) {
+    final byMinutes = b.actualMinutes.compareTo(a.actualMinutes);
+    return byMinutes != 0 ? byMinutes : a.label.compareTo(b.label);
+  });
+  return result;
 }

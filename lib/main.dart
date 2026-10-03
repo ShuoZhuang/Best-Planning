@@ -262,7 +262,13 @@ void main() {
         ),
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
-        analytics: AnalyticsService(source: AnalyticsDao(database)),
+        analytics: AnalyticsService(
+          source: AnalyticsDao(database),
+          // FR-STAT-05 的精力分桶按**本地时刻**归桶，因此这里必须把时区交进去；
+          // 不交则该节不显示（而不是按 UTC 算出一组错误的时段）。
+          zones: zones,
+          timeZoneId: timeZoneId,
+        ),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),
