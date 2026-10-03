@@ -79,22 +79,26 @@ final class PreferenceSuggestion {
   final String explanationCode;
   final PreferenceSuggestionStatus status;
 
-  PreferenceSuggestion copyWith({PreferenceSuggestionStatus? status}) =>
-      PreferenceSuggestion(
-        id: id,
-        kind: kind,
-        subjectKey: subjectKey,
-        evidenceCount: evidenceCount,
-        activeDayCount: activeDayCount,
-        observedFromUtc: observedFromUtc,
-        observedToUtc: observedToUtc,
-        effectDifference: effectDifference,
-        suggestedStartMinute: suggestedStartMinute,
-        suggestedEndMinute: suggestedEndMinute,
-        suggestedFocusMinutes: suggestedFocusMinutes,
-        explanationCode: explanationCode,
-        status: status ?? this.status,
-      );
+  PreferenceSuggestion copyWith({
+    PreferenceSuggestionStatus? status,
+    int? suggestedStartMinute,
+    int? suggestedEndMinute,
+    int? suggestedFocusMinutes,
+  }) => PreferenceSuggestion(
+    id: id,
+    kind: kind,
+    subjectKey: subjectKey,
+    evidenceCount: evidenceCount,
+    activeDayCount: activeDayCount,
+    observedFromUtc: observedFromUtc,
+    observedToUtc: observedToUtc,
+    effectDifference: effectDifference,
+    suggestedStartMinute: suggestedStartMinute ?? this.suggestedStartMinute,
+    suggestedEndMinute: suggestedEndMinute ?? this.suggestedEndMinute,
+    suggestedFocusMinutes: suggestedFocusMinutes ?? this.suggestedFocusMinutes,
+    explanationCode: explanationCode,
+    status: status ?? this.status,
+  );
 }
 
 abstract interface class PreferenceAnalyzer {

@@ -60,6 +60,114 @@ final class _PreferencesPageState extends State<PreferencesPage> {
     await _reload();
   }
 
+  Future<void> _edit(PreferenceSuggestion suggestion) async {
+    var start = suggestion.suggestedStartMinute == null
+        ? ''
+        : _minute(suggestion.suggestedStartMinute!);
+    var end = suggestion.suggestedEndMinute == null
+        ? ''
+        : _minute(suggestion.suggestedEndMinute!);
+    var focus = suggestion.suggestedFocusMinutes?.toString() ?? '';
+    final result = await showDialog<_PreferenceEdit>(
+      context: context,
+      builder: (dialogContext) {
+        String? error;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('修改学习建议'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (suggestion.kind ==
+                    PreferenceSuggestionKind.preferredTimeWindow) ...[
+                  TextFormField(
+                    key: const Key('preference-edit-start'),
+                    initialValue: start,
+                    onChanged: (value) => start = value,
+                    decoration: const InputDecoration(
+                      labelText: '开始时间',
+                      hintText: 'HH:mm',
+                    ),
+                  ),
+                  TextFormField(
+                    key: const Key('preference-edit-end'),
+                    initialValue: end,
+                    onChanged: (value) => end = value,
+                    decoration: const InputDecoration(
+                      labelText: '结束时间',
+                      hintText: 'HH:mm',
+                    ),
+                  ),
+                ] else
+                  TextFormField(
+                    key: const Key('preference-edit-focus'),
+                    initialValue: focus,
+                    onChanged: (value) => focus = value,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: '专注分钟数'),
+                  ),
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (suggestion.kind ==
+                      PreferenceSuggestionKind.preferredTimeWindow) {
+                    final startMinute = _parseMinute(start);
+                    final endMinute = _parseMinute(end);
+                    if (startMinute == null ||
+                        endMinute == null ||
+                        startMinute == endMinute) {
+                      setDialogState(() => error = '请填写有效且不相同的 HH:mm 时间');
+                      return;
+                    }
+                    Navigator.pop(
+                      dialogContext,
+                      _PreferenceEdit(start: startMinute, end: endMinute),
+                    );
+                    return;
+                  }
+                  final focusMinutes = int.tryParse(focus.trim());
+                  if (focusMinutes == null || focusMinutes <= 0) {
+                    setDialogState(() => error = '专注分钟数必须大于 0');
+                    return;
+                  }
+                  Navigator.pop(
+                    dialogContext,
+                    _PreferenceEdit(focus: focusMinutes),
+                  );
+                },
+                child: const Text('保存修改'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (result == null) return;
+    await _act(
+      () => widget.service.modify(
+        suggestion.id,
+        suggestedStartMinute: result.start,
+        suggestedEndMinute: result.end,
+        suggestedFocusMinutes: result.focus,
+      ),
+    );
+  }
+
   /// 先记事件再执行动作。
   ///
   /// 事件记录的是"用户做了什么"，因此即使随后的服务调用失败，这次意图也该留下——否则统计
@@ -100,21 +208,28 @@ final class _PreferencesPageState extends State<PreferencesPage> {
             for (final suggestion in _suggestions)
               _SuggestionCard(
                 suggestion: suggestion,
-                onConfirm: () => _act(() => _recorded(
-                  'accepted',
-                  suggestion.id,
-                  () => widget.service.confirm(suggestion.id),
-                )),
-                onReject: () => _act(() => _recorded(
-                  'rejected',
-                  suggestion.id,
-                  () => widget.service.reject(suggestion.id),
-                )),
-                onDisable: () => _act(() => _recorded(
-                  'disabled',
-                  suggestion.id,
-                  () => widget.service.disable(suggestion.id),
-                )),
+                onEdit: () => _edit(suggestion),
+                onConfirm: () => _act(
+                  () => _recorded(
+                    'accepted',
+                    suggestion.id,
+                    () => widget.service.confirm(suggestion.id),
+                  ),
+                ),
+                onReject: () => _act(
+                  () => _recorded(
+                    'rejected',
+                    suggestion.id,
+                    () => widget.service.reject(suggestion.id),
+                  ),
+                ),
+                onDisable: () => _act(
+                  () => _recorded(
+                    'disabled',
+                    suggestion.id,
+                    () => widget.service.disable(suggestion.id),
+                  ),
+                ),
               ),
             const SizedBox(height: 12),
             Wrap(
@@ -146,12 +261,14 @@ final class _PreferencesPageState extends State<PreferencesPage> {
 final class _SuggestionCard extends StatelessWidget {
   const _SuggestionCard({
     required this.suggestion,
+    required this.onEdit,
     required this.onConfirm,
     required this.onReject,
     required this.onDisable,
   });
 
   final PreferenceSuggestion suggestion;
+  final VoidCallback onEdit;
   final VoidCallback onConfirm;
   final VoidCallback onReject;
   final VoidCallback onDisable;
@@ -186,6 +303,7 @@ final class _SuggestionCard extends StatelessWidget {
             Wrap(
               spacing: 10,
               children: [
+                OutlinedButton(onPressed: onEdit, child: const Text('修改')),
                 FilledButton(
                   onPressed:
                       suggestion.status == PreferenceSuggestionStatus.confirmed
@@ -223,3 +341,20 @@ String _status(PreferenceSuggestionStatus status) => switch (status) {
 String _minute(int value) =>
     '${(value ~/ 60).toString().padLeft(2, '0')}:'
     '${(value % 60).toString().padLeft(2, '0')}';
+
+int? _parseMinute(String input) {
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(input.trim());
+  if (match == null) return null;
+  final hour = int.parse(match.group(1)!);
+  final minute = int.parse(match.group(2)!);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+final class _PreferenceEdit {
+  const _PreferenceEdit({this.start, this.end, this.focus});
+
+  final int? start;
+  final int? end;
+  final int? focus;
+}

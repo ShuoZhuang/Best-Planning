@@ -123,10 +123,7 @@ final class SettingsPreferenceStore implements PreferenceStore {
     await _settings.saveLearnedPreferences(
       const PreferenceProfile(enabled: false),
     );
-    await _save({
-      'suggestions': <Object?>[],
-      'autoHistory': <Object?>[],
-    });
+    await _save({'suggestions': <Object?>[], 'autoHistory': <Object?>[]});
   }
 
   @override
@@ -200,6 +197,44 @@ final class PreferenceService {
 
   Future<void> reject(String id) =>
       _change(id, PreferenceSuggestionStatus.rejected);
+
+  /// Updates the proposed value without applying it.
+  ///
+  /// An edited suggestion returns to `suggested`: the user still makes a
+  /// separate, explicit confirmation before it can affect scheduling.
+  Future<void> modify(
+    String id, {
+    int? suggestedStartMinute,
+    int? suggestedEndMinute,
+    int? suggestedFocusMinutes,
+  }) async {
+    final suggestion = (await list()).singleWhere((item) => item.id == id);
+    if (suggestion.kind == PreferenceSuggestionKind.preferredTimeWindow) {
+      if (suggestedStartMinute == null ||
+          suggestedEndMinute == null ||
+          suggestedStartMinute < 0 ||
+          suggestedEndMinute < 0 ||
+          suggestedStartMinute >= LocalTimeRange.minutesPerDay ||
+          suggestedEndMinute > LocalTimeRange.minutesPerDay ||
+          suggestedStartMinute == suggestedEndMinute) {
+        throw ArgumentError('期望时段需要有效且不相同的开始与结束时间');
+      }
+    } else if (suggestedFocusMinutes == null || suggestedFocusMinutes <= 0) {
+      throw ArgumentError.value(
+        suggestedFocusMinutes,
+        'suggestedFocusMinutes',
+        '必须大于 0',
+      );
+    }
+    await store.saveSuggestion(
+      suggestion.copyWith(
+        suggestedStartMinute: suggestedStartMinute,
+        suggestedEndMinute: suggestedEndMinute,
+        suggestedFocusMinutes: suggestedFocusMinutes,
+        status: PreferenceSuggestionStatus.suggested,
+      ),
+    );
+  }
 
   Future<void> disable(String id) async {
     await _change(id, PreferenceSuggestionStatus.disabled);
