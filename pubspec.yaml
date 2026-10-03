@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.13.4
@@ -174,8 +174,11 @@ msix_config:
   # 届时把这一行删掉、改用 `--certificate-path` + `--certificate-password`。
   signtool_options: '/sha1 9E157ECE535D16A224593CA39C084705A4FD3C13 /fd SHA256 /v'
   # 必须与 pubspec.yaml 的 version 对应（MSIX 要求四段式）。
-  msix_version: 1.0.0.0
-  output_name: personal_planner_1.0.0_x64
+  #
+  # **版本只能往上走**：`Add-AppxPackage` 不接受比已安装版本更低的包。本机已安装 `1.0.0.0`
+  # （含首帧崩溃修复之前的那一版），因此这一版取 `1.0.1.0`，同时 `version` 提到 `1.0.1+2`。
+  msix_version: 1.0.1.0
+  output_name: personal_planner_1.0.1_x64
   # 构建过程不得静默修改本机的受信任证书库；安装测试单独请求用户授权。
   install_certificate: false
 
