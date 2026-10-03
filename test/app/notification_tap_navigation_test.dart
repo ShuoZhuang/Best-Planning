@@ -6,6 +6,7 @@
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -25,12 +26,16 @@ final class _NoDelay implements AppLockDelayPort {
 final class _Taps implements NotificationPort {
   _Taps({this.launch});
   void Function(NotificationPayload payload)? handler;
+  SchedulerPhase? launchPhase;
 
   /// 模拟"应用是被这条通知拉起来的"；null 表示普通启动。
   final NotificationPayload? launch;
 
   @override
-  Future<NotificationPayload?> launchPayload() async => launch;
+  Future<NotificationPayload?> launchPayload() async {
+    launchPhase = SchedulerBinding.instance.schedulerPhase;
+    return launch;
+  }
 
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {
@@ -86,7 +91,10 @@ PlannerTask _task() => PlannerTask(
 );
 
 void main() {
-  Future<void> pumpApp(WidgetTester tester, {NotificationPort? notifications}) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    NotificationPort? notifications,
+  }) async {
     final settings = MemorySettingsRepository();
     await settings.write(
       OnboardingPage.schemaVersionKey,
@@ -94,7 +102,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           notifications: notifications,
@@ -200,6 +209,14 @@ void main() {
     expect(find.text('今日'), findsWidgets);
   });
 
+  testWidgets('启动详情在首帧结束回调阶段读取，避免原生通知回调重入渲染', (tester) async {
+    final taps = _Taps();
+
+    await pumpApp(tester, notifications: taps);
+
+    expect(taps.launchPhase, SchedulerPhase.postFrameCallbacks);
+  });
+
   testWidgets('冷启动导航不绕过应用锁：先解锁，再落在通知指定的去处', (tester) async {
     // 门控包住整个界面，因此导航发生在"看不见"的地方，解锁后才显示目标页。
     // 若把门控放在路由之内，这条通知就会变成应用锁的后门。
@@ -220,7 +237,8 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           appLock: lock,

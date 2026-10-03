@@ -52,21 +52,26 @@ final class PlannerApp extends StatefulWidget {
     this.tagService,
     this.appLock,
     this.exportService,
+
     /// 数据备份与恢复服务（W3 最后一条缺失路由）。为空时设置入口页不显示该入口。
     this.backups,
+
     /// 永久清除服务（FR-DATA-04）。为空时备份页不显示该入口（不给一个点了不生效的按钮）。
     this.erasure,
     this.focusService,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
+
     /// 任务排程输入变化时的原因回调（FR-STAT-06 的"重排原因"来源，并驱动自动重排）。
     this.onScheduleInputChanged,
+
     /// 自动重排的结果流；见字段说明。
     this.replanOutcome,
     this.recovery,
     this.calendar,
     this.calendarService,
     this.autoAdjustStore,
+
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
     this.zones,
@@ -268,7 +273,8 @@ final class _PlannerAppState extends State<PlannerApp> {
       // 常量。真正生效需要一个落点（`MoveDraftSink`）与一个装配进排程输入的通道，两者都由
       // `widget.pendingMoves`（组合根构造、同时交给 `RepositoryScheduleProblemSource`）提供；
       // 未提供时（测试、或未装配排程时）退回禁用，因此不会假装拖动生效。
-      moveController: widget.pendingMoves == null || widget.planningService == null
+      moveController:
+          widget.pendingMoves == null || widget.planningService == null
           ? const DisabledWeekMoveController()
           : PlanningServiceWeekMoveController(
               drafts: widget.pendingMoves!,
@@ -311,7 +317,13 @@ final class _PlannerAppState extends State<PlannerApp> {
     // R8 ① 冷启动：应用是被点击通知拉起来的，那种情况平台的点击回调不会到达，必须显式
     // 读一次启动详情。导航发生在门控之下（此时界面还可能是解锁页或引导页），因此这不构成
     // 绕过应用锁的后门——锁着时先看到解锁界面，解锁后才落在通知指定的去处。
-    unawaited(_handleLaunchPayload());
+    // Windows 通知插件在 initialize() 内会同步回调 Dart。若在 initState 的
+    // persistentCallbacks 阶段进入原生初始化，该回调会让渲染器在首帧尚未准备好时
+    // compositeFrame，Release 随后以 0xc0000409 退出。等首帧结束后再读取启动详情，
+    // 导航语义不变，但原生回调不再重入正在挂载的渲染树。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_handleLaunchPayload());
+    });
   }
 
   Future<void> _handleLaunchPayload() async {
