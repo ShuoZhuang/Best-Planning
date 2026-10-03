@@ -77,6 +77,9 @@ void main() {
   final calendarService = CalendarService(
     repository: calendarRepository,
     recurringRepository: calendarRepository,
+    // FR-CAL-01 的删除：同一个仓储实例也实现删除端口。不装配它会让界面上出现一个点了
+    // 不生效的删除按钮（服务返回 false），因此这一行是"入口可达"的必要条件。
+    deletion: calendarRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
     zones: zones,

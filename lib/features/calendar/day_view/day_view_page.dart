@@ -16,6 +16,7 @@ final class DayViewPage extends StatelessWidget {
     required this.zones,
     required this.timeZoneId,
     this.onOpenWeek,
+    this.onDeleteEvent,
     super.key,
   });
 
@@ -28,6 +29,12 @@ final class DayViewPage extends StatelessWidget {
   final String timeZoneId;
 
   /// 切回周视图。为空时不显示该按钮（例如未装配路由的测试场景）。
+  /// 删除这条日程（FR-CAL-01）。为空时不显示删除按钮。
+  ///
+  /// **页面不认识仓储**：它只把条目 id 交回，删除与随后的刷新由注入方负责——与
+  /// `onOpenWeek` 同理。为空时整块不渲染，而不是给一个点了没反应的图标。
+  final Future<bool> Function(String eventId)? onDeleteEvent;
+
   final VoidCallback? onOpenWeek;
 
   @override
@@ -75,10 +82,28 @@ final class DayViewPage extends StatelessWidget {
                 child: ListView(
                   children: [
                     for (final item in items)
-                      _DayItemTile(
-                        item: item,
-                        start: zones.toLocal(item.range.startUtc, timeZoneId),
-                        end: zones.toLocal(item.range.endUtc, timeZoneId),
+                      // 删除按钮放在卡片**外面**而不是 `_DayItemTile` 里面：这样不必给
+                      // 展示用的子控件增加一个只为删除而存在的参数，卡片也不必知道删除。
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DayItemTile(
+                              item: item,
+                              start: zones.toLocal(
+                                item.range.startUtc,
+                                timeZoneId,
+                              ),
+                              end: zones.toLocal(item.range.endUtc, timeZoneId),
+                            ),
+                          ),
+                          if (onDeleteEvent != null)
+                            IconButton(
+                              key: Key('delete-${item.id}'),
+                              tooltip: '删除这条日程',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => onDeleteEvent!(item.id),
+                            ),
+                        ],
                       ),
                   ],
                 ),

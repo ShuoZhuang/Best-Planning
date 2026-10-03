@@ -49,6 +49,7 @@ void main() {
     WidgetTester tester, {
     required List<ScheduleViewItem> items,
     String timeZoneId = 'UTC',
+    Future<bool> Function(String eventId)? onDeleteEvent,
   }) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
@@ -61,6 +62,7 @@ void main() {
             dayStartUtc: _dayStartUtc,
             zones: TimeZoneDatabase(),
             timeZoneId: timeZoneId,
+            onDeleteEvent: onDeleteEvent,
           ),
         ),
       ),
@@ -110,6 +112,57 @@ void main() {
 
     expect(find.textContaining('17:00–18:00'), findsOneWidget);
     expect(find.textContaining('09:00–10:00'), findsNothing);
+  });
+
+  testWidgets('注入删除入口时每条日程都有删除按钮，点击交回**那一条**的 id', (tester) async {
+    final deleted = <String>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'task-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async {
+        deleted.add(id);
+        return true;
+      },
+    );
+
+    expect(find.byKey(const Key('delete-fixed-1')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('delete-task-1')));
+    await tester.tap(find.byKey(const Key('delete-task-1')));
+    await tester.pumpAndSettle();
+
+    // 交回的必须是那一条的 id：删除最危险的错误是删错对象，而"被点了"与"删对了"
+    // 是两件事，只断言"发生过一次删除"证明不了后者。
+    expect(deleted, <String>['task-1']);
+  });
+
+  testWidgets('未注入删除入口时不显示删除按钮', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+      ],
+    );
+
+    // 宁可没有按钮，也不要一个点了不生效的图标。
+    expect(find.byKey(const Key('delete-fixed-1')), findsNothing);
   });
 
   testWidgets('这一天没有安排时说明"空"是什么意思', (tester) async {

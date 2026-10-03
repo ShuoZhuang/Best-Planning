@@ -254,6 +254,9 @@ GoRouter createPlannerRouter({
               zones: zones,
               timeZoneId: timeZoneId,
               onOpenWeek: () => context.go('/calendar'),
+              // FR-CAL-01 的删除。页面只交回条目 id；删除端口未装配时不显示该按钮。
+              // 删除后**不需要手动刷新**：日程视图由 drift 的 watch 驱动，写入会使它重新发出。
+              onDeleteEvent: calendarService?.deleteEvent,
             );
           },
         ),
