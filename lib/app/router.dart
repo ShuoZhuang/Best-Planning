@@ -383,7 +383,11 @@ GoRouter createPlannerRouter({
               SettingsHubEntry(
                 key: const Key('settings-rules'),
                 title: '规划规则与默认值',
-                subtitle: '作息、精力区间、保护时间、每日上限与生活配额',
+                // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
+                // 提醒开关、提前量与免打扰时段），而原来的副标题一个字都没提通知——用户因此
+                // 在设置里找不到它（真实的反馈：按说明去找"通知设置"，翻遍设置页都没看到）。
+                // 副标题只是文案，但**入口的说明与实际内容不符就是可发现性缺陷**。
+                subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
                 onOpen: () => context.go('/settings/rules'),
               ),
               if (preferences != null)

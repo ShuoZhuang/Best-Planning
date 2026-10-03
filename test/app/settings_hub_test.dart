@@ -135,4 +135,23 @@ void main() {
 
     expect(find.byType(PlanningRulesPage), findsOneWidget);
   });
+
+  // B6：通知设置（四类提醒开关、提前量、免打扰时段）装在"规划规则"这一页里，而入口副标题
+  // 原文一个字都没提通知——真实的反馈就是"按说明去找通知设置，翻遍设置页都没看到"。
+  // 这条守卫把"入口说明必须提到它实际装了什么"钉住：它不是文案洁癖，而是**入口描述与实际
+  // 内容不符导致的功能不可发现**。
+  testWidgets('通往规划规则的入口说明了它含通知设置', (tester) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+
+    final entry = find.byKey(const Key('settings-rules'));
+    expect(entry, findsOneWidget);
+    expect(
+      find.descendant(of: entry, matching: find.textContaining('通知')),
+      findsOneWidget,
+      reason: '该页装着通知设置；入口不提通知，用户就找不到它',
+    );
+  });
 }
