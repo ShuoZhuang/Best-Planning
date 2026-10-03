@@ -156,6 +156,26 @@ final class TaskService {
     return TaskSaveResult.success(updated);
   }
 
+  /// 把任务归属到某个项目，`projectId` 为 null 表示取消归属。
+  ///
+  /// 这是**任务通向领域的唯一路径**：任务的分类（领域）与生活标记都经
+  /// `tasks.project_id` → `projects.area_id` → `areas.is_life` 推导，因此没有这个入口，
+  /// 无论领域与项目建得多完整、生活标记写得多正确，也不会有任何任务算作生活任务。
+  ///
+  /// 这里**不校验项目是否存在**：数据库对 `tasks.projectId` 有外键约束，连接时又开启了
+  /// `PRAGMA foreign_keys`，因此不存在的项目会在写入时直接失败，不需要在服务层再维护
+  /// 一份容易与库结构脱节的重复判断。界面侧的职责是只提供已存在的项目。
+  Future<bool> assignProject(String taskId, String? projectId) async {
+    final existing = await _repository.getById(taskId);
+    if (existing == null) return false;
+    // 归属未变化时不写入：无变化的写入会把"最近修改"推到现在，让该字段失去意义。
+    if (existing.projectId == projectId) return true;
+    await _repository.save(
+      existing.copyWith(projectId: projectId, updatedAtUtc: _clock.nowUtc()),
+    );
+    return true;
+  }
+
   Future<bool> changeStatus(String taskId, TaskStatus status) async {
     final existing = await _repository.getById(taskId);
     if (existing == null) return false;
