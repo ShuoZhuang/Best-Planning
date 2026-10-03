@@ -81,10 +81,29 @@ stopped unexpectedly, or never started.`——失败发生在**测试装置与�
 | 发布者（Publisher） | `msix_config.publisher_display_name`，当前为示例值 | 与签名证书主体一致 |
 | MSIX 版本 | `msix_config.msix_version`，四段式 | 必须与 `pubspec.yaml` 的 `version` 对应，当前均为 1.0.0 |
 | 升级策略 | 同一包标识 + 递增版本 | 换标识等于换应用，用户数据不会自动迁移 |
-| 版本号同步 | `windows/runner/Runner.rc` | 需与 `pubspec.yaml` 保持一致 |
+| 版本号同步 | `windows/runner/Runner.rc` | **自动的，不需要手工改**（2026-10-03 实测更正，见下） |
 
-`windows/runner/Runner.rc` 中的产品版本与文件版本必须随 `pubspec.yaml` 一起更新，否则
-文件属性显示的版本与安装包不一致。
+**关于 `windows/runner/Runner.rc` 的版本：这一条此前记错了方向，2026-10-03 实测更正。**
+原记"产品版本与文件版本必须随 `pubspec.yaml` 一起更新，否则文件属性显示的版本与安装包不一致"，
+暗示这是一处手工同步点。**实际上它是 Flutter 工具自动生成的**：`flutter build` 会写出
+`windows/flutter/ephemeral/generated_config.cmake`，其中包含
+
+```cmake
+set(FLUTTER_VERSION "1.0.0+1")
+set(FLUTTER_VERSION_MAJOR 1) … MINOR 0 … PATCH 0 … BUILD 1
+```
+
+而 `Runner.rc` 用 `#if defined(FLUTTER_VERSION_MAJOR)` 优先取这些宏（`1,0,0,0` 与 `"1.0.0"`
+只是**宏未定义时的回退值**）。实测证据：已构建的 `personal_planner.exe` 报
+`FileVersion = 1.0.0+1`、`ProductVersion = 1.0.0+1`，与 `pubspec.yaml` 的 `version: 1.0.0+1`
+一致，**期间没有任何人手工改过 `Runner.rc`**。因此这一项不需要动作；真要改版本，改
+`pubspec.yaml` 即可。
+
+**版本号本身（2026-10-03 定）**：首版取 `pubspec.yaml` 的 `version: 1.0.0+1`，
+对应 `msix_config.msix_version: 1.0.0.0`（MSIX 要求四段式，与 `version` 的前三段对应）。
+**注意一条操作约束：`Add-AppxPackage` 不接受比已安装版本更低的包**——本机现已安装
+`1.0.0.0`，因此**下一次要装的新构建必须把 `msix_version` 提高到大于 `1.0.0.0`**
+（例如 `1.0.1.0`，同时把 `pubspec.yaml` 的 `version` 提到 `1.0.1+n`）。版本号只能往上走。
 
 ## 3. 发布前必须提交的内容
 
