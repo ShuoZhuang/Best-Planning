@@ -4,7 +4,9 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
+
 
 enum EventEditScope { singleOccurrence, entireSeries }
 
@@ -52,14 +54,23 @@ final class CalendarService {
   const CalendarService({
     required CalendarRepository repository,
     RecurringCalendarRepository? recurringRepository,
+    CalendarEventDeletion? deletion,
     required Clock clock,
     required IdGenerator idGenerator,
     required TimeZoneDatabase zones,
-  }) : this._(repository, recurringRepository, clock, idGenerator, zones);
+  }) : this._(
+         repository,
+         recurringRepository,
+         deletion,
+         clock,
+         idGenerator,
+         zones,
+       );
 
   const CalendarService._(
     this._repository,
     this._recurringRepository,
+    this._deletion,
     this._clock,
     this._idGenerator,
     this._zones,
@@ -67,9 +78,21 @@ final class CalendarService {
 
   final CalendarRepository _repository;
   final RecurringCalendarRepository? _recurringRepository;
+  final CalendarEventDeletion? _deletion;
   final Clock _clock;
   final IdGenerator _idGenerator;
   final TimeZoneDatabase _zones;
+
+  /// 删除一条固定日程（FR-CAL-01）。未装配删除端口时返回 false，而不是假装删掉了。
+  ///
+  /// 返回 `bool`：界面据此显示"已删除／未装配"。**幂等**语义让"记录已不在"也算成功——调用方
+  /// 拿到的 id 可能来自一次已过期的视图。
+  Future<bool> deleteEvent(String eventId) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.deleteEvent(eventId);
+    return true;
+  }
 
   Future<EventSaveResult> save(EventDraft draft) async {
     final errors = <String, String>{};

@@ -3,11 +3,15 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/domain/models/calendar_event.dart' as domain;
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
 
 final class DriftCalendarRepository
-    implements CalendarRepository, RecurringCalendarRepository {
+    implements
+        CalendarRepository,
+        RecurringCalendarRepository,
+        CalendarEventDeletion {
   DriftCalendarRepository(this._database, {TimeZoneDatabase? zones})
     : _recurrence = RecurrenceExpander(zones ?? TimeZoneDatabase());
 
@@ -81,6 +85,22 @@ final class DriftCalendarRepository
     }
     result.sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
     return List.unmodifiable(result);
+  }
+
+  @override
+  /// 删除固定日程（FR-CAL-01）。
+  ///
+  /// **幂等**：删不到就当作已经删掉——调用方拿到的 id 可能来自一次已过期的视图，把"记录不在"
+  /// 当异常会让界面在一次无关的竞态后报错（见端口的文档说明）。
+  ///
+  /// **本次只删这一条事件行**：若它是某条重复规则的锚点，规则行本身仍然留着，而展开又依赖
+  /// 锚点才发生，因此"整串消失"。**逐次例外与"改整个系列"仍属后续**（`EventEditScope` 目前
+  /// 只被采集、未被使用），这一点在 §13.0 的 R4 行里写明，不在实现里假装已经支持。
+  @override
+  Future<void> deleteEvent(String eventId) async {
+    await (_database.delete(
+      _database.calendarEvents,
+    )..where((row) => row.id.equals(eventId))).go();
   }
 
   @override
