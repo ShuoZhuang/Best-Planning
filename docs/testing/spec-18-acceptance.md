@@ -17,10 +17,12 @@
 | 项 | 值 |
 | --- | --- |
 | 记录日期 | 2026-10-03 |
-| 提交 | `e173c18`（本记录之前最后一次代码提交） |
+| 提交 | `0754d08`（本记录之前最后一次代码提交） |
 | `flutter analyze` | No issues found! |
 | `flutter test` | **481 项全部通过** |
 | `flutter test integration_test -d windows` | 三条流程**逐条单独运行全部通过**（批量运行会在 loading 阶段因测试装置连接失败，与断言无关） |
+| MSIX 签名与安装 | **已签名并已安装**（`ShuoZhuang.PersonalPlanner_1.0.0.0_x64__v9555qkaxdyym`） |
+| `hasPackageIdentity` | **两个分支都已用真实 kernel32 调用验证**（`tool/verify-package-identity.ps1`：非打包 `15700`；本包内 `122 → 0`） |
 | 手工验收清单 | **尚未执行** |
 
 **怎么复现**

@@ -35,10 +35,17 @@ Task 20 的交付物之一，定义首版 Windows 产物的构建、版本与校
 6. **私钥刻意放在仓库之外**（`C:\Users\zs200\signing\personal_planner.pfx`），因此"私钥不进
    版本库"不依赖是否记得写 `.gitignore`。
 
-**因此本机现在能产出已签名的 MSIX**。**仍然待办的是"让它被信任并安装"**：把证书导入受信任
-存储需要 UAC 提权（`msix_config.install_certificate` 仍为 `false`，构建过程不静默改本机
-证书库），安装之后才能验证 **`hasPackageIdentity` 返回 true 的那一支**与**通知点击的真实
-toast 交互**——这两项至今仍未验证。
+**因此本机现在能产出已签名的 MSIX**。
+
+**安装与身份验证也已完成（2026-10-03 实测）**：证书已导入 `Cert:\CurrentUser\Root` 与
+`Cert:\LocalMachine\Root`，`Add-AppxPackage` 安装成功（`ShuoZhuang.PersonalPlanner_1.0.0.0_x64__v9555qkaxdyym`）。
+随后用 `tool/verify-package-identity.ps1` 核对包身份：把探针跑进**本包上下文**，得到与生产代码
+逐行对应的两段式结果 `FIRST-RC=122` → `SECOND-RC=0`，包全名与安装信息一致；对照的非打包进程
+是 `FIRST-RC=15700`。**因此 `hasWindowsPackageIdentity` 的 true / false 两个分支都已有真实
+kernel32 调用证据**（边界：验证用的是同 API、同流程、同包上下文的探针，不是读应用自己的变量）。
+
+**仍然待办**：**通知点击的真实 toast 交互**——需要一个**人去点一下通知**。这是发布前唯一
+剩下的人工验证项。
 
 **端到端集成测试同日实测**：`flutter test integration_test -d windows` 的三条流程
 （首周计划、临时晚归重排、备份恢复）**逐条单独运行时全部通过**；**一次性批量运行**时第一条
@@ -121,8 +128,8 @@ dart run msix:create
 | 阻塞 | 说明 |
 | --- | --- |
 | MSIX 已执行到签名前一步（**2026-10-03 实测更新**） | `dart run msix:create` 已实际运行：`flutter build windows` 成功、MSIX 组装与打包成功并产出 `personal_planner_1.0.0_x64.msix`（14.4 MB），**仅 SignTool 签名失败**（`No certificates were found`）。因此**剩余阻塞项只有签名证书与包标识/发布者这两个必须由产品侧决定的取值**，不再是"整条流程没跑过" |
-| 端到端测试尚未执行 | `integration_test/` 下已有三条流程（首个七日计划、临时晚归后重排、备份与恢复），`pubspec.yaml` 已加入 SDK 自带的 `integration_test` 依赖，但从未在 Windows 设备上运行过 |
-| 手工清单尚未执行 | 需求规格第 18 节的 19 项验收全部未勾选 |
+| 端到端测试**已执行**（2026-10-03 更正） | 三条流程（首个七日计划、临时晚归后重排、备份与恢复）**逐条单独在 Windows 上运行、全部通过**。**批量一次跑会失败**：第一条通过，后两条在 `loading` 阶段报 `Error waiting for a debug connection`——失败在测试装置与应用的连接上，不在断言上。因此可靠的跑法是逐条运行 |
+| 手工清单**尚未执行** | 其"当前不可达"标注已逐条更正（那些能力后来都接通了，现已无不可达条目），但**每一格的结果仍然是空的**。需求规格 §18 已完成逐项核对：**18/19 勾选**，唯一未勾选的第 3 项（"一分钟内完成快速录入"）正需要本清单的人工计时 |
 | 部分功能在界面上不可达 | 统计、专注、偏好设置、数据管理与特殊日页面尚无路由；应用锁不拦截启动；手动移动被禁用。详见技术设计文档 §13.0 |
 
 在这些阻塞项清零之前，首版状态应记为「不可发布」，而不是「已完成待验收」。
