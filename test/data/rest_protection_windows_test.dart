@@ -112,4 +112,54 @@ void main() {
     expect(result, isNotEmpty);
     expect(result.map((item) => item.label), contains('午餐'));
   });
+
+  group('按日临时例外（FR-REPLAN-07 的"临时放宽"）', () {
+    Future<void> seedOverride(String date, String json) => database
+        .into(database.settings)
+        .insert(
+          SettingsCompanion.insert(
+            key: 'planning.dateOverride.$date',
+            jsonValue: json,
+            updatedAtUtc: 1,
+          ),
+        );
+
+    Future<List<DateTime>> relaxed() async =>
+        (await dao.load(filter)).relaxedLocalDates;
+
+    test('没有例外时为空', () async {
+      expect(await relaxed(), isEmpty);
+    });
+
+    test('读得出存在的例外日期（键里就写着本地日期）', () async {
+      await seedOverride('2026-10-03', '{"dailyMovableTaskLimitMinutes":300}');
+      await seedOverride('2026-10-05', '{"dailyMovableTaskLimitMinutes":120}');
+
+      expect(
+        await relaxed(),
+        unorderedEquals([DateTime.utc(2026, 10, 3), DateTime.utc(2026, 10, 5)]),
+      );
+    });
+
+    test('形状不对的键被跳过，而不是被规范化成另一天', () async {
+      // `DateTime(2026, 13, 40)` 会被规范化成 2027-02-09——那会凭空造出一个不存在的
+      // "放宽日"，而统计里就会出现一个用户从未放宽过的日期。
+      await seedOverride('2026-13-40', '{}');
+      await seedOverride('not-a-date', '{}');
+      await seedOverride('2026-10-04', '{}');
+
+      expect(await relaxed(), <DateTime>[DateTime.utc(2026, 10, 4)]);
+    });
+
+    test('清除例外后它就不再出现（放宽是可逆的）', () async {
+      await seedOverride('2026-10-03', '{}');
+      expect(await relaxed(), hasLength(1));
+
+      await (database.delete(database.settings)
+            ..where((row) => row.key.equals('planning.dateOverride.2026-10-03')))
+          .go();
+
+      expect(await relaxed(), isEmpty);
+    });
+  });
 }

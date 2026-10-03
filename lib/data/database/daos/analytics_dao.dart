@@ -24,6 +24,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
       weeklyLifeQuotaMinutes: await _weeklyLifeQuota(),
       energyWindows: await _energyWindows(),
       protectedWindows: await _protectedWindows(),
+      relaxedLocalDates: await _relaxedLocalDates(),
       tasks: tasks,
       plannedBlocks: planned,
       actualEntries: actual,
@@ -313,6 +314,40 @@ final class AnalyticsDao implements AnalyticsDataSource {
     ProtectedTimeKind.dinner => '晚餐',
     ProtectedTimeKind.fixedRest => '固定休息',
   };
+
+  /// 读出存在**按日临时例外**的本地日期（FR-REPLAN-07 的"临时放宽每日上限"）。
+  ///
+  /// 依据是设置键 `planning.dateOverride.<yyyy-MM-dd>`（`SettingsService` 写入的形状）。
+  /// **键里本来就写着本地日期**，因此数据层不需要时区就能解析；至于这些日期是否落在筛选
+  /// 范围内，由服务层按本地日判断（时区只有它有）。
+  ///
+  /// 读出来的日期本身不携带"放宽了什么"——本轮只关心"这一天被放宽过"。将来若要区分放宽的
+  /// 字段（上限／睡眠／保护时间），需要把 JSON 一并解析出来。
+  Future<List<DateTime>> _relaxedLocalDates() async {
+    const prefix = 'planning.dateOverride.';
+    final query = database.select(database.settings)
+      ..where((row) => row.key.like('$prefix%'));
+    final rows = await query.get();
+    final dates = <DateTime>[];
+    for (final row in rows) {
+      final suffix = row.key.substring(prefix.length);
+      final match = RegExp(
+        r'^(\d{4})-(\d{2})-(\d{2})$',
+      ).firstMatch(suffix);
+      if (match == null) continue;
+      final year = int.tryParse(match.group(1)!);
+      final month = int.tryParse(match.group(2)!);
+      final day = int.tryParse(match.group(3)!);
+      if (year == null || month == null || day == null) continue;
+      // 形状对但日期非法（如 2026-13-40）时跳过：`DateTime` 会把它规范化成另一天，
+      // 那样会凭空造出一个不存在的"放宽日"。
+      if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+      final date = DateTime.utc(year, month, day);
+      if (date.month != month || date.day != day) continue;
+      dates.add(date);
+    }
+    return dates;
+  }
 
   LocalTimeRange? _rangeOf(Object? value) {
     if (value is! Map<String, Object?>) return null;

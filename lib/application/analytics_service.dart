@@ -186,6 +186,7 @@ final class AnalyticsService implements AnalyticsQuery {
       // 实际投入与那次查询的时区。
       restProtection: _restProtection(
         windows: dataset.protectedWindows,
+        relaxedLocalDates: dataset.relaxedLocalDates,
         actualByEntry: actualByEntry,
         filter: filter,
         zones: zones,
@@ -486,6 +487,7 @@ List<EnergyPeriodMetric> _energyPeriods({
 /// 定义清楚。
 RestProtectionMetric? _restProtection({
   required List<AnalyticsProtectedWindow> windows,
+  required List<DateTime> relaxedLocalDates,
   required Map<AnalyticsActualFact, int> actualByEntry,
   required AnalyticsFilter filter,
   required TimeZoneDatabase? zones,
@@ -566,10 +568,27 @@ RestProtectionMetric? _restProtection({
     }
   }
 
+  // "哪几天被临时放宽过"：日期由数据层原样交出，落在筛选范围哪一个本地日之间由这里判断
+  // （时区只有服务层有）。范围按**本地日**而非 UTC 瞬时比较：键里写的就是本地日期，
+  // 用 UTC 瞬时去比会在时区偏移下把边界那天算错。
+  final firstLocalDay = DateTime.utc(
+    localStart.year,
+    localStart.month,
+    localStart.day,
+  );
+  final lastLocalDay = DateTime.utc(localEnd.year, localEnd.month, localEnd.day);
+  final relaxedDays = relaxedLocalDates
+      .where(
+        (date) =>
+            !date.isBefore(firstLocalDay) && !date.isAfter(lastLocalDay),
+      )
+      .length;
+
   return RestProtectionMetric(
     protectedMinutes: protectedMinutes,
     // 逐段四舍五入可能让被占用比保护总时长多出一两分钟；夹住它，避免出现"占用 61 / 保护 60"
     // 这种界面上一眼就像 bug 的数字。
     overlappedMinutes: overlappedMinutes.clamp(0, protectedMinutes),
+    relaxedDays: relaxedDays,
   );
 }

@@ -704,6 +704,9 @@ final class _ChartCard extends StatelessWidget {
   );
 }
 
+/// FR-STAT-05 的"休息保护情况"那一行在领域模型上（`RestProtectionMetric.summaryLabel`）：
+/// 那句话有真实分支（有没有放宽过），而它所在的卡在 `ListView` 里、视口外不会被构建，
+/// 放在页面里就只能靠 widget 测试去够它。
 final class _EvidenceLists extends StatelessWidget {
   const _EvidenceLists({required this.report});
   final AnalyticsReport report;
@@ -733,11 +736,7 @@ final class _EvidenceLists extends StatelessWidget {
           // **文案要点明"睡眠与保护时段"**：这个数字现在**包含睡眠**（每天 8 小时上下），
           // 只说"保护 N 分钟"会让用户以为它只算午餐和固定休息，从而觉得数字大得离谱。
           if (report.restProtection != null) ...[
-            Text(
-              '休息保护：睡眠与保护时段共 '
-              '${report.restProtection!.protectedMinutes} 分钟，'
-              '其中被专注占用 ${report.restProtection!.overlappedMinutes} 分钟',
-            ),
+            Text(report.restProtection!.summaryLabel),
             const SizedBox(height: 10),
           ],
           Text(_rankedText('常见中断', report.commonInterruptions)),

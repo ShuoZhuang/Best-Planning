@@ -182,12 +182,41 @@ final class RestProtectionMetric {
   const RestProtectionMetric({
     required this.protectedMinutes,
     required this.overlappedMinutes,
+    this.relaxedDays = 0,
   });
 
   final int protectedMinutes;
   final int overlappedMinutes;
 
+  /// 筛选范围内**被用户临时放宽过**的本地日数（FR-REPLAN-07 的处理入口）。
+  ///
+  /// 这是"休息保护情况"里唯一一处**用户主动改变硬约束**的记录：放宽的是每日可移动任务上限，
+  /// 因此不把它显示出来，用户看到的"保护情况"就少了一层他自己造成的解释。数据来源是
+  /// `planning.dateOverride.<yyyy-MM-dd>` 这些设置键，**过期即消失**（清除后该键被删除），
+  /// 因此它反映的是当前生效的放宽，而不是历史。
+  final int relaxedDays;
+
   int get preservedMinutes => protectedMinutes - overlappedMinutes;
+
+  /// 界面上那一行的文案（FR-STAT-05 的"休息保护情况"）。
+  ///
+  /// **放在领域模型上而不是页面里**：一是这句话有真实分支（有没有放宽过），放在页面里就只能
+  /// 靠 widget 测试去够它——而它所在的那张卡在 `ListView` 里、视口外**根本不会被构建**，
+  /// 本轮第一版页面用例因此一无所获；二是本文件的其余口径（哪些算保护、怎么折算）也都写在
+  /// 这里，文案与口径放在一起才不会各说各的。
+  ///
+  /// **必须点明"睡眠与保护时段"**：这个数字**包含睡眠**（每天 8 小时上下），只说"保护 N 分钟"
+  /// 会让用户以为它只算午餐和固定休息，从而觉得数字大得离谱。
+  ///
+  /// 放宽天数单独成句、为 0 时整句不出现：它是用户**自己**改变硬约束的记录，不说就少一层
+  /// 解释；但每行都拖一句"其中 0 天"只会让这一行更难读。
+  String get summaryLabel {
+    final relaxed = relaxedDays == 0
+        ? ''
+        : '，其中 $relaxedDays 天临时放宽过每日上限';
+    return '休息保护：睡眠与保护时段共 $protectedMinutes 分钟，'
+        '其中被专注占用 $overlappedMinutes 分钟$relaxed';
+  }
 
   /// 保护时段中**未被占用**的比例。没有保护时段时不可用（而不是 0）。
   RatioMetric get preservedRate => RatioMetric(
@@ -312,12 +341,14 @@ final class AnalyticsDataset {
     required this.weeklyLifeQuotaMinutes,
     List<AnalyticsEnergyWindow> energyWindows = const [],
     List<AnalyticsProtectedWindow> protectedWindows = const [],
+    List<DateTime> relaxedLocalDates = const [],
     List<AnalyticsTaskFact> tasks = const [],
     List<AnalyticsPlannedFact> plannedBlocks = const [],
     List<AnalyticsActualFact> actualEntries = const [],
     List<AnalyticsEventFact> events = const [],
   }) : energyWindows = UnmodifiableListView(energyWindows),
        protectedWindows = UnmodifiableListView(protectedWindows),
+       relaxedLocalDates = UnmodifiableListView(relaxedLocalDates),
        tasks = UnmodifiableListView(tasks),
        plannedBlocks = UnmodifiableListView(plannedBlocks),
        actualEntries = UnmodifiableListView(actualEntries),
@@ -330,6 +361,13 @@ final class AnalyticsDataset {
 
   /// 用户的保护时间（睡眠／用餐／固定休息），本地时刻。为空时不显示"休息保护"一节。
   final List<AnalyticsProtectedWindow> protectedWindows;
+
+  /// 存在**按日临时例外**的本地日期（FR-REPLAN-07 的"临时放宽每日上限"）。
+  ///
+  /// **只传日期、不在这里判断是否落在筛选范围内**：筛选范围是 UTC 瞬时，而"哪一天"要按用户
+  /// 时区解释——时区只有服务层有。数据层因此只交出原始事实（键里本来就写着本地日期），
+  /// 由服务层按本地日与之相交。这与"数据层给事实、应用层做解释"的分工一致。
+  final List<DateTime> relaxedLocalDates;
   final List<AnalyticsTaskFact> tasks;
   final List<AnalyticsPlannedFact> plannedBlocks;
   final List<AnalyticsActualFact> actualEntries;

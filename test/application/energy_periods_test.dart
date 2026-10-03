@@ -345,6 +345,56 @@ void main() {
     expect(metric.protectedMinutes, 480 * 8);
   });
 
+  test('休息保护：只统计落在筛选范围内的临时放宽日', () async {
+    // 数据层把"哪些天有按日例外"原样交出，是否落在范围内由服务层按**本地日**判断
+    // （时区只有服务层有）。用 UTC 瞬时去比会在时区偏移下把边界那天算错。
+    final dataset = AnalyticsDataset(
+      weeklyLifeQuotaMinutes: 600,
+      protectedWindows: const [lunch],
+      relaxedLocalDates: [
+        DateTime.utc(2026, 10, 5), // 范围内
+        DateTime.utc(2026, 10, 12), // 末日，仍在范围内
+        DateTime.utc(2026, 10, 20), // 范围外
+        DateTime.utc(2026, 10, 3), // 范围前
+      ],
+      tasks: const [],
+    );
+
+    final metric = await protection(dataset);
+
+    expect(metric!.relaxedDays, 2);
+  });
+
+  test('休息保护：没有放宽时计数为 0（界面据此不显示那句话）', () async {
+    final metric = await protection(withLunch());
+
+    expect(metric!.relaxedDays, 0);
+  });
+
+  test('休息保护：文案点明数字包含睡眠，放宽过才提放宽天数', () {
+    // 文案有真实分支，因此放在领域模型上直接断言——放在页面里就只能靠 widget 测试去够它，
+    // 而它所在的那张卡在 `ListView` 里、视口外**根本不会被构建**（本轮第一版页面用例正是
+    // 因此一无所获）。**必须点明"睡眠与保护时段"**：这个数字包含睡眠（每天 8 小时上下），
+    // 只说"保护 N 分钟"会让用户以为它只算午餐和固定休息。
+    expect(
+      const RestProtectionMetric(
+        protectedMinutes: 3840,
+        overlappedMinutes: 20,
+        relaxedDays: 2,
+      ).summaryLabel,
+      '休息保护：睡眠与保护时段共 3840 分钟，其中被专注占用 20 分钟，'
+      '其中 2 天临时放宽过每日上限',
+    );
+    // 没有放宽过时不拖一句"0 天"。
+    expect(
+      const RestProtectionMetric(
+        protectedMinutes: 3840,
+        overlappedMinutes: 0,
+      ).summaryLabel,
+      '休息保护：睡眠与保护时段共 3840 分钟，其中被专注占用 0 分钟',
+    );
+  });
+
   test('休息保护：以 24:00 结束的保护段不会炸，也不会被算成跨午夜', () async {
     // `LocalTimeRange` 允许 `endMinute == 1440`（09:00–24:00 合法且**不**跨午夜），而
     // `localDateTimeToUtc` 只接受 [0, 1439]。统计侧此前直接把 endMinute 传进去，遇到 24:00
