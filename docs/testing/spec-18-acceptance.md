@@ -85,6 +85,31 @@ flutter test integration_test/backup_restore_flow_test.dart -d windows
 没有这个入口**。这是"结构就绪 ≠ 需求兑现"的又一例：服务层与组件都在、有测试，用户却点不到。
 **因此本项不勾选**，直到该入口接通并实测。
 
+**接通它的做法已经查清（留给下一轮照做，避免重推）**——关键是把"删库"变成**延迟到启动时**，
+与恢复那条链路同一个套路（`lib/app/backup_assembly.dart` 的 `preparePlannerDatabase()`）：
+
+1. **为什么不能在运行中删**：`_PendingRestoreLifecycle.eraseAll()` 现在直接委托
+   `SqliteDatabaseLifecycleAdapter.eraseAll()`，后者**立刻删除数据库文件与 `-wal`/`-shm`**。
+   而运行中的 drift 连接仍指向那个文件（Windows 上还可能直接因共享冲突抛错）。两种结果都不好：
+   前者是"界面还显示着数据、重启后才真的空"，后者更糟——`eraseAll` 在
+   `DataErasureService` 里是**最后一步**，前面已经清掉了密码锁凭据与通知，删除失败就会留下
+   **半清除状态**（锁没了、提醒没了、数据还在），而用户只会看到一个错误。
+2. **具体改法**（三处）：
+   - `backup_assembly.dart` 加 `pendingErasurePath(databasePath) => '$databasePath.erase-pending'`，
+     并把 `_PendingRestoreLifecycle.eraseAll()` 改成**写这个标记文件**（与 `replaceWith` 写
+     `.restore-pending` 完全对称）；
+   - `preparePlannerDatabase()` 里在 `applyPendingRestoreFor` **之前**先看标记：存在就删除
+     数据库与 sidecar，**并且一并删掉 `.restore-pending` 与 `.restore-old`**（否则一个残留的
+     待恢复文件会在下次启动把数据搬回来），然后删掉标记。**顺序不能反**：若先应用恢复，
+     被恢复的数据会存活一整个会话。
+   - 组合根构造 `DataErasureService` 并传给 `/settings/backup` 路由。它要四样：
+     `DatabaseLifecyclePort`（用上面那个延迟实现）、`BackupIndexPort`（`FileBackupIndexAdapter`
+     目前**在生产里没有装配点**，需要一并决定它指向哪个索引文件）、`NotificationPort`
+     （已有）、`AppLockCredentialStore`（已有 `SettingsAppLockCredentialStore`）。
+3. **界面文案要如实**：因为删除发生在下次启动，提示必须写"**重启后生效**"，与恢复那条路径的
+   措辞一致；`BackupPage` 里已经有一句"本机应用数据已永久清除；自行导出的外部文件未删除"，
+   落到这条路径时也要点明范围（外部导出文件与用户自己的备份文件不在清除范围内）。
+
 ## 顺带查出并修掉的一处缺陷（本条不算任何一项的通过理由）
 
 为第 11 项补证据时，新写的用例当场失败：统计页的"今天／本周／本月"按 **UTC** 取日界，而需求
