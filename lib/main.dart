@@ -85,6 +85,15 @@ Future<void> main() async {
   );
   final taskRepository = DriftTaskRepository(database.taskDao);
   final calendarRepository = DriftCalendarRepository(database);
+  // 行为事件（FR-STAT 的建议采纳行为）。此前 `change_log` 只有计划生命周期事件，
+  // 而统计读的是 interruption/replan/suggestion 三类行为事件，因此那几项恒为空（W5）。
+  //
+  // **必须在 `CalendarService` 之前构造**：日历服务也要用它记"重排原因"（见下），因此它的
+  // 声明位置从原来的偏好学习那一段上移到这里。构造本身只依赖数据库，上移不改变任何行为。
+  final analyticsEvents = DriftAnalyticsEventLog(
+    database,
+    idGenerator: UuidIdGenerator(),
+  );
   final calendarService = CalendarService(
     repository: calendarRepository,
     recurringRepository: calendarRepository,
@@ -94,6 +103,15 @@ Future<void> main() async {
     clock: clock,
     idGenerator: UuidIdGenerator(),
     zones: zones,
+    // FR-STAT-06 的"重排原因"的**第二个写入方**（另一个在任务服务，见下方 `PlannerApp`）。
+    // 固定日程占用的时间是排程的硬约束，因此它的增删改同样会改变排程；此前这条路径登记为
+    // "未覆盖"（§13.0 W9 的 (a)），于是统计里的"重排原因"看起来像完整分布，实际缺了日历
+    // 这一整类。两个写入方共用同一份 lambda 形状与同一个事件端口，此处不新造一套口径。
+    onScheduleInputChanged: (reasonCode) => analyticsEvents.record(
+      kind: AnalyticsEventKind.replan,
+      code: reasonCode,
+      observedAtUtc: clock.nowUtc(),
+    ),
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
@@ -193,12 +211,6 @@ Future<void> main() async {
   // （只有测试调用），因此建议永远不会被生成。这里把两端接上——专注结束时写证据，
   // 打开偏好页时按证据重新分析。
   final preferenceEvidence = DriftPreferenceEvidenceRepository(database);
-  // 行为事件（FR-STAT 的建议采纳行为）。此前 `change_log` 只有计划生命周期事件，
-  // 而统计读的是 interruption/replan/suggestion 三类行为事件，因此那几项恒为空（W5）。
-  final analyticsEvents = DriftAnalyticsEventLog(
-    database,
-    idGenerator: UuidIdGenerator(),
-  );
   final focusEvidence = FocusEvidenceRecorder(
     evidence: preferenceEvidence,
     tasks: taskRepository,

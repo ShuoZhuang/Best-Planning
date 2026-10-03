@@ -58,6 +58,7 @@ final class CalendarService {
     required Clock clock,
     required IdGenerator idGenerator,
     required TimeZoneDatabase zones,
+    void Function(String reasonCode)? onScheduleInputChanged,
   }) : this._(
          repository,
          recurringRepository,
@@ -65,6 +66,7 @@ final class CalendarService {
          clock,
          idGenerator,
          zones,
+         onScheduleInputChanged,
        );
 
   const CalendarService._(
@@ -74,6 +76,7 @@ final class CalendarService {
     this._clock,
     this._idGenerator,
     this._zones,
+    this._onScheduleInputChanged,
   );
 
   final CalendarRepository _repository;
@@ -82,6 +85,22 @@ final class CalendarService {
   final Clock _clock;
   final IdGenerator _idGenerator;
   final TimeZoneDatabase _zones;
+
+  /// 固定日程的**创建／删除／改写**会改变排程输入——固定日程占用的时间是排程的硬约束，因此
+  /// 每次成功写入各记一条 `replan:` 事件（FR-STAT-06 的"重排原因"）。
+  ///
+  /// 与 `TaskService.onScheduleInputChanged` **同一口径、同一装配点**：用回调而不是直接依赖统计
+  /// 模块（日历服务不该知道统计存在），未装配时只是不留原因，不影响任何行为。原因码用人类可读
+  /// 的话而不是枚举名，因为统计页把它**直接显示给用户**。
+  ///
+  /// **为什么现在才接**：这条路径此前登记为"未覆盖"（§13.0 W9 的 (a)）——任务侧的四类变化那时
+  /// 已有发出者，而固定日程的增删改同样会改变排程，却因为写入方在日历服务里而漏掉。只覆盖一半
+  /// 会让统计里的"重排原因"**看起来像一份完整分布**，实际却整整缺了日历这一类。
+  ///
+  /// **只记成功的写入**（与任务侧一致：改不动就没有重排）。唯一无法区分的情形是幂等删除——端口
+  /// 的 `deleteEvent` 不返回"是否真的删掉了"，因此拿一个已过期的 id 来删也会记一条原因。这里选择
+  /// 宁可多记一次意图，也不改动端口签名（它在 5 个测试替身里被实现，改签名会一次牵动 5 个文件）。
+  final void Function(String reasonCode)? _onScheduleInputChanged;
 
   /// 改写整个系列（FR-CAL-02 的"整个系列"编辑一半）。所有各次一起换到新时间。
   ///
@@ -99,6 +118,7 @@ final class CalendarService {
       newEndUtc: newEndUtc,
       updatedAtUtc: _clock.nowUtc(),
     );
+    _onScheduleInputChanged?.call('固定日程系列改写');
     return true;
   }
 
@@ -124,6 +144,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
+    _onScheduleInputChanged?.call('固定日程单次改写');
     return true;
   }
 
@@ -146,6 +167,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
+    _onScheduleInputChanged?.call('固定日程单次删除');
     return true;
   }
 
@@ -157,6 +179,7 @@ final class CalendarService {
     final deletion = _deletion;
     if (deletion == null) return false;
     await deletion.deleteEvent(eventId);
+    _onScheduleInputChanged?.call('固定日程删除');
     return true;
   }
 
@@ -210,6 +233,7 @@ final class CalendarService {
     } else {
       await _repository.save(event);
     }
+    _onScheduleInputChanged?.call('固定日程创建');
     return EventSaveResult.success(event);
   }
 }

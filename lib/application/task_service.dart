@@ -84,8 +84,10 @@ final class TaskService {
   /// 用回调而不是直接依赖统计模块：任务服务不该知道统计的存在，装配由组合根负责；
   /// 未装配时只是不留原因，不影响任何行为。
   ///
-  /// **未覆盖**：固定日程的创建与删除也会使排程变化，但那条路径在日历服务里，本服务看不到它
-  /// ——这一点登记在 §13.0，而不是假装"重排原因"已经覆盖所有来源。
+  /// **固定日程这一类不再缺**：日历服务的增删改（创建／删除／单次改写／系列改写）也会改变排程
+  /// 输入，此前登记为"本服务看不到它"（§13.0 W9 的 (a) 末句）。现由 `CalendarService` 的同名
+  /// 回调各自记一条，装配点仍是组合根那一个 lambda——**同一份"重排原因"由两个写入方提供**，
+  /// 而不是让任务服务去读日历。
   final void Function(String reasonCode)? _onScheduleInputChanged;
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
