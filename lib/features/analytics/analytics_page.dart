@@ -727,6 +727,15 @@ final class _EvidenceLists extends StatelessWidget {
               ),
             const SizedBox(height: 10),
           ],
+          // FR-STAT-05 的"休息保护情况"。口径写在领域模型上：保护总时长与被实际专注覆盖的
+          // 分钟数。没有设置过保护时段时整行不显示。
+          if (report.restProtection != null) ...[
+            Text(
+              '休息保护：保护 ${report.restProtection!.protectedMinutes} 分钟，'
+              '其中被专注占用 ${report.restProtection!.overlappedMinutes} 分钟',
+            ),
+            const SizedBox(height: 10),
+          ],
           Text(_rankedText('常见中断', report.commonInterruptions)),
           const SizedBox(height: 6),
           Text(_rankedText('重排原因', report.replanReasons)),

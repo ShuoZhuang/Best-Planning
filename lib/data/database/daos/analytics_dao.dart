@@ -21,6 +21,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
     return AnalyticsDataset(
       weeklyLifeQuotaMinutes: await _weeklyLifeQuota(),
       energyWindows: await _energyWindows(),
+      protectedWindows: await _protectedWindows(),
       tasks: tasks,
       plannedBlocks: planned,
       actualEntries: actual,
@@ -216,6 +217,45 @@ final class AnalyticsDao implements AnalyticsDataSource {
       );
     }
     return result;
+  }
+
+  /// 读取用户的**保护时间**（睡眠／用餐／固定休息），供统计侧算"休息保护情况"。
+  ///
+  /// 与精力区间同一条设置路径。**`enabled=false` 的条目被跳过**——用户关掉的那段保护不该
+  /// 出现在"被占用"的统计里，否则关闭保护反而让数字变差，读起来像惩罚。
+  Future<List<AnalyticsProtectedWindow>> _protectedWindows() async {
+    final query = database.select(database.settings)
+      ..where((row) => row.key.equals('planning.userRules.v1'))
+      ..limit(1);
+    final setting = await query.getSingleOrNull();
+    if (setting == null) return const [];
+    try {
+      final json = jsonDecode(setting.jsonValue) as Map<String, Object?>;
+      final common = json['common'] as Map<String, Object?>?;
+      final raw = common?['protectedTimes'] as List<Object?>?;
+      if (raw == null) return const [];
+      return [
+        for (final item in raw)
+          if (item is Map<String, Object?> && item['enabled'] != false)
+            AnalyticsProtectedWindow(
+              label: switch (item['kind']) {
+                'lunch' => '午餐',
+                'dinner' => '晚餐',
+                'fixedRest' => '固定休息',
+                _ => '保护时间',
+              },
+              startMinute: _minuteOf(item['range'], 'startMinute'),
+              endMinute: _minuteOf(item['range'], 'endMinute'),
+              isWeekend: switch (item['dayKind']) {
+                'weekend' => true,
+                'weekday' => false,
+                _ => null,
+              },
+            ),
+      ];
+    } on FormatException {
+      return const [];
+    }
   }
 
   /// 读取用户的精力区间（**本地时刻**），供统计侧把实际投入分桶（FR-STAT-05）。

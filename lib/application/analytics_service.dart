@@ -181,6 +181,15 @@ final class AnalyticsService implements AnalyticsQuery {
         zones: zones,
         timeZoneId: timeZoneId,
       ),
+      // FR-STAT-05 的"休息保护情况"。与精力分桶同理：只有服务层同时握有筛选后的任务、
+      // 实际投入与那次查询的时区。
+      restProtection: _restProtection(
+        windows: dataset.protectedWindows,
+        actualByEntry: actualByEntry,
+        filter: filter,
+        zones: zones,
+        timeZoneId: timeZoneId,
+      ),
       suggestionBehavior: SuggestionBehaviorMetric(
         accepted: suggestionCodes.where((code) => code == 'accepted').length,
         modified: suggestionCodes.where((code) => code == 'modified').length,
@@ -459,4 +468,86 @@ List<EnergyPeriodMetric> _energyPeriods({
     return byMinutes != 0 ? byMinutes : a.label.compareTo(b.label);
   });
   return result;
+}
+
+/// 休息保护情况（FR-STAT-05 的第三项）。
+///
+/// **口径（默认选定，写在此备查）**：把筛选范围内每一天的每一段保护时间换算成 UTC 区间，
+/// **保护总时长**是这些区间与筛选范围的交集之和；**被占用时长**是这些区间与实际专注的重叠，
+/// 并按每段专注的**实际占比**折算——与 `_actualIntersectionMinutes` 同一口径，否则"休息被
+/// 占用"会按挂钟时长虚高（一段暂停很久的专注会把整段保护时间算成被占用）。
+///
+/// 逐"本地日 × 保护段"生成区间，而不是逐分钟扫描：一年的范围有几十万分钟，而这里的规模是
+/// "天数 × 保护段数"，即便再乘以专注条数也仍然很小。
+///
+/// 跨午夜的保护段（`endMinute <= startMinute`）**被跳过**：`protectedTimes` 里只有午餐、晚餐
+/// 与固定休息，睡眠另在 `sleepRange`，因此这里不猜跨午夜语义；若日后要支持，应先在设置侧
+/// 定义清楚。
+RestProtectionMetric? _restProtection({
+  required List<AnalyticsProtectedWindow> windows,
+  required Map<AnalyticsActualFact, int> actualByEntry,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
+
+  int overlapScaled(DateTime start, DateTime end) {
+    var total = 0;
+    for (final entry in actualByEntry.entries) {
+      final entryStart = entry.key.startUtc;
+      final entryEnd = entry.key.endUtc;
+      final overlapStart = entryStart.isAfter(start) ? entryStart : start;
+      final overlapEnd = entryEnd.isBefore(end) ? entryEnd : end;
+      if (!overlapStart.isBefore(overlapEnd)) continue;
+      final entryMicros = entryEnd.difference(entryStart).inMicroseconds;
+      if (entryMicros <= 0) continue;
+      total +=
+          (entry.value *
+                  overlapEnd.difference(overlapStart).inMicroseconds /
+                  entryMicros)
+              .round();
+    }
+    return total;
+  }
+
+  final localStart = zones.toLocal(filter.startUtc, timeZoneId);
+  final localEnd = zones.toLocal(filter.endUtc, timeZoneId);
+  var protectedMinutes = 0;
+  var overlappedMinutes = 0;
+  for (
+    var day = DateTime.utc(localStart.year, localStart.month, localStart.day);
+    !day.isAfter(DateTime.utc(localEnd.year, localEnd.month, localEnd.day));
+    day = day.add(const Duration(days: 1))
+  ) {
+    final isWeekend = day.weekday >= DateTime.saturday;
+    for (final window in windows) {
+      if (window.isWeekend != null && window.isWeekend != isWeekend) continue;
+      if (window.endMinute <= window.startMinute) continue;
+      final rawStart = zones.localDateTimeToUtc(
+        DateTime.utc(day.year, day.month, day.day),
+        window.startMinute,
+        timeZoneId,
+      );
+      final rawEnd = zones.localDateTimeToUtc(
+        DateTime.utc(day.year, day.month, day.day),
+        window.endMinute,
+        timeZoneId,
+      );
+      final start = rawStart.isBefore(filter.startUtc)
+          ? filter.startUtc
+          : rawStart;
+      final end = rawEnd.isAfter(filter.endUtc) ? filter.endUtc : rawEnd;
+      if (!start.isBefore(end)) continue;
+      protectedMinutes += end.difference(start).inMinutes;
+      overlappedMinutes += overlapScaled(start, end);
+    }
+  }
+
+  return RestProtectionMetric(
+    protectedMinutes: protectedMinutes,
+    // 逐段四舍五入可能让被占用比保护总时长多出一两分钟；夹住它，避免出现"占用 61 / 保护 60"
+    // 这种界面上一眼就像 bug 的数字。
+    overlappedMinutes: overlappedMinutes.clamp(0, protectedMinutes),
+  );
 }

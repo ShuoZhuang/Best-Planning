@@ -154,6 +154,48 @@ final class EnergyPeriodMetric {
   final int completedTasks;
 }
 
+/// 一段**保护时间**（睡眠／用餐／固定休息），用本地分钟区间表示。
+///
+/// 与精力区间同样只带标签字符串，统计模型因此不依赖排程规则模型。
+final class AnalyticsProtectedWindow {
+  const AnalyticsProtectedWindow({
+    required this.label,
+    required this.startMinute,
+    required this.endMinute,
+    required this.isWeekend,
+  });
+
+  final String label;
+  final int startMinute;
+  final int endMinute;
+
+  /// 与 [AnalyticsEnergyWindow.isWeekend] 同为三态：`null` 表示每天都适用。
+  final bool? isWeekend;
+}
+
+/// **休息保护情况**（FR-STAT-05 的第三项）。
+///
+/// 口径为**默认选定**并写在这里：`protectedMinutes` 是筛选范围内保护时段的总时长，
+/// `overlappedMinutes` 是其中**被实际专注覆盖**的分钟数（按每段专注的实际占比折算）。
+/// 之所以选这个口径：两项都由**既有数据**算出，不需要任何新采集。
+final class RestProtectionMetric {
+  const RestProtectionMetric({
+    required this.protectedMinutes,
+    required this.overlappedMinutes,
+  });
+
+  final int protectedMinutes;
+  final int overlappedMinutes;
+
+  int get preservedMinutes => protectedMinutes - overlappedMinutes;
+
+  /// 保护时段中**未被占用**的比例。没有保护时段时不可用（而不是 0）。
+  RatioMetric get preservedRate => RatioMetric(
+    numerator: preservedMinutes,
+    denominator: protectedMinutes,
+  );
+}
+
 final class AnalyticsReport {
   AnalyticsReport({
     required this.filter,
@@ -171,6 +213,8 @@ final class AnalyticsReport {
     // 带默认值：**"没有精力区间这一节"是合法状态**（未设置时区或用户还没设过区间），
     // 因此不强制每个构造点都写出一个空列表。
     List<EnergyPeriodMetric> energyPeriods = const [],
+    // 同样是可空带默认：**"用户没设过保护时段"是合法状态**，此时该节不显示。
+    this.restProtection,
     required this.suggestionBehavior,
   }) : domainDistribution = UnmodifiableListView(domainDistribution),
        trend = UnmodifiableListView(trend),
@@ -191,6 +235,7 @@ final class AnalyticsReport {
   final List<RankedMetric> commonInterruptions;
   final List<RankedMetric> replanReasons;
   final List<EnergyPeriodMetric> energyPeriods;
+  final RestProtectionMetric? restProtection;
   final SuggestionBehaviorMetric suggestionBehavior;
 }
 
@@ -266,11 +311,13 @@ final class AnalyticsDataset {
   AnalyticsDataset({
     required this.weeklyLifeQuotaMinutes,
     List<AnalyticsEnergyWindow> energyWindows = const [],
+    List<AnalyticsProtectedWindow> protectedWindows = const [],
     List<AnalyticsTaskFact> tasks = const [],
     List<AnalyticsPlannedFact> plannedBlocks = const [],
     List<AnalyticsActualFact> actualEntries = const [],
     List<AnalyticsEventFact> events = const [],
   }) : energyWindows = UnmodifiableListView(energyWindows),
+       protectedWindows = UnmodifiableListView(protectedWindows),
        tasks = UnmodifiableListView(tasks),
        plannedBlocks = UnmodifiableListView(plannedBlocks),
        actualEntries = UnmodifiableListView(actualEntries),
@@ -280,6 +327,9 @@ final class AnalyticsDataset {
 
   /// 用户的精力区间（本地时刻）。为空时统计侧**不显示**该节，而不是显示一个空壳。
   final List<AnalyticsEnergyWindow> energyWindows;
+
+  /// 用户的保护时间（睡眠／用餐／固定休息），本地时刻。为空时不显示"休息保护"一节。
+  final List<AnalyticsProtectedWindow> protectedWindows;
   final List<AnalyticsTaskFact> tasks;
   final List<AnalyticsPlannedFact> plannedBlocks;
   final List<AnalyticsActualFact> actualEntries;

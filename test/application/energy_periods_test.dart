@@ -196,4 +196,95 @@ void main() {
     final result = await service.query(filter);
     expect(result.energyPeriods, isEmpty);
   });
+
+  // FR-STAT-05 的"休息保护情况"。
+  //
+  // 口径：保护总时长是本地保护段与筛选范围的交集之和；被占用是这些区间与实际专注的重叠，
+  // 并按每段专注的**实际占比**折算。后者是本文件里最容易做错的一处，因此专门钉一条。
+  const lunch = AnalyticsProtectedWindow(
+    label: '午餐',
+    startMinute: 12 * 60,
+    endMinute: 13 * 60,
+    isWeekend: null,
+  );
+
+  AnalyticsDataset withLunch({
+    List<AnalyticsActualFact> actual = const [],
+  }) => AnalyticsDataset(
+    weeklyLifeQuotaMinutes: 600,
+    protectedWindows: const [lunch],
+    actualEntries: actual,
+    // 服务会先按**筛选出的任务**过滤实际投入，因此这些条目必须带有对应任务，否则会被整条
+    // 丢掉——本文件第一版夹具正是漏了这一点，"被占用"因此恒为 0，是用例把错误顶了出来。
+    tasks: [for (final entry in actual) _task(entry.taskId)],
+  );
+
+  Future<RestProtectionMetric?> protection(AnalyticsDataset dataset) async {
+    final service = AnalyticsService(
+      source: _Source(dataset),
+      zones: _zones,
+      timeZoneId: _timeZoneId,
+    );
+    final result = await service.query(filter);
+    return result.restProtection;
+  }
+
+  test('休息保护：保护总时长按本地日累计（含周末，因为 dayKind 为 any）', () async {
+    // 2026-10-04 到 10-12 共 8 个本地日，每天 60 分钟午餐保护。
+    final metric = await protection(withLunch());
+
+    expect(metric!.protectedMinutes, 60 * 8);
+    expect(metric.overlappedMinutes, 0);
+    expect(metric.preservedMinutes, 60 * 8);
+  });
+
+  test('休息保护：被专注占用按**实际时长**折算，而不是按挂钟时长', () async {
+    // 本地 12:30–12:40 的专注：挂钟 10 分钟，但实际只专注了 4 分钟（其余是暂停）。
+    // 若按挂钟算，被占用会记 10 分钟——这条断言就是判别点。
+    final metric = await protection(
+      withLunch(
+        actual: [
+          AnalyticsActualFact(
+            taskId: 'task-1',
+            startUtc: _local(12, 30),
+            endUtc: _local(12, 40),
+            activeMinutes: 4,
+          ),
+        ],
+      ),
+    );
+
+    expect(metric!.overlappedMinutes, 4);
+    expect(metric.protectedMinutes, 60 * 8);
+  });
+
+  test('休息保护：保护时段之外的专注不算占用休息', () async {
+    final metric = await protection(
+      withLunch(
+        actual: [
+          AnalyticsActualFact(
+            taskId: 'task-1',
+            startUtc: _local(9, 0),
+            endUtc: _local(10, 0),
+            activeMinutes: 60,
+          ),
+        ],
+      ),
+    );
+
+    expect(metric!.overlappedMinutes, 0);
+  });
+
+  test('休息保护：没有保护时段或没有时区时不产生该节', () async {
+    final withoutWindows = await protection(
+      AnalyticsDataset(weeklyLifeQuotaMinutes: 600, tasks: const []),
+    );
+    expect(withoutWindows, isNull);
+
+    final withoutZones = AnalyticsService(
+      source: _Source(withLunch()),
+    );
+    final report = await withoutZones.query(filter);
+    expect(report.restProtection, isNull);
+  });
 }
