@@ -5,6 +5,7 @@ import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -44,6 +45,7 @@ GoRouter createPlannerRouter({
   AnalyticsQuery? analytics,
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
+  TagService? tagService,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -77,6 +79,8 @@ GoRouter createPlannerRouter({
           builder: (context, state) => TaskDetailPage(
             service: taskService,
             workspace: workspaceService,
+            // FR-TASK-02 的标签入口。为空时该区不显示，其余部分照常可用。
+            tags: tagService,
             taskId: state.pathParameters['taskId']!,
             nowUtc: nowUtc ?? todayStartUtc,
           ),

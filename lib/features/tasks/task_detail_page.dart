@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/domain/models/tag.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
@@ -20,6 +22,7 @@ final class TaskDetailPage extends StatefulWidget {
     required this.taskId,
     required this.nowUtc,
     this.workspace,
+    this.tags,
     super.key,
   });
 
@@ -30,6 +33,13 @@ final class TaskDetailPage extends StatefulWidget {
   /// 领域与项目服务。为空时不显示项目选择——其余部分照常可用。
   final WorkspaceService? workspace;
 
+  /// 标签服务。为空时不显示标签区——其余部分照常可用。
+  ///
+  /// FR-TASK-02 要求任务可"补充分类"，而标签是唯一不依赖领域／项目层次的分类方式。
+  /// 在此之前标签只有两张表：没有任何界面能建立标签或把它打到任务上，因此统计侧
+  /// 即便能按标签筛选也没有数据可筛（见 R1）。
+  final TagService? tags;
+
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
 }
@@ -38,12 +48,16 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   final _remaining = TextEditingController();
   final _newProjectName = TextEditingController();
   final _window = TextEditingController();
+  final _newTagName = TextEditingController();
   PlannerTask? _task;
   List<PlannerProject> _projects = const [];
   List<PlannerArea> _areas = const [];
+  List<PlannerTag> _allTags = const [];
+  Set<String> _taskTagNames = const {};
   String? _newProjectAreaId;
   bool _loading = true;
   bool _saving = false;
+  bool _tagSaving = false;
   String? _message;
 
   @override
@@ -57,6 +71,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
     _remaining.dispose();
     _newProjectName.dispose();
     _window.dispose();
+    _newTagName.dispose();
     super.dispose();
   }
 
@@ -73,11 +88,20 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
     final areas = workspace == null
         ? const <PlannerArea>[]
         : await workspace.listAreas();
+    final tagService = widget.tags;
+    final allTags = tagService == null
+        ? const <PlannerTag>[]
+        : await tagService.listTags();
+    final taskTags = tagService == null || task == null
+        ? const <PlannerTag>[]
+        : await tagService.tagsForTask(task.id);
     if (!mounted) return;
     setState(() {
       _task = task;
       _projects = projects;
       _areas = areas;
+      _allTags = allTags;
+      _taskTagNames = {for (final tag in taskTags) tag.name};
       // 默认选中第一个领域，因为新建项目必须挂在某个领域下；领域为空时保持 null，
       // 此时新建入口会提示先建领域而不是提交一个必然失败的项目。
       _newProjectAreaId = areas.any((item) => item.id == _newProjectAreaId)
@@ -205,6 +229,49 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           : '期望时段无效（需起点早于终点且在一日之内），未保存';
     });
     if (saved) await _load();
+  }
+
+  /// 切换某个已有标签在当前任务上的有无。
+  Future<void> _toggleTag(String name) async {
+    final next = {..._taskTagNames};
+    if (!next.remove(name)) next.add(name);
+    await _writeTags(next);
+  }
+
+  /// 建立一个新标签并打在当前任务上。
+  ///
+  /// "建立"与"打上"合成一个动作：只建不打的标签对用户没有意义，而分成两步会先在
+  /// 列表里留下一个没人用的名字。名称是否存在由服务层判断——页面不重复这套规则。
+  Future<void> _addTag() async {
+    final name = _newTagName.text.trim();
+    if (name.isEmpty) {
+      setState(() => _message = '请填写标签名');
+      return;
+    }
+    await _writeTags({..._taskTagNames, name});
+    if (_taskTagNames.contains(name)) _newTagName.clear();
+  }
+
+  Future<void> _writeTags(Set<String> names) async {
+    final tags = widget.tags;
+    if (tags == null) return;
+    setState(() {
+      _tagSaving = true;
+      _message = null;
+    });
+    // 服务层按差量更新，因此重复保存同一组标签不会产生多余写入。
+    await tags.setTaskTags(widget.taskId, names);
+    final allTags = await tags.listTags();
+    final taskTags = await tags.tagsForTask(widget.taskId);
+    if (!mounted) return;
+    setState(() {
+      _tagSaving = false;
+      _allTags = allTags;
+      _taskTagNames = {for (final tag in taskTags) tag.name};
+      _message = taskTags.isEmpty
+          ? '已清除本任务的标签'
+          : '已更新标签：${taskTags.map((tag) => tag.name).join('、')}';
+    });
   }
 
   @override
@@ -336,6 +403,58 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                 ],
               ),
             ],
+          ],
+          if (widget.tags != null) ...[
+            const Divider(height: 40),
+            Text('标签', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            const Text(
+              '标签是跨领域的分类，一个任务可以有多个，彼此没有层次关系；'
+              '统计页按标签筛选时是整词匹配。',
+            ),
+            const SizedBox(height: 12),
+            if (_allTags.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text('尚无标签。在下面填入名称即可建立并打在本任务上。'),
+              ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tag in _allTags)
+                  FilterChip(
+                    key: Key('tag-chip-${tag.name}'),
+                    label: Text(tag.name),
+                    selected: _taskTagNames.contains(tag.name),
+                    onSelected: _tagSaving
+                        ? null
+                        : (_) => _toggleTag(tag.name),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                SizedBox(
+                  width: 200,
+                  child: TextField(
+                    key: const Key('new-tag-name'),
+                    controller: _newTagName,
+                    decoration: const InputDecoration(
+                      labelText: '新标签',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  key: const Key('add-tag'),
+                  onPressed: _tagSaving ? null : _addTag,
+                  child: Text(_tagSaving ? '保存中…' : '添加标签'),
+                ),
+              ],
+            ),
           ],
           const Divider(height: 40),
           Text('期望时段', style: Theme.of(context).textTheme.titleMedium),

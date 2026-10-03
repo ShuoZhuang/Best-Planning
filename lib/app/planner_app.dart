@@ -8,6 +8,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -36,6 +37,7 @@ final class PlannerApp extends StatefulWidget {
     this.preferences,
     this.notifications,
     this.workspaceService,
+    this.tagService,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -69,6 +71,10 @@ final class PlannerApp extends StatefulWidget {
 
   /// 领域与项目服务。为空时任务详情页不提供项目选择，其余功能不受影响。
   final WorkspaceService? workspaceService;
+
+  /// 标签服务。为空时任务详情页不提供标签区（FR-TASK-02），统计的标签筛选也就没有
+  /// 数据可筛——标签此前只有两张表，没有任何写入方（R1）。
+  final TagService? tagService;
 
   final TimeZoneDatabase? zones;
 
@@ -123,6 +129,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       plans: widget.planRepository,
       analytics: widget.analytics,
       workspaceService: widget.workspaceService,
+      tagService: widget.tagService,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),

@@ -10,6 +10,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -22,6 +23,7 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
+import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
@@ -118,6 +120,14 @@ void main() {
     }
   }());
 
+  // 标签此前只有两张表：没有任何写入方，因此界面上无法建立标签、也无法把它打到任务上，
+  // 统计的标签筛选即便修好取数也没有数据可筛（R1）。
+  final tagService = TagService(
+    repository: DriftTagRepository(database),
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -130,6 +140,8 @@ void main() {
         // 与启动时的默认领域初始化共用同一实例：任务详情页要用它列出项目，
         // 用户才能把任务归属到领域下的项目（R2）。
         workspaceService: workspaceService,
+        // 任务详情页的标签区（FR-TASK-02）。与统计的标签筛选读的是同一批表。
+        tagService: tagService,
         analytics: AnalyticsService(source: AnalyticsDao(database)),
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
