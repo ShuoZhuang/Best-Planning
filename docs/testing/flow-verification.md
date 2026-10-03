@@ -114,6 +114,8 @@ Flutter 会复用 State 导致 `_build()` 不重跑（按钮看着没反应）�
 | 流程 | 可执行证据 | 状态 |
 | --- | --- | --- |
 | 首次引导门控 | `test/features/onboarding/onboarding_page_test.dart` | 可走通 |
+| **排程处理管线**（技术设计 §5.2：输入 → 可用时间 → 候选生成 → 远期压力 → 评分 → 最终验证 → 不可行报告） | `test/scheduling/schedule_engine_test.dart`、`schedule_engine_time_zone_test.dart`、`plan_validator_test.dart`、`infeasible_schedule_test.dart`、`preferred_time_window_test.dart` | 可走通 |
+| **统计口径与聚合**（技术设计 §8／Task 17：事件 → 按窗口分桶 → 数据集 → 页面；含今天/本周/本月与休息保护、中断原因） | `test/application/analytics_service_test.dart`、`test/data/analytics_dao_test.dart`、`test/features/analytics/analytics_page_test.dart`、`test/app/analytics_route_test.dart` | 可走通 |
 | 生成计划（含首周计划端到端） | `integration_test/first_plan_flow_test.dart`（**逐条在 Windows 上实跑**） | 可走通 |
 | 临时晚归后的紧急重排（端到端） | `integration_test/emergency_replan_flow_test.dart`（同上） | 可走通 |
 | 备份与恢复（端到端） | `integration_test/backup_restore_flow_test.dart`（同上） | 可走通 |
