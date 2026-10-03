@@ -129,6 +129,28 @@ void main() {
     expect(find.byKey(const Key('cancel-task')), findsNothing);
   });
 
+  // FR-REPLAN-07：处理入口之二——调整优先级。断言**按值**找到菜单项再点，因此不依赖
+  // 界面文案；文案改动不该让这条用例失效，而"改变有没有落到存储"必须被钉住。
+  testWidgets('从界面调整优先级会落到存储', (tester) async {
+    await pumpDetail(tester, 'task-1');
+    // fixture 里这一条是 high，因此这里切到 low——用"不等于当前值"的目标，
+    // 否则即便入口根本没生效，断言也可能因为值本来就相同而通过。
+    expect(tasks.tasks['task-1']!.priority, TaskPriority.high);
+
+    await tester.tap(find.byKey(const Key('task-priority')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is DropdownMenuItem<TaskPriority> &&
+            widget.value == TaskPriority.low,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tasks.tasks['task-1']!.priority, TaskPriority.low);
+  });
+
   testWidgets('从界面修正剩余时长会更新任务并留下修正历史', (tester) async {
     await pumpDetail(tester, 'task-1');
 

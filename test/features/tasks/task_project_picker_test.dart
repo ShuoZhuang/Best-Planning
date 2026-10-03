@@ -198,6 +198,9 @@ void main() {
       find.byKey(const Key('new-project-name')),
       '读书',
     );
+    // 这一页会随功能增长而变长（本轮就新增了优先级控件），因此点击前先滚动到可见位置，
+    // 而不是假设它在默认视口内——否则排布一变，点击会**静默失效**，表现为"功能坏了"。
+    await tester.ensureVisible(find.text('新建并归属'));
     await tester.tap(find.text('新建并归属'));
     await tester.pumpAndSettle();
 
@@ -212,6 +215,9 @@ void main() {
   testWidgets('项目名为空时拒绝提交并说明原因', (tester) async {
     await pump(tester);
 
+    // 这一页会随功能增长而变长（本轮就新增了优先级控件），因此点击前先滚动到可见位置，
+    // 而不是假设它在默认视口内——否则排布一变，点击会**静默失效**，表现为"功能坏了"。
+    await tester.ensureVisible(find.text('新建并归属'));
     await tester.tap(find.text('新建并归属'));
     await tester.pumpAndSettle();
 

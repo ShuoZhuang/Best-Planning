@@ -157,6 +157,25 @@ final class TaskService {
     return TaskSaveResult.success(updated);
   }
 
+  /// 调整任务优先级（FR-REPLAN-07 的处理入口之一）。
+  ///
+  /// 与 [correctRemainingMinutes] 同型：读取—改一个字段—保存，并推进修改时间。
+  ///
+  /// **与 FR-REPLAN-08 不冲突**：那条禁止的是**系统自行**修改截止日期、预计时长或硬约束；
+  /// 优先级由**用户显式**调整，正是 FR-REPLAN-07 要求提供的入口。
+  Future<TaskSaveResult> setPriority(String taskId, TaskPriority priority) async {
+    final existing = await _repository.getById(taskId);
+    if (existing == null) {
+      return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    }
+    final updated = existing.copyWith(
+      priority: priority,
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    await _repository.save(updated);
+    return TaskSaveResult.success(updated);
+  }
+
   /// 把任务归属到某个项目，`projectId` 为 null 表示取消归属。
   ///
   /// 这是**任务通向领域的唯一路径**：任务的分类（领域）与生活标记都经

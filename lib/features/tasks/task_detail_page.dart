@@ -340,6 +340,31 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               label: const Text('取消事项'),
             ),
           ],
+          // FR-REPLAN-07 的"调整优先级"处理入口。服务侧此前没有单字段更新方法，
+          // 因此本轮补了 `TaskService.setPriority`；这里的下拉复用本页既有的
+          // DropdownButton 模式（项目选择器），不为一个控件引进新样式。
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: DropdownButton<TaskPriority>(
+              key: const Key('task-priority'),
+              value: task.priority,
+              onChanged: (value) async {
+                if (value == null || value == task.priority) return;
+                await widget.service.setPriority(widget.taskId, value);
+                if (!mounted) return;
+                setState(() => _message = '已调整优先级');
+                await _load();
+              },
+              items: [
+                for (final priority in TaskPriority.values)
+                  DropdownMenuItem(
+                    value: priority,
+                    child: Text(_priorityLabel(priority)),
+                  ),
+              ],
+            ),
+          ),
           const SizedBox(height: 20),
           _Fact(label: '预计时长', value: '${task.estimatedMinutes} 分钟'),
           _Fact(label: '剩余时长', value: '${task.remainingMinutes} 分钟'),
