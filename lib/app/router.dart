@@ -598,6 +598,13 @@ GoRouter createPlannerRouter({
         GoRoute(
           path: '/planning/preview/:proposalId',
           builder: (context, state) => _PlanPreviewLoader(
+            // **key 是必需的，不是装饰**：`_PlanPreviewLoaderState` 用
+            // `late final Future<PlanPreviewModel> _model = _build()` 只算一次。重新生成
+            // （见页面里的"重新生成计划"）会 `go` 到**同一路由的不同 proposalId**，此时
+            // widget 类型与位置都没变，Flutter 会**复用 State**，`_build()` 不会重跑——页面
+            // 会继续显示那份已经过期的模型，按钮看起来点了没反应。按 proposalId 给 key 会让
+            // 参数变化时换掉 Element，从而重建 State。
+            key: ValueKey(state.pathParameters['proposalId']),
             proposalId: state.pathParameters['proposalId']!,
             planning: planningService,
             application: planApplication,
@@ -908,6 +915,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.application,
     this.plans,
     this.planHistory,
+    super.key,
   });
 
   final String proposalId;
@@ -984,6 +992,17 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         model: model,
         autoAdjustStore: widget.autoAdjustStore,
         onConfirm: () => _confirm(context, model),
+        // 时序图 `else stale` 分支的 `request recalculation`：复用顶层的 `_generatePlan`
+        // ——它已经是"生成提案 → 按信任设置决定是否直接应用 → 导航到预览"的既有路径，因此这里
+        // 不另写一套。未装配排程服务时传 null，页面据此不显示按钮（那种情况下根本无法重新生成）。
+        onRecalculate: widget.planning == null
+            ? null
+            : () => _generatePlan(
+                context,
+                widget.planning!,
+                widget.application,
+                widget.autoAdjustStore,
+              ),
         // FR-REPLAN-08 的撤销入口。`PlanUndoService` 是**无状态**的薄服务，因此就地构造，
         // 不再穿一条 main→PlannerApp→router 的参数链（那要多 4 处装配）。
         onUndoPlan: widget.planHistory == null

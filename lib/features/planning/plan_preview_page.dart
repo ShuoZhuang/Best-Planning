@@ -66,6 +66,7 @@ final class PlanPreviewPage extends StatefulWidget {
     required this.autoAdjustStore,
     required this.onConfirm,
     this.onUndoPlan,
+    this.onRecalculate,
     super.key,
   });
 
@@ -79,6 +80,17 @@ final class PlanPreviewPage extends StatefulWidget {
   /// 是因为"没有可撤销的计划"是一种正常状态，不是故障。
   final Future<bool> Function()? onUndoPlan;
 
+  /// 重新生成一份提案（技术设计时序图里 `else stale` 分支的 `request recalculation`）。
+  ///
+  /// **这个回调补的是一处走不通的路径**：在它之前，过期时页面只显示
+  /// 「该调整提案已失效，请重新生成计划」，而**确认按钮同时被禁用、卡片也没有点击行为**——
+  /// 也就是说流程**要求**用户重新计算，界面上却没有任何可做这件事的地方（提案只存在内存里，
+  /// 应用重启或重新生成后旧链接必然失效，因此这条路真的会走到）。
+  ///
+  /// 为空时同样**不显示**按钮（与 [onUndoPlan] 同一口径）：未装配排程服务时根本无法重新生成，
+  /// 此时给一个点了没反应的按钮比不给更糟。
+  final Future<void> Function()? onRecalculate;
+
   @override
   State<PlanPreviewPage> createState() => _PlanPreviewPageState();
 }
@@ -86,11 +98,25 @@ final class PlanPreviewPage extends StatefulWidget {
 final class _PlanPreviewPageState extends State<PlanPreviewPage> {
   late bool _autoAdjust;
   bool _applying = false;
+  bool _recalculating = false;
 
   @override
   void initState() {
     super.initState();
     _autoAdjust = widget.autoAdjustStore.enabled;
+  }
+
+  Future<void> _recalculate() async {
+    final recalculate = widget.onRecalculate;
+    if (recalculate == null) return;
+    setState(() => _recalculating = true);
+    try {
+      await recalculate();
+    } finally {
+      // 重新生成会导航到新提案的预览页，因此本 widget 通常已被卸载；仍然判断 mounted，
+      // 否则"重新生成失败且留在原页"这一种结局会抛异常。
+      if (mounted) setState(() => _recalculating = false);
+    }
   }
 
   Future<void> _confirm() async {
@@ -113,10 +139,33 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (widget.model.isStale)
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.refresh),
-                  title: Text('提案已过期，请重新计算'),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.refresh),
+                        title: Text('提案已过期，请重新计算'),
+                      ),
+                      // 这段话此前**没有对应的动作**：确认按钮被禁用、卡片也不可点，于是界面
+                      // 要求用户做一件它在任何地方都没提供的事。现在给出入口。
+                      if (widget.onRecalculate != null)
+                        FilledButton.icon(
+                          key: const Key('recalculate-plan'),
+                          onPressed: _recalculating ? null : _recalculate,
+                          icon: _recalculating
+                              ? const SizedBox.square(
+                                  dimension: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.autorenew),
+                          label: const Text('重新生成计划'),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             for (final kind in PreviewChangeKind.values)

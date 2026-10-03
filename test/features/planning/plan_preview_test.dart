@@ -179,4 +179,75 @@ void main() {
     // 宁可没有按钮，也不要一个点了不生效的图标。
     expect(find.byKey(const Key('undo-plan')), findsNothing);
   });
+
+  // 技术设计时序图里 `else stale` 分支写的是 `staleProposal; request recalculation`。
+  // 在补这个入口之前，过期时页面只显示「该调整提案已失效，请重新生成计划」而**确认按钮同时
+  // 被禁用、卡片也不可点**——流程要求用户重新计算，界面上却没有任何地方能做这件事。而这条
+  // 路真的会走到：提案只存在内存里，应用重启或重新生成后旧链接必然失效
+  // （`router.dart` 的 `preview(proposalId) == null` 分支）。下面三条把这个入口钉住。
+  PlanPreviewModel staleModel({required bool stale}) => PlanPreviewModel(
+    proposalId: 'proposal-1',
+    changes: const [],
+    conflicts: const [],
+    isStale: stale,
+  );
+
+  testWidgets('过期时给出「重新生成计划」入口，并真的调用回调', (tester) async {
+    var recalculated = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: staleModel(stale: true),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+          onRecalculate: () async => recalculated++,
+        ),
+      ),
+    );
+
+    expect(find.text('提案已过期，请重新计算'), findsOneWidget);
+    final button = find.byKey(const Key('recalculate-plan'));
+    expect(button, findsOneWidget);
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(recalculated, 1);
+  });
+
+  testWidgets('过期但未装配重新生成时，不给一个点了不生效的按钮', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: staleModel(stale: true),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+        ),
+      ),
+    );
+
+    // 提示照旧要显示（用户得知道当前这份预览不能应用），但**不能**给一个无法生效的入口。
+    expect(find.text('提案已过期，请重新计算'), findsOneWidget);
+    expect(find.byKey(const Key('recalculate-plan')), findsNothing);
+  });
+
+  testWidgets('未过期时不显示重新生成入口（它是过期状态专用的）', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: staleModel(stale: false),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+          onRecalculate: () async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('recalculate-plan')), findsNothing);
+    // 未过期时确认按钮必须是可用的——否则"能重新生成"会掩盖"根本没能确认"。
+    final confirm = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '确认应用'),
+    );
+    expect(confirm.onPressed, isNotNull);
+  });
 }
