@@ -149,3 +149,43 @@ Flutter 会复用 State 导致 `_build()` 不重跑（按钮看着没反应）�
 | **W11** | 时序图 `else stale` 分支在界面里走不通（只有提示、没有入口） | **已修** `8749b86` |
 | **R14** | `FocusSession`/`FocusPhase`/`FocusRecoveryState` 声明在 `application` 而非 `domain`，数据层反向依赖它们 | 已登记，未修 |
 | — | 图 1 的 `PORTS` 方块不对应任何单一目录；`data→application`／`application→platform` 是依赖倒置箭头，图里未画出 | 已登记（本文件），未改图 |
+
+---
+
+## 六、安装版实测（本轮顺带问清的两件事）
+
+启动已安装的 MSIX（`ShuoZhuang.PersonalPlanner_1.0.0.0_x64__v9555qkaxdyym`）并做核对，
+把两个此前只能猜的问题问清楚了。
+
+### 1. 数据落点：`F:\Documents\personal_planner.sqlite`，**没有** MSIX 文件系统重定向
+
+代码里数据库路径是 `getApplicationDocumentsDirectory()` + `personal_planner.sqlite`
+（`lib/app/backup_assembly.dart:46`）。用包内探针（`Invoke-CommandInDesktopPackage`）问**包内进程**
+自己看到的目录：
+
+```text
+MyDocuments : F:\Documents          ← 本机的"文档"已知文件夹被重定向到 F:，不是 C:\Users\zs200\Documents
+USERPROFILE : C:\Users\zs200
+EXPECTED-DB : F:\Documents\personal_planner.sqlite
+DB-EXISTS   : True
+```
+
+**结论**：打包版**没有**把文档目录重定向进包私有目录，它写的就是真实的文档目录。因此
+**绿色版（release EXE）与安装版共用同一个数据库文件**——此前担心"安装版看不到已有数据"是
+**多虑**，现已实测排除。另外：判定数据库位置时不要假设它一定在 `C:\Users\<用户>\Documents`，
+应当读已知文件夹（本机就被搬到了 F:）。
+
+### 2. 崩溃：`0xc0000409`，且 `92efcf3` 修的正是它
+
+Windows 应用程序日志里有两条 `personal_planner.exe`（版本 `1.0.0.1`）的崩溃记录，时间
+**20:56**，异常代码 **`0xc0000409`**（BEX64，故障模块 `ucrtbase.dll`）。而本仓库随后的提交
+`92efcf3 fix(windows): initialize notifications after first frame` 说明的正是同一件事：
+在 `initState` 的 `persistentCallbacks` 阶段进入原生通知初始化，插件会同步回调 Dart，使渲染器在
+首帧尚未就绪时 `compositeFrame`，**Release 随后以 `0xc0000409` 退出**；修法是等首帧结束后再读
+启动详情。
+
+**这意味着已安装的 `1.0.0.0` 早于该修复，仍然暴露在这个首帧竞态里。** 本轮 21:57 的那次启动
+存活了下来（进程响应、窗口标题正常、数据库已创建），因此**它不是必现**——这正是竞态的特征，
+也说明"起得来一次"不能当作"不再崩"。**结论：做通知 toast 的人工验证之前，应当先重新打包
+（`msix_version` 需大于已安装的 `1.0.0.0`）并安装带该修复的版本**，否则验证可能只是在测一个
+会崩的构建。
