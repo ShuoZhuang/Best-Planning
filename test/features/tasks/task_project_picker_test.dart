@@ -46,12 +46,13 @@ final class _Tasks implements TaskRepository {
 }
 
 final class _Workspace implements WorkspaceRepository {
-  _Workspace({required this.projects});
+  _Workspace({required this.areas, required this.projects});
 
+  final List<PlannerArea> areas;
   final List<PlannerProject> projects;
 
   @override
-  Future<List<PlannerArea>> listAreas() async => const <PlannerArea>[];
+  Future<List<PlannerArea>> listAreas() async => areas;
 
   @override
   Future<List<PlannerProject>> listProjects() async => projects;
@@ -60,8 +61,19 @@ final class _Workspace implements WorkspaceRepository {
   Future<void> saveArea(PlannerArea area) async {}
 
   @override
-  Future<void> saveProject(PlannerProject project) async {}
+  Future<void> saveProject(PlannerProject project) async =>
+      projects.add(project);
 }
+
+PlannerArea _area(String id, String name, {bool isLife = false}) => PlannerArea(
+  id: id,
+  name: name,
+  color: 0,
+  sortOrder: 0,
+  isLife: isLife,
+  createdAtUtc: DateTime.utc(2026, 10, 1),
+  updatedAtUtc: DateTime.utc(2026, 10, 1),
+);
 
 PlannerTask _task() => PlannerTask(
   id: 'task-1',
@@ -97,6 +109,7 @@ void main() {
     tasks = _Tasks({'task-1': _task()});
     workspace = WorkspaceService(
       repository: _Workspace(
+        areas: [_area('area-life', '生活', isLife: true)],
         projects: [
           _project('project-life', '健身'),
           _project(
@@ -116,13 +129,16 @@ void main() {
     );
   });
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    WorkspaceService? withWorkspace,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: TaskDetailPage(
             service: service,
-            workspace: workspace,
+            workspace: withWorkspace ?? workspace,
             taskId: 'task-1',
             nowUtc: _now,
           ),
@@ -161,6 +177,46 @@ void main() {
     expect(saved.projectId, isNull);
     expect(saved.remainingMinutes, 60);
     expect(find.text('已取消项目归属'), findsOneWidget);
+  });
+
+  testWidgets('可以直接新建项目并归属，无需先有项目', (tester) async {
+    // 复现全新安装：默认初始化只建领域、不建任何项目，因此选择器里只有"不归属项目"。
+    final fresh = WorkspaceService(
+      repository: _Workspace(
+        areas: [_area('area-life', '生活', isLife: true)],
+        projects: [],
+      ),
+      clock: const _Clock(),
+      idGenerator: _Ids(),
+    );
+    await pump(tester, withWorkspace: fresh);
+
+    // 空列表必须说明原因，否则会被当成功能失效。
+    expect(find.textContaining('尚无项目'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('new-project-name')),
+      '读书',
+    );
+    await tester.tap(find.text('新建并归属'));
+    await tester.pumpAndSettle();
+
+    final created = (await fresh.listProjects()).firstWhere(
+      (item) => item.name == '读书',
+    );
+    expect(created.areaId, 'area-life');
+    expect(tasks.tasks['task-1']!.projectId, created.id);
+    expect(find.textContaining('已新建项目"读书"并归属'), findsOneWidget);
+  });
+
+  testWidgets('项目名为空时拒绝提交并说明原因', (tester) async {
+    await pump(tester);
+
+    await tester.tap(find.text('新建并归属'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请填写项目名称'), findsOneWidget);
+    expect(tasks.tasks['task-1']!.projectId, isNull);
   });
 
   testWidgets('已归档项目不出现在可选项中', (tester) async {

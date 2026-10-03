@@ -36,8 +36,11 @@ final class TaskDetailPage extends StatefulWidget {
 
 final class _TaskDetailPageState extends State<TaskDetailPage> {
   final _remaining = TextEditingController();
+  final _newProjectName = TextEditingController();
   PlannerTask? _task;
   List<PlannerProject> _projects = const [];
+  List<PlannerArea> _areas = const [];
+  String? _newProjectAreaId;
   bool _loading = true;
   bool _saving = false;
   String? _message;
@@ -51,6 +54,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   @override
   void dispose() {
     _remaining.dispose();
+    _newProjectName.dispose();
     super.dispose();
   }
 
@@ -64,13 +68,60 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
         : (await workspace.listProjects())
               .where((item) => !item.isArchived)
               .toList(growable: false);
+    final areas = workspace == null
+        ? const <PlannerArea>[]
+        : await workspace.listAreas();
     if (!mounted) return;
     setState(() {
       _task = task;
       _projects = projects;
+      _areas = areas;
+      // 默认选中第一个领域，因为新建项目必须挂在某个领域下；领域为空时保持 null，
+      // 此时新建入口会提示先建领域而不是提交一个必然失败的项目。
+      _newProjectAreaId = areas.any((item) => item.id == _newProjectAreaId)
+          ? _newProjectAreaId
+          : (areas.isEmpty ? null : areas.first.id);
       _loading = false;
       if (task != null) _remaining.text = '${task.remainingMinutes}';
     });
+  }
+
+  /// 新建项目并立即把当前任务归属过去。
+  ///
+  /// 两件事放在一个动作里，是因为"选择器为空"本身不是可操作的状态：默认初始化只建
+  /// 领域而不建项目（项目该由用户定义），因此若只给一个空列表，用户会以为功能坏了。
+  Future<void> _createProjectAndAssign() async {
+    final workspace = widget.workspace;
+    final areaId = _newProjectAreaId;
+    final name = _newProjectName.text.trim();
+    if (workspace == null) return;
+    if (areaId == null) {
+      setState(() => _message = '请先建立领域，再新建项目');
+      return;
+    }
+    if (name.isEmpty) {
+      setState(() => _message = '请填写项目名称');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final project = await workspace.createProject(name: name, areaId: areaId);
+    final assigned = await widget.service.assignProject(
+      widget.taskId,
+      project.id,
+    );
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _newProjectName.clear();
+      _message = assigned
+          ? '已新建项目"$name"并归属，领域与生活标记随之生效'
+          : '项目已新建，但任务不存在，归属未变更';
+    });
+    await _load();
   }
 
   /// 归属或取消归属项目。
@@ -181,6 +232,16 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               '任务的领域与生活标记都经"项目 → 领域"推导；不归属项目时两者都不适用。',
             ),
             const SizedBox(height: 12),
+            if (_projects.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  // 空列表要说明原因，否则看起来像功能失效。
+                  _areas.isEmpty
+                      ? '尚无项目，且没有领域可供挂靠——请先建立领域。'
+                      : '尚无项目。项目由你定义，可在下面新建一个并直接归属本任务。',
+                ),
+              ),
             DropdownButton<String?>(
               value: _projects.any((item) => item.id == task.projectId)
                   ? task.projectId
@@ -199,6 +260,50 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                   ),
               ],
             ),
+            if (_areas.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text('新建项目并归属', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 160,
+                    child: DropdownButton<String>(
+                      value: _newProjectAreaId,
+                      isExpanded: true,
+                      onChanged: _saving
+                          ? null
+                          : (value) =>
+                                setState(() => _newProjectAreaId = value),
+                      items: [
+                        for (final area in _areas)
+                          DropdownMenuItem<String>(
+                            value: area.id,
+                            child: Text(area.name),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 200,
+                    child: TextField(
+                      key: const Key('new-project-name'),
+                      controller: _newProjectName,
+                      decoration: const InputDecoration(
+                        labelText: '项目名称',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: _saving ? null : _createProjectAndAssign,
+                    child: const Text('新建并归属'),
+                  ),
+                ],
+              ),
+            ],
           ],
           const Divider(height: 40),
           Text('修正剩余时长', style: Theme.of(context).textTheme.titleMedium),
