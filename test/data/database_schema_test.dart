@@ -11,7 +11,7 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('创建全部十三张核心表并启用外键', () async {
+  test('创建全部十五张核心表并启用外键', () async {
     final tableNames = database.allTables
         .map((table) => table.actualTableName)
         .toSet();
@@ -20,6 +20,8 @@ void main() {
       'areas',
       'projects',
       'tasks',
+      'tags',
+      'task_tags',
       'calendar_events',
       'recurrence_rules',
       'energy_windows',

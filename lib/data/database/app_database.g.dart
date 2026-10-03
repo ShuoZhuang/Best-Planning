@@ -46,8 +46,53 @@ class $AreasTable extends Areas with TableInfo<$AreasTable, Area> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isLifeMeta = const VerificationMeta('isLife');
   @override
-  List<GeneratedColumn> get $columns => [id, name, color, sortOrder];
+  late final GeneratedColumn<bool> isLife = GeneratedColumn<bool>(
+    'is_life',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_life" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    color,
+    sortOrder,
+    isLife,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -89,6 +134,30 @@ class $AreasTable extends Areas with TableInfo<$AreasTable, Area> {
     } else if (isInserting) {
       context.missing(_sortOrderMeta);
     }
+    if (data.containsKey('is_life')) {
+      context.handle(
+        _isLifeMeta,
+        isLife.isAcceptableOrUnknown(data['is_life']!, _isLifeMeta),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -114,6 +183,18 @@ class $AreasTable extends Areas with TableInfo<$AreasTable, Area> {
         DriftSqlType.int,
         data['${effectivePrefix}sort_order'],
       )!,
+      isLife: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_life'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -128,11 +209,20 @@ class Area extends DataClass implements Insertable<Area> {
   final String name;
   final int color;
   final int sortOrder;
+
+  /// Marks an area as belonging to life rather than work, which the life-quota
+  /// soft constraint and the calendar life category both read.
+  final bool isLife;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const Area({
     required this.id,
     required this.name,
     required this.color,
     required this.sortOrder,
+    required this.isLife,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -141,6 +231,9 @@ class Area extends DataClass implements Insertable<Area> {
     map['name'] = Variable<String>(name);
     map['color'] = Variable<int>(color);
     map['sort_order'] = Variable<int>(sortOrder);
+    map['is_life'] = Variable<bool>(isLife);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -150,6 +243,9 @@ class Area extends DataClass implements Insertable<Area> {
       name: Value(name),
       color: Value(color),
       sortOrder: Value(sortOrder),
+      isLife: Value(isLife),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -163,6 +259,9 @@ class Area extends DataClass implements Insertable<Area> {
       name: serializer.fromJson<String>(json['name']),
       color: serializer.fromJson<int>(json['color']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      isLife: serializer.fromJson<bool>(json['isLife']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -173,14 +272,28 @@ class Area extends DataClass implements Insertable<Area> {
       'name': serializer.toJson<String>(name),
       'color': serializer.toJson<int>(color),
       'sortOrder': serializer.toJson<int>(sortOrder),
+      'isLife': serializer.toJson<bool>(isLife),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
-  Area copyWith({String? id, String? name, int? color, int? sortOrder}) => Area(
+  Area copyWith({
+    String? id,
+    String? name,
+    int? color,
+    int? sortOrder,
+    bool? isLife,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => Area(
     id: id ?? this.id,
     name: name ?? this.name,
     color: color ?? this.color,
     sortOrder: sortOrder ?? this.sortOrder,
+    isLife: isLife ?? this.isLife,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   Area copyWithCompanion(AreasCompanion data) {
     return Area(
@@ -188,6 +301,13 @@ class Area extends DataClass implements Insertable<Area> {
       name: data.name.present ? data.name.value : this.name,
       color: data.color.present ? data.color.value : this.color,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      isLife: data.isLife.present ? data.isLife.value : this.isLife,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -197,13 +317,24 @@ class Area extends DataClass implements Insertable<Area> {
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('color: $color, ')
-          ..write('sortOrder: $sortOrder')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('isLife: $isLife, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name, color, sortOrder);
+  int get hashCode => Object.hash(
+    id,
+    name,
+    color,
+    sortOrder,
+    isLife,
+    createdAtUtc,
+    updatedAtUtc,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -211,7 +342,10 @@ class Area extends DataClass implements Insertable<Area> {
           other.id == this.id &&
           other.name == this.name &&
           other.color == this.color &&
-          other.sortOrder == this.sortOrder);
+          other.sortOrder == this.sortOrder &&
+          other.isLife == this.isLife &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class AreasCompanion extends UpdateCompanion<Area> {
@@ -219,12 +353,18 @@ class AreasCompanion extends UpdateCompanion<Area> {
   final Value<String> name;
   final Value<int> color;
   final Value<int> sortOrder;
+  final Value<bool> isLife;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const AreasCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
     this.color = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.isLife = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   AreasCompanion.insert({
@@ -232,6 +372,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
     required String name,
     required int color,
     required int sortOrder,
+    this.isLife = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -242,6 +385,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
     Expression<String>? name,
     Expression<int>? color,
     Expression<int>? sortOrder,
+    Expression<bool>? isLife,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -249,6 +395,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
       if (name != null) 'name': name,
       if (color != null) 'color': color,
       if (sortOrder != null) 'sort_order': sortOrder,
+      if (isLife != null) 'is_life': isLife,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -258,6 +407,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
     Value<String>? name,
     Value<int>? color,
     Value<int>? sortOrder,
+    Value<bool>? isLife,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return AreasCompanion(
@@ -265,6 +417,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
       name: name ?? this.name,
       color: color ?? this.color,
       sortOrder: sortOrder ?? this.sortOrder,
+      isLife: isLife ?? this.isLife,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -284,6 +439,15 @@ class AreasCompanion extends UpdateCompanion<Area> {
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
+    if (isLife.present) {
+      map['is_life'] = Variable<bool>(isLife.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -297,6 +461,9 @@ class AreasCompanion extends UpdateCompanion<Area> {
           ..write('name: $name, ')
           ..write('color: $color, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('isLife: $isLife, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -349,8 +516,39 @@ class $ProjectsTable extends Projects with TableInfo<$ProjectsTable, Project> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, areaId, name, archivedAtUtc];
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    areaId,
+    name,
+    archivedAtUtc,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -393,6 +591,24 @@ class $ProjectsTable extends Projects with TableInfo<$ProjectsTable, Project> {
         ),
       );
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -418,6 +634,14 @@ class $ProjectsTable extends Projects with TableInfo<$ProjectsTable, Project> {
         DriftSqlType.int,
         data['${effectivePrefix}archived_at_utc'],
       ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -432,11 +656,15 @@ class Project extends DataClass implements Insertable<Project> {
   final String areaId;
   final String name;
   final int? archivedAtUtc;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const Project({
     required this.id,
     required this.areaId,
     required this.name,
     this.archivedAtUtc,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -447,6 +675,8 @@ class Project extends DataClass implements Insertable<Project> {
     if (!nullToAbsent || archivedAtUtc != null) {
       map['archived_at_utc'] = Variable<int>(archivedAtUtc);
     }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -458,6 +688,8 @@ class Project extends DataClass implements Insertable<Project> {
       archivedAtUtc: archivedAtUtc == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAtUtc),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -471,6 +703,8 @@ class Project extends DataClass implements Insertable<Project> {
       areaId: serializer.fromJson<String>(json['areaId']),
       name: serializer.fromJson<String>(json['name']),
       archivedAtUtc: serializer.fromJson<int?>(json['archivedAtUtc']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -481,6 +715,8 @@ class Project extends DataClass implements Insertable<Project> {
       'areaId': serializer.toJson<String>(areaId),
       'name': serializer.toJson<String>(name),
       'archivedAtUtc': serializer.toJson<int?>(archivedAtUtc),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
@@ -489,6 +725,8 @@ class Project extends DataClass implements Insertable<Project> {
     String? areaId,
     String? name,
     Value<int?> archivedAtUtc = const Value.absent(),
+    int? createdAtUtc,
+    int? updatedAtUtc,
   }) => Project(
     id: id ?? this.id,
     areaId: areaId ?? this.areaId,
@@ -496,6 +734,8 @@ class Project extends DataClass implements Insertable<Project> {
     archivedAtUtc: archivedAtUtc.present
         ? archivedAtUtc.value
         : this.archivedAtUtc,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   Project copyWithCompanion(ProjectsCompanion data) {
     return Project(
@@ -505,6 +745,12 @@ class Project extends DataClass implements Insertable<Project> {
       archivedAtUtc: data.archivedAtUtc.present
           ? data.archivedAtUtc.value
           : this.archivedAtUtc,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -514,13 +760,16 @@ class Project extends DataClass implements Insertable<Project> {
           ..write('id: $id, ')
           ..write('areaId: $areaId, ')
           ..write('name: $name, ')
-          ..write('archivedAtUtc: $archivedAtUtc')
+          ..write('archivedAtUtc: $archivedAtUtc, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, areaId, name, archivedAtUtc);
+  int get hashCode =>
+      Object.hash(id, areaId, name, archivedAtUtc, createdAtUtc, updatedAtUtc);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -528,7 +777,9 @@ class Project extends DataClass implements Insertable<Project> {
           other.id == this.id &&
           other.areaId == this.areaId &&
           other.name == this.name &&
-          other.archivedAtUtc == this.archivedAtUtc);
+          other.archivedAtUtc == this.archivedAtUtc &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class ProjectsCompanion extends UpdateCompanion<Project> {
@@ -536,12 +787,16 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
   final Value<String> areaId;
   final Value<String> name;
   final Value<int?> archivedAtUtc;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const ProjectsCompanion({
     this.id = const Value.absent(),
     this.areaId = const Value.absent(),
     this.name = const Value.absent(),
     this.archivedAtUtc = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ProjectsCompanion.insert({
@@ -549,6 +804,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
     required String areaId,
     required String name,
     this.archivedAtUtc = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        areaId = Value(areaId),
@@ -558,6 +815,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
     Expression<String>? areaId,
     Expression<String>? name,
     Expression<int>? archivedAtUtc,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -565,6 +824,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
       if (areaId != null) 'area_id': areaId,
       if (name != null) 'name': name,
       if (archivedAtUtc != null) 'archived_at_utc': archivedAtUtc,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -574,6 +835,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
     Value<String>? areaId,
     Value<String>? name,
     Value<int?>? archivedAtUtc,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return ProjectsCompanion(
@@ -581,6 +844,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
       areaId: areaId ?? this.areaId,
       name: name ?? this.name,
       archivedAtUtc: archivedAtUtc ?? this.archivedAtUtc,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -600,6 +865,12 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
     if (archivedAtUtc.present) {
       map['archived_at_utc'] = Variable<int>(archivedAtUtc.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -613,6 +884,8 @@ class ProjectsCompanion extends UpdateCompanion<Project> {
           ..write('areaId: $areaId, ')
           ..write('name: $name, ')
           ..write('archivedAtUtc: $archivedAtUtc, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -754,6 +1027,26 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _preferredStartMinuteMeta =
+      const VerificationMeta('preferredStartMinute');
+  @override
+  late final GeneratedColumn<int> preferredStartMinute = GeneratedColumn<int>(
+    'preferred_start_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _preferredEndMinuteMeta =
+      const VerificationMeta('preferredEndMinute');
+  @override
+  late final GeneratedColumn<int> preferredEndMinute = GeneratedColumn<int>(
+    'preferred_end_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -799,6 +1092,8 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
     splitMode,
     minChunkMinutes,
     maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
     status,
     createdAtUtc,
     updatedAtUtc,
@@ -917,6 +1212,24 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
     } else if (isInserting) {
       context.missing(_maxChunkMinutesMeta);
     }
+    if (data.containsKey('preferred_start_minute')) {
+      context.handle(
+        _preferredStartMinuteMeta,
+        preferredStartMinute.isAcceptableOrUnknown(
+          data['preferred_start_minute']!,
+          _preferredStartMinuteMeta,
+        ),
+      );
+    }
+    if (data.containsKey('preferred_end_minute')) {
+      context.handle(
+        _preferredEndMinuteMeta,
+        preferredEndMinute.isAcceptableOrUnknown(
+          data['preferred_end_minute']!,
+          _preferredEndMinuteMeta,
+        ),
+      );
+    }
     if (data.containsKey('status')) {
       context.handle(
         _statusMeta,
@@ -1004,6 +1317,14 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
         DriftSqlType.int,
         data['${effectivePrefix}max_chunk_minutes'],
       )!,
+      preferredStartMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_start_minute'],
+      ),
+      preferredEndMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_end_minute'],
+      ),
       status: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}status'],
@@ -1038,6 +1359,11 @@ class Task extends DataClass implements Insertable<Task> {
   final String splitMode;
   final int minChunkMinutes;
   final int maxChunkMinutes;
+
+  /// Optional preferred local-time window, expressed as minutes from local
+  /// midnight on the task's day. Null means the task has no preference.
+  final int? preferredStartMinute;
+  final int? preferredEndMinute;
   final String status;
   final int createdAtUtc;
   final int updatedAtUtc;
@@ -1054,6 +1380,8 @@ class Task extends DataClass implements Insertable<Task> {
     required this.splitMode,
     required this.minChunkMinutes,
     required this.maxChunkMinutes,
+    this.preferredStartMinute,
+    this.preferredEndMinute,
     required this.status,
     required this.createdAtUtc,
     required this.updatedAtUtc,
@@ -1077,6 +1405,12 @@ class Task extends DataClass implements Insertable<Task> {
     map['split_mode'] = Variable<String>(splitMode);
     map['min_chunk_minutes'] = Variable<int>(minChunkMinutes);
     map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes);
+    if (!nullToAbsent || preferredStartMinute != null) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute);
+    }
+    if (!nullToAbsent || preferredEndMinute != null) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute);
+    }
     map['status'] = Variable<String>(status);
     map['created_at_utc'] = Variable<int>(createdAtUtc);
     map['updated_at_utc'] = Variable<int>(updatedAtUtc);
@@ -1101,6 +1435,12 @@ class Task extends DataClass implements Insertable<Task> {
       splitMode: Value(splitMode),
       minChunkMinutes: Value(minChunkMinutes),
       maxChunkMinutes: Value(maxChunkMinutes),
+      preferredStartMinute: preferredStartMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredStartMinute),
+      preferredEndMinute: preferredEndMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredEndMinute),
       status: Value(status),
       createdAtUtc: Value(createdAtUtc),
       updatedAtUtc: Value(updatedAtUtc),
@@ -1125,6 +1465,10 @@ class Task extends DataClass implements Insertable<Task> {
       splitMode: serializer.fromJson<String>(json['splitMode']),
       minChunkMinutes: serializer.fromJson<int>(json['minChunkMinutes']),
       maxChunkMinutes: serializer.fromJson<int>(json['maxChunkMinutes']),
+      preferredStartMinute: serializer.fromJson<int?>(
+        json['preferredStartMinute'],
+      ),
+      preferredEndMinute: serializer.fromJson<int?>(json['preferredEndMinute']),
       status: serializer.fromJson<String>(json['status']),
       createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
       updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
@@ -1146,6 +1490,8 @@ class Task extends DataClass implements Insertable<Task> {
       'splitMode': serializer.toJson<String>(splitMode),
       'minChunkMinutes': serializer.toJson<int>(minChunkMinutes),
       'maxChunkMinutes': serializer.toJson<int>(maxChunkMinutes),
+      'preferredStartMinute': serializer.toJson<int?>(preferredStartMinute),
+      'preferredEndMinute': serializer.toJson<int?>(preferredEndMinute),
       'status': serializer.toJson<String>(status),
       'createdAtUtc': serializer.toJson<int>(createdAtUtc),
       'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
@@ -1165,6 +1511,8 @@ class Task extends DataClass implements Insertable<Task> {
     String? splitMode,
     int? minChunkMinutes,
     int? maxChunkMinutes,
+    Value<int?> preferredStartMinute = const Value.absent(),
+    Value<int?> preferredEndMinute = const Value.absent(),
     String? status,
     int? createdAtUtc,
     int? updatedAtUtc,
@@ -1181,6 +1529,12 @@ class Task extends DataClass implements Insertable<Task> {
     splitMode: splitMode ?? this.splitMode,
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
     maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+    preferredStartMinute: preferredStartMinute.present
+        ? preferredStartMinute.value
+        : this.preferredStartMinute,
+    preferredEndMinute: preferredEndMinute.present
+        ? preferredEndMinute.value
+        : this.preferredEndMinute,
     status: status ?? this.status,
     createdAtUtc: createdAtUtc ?? this.createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
@@ -1209,6 +1563,12 @@ class Task extends DataClass implements Insertable<Task> {
       maxChunkMinutes: data.maxChunkMinutes.present
           ? data.maxChunkMinutes.value
           : this.maxChunkMinutes,
+      preferredStartMinute: data.preferredStartMinute.present
+          ? data.preferredStartMinute.value
+          : this.preferredStartMinute,
+      preferredEndMinute: data.preferredEndMinute.present
+          ? data.preferredEndMinute.value
+          : this.preferredEndMinute,
       status: data.status.present ? data.status.value : this.status,
       createdAtUtc: data.createdAtUtc.present
           ? data.createdAtUtc.value
@@ -1234,6 +1594,8 @@ class Task extends DataClass implements Insertable<Task> {
           ..write('splitMode: $splitMode, ')
           ..write('minChunkMinutes: $minChunkMinutes, ')
           ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
           ..write('status: $status, ')
           ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc')
@@ -1255,6 +1617,8 @@ class Task extends DataClass implements Insertable<Task> {
     splitMode,
     minChunkMinutes,
     maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
     status,
     createdAtUtc,
     updatedAtUtc,
@@ -1275,6 +1639,8 @@ class Task extends DataClass implements Insertable<Task> {
           other.splitMode == this.splitMode &&
           other.minChunkMinutes == this.minChunkMinutes &&
           other.maxChunkMinutes == this.maxChunkMinutes &&
+          other.preferredStartMinute == this.preferredStartMinute &&
+          other.preferredEndMinute == this.preferredEndMinute &&
           other.status == this.status &&
           other.createdAtUtc == this.createdAtUtc &&
           other.updatedAtUtc == this.updatedAtUtc);
@@ -1293,6 +1659,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
   final Value<String> splitMode;
   final Value<int> minChunkMinutes;
   final Value<int> maxChunkMinutes;
+  final Value<int?> preferredStartMinute;
+  final Value<int?> preferredEndMinute;
   final Value<String> status;
   final Value<int> createdAtUtc;
   final Value<int> updatedAtUtc;
@@ -1310,6 +1678,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
     this.splitMode = const Value.absent(),
     this.minChunkMinutes = const Value.absent(),
     this.maxChunkMinutes = const Value.absent(),
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
     this.status = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
     this.updatedAtUtc = const Value.absent(),
@@ -1328,6 +1698,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
     required String splitMode,
     required int minChunkMinutes,
     required int maxChunkMinutes,
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
     required String status,
     required int createdAtUtc,
     required int updatedAtUtc,
@@ -1357,6 +1729,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
     Expression<String>? splitMode,
     Expression<int>? minChunkMinutes,
     Expression<int>? maxChunkMinutes,
+    Expression<int>? preferredStartMinute,
+    Expression<int>? preferredEndMinute,
     Expression<String>? status,
     Expression<int>? createdAtUtc,
     Expression<int>? updatedAtUtc,
@@ -1375,6 +1749,10 @@ class TasksCompanion extends UpdateCompanion<Task> {
       if (splitMode != null) 'split_mode': splitMode,
       if (minChunkMinutes != null) 'min_chunk_minutes': minChunkMinutes,
       if (maxChunkMinutes != null) 'max_chunk_minutes': maxChunkMinutes,
+      if (preferredStartMinute != null)
+        'preferred_start_minute': preferredStartMinute,
+      if (preferredEndMinute != null)
+        'preferred_end_minute': preferredEndMinute,
       if (status != null) 'status': status,
       if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
       if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
@@ -1395,6 +1773,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
     Value<String>? splitMode,
     Value<int>? minChunkMinutes,
     Value<int>? maxChunkMinutes,
+    Value<int?>? preferredStartMinute,
+    Value<int?>? preferredEndMinute,
     Value<String>? status,
     Value<int>? createdAtUtc,
     Value<int>? updatedAtUtc,
@@ -1413,6 +1793,8 @@ class TasksCompanion extends UpdateCompanion<Task> {
       splitMode: splitMode ?? this.splitMode,
       minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
       maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+      preferredStartMinute: preferredStartMinute ?? this.preferredStartMinute,
+      preferredEndMinute: preferredEndMinute ?? this.preferredEndMinute,
       status: status ?? this.status,
       createdAtUtc: createdAtUtc ?? this.createdAtUtc,
       updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
@@ -1459,6 +1841,12 @@ class TasksCompanion extends UpdateCompanion<Task> {
     if (maxChunkMinutes.present) {
       map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes.value);
     }
+    if (preferredStartMinute.present) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute.value);
+    }
+    if (preferredEndMinute.present) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute.value);
+    }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
@@ -1489,9 +1877,594 @@ class TasksCompanion extends UpdateCompanion<Task> {
           ..write('splitMode: $splitMode, ')
           ..write('minChunkMinutes: $minChunkMinutes, ')
           ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
           ..write('status: $status, ')
           ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TagsTable extends Tags with TableInfo<$TagsTable, Tag> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TagsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, createdAtUtc, updatedAtUtc];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tags';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Tag> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Tag map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Tag(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $TagsTable createAlias(String alias) {
+    return $TagsTable(attachedDatabase, alias);
+  }
+}
+
+class Tag extends DataClass implements Insertable<Tag> {
+  final String id;
+  final String name;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const Tag({
+    required this.id,
+    required this.name,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  TagsCompanion toCompanion(bool nullToAbsent) {
+    return TagsCompanion(
+      id: Value(id),
+      name: Value(name),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory Tag.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Tag(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  Tag copyWith({
+    String? id,
+    String? name,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => Tag(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  Tag copyWithCompanion(TagsCompanion data) {
+    return Tag(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Tag(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, createdAtUtc, updatedAtUtc);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Tag &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class TagsCompanion extends UpdateCompanion<Tag> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const TagsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TagsCompanion.insert({
+    required String id,
+    required String name,
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name);
+  static Insertable<Tag> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TagsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return TagsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TagsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TaskTagsTable extends TaskTags with TableInfo<$TaskTagsTable, TaskTag> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TaskTagsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _taskIdMeta = const VerificationMeta('taskId');
+  @override
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES tasks (id)',
+    ),
+  );
+  static const VerificationMeta _tagIdMeta = const VerificationMeta('tagId');
+  @override
+  late final GeneratedColumn<String> tagId = GeneratedColumn<String>(
+    'tag_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES tags (id)',
+    ),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [taskId, tagId, createdAtUtc];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'task_tags';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TaskTag> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('task_id')) {
+      context.handle(
+        _taskIdMeta,
+        taskId.isAcceptableOrUnknown(data['task_id']!, _taskIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_taskIdMeta);
+    }
+    if (data.containsKey('tag_id')) {
+      context.handle(
+        _tagIdMeta,
+        tagId.isAcceptableOrUnknown(data['tag_id']!, _tagIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tagIdMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {taskId, tagId};
+  @override
+  TaskTag map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TaskTag(
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      )!,
+      tagId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tag_id'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $TaskTagsTable createAlias(String alias) {
+    return $TaskTagsTable(attachedDatabase, alias);
+  }
+}
+
+class TaskTag extends DataClass implements Insertable<TaskTag> {
+  final String taskId;
+  final String tagId;
+  final int createdAtUtc;
+  const TaskTag({
+    required this.taskId,
+    required this.tagId,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['task_id'] = Variable<String>(taskId);
+    map['tag_id'] = Variable<String>(tagId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  TaskTagsCompanion toCompanion(bool nullToAbsent) {
+    return TaskTagsCompanion(
+      taskId: Value(taskId),
+      tagId: Value(tagId),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory TaskTag.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TaskTag(
+      taskId: serializer.fromJson<String>(json['taskId']),
+      tagId: serializer.fromJson<String>(json['tagId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'taskId': serializer.toJson<String>(taskId),
+      'tagId': serializer.toJson<String>(tagId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  TaskTag copyWith({String? taskId, String? tagId, int? createdAtUtc}) =>
+      TaskTag(
+        taskId: taskId ?? this.taskId,
+        tagId: tagId ?? this.tagId,
+        createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      );
+  TaskTag copyWithCompanion(TaskTagsCompanion data) {
+    return TaskTag(
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      tagId: data.tagId.present ? data.tagId.value : this.tagId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskTag(')
+          ..write('taskId: $taskId, ')
+          ..write('tagId: $tagId, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(taskId, tagId, createdAtUtc);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TaskTag &&
+          other.taskId == this.taskId &&
+          other.tagId == this.tagId &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class TaskTagsCompanion extends UpdateCompanion<TaskTag> {
+  final Value<String> taskId;
+  final Value<String> tagId;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const TaskTagsCompanion({
+    this.taskId = const Value.absent(),
+    this.tagId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TaskTagsCompanion.insert({
+    required String taskId,
+    required String tagId,
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : taskId = Value(taskId),
+       tagId = Value(tagId);
+  static Insertable<TaskTag> custom({
+    Expression<String>? taskId,
+    Expression<String>? tagId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (taskId != null) 'task_id': taskId,
+      if (tagId != null) 'tag_id': tagId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TaskTagsCompanion copyWith({
+    Value<String>? taskId,
+    Value<String>? tagId,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return TaskTagsCompanion(
+      taskId: taskId ?? this.taskId,
+      tagId: tagId ?? this.tagId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (tagId.present) {
+      map['tag_id'] = Variable<String>(tagId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TaskTagsCompanion(')
+          ..write('taskId: $taskId, ')
+          ..write('tagId: $tagId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1579,6 +2552,30 @@ class $RecurrenceRulesTable extends RecurrenceRules
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1588,6 +2585,8 @@ class $RecurrenceRulesTable extends RecurrenceRules
     validFromLocalDate,
     validUntilLocalDate,
     timeZoneId,
+    createdAtUtc,
+    updatedAtUtc,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1670,6 +2669,24 @@ class $RecurrenceRulesTable extends RecurrenceRules
     } else if (isInserting) {
       context.missing(_timeZoneIdMeta);
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1707,6 +2724,14 @@ class $RecurrenceRulesTable extends RecurrenceRules
         DriftSqlType.string,
         data['${effectivePrefix}time_zone_id'],
       )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -1724,6 +2749,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
   final String validFromLocalDate;
   final String? validUntilLocalDate;
   final String timeZoneId;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const RecurrenceRule({
     required this.id,
     required this.weekdaysMask,
@@ -1732,6 +2759,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     required this.validFromLocalDate,
     this.validUntilLocalDate,
     required this.timeZoneId,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1745,6 +2774,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       map['valid_until_local_date'] = Variable<String>(validUntilLocalDate);
     }
     map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -1759,6 +2790,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
           ? const Value.absent()
           : Value(validUntilLocalDate),
       timeZoneId: Value(timeZoneId),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -1779,6 +2812,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
         json['validUntilLocalDate'],
       ),
       timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -1792,6 +2827,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       'validFromLocalDate': serializer.toJson<String>(validFromLocalDate),
       'validUntilLocalDate': serializer.toJson<String?>(validUntilLocalDate),
       'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
@@ -1803,6 +2840,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     String? validFromLocalDate,
     Value<String?> validUntilLocalDate = const Value.absent(),
     String? timeZoneId,
+    int? createdAtUtc,
+    int? updatedAtUtc,
   }) => RecurrenceRule(
     id: id ?? this.id,
     weekdaysMask: weekdaysMask ?? this.weekdaysMask,
@@ -1813,6 +2852,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
         ? validUntilLocalDate.value
         : this.validUntilLocalDate,
     timeZoneId: timeZoneId ?? this.timeZoneId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   RecurrenceRule copyWithCompanion(RecurrenceRulesCompanion data) {
     return RecurrenceRule(
@@ -1835,6 +2876,12 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       timeZoneId: data.timeZoneId.present
           ? data.timeZoneId.value
           : this.timeZoneId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -1847,7 +2894,9 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
           ..write('durationMinutes: $durationMinutes, ')
           ..write('validFromLocalDate: $validFromLocalDate, ')
           ..write('validUntilLocalDate: $validUntilLocalDate, ')
-          ..write('timeZoneId: $timeZoneId')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
@@ -1861,6 +2910,8 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     validFromLocalDate,
     validUntilLocalDate,
     timeZoneId,
+    createdAtUtc,
+    updatedAtUtc,
   );
   @override
   bool operator ==(Object other) =>
@@ -1872,7 +2923,9 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
           other.durationMinutes == this.durationMinutes &&
           other.validFromLocalDate == this.validFromLocalDate &&
           other.validUntilLocalDate == this.validUntilLocalDate &&
-          other.timeZoneId == this.timeZoneId);
+          other.timeZoneId == this.timeZoneId &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
@@ -1883,6 +2936,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
   final Value<String> validFromLocalDate;
   final Value<String?> validUntilLocalDate;
   final Value<String> timeZoneId;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const RecurrenceRulesCompanion({
     this.id = const Value.absent(),
@@ -1892,6 +2947,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     this.validFromLocalDate = const Value.absent(),
     this.validUntilLocalDate = const Value.absent(),
     this.timeZoneId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   RecurrenceRulesCompanion.insert({
@@ -1902,6 +2959,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     required String validFromLocalDate,
     this.validUntilLocalDate = const Value.absent(),
     required String timeZoneId,
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        weekdaysMask = Value(weekdaysMask),
@@ -1917,6 +2976,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     Expression<String>? validFromLocalDate,
     Expression<String>? validUntilLocalDate,
     Expression<String>? timeZoneId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1929,6 +2990,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
       if (validUntilLocalDate != null)
         'valid_until_local_date': validUntilLocalDate,
       if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1941,6 +3004,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     Value<String>? validFromLocalDate,
     Value<String?>? validUntilLocalDate,
     Value<String>? timeZoneId,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return RecurrenceRulesCompanion(
@@ -1951,6 +3016,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
       validFromLocalDate: validFromLocalDate ?? this.validFromLocalDate,
       validUntilLocalDate: validUntilLocalDate ?? this.validUntilLocalDate,
       timeZoneId: timeZoneId ?? this.timeZoneId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1981,6 +3048,12 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     if (timeZoneId.present) {
       map['time_zone_id'] = Variable<String>(timeZoneId.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1997,6 +3070,8 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
           ..write('validFromLocalDate: $validFromLocalDate, ')
           ..write('validUntilLocalDate: $validUntilLocalDate, ')
           ..write('timeZoneId: $timeZoneId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2113,6 +3188,18 @@ class $CalendarEventsTable extends CalendarEvents
       'REFERENCES areas (id)',
     ),
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
     'updatedAtUtc',
   );
@@ -2135,6 +3222,7 @@ class $CalendarEventsTable extends CalendarEvents
     exceptionOfId,
     locked,
     areaId,
+    createdAtUtc,
     updatedAtUtc,
   ];
   @override
@@ -2222,6 +3310,15 @@ class $CalendarEventsTable extends CalendarEvents
         areaId.isAcceptableOrUnknown(data['area_id']!, _areaIdMeta),
       );
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
     if (data.containsKey('updated_at_utc')) {
       context.handle(
         _updatedAtUtcMeta,
@@ -2278,6 +3375,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.string,
         data['${effectivePrefix}area_id'],
       ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
       updatedAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}updated_at_utc'],
@@ -2301,6 +3402,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
   final String? exceptionOfId;
   final bool locked;
   final String? areaId;
+  final int createdAtUtc;
   final int updatedAtUtc;
   const CalendarEvent({
     required this.id,
@@ -2312,6 +3414,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     this.exceptionOfId,
     required this.locked,
     this.areaId,
+    required this.createdAtUtc,
     required this.updatedAtUtc,
   });
   @override
@@ -2332,6 +3435,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     if (!nullToAbsent || areaId != null) {
       map['area_id'] = Variable<String>(areaId);
     }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
     map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
@@ -2353,6 +3457,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       areaId: areaId == null && nullToAbsent
           ? const Value.absent()
           : Value(areaId),
+      createdAtUtc: Value(createdAtUtc),
       updatedAtUtc: Value(updatedAtUtc),
     );
   }
@@ -2372,6 +3477,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       exceptionOfId: serializer.fromJson<String?>(json['exceptionOfId']),
       locked: serializer.fromJson<bool>(json['locked']),
       areaId: serializer.fromJson<String?>(json['areaId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
       updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
@@ -2388,6 +3494,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       'exceptionOfId': serializer.toJson<String?>(exceptionOfId),
       'locked': serializer.toJson<bool>(locked),
       'areaId': serializer.toJson<String?>(areaId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
       'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
@@ -2402,6 +3509,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     Value<String?> exceptionOfId = const Value.absent(),
     bool? locked,
     Value<String?> areaId = const Value.absent(),
+    int? createdAtUtc,
     int? updatedAtUtc,
   }) => CalendarEvent(
     id: id ?? this.id,
@@ -2417,6 +3525,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
         : this.exceptionOfId,
     locked: locked ?? this.locked,
     areaId: areaId.present ? areaId.value : this.areaId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   CalendarEvent copyWithCompanion(CalendarEventsCompanion data) {
@@ -2438,6 +3547,9 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           : this.exceptionOfId,
       locked: data.locked.present ? data.locked.value : this.locked,
       areaId: data.areaId.present ? data.areaId.value : this.areaId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
       updatedAtUtc: data.updatedAtUtc.present
           ? data.updatedAtUtc.value
           : this.updatedAtUtc,
@@ -2456,6 +3568,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           ..write('exceptionOfId: $exceptionOfId, ')
           ..write('locked: $locked, ')
           ..write('areaId: $areaId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
@@ -2472,6 +3585,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     exceptionOfId,
     locked,
     areaId,
+    createdAtUtc,
     updatedAtUtc,
   );
   @override
@@ -2487,6 +3601,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           other.exceptionOfId == this.exceptionOfId &&
           other.locked == this.locked &&
           other.areaId == this.areaId &&
+          other.createdAtUtc == this.createdAtUtc &&
           other.updatedAtUtc == this.updatedAtUtc);
 }
 
@@ -2500,6 +3615,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
   final Value<String?> exceptionOfId;
   final Value<bool> locked;
   final Value<String?> areaId;
+  final Value<int> createdAtUtc;
   final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const CalendarEventsCompanion({
@@ -2512,6 +3628,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.exceptionOfId = const Value.absent(),
     this.locked = const Value.absent(),
     this.areaId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
     this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -2525,6 +3642,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.exceptionOfId = const Value.absent(),
     this.locked = const Value.absent(),
     this.areaId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
     required int updatedAtUtc,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -2543,6 +3661,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Expression<String>? exceptionOfId,
     Expression<bool>? locked,
     Expression<String>? areaId,
+    Expression<int>? createdAtUtc,
     Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
@@ -2556,6 +3675,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       if (exceptionOfId != null) 'exception_of_id': exceptionOfId,
       if (locked != null) 'locked': locked,
       if (areaId != null) 'area_id': areaId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
       if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
@@ -2571,6 +3691,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Value<String?>? exceptionOfId,
     Value<bool>? locked,
     Value<String?>? areaId,
+    Value<int>? createdAtUtc,
     Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
@@ -2584,6 +3705,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       exceptionOfId: exceptionOfId ?? this.exceptionOfId,
       locked: locked ?? this.locked,
       areaId: areaId ?? this.areaId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
       updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
@@ -2619,6 +3741,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     if (areaId.present) {
       map['area_id'] = Variable<String>(areaId.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
     if (updatedAtUtc.present) {
       map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
     }
@@ -2640,6 +3765,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
           ..write('exceptionOfId: $exceptionOfId, ')
           ..write('locked: $locked, ')
           ..write('areaId: $areaId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -2715,6 +3841,30 @@ class $EnergyWindowsTable extends EnergyWindows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2723,6 +3873,8 @@ class $EnergyWindowsTable extends EnergyWindows
     endMinute,
     energyLevel,
     source,
+    createdAtUtc,
+    updatedAtUtc,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2787,6 +3939,24 @@ class $EnergyWindowsTable extends EnergyWindows
     } else if (isInserting) {
       context.missing(_sourceMeta);
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -2820,6 +3990,14 @@ class $EnergyWindowsTable extends EnergyWindows
         DriftSqlType.string,
         data['${effectivePrefix}source'],
       )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -2836,6 +4014,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
   final int endMinute;
   final String energyLevel;
   final String source;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const EnergyWindow({
     required this.id,
     required this.dayKind,
@@ -2843,6 +4023,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
     required this.endMinute,
     required this.energyLevel,
     required this.source,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2853,6 +4035,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
     map['end_minute'] = Variable<int>(endMinute);
     map['energy_level'] = Variable<String>(energyLevel);
     map['source'] = Variable<String>(source);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -2864,6 +4048,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
       endMinute: Value(endMinute),
       energyLevel: Value(energyLevel),
       source: Value(source),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -2879,6 +4065,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
       endMinute: serializer.fromJson<int>(json['endMinute']),
       energyLevel: serializer.fromJson<String>(json['energyLevel']),
       source: serializer.fromJson<String>(json['source']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -2891,6 +4079,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
       'endMinute': serializer.toJson<int>(endMinute),
       'energyLevel': serializer.toJson<String>(energyLevel),
       'source': serializer.toJson<String>(source),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
@@ -2901,6 +4091,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
     int? endMinute,
     String? energyLevel,
     String? source,
+    int? createdAtUtc,
+    int? updatedAtUtc,
   }) => EnergyWindow(
     id: id ?? this.id,
     dayKind: dayKind ?? this.dayKind,
@@ -2908,6 +4100,8 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
     endMinute: endMinute ?? this.endMinute,
     energyLevel: energyLevel ?? this.energyLevel,
     source: source ?? this.source,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   EnergyWindow copyWithCompanion(EnergyWindowsCompanion data) {
     return EnergyWindow(
@@ -2921,6 +4115,12 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
           ? data.energyLevel.value
           : this.energyLevel,
       source: data.source.present ? data.source.value : this.source,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -2932,14 +4132,24 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
           ..write('startMinute: $startMinute, ')
           ..write('endMinute: $endMinute, ')
           ..write('energyLevel: $energyLevel, ')
-          ..write('source: $source')
+          ..write('source: $source, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, dayKind, startMinute, endMinute, energyLevel, source);
+  int get hashCode => Object.hash(
+    id,
+    dayKind,
+    startMinute,
+    endMinute,
+    energyLevel,
+    source,
+    createdAtUtc,
+    updatedAtUtc,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2949,7 +4159,9 @@ class EnergyWindow extends DataClass implements Insertable<EnergyWindow> {
           other.startMinute == this.startMinute &&
           other.endMinute == this.endMinute &&
           other.energyLevel == this.energyLevel &&
-          other.source == this.source);
+          other.source == this.source &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
@@ -2959,6 +4171,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
   final Value<int> endMinute;
   final Value<String> energyLevel;
   final Value<String> source;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const EnergyWindowsCompanion({
     this.id = const Value.absent(),
@@ -2967,6 +4181,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
     this.endMinute = const Value.absent(),
     this.energyLevel = const Value.absent(),
     this.source = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   EnergyWindowsCompanion.insert({
@@ -2976,6 +4192,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
     required int endMinute,
     required String energyLevel,
     required String source,
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        dayKind = Value(dayKind),
@@ -2990,6 +4208,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
     Expression<int>? endMinute,
     Expression<String>? energyLevel,
     Expression<String>? source,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2999,6 +4219,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
       if (endMinute != null) 'end_minute': endMinute,
       if (energyLevel != null) 'energy_level': energyLevel,
       if (source != null) 'source': source,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3010,6 +4232,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
     Value<int>? endMinute,
     Value<String>? energyLevel,
     Value<String>? source,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return EnergyWindowsCompanion(
@@ -3019,6 +4243,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
       endMinute: endMinute ?? this.endMinute,
       energyLevel: energyLevel ?? this.energyLevel,
       source: source ?? this.source,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3044,6 +4270,12 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
     if (source.present) {
       map['source'] = Variable<String>(source.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3059,6 +4291,8 @@ class EnergyWindowsCompanion extends UpdateCompanion<EnergyWindow> {
           ..write('endMinute: $endMinute, ')
           ..write('energyLevel: $energyLevel, ')
           ..write('source: $source, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3090,6 +4324,18 @@ class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
     'updatedAtUtc',
   );
@@ -3102,7 +4348,12 @@ class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [key, jsonValue, updatedAtUtc];
+  List<GeneratedColumn> get $columns => [
+    key,
+    jsonValue,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3130,6 +4381,15 @@ class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
       );
     } else if (isInserting) {
       context.missing(_jsonValueMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
     }
     if (data.containsKey('updated_at_utc')) {
       context.handle(
@@ -3159,6 +4419,10 @@ class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
         DriftSqlType.string,
         data['${effectivePrefix}json_value'],
       )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
       updatedAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}updated_at_utc'],
@@ -3175,10 +4439,12 @@ class $SettingsTable extends Settings with TableInfo<$SettingsTable, Setting> {
 class Setting extends DataClass implements Insertable<Setting> {
   final String key;
   final String jsonValue;
+  final int createdAtUtc;
   final int updatedAtUtc;
   const Setting({
     required this.key,
     required this.jsonValue,
+    required this.createdAtUtc,
     required this.updatedAtUtc,
   });
   @override
@@ -3186,6 +4452,7 @@ class Setting extends DataClass implements Insertable<Setting> {
     final map = <String, Expression>{};
     map['key'] = Variable<String>(key);
     map['json_value'] = Variable<String>(jsonValue);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
     map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
@@ -3194,6 +4461,7 @@ class Setting extends DataClass implements Insertable<Setting> {
     return SettingsCompanion(
       key: Value(key),
       jsonValue: Value(jsonValue),
+      createdAtUtc: Value(createdAtUtc),
       updatedAtUtc: Value(updatedAtUtc),
     );
   }
@@ -3206,6 +4474,7 @@ class Setting extends DataClass implements Insertable<Setting> {
     return Setting(
       key: serializer.fromJson<String>(json['key']),
       jsonValue: serializer.fromJson<String>(json['jsonValue']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
       updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
@@ -3215,20 +4484,29 @@ class Setting extends DataClass implements Insertable<Setting> {
     return <String, dynamic>{
       'key': serializer.toJson<String>(key),
       'jsonValue': serializer.toJson<String>(jsonValue),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
       'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
-  Setting copyWith({String? key, String? jsonValue, int? updatedAtUtc}) =>
-      Setting(
-        key: key ?? this.key,
-        jsonValue: jsonValue ?? this.jsonValue,
-        updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
-      );
+  Setting copyWith({
+    String? key,
+    String? jsonValue,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => Setting(
+    key: key ?? this.key,
+    jsonValue: jsonValue ?? this.jsonValue,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
   Setting copyWithCompanion(SettingsCompanion data) {
     return Setting(
       key: data.key.present ? data.key.value : this.key,
       jsonValue: data.jsonValue.present ? data.jsonValue.value : this.jsonValue,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
       updatedAtUtc: data.updatedAtUtc.present
           ? data.updatedAtUtc.value
           : this.updatedAtUtc,
@@ -3240,36 +4518,41 @@ class Setting extends DataClass implements Insertable<Setting> {
     return (StringBuffer('Setting(')
           ..write('key: $key, ')
           ..write('jsonValue: $jsonValue, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(key, jsonValue, updatedAtUtc);
+  int get hashCode => Object.hash(key, jsonValue, createdAtUtc, updatedAtUtc);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Setting &&
           other.key == this.key &&
           other.jsonValue == this.jsonValue &&
+          other.createdAtUtc == this.createdAtUtc &&
           other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class SettingsCompanion extends UpdateCompanion<Setting> {
   final Value<String> key;
   final Value<String> jsonValue;
+  final Value<int> createdAtUtc;
   final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const SettingsCompanion({
     this.key = const Value.absent(),
     this.jsonValue = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
     this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SettingsCompanion.insert({
     required String key,
     required String jsonValue,
+    this.createdAtUtc = const Value.absent(),
     required int updatedAtUtc,
     this.rowid = const Value.absent(),
   }) : key = Value(key),
@@ -3278,12 +4561,14 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
   static Insertable<Setting> custom({
     Expression<String>? key,
     Expression<String>? jsonValue,
+    Expression<int>? createdAtUtc,
     Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (key != null) 'key': key,
       if (jsonValue != null) 'json_value': jsonValue,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
       if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
@@ -3292,12 +4577,14 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
   SettingsCompanion copyWith({
     Value<String>? key,
     Value<String>? jsonValue,
+    Value<int>? createdAtUtc,
     Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return SettingsCompanion(
       key: key ?? this.key,
       jsonValue: jsonValue ?? this.jsonValue,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
       updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
@@ -3311,6 +4598,9 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
     }
     if (jsonValue.present) {
       map['json_value'] = Variable<String>(jsonValue.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
     }
     if (updatedAtUtc.present) {
       map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
@@ -3326,6 +4616,7 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
     return (StringBuffer('SettingsCompanion(')
           ..write('key: $key, ')
           ..write('jsonValue: $jsonValue, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -3849,6 +5140,30 @@ class $ScheduleBlocksTable extends ScheduleBlocks
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3858,6 +5173,8 @@ class $ScheduleBlocksTable extends ScheduleBlocks
     endAtUtc,
     locked,
     explanationCode,
+    createdAtUtc,
+    updatedAtUtc,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3931,6 +5248,24 @@ class $ScheduleBlocksTable extends ScheduleBlocks
     } else if (isInserting) {
       context.missing(_explanationCodeMeta);
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3968,6 +5303,14 @@ class $ScheduleBlocksTable extends ScheduleBlocks
         DriftSqlType.string,
         data['${effectivePrefix}explanation_code'],
       )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -3985,6 +5328,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
   final int endAtUtc;
   final bool locked;
   final String explanationCode;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const ScheduleBlock({
     required this.id,
     required this.planVersionId,
@@ -3993,6 +5338,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
     required this.endAtUtc,
     required this.locked,
     required this.explanationCode,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4004,6 +5351,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
     map['end_at_utc'] = Variable<int>(endAtUtc);
     map['locked'] = Variable<bool>(locked);
     map['explanation_code'] = Variable<String>(explanationCode);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -4016,6 +5365,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
       endAtUtc: Value(endAtUtc),
       locked: Value(locked),
       explanationCode: Value(explanationCode),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -4032,6 +5383,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
       endAtUtc: serializer.fromJson<int>(json['endAtUtc']),
       locked: serializer.fromJson<bool>(json['locked']),
       explanationCode: serializer.fromJson<String>(json['explanationCode']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -4045,6 +5398,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
       'endAtUtc': serializer.toJson<int>(endAtUtc),
       'locked': serializer.toJson<bool>(locked),
       'explanationCode': serializer.toJson<String>(explanationCode),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
@@ -4056,6 +5411,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
     int? endAtUtc,
     bool? locked,
     String? explanationCode,
+    int? createdAtUtc,
+    int? updatedAtUtc,
   }) => ScheduleBlock(
     id: id ?? this.id,
     planVersionId: planVersionId ?? this.planVersionId,
@@ -4064,6 +5421,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
     endAtUtc: endAtUtc ?? this.endAtUtc,
     locked: locked ?? this.locked,
     explanationCode: explanationCode ?? this.explanationCode,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   ScheduleBlock copyWithCompanion(ScheduleBlocksCompanion data) {
     return ScheduleBlock(
@@ -4080,6 +5439,12 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
       explanationCode: data.explanationCode.present
           ? data.explanationCode.value
           : this.explanationCode,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -4092,7 +5457,9 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
           ..write('startAtUtc: $startAtUtc, ')
           ..write('endAtUtc: $endAtUtc, ')
           ..write('locked: $locked, ')
-          ..write('explanationCode: $explanationCode')
+          ..write('explanationCode: $explanationCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
@@ -4106,6 +5473,8 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
     endAtUtc,
     locked,
     explanationCode,
+    createdAtUtc,
+    updatedAtUtc,
   );
   @override
   bool operator ==(Object other) =>
@@ -4117,7 +5486,9 @@ class ScheduleBlock extends DataClass implements Insertable<ScheduleBlock> {
           other.startAtUtc == this.startAtUtc &&
           other.endAtUtc == this.endAtUtc &&
           other.locked == this.locked &&
-          other.explanationCode == this.explanationCode);
+          other.explanationCode == this.explanationCode &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
@@ -4128,6 +5499,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
   final Value<int> endAtUtc;
   final Value<bool> locked;
   final Value<String> explanationCode;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const ScheduleBlocksCompanion({
     this.id = const Value.absent(),
@@ -4137,6 +5510,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
     this.endAtUtc = const Value.absent(),
     this.locked = const Value.absent(),
     this.explanationCode = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ScheduleBlocksCompanion.insert({
@@ -4147,6 +5522,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
     required int endAtUtc,
     this.locked = const Value.absent(),
     required String explanationCode,
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        planVersionId = Value(planVersionId),
@@ -4162,6 +5539,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
     Expression<int>? endAtUtc,
     Expression<bool>? locked,
     Expression<String>? explanationCode,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -4172,6 +5551,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
       if (endAtUtc != null) 'end_at_utc': endAtUtc,
       if (locked != null) 'locked': locked,
       if (explanationCode != null) 'explanation_code': explanationCode,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -4184,6 +5565,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
     Value<int>? endAtUtc,
     Value<bool>? locked,
     Value<String>? explanationCode,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return ScheduleBlocksCompanion(
@@ -4194,6 +5577,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
       endAtUtc: endAtUtc ?? this.endAtUtc,
       locked: locked ?? this.locked,
       explanationCode: explanationCode ?? this.explanationCode,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -4222,6 +5607,12 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
     if (explanationCode.present) {
       map['explanation_code'] = Variable<String>(explanationCode.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -4238,6 +5629,8 @@ class ScheduleBlocksCompanion extends UpdateCompanion<ScheduleBlock> {
           ..write('endAtUtc: $endAtUtc, ')
           ..write('locked: $locked, ')
           ..write('explanationCode: $explanationCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4325,6 +5718,30 @@ class $TimeEntriesTable extends TimeEntries
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(unsetTimestamp),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -4334,6 +5751,8 @@ class $TimeEntriesTable extends TimeEntries
     pausedMinutes,
     source,
     recoveryState,
+    createdAtUtc,
+    updatedAtUtc,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4408,6 +5827,24 @@ class $TimeEntriesTable extends TimeEntries
     } else if (isInserting) {
       context.missing(_recoveryStateMeta);
     }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -4445,6 +5882,14 @@ class $TimeEntriesTable extends TimeEntries
         DriftSqlType.string,
         data['${effectivePrefix}recovery_state'],
       )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
     );
   }
 
@@ -4462,6 +5907,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
   final int pausedMinutes;
   final String source;
   final String recoveryState;
+  final int createdAtUtc;
+  final int updatedAtUtc;
   const TimeEntry({
     required this.id,
     required this.taskId,
@@ -4470,6 +5917,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
     required this.pausedMinutes,
     required this.source,
     required this.recoveryState,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4483,6 +5932,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
     map['paused_minutes'] = Variable<int>(pausedMinutes);
     map['source'] = Variable<String>(source);
     map['recovery_state'] = Variable<String>(recoveryState);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
     return map;
   }
 
@@ -4497,6 +5948,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
       pausedMinutes: Value(pausedMinutes),
       source: Value(source),
       recoveryState: Value(recoveryState),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
     );
   }
 
@@ -4513,6 +5966,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
       pausedMinutes: serializer.fromJson<int>(json['pausedMinutes']),
       source: serializer.fromJson<String>(json['source']),
       recoveryState: serializer.fromJson<String>(json['recoveryState']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
   }
   @override
@@ -4526,6 +5981,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
       'pausedMinutes': serializer.toJson<int>(pausedMinutes),
       'source': serializer.toJson<String>(source),
       'recoveryState': serializer.toJson<String>(recoveryState),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
   }
 
@@ -4537,6 +5994,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
     int? pausedMinutes,
     String? source,
     String? recoveryState,
+    int? createdAtUtc,
+    int? updatedAtUtc,
   }) => TimeEntry(
     id: id ?? this.id,
     taskId: taskId ?? this.taskId,
@@ -4545,6 +6004,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
     pausedMinutes: pausedMinutes ?? this.pausedMinutes,
     source: source ?? this.source,
     recoveryState: recoveryState ?? this.recoveryState,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
   TimeEntry copyWithCompanion(TimeEntriesCompanion data) {
     return TimeEntry(
@@ -4563,6 +6024,12 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
       recoveryState: data.recoveryState.present
           ? data.recoveryState.value
           : this.recoveryState,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
     );
   }
 
@@ -4575,7 +6042,9 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
           ..write('endedAtUtc: $endedAtUtc, ')
           ..write('pausedMinutes: $pausedMinutes, ')
           ..write('source: $source, ')
-          ..write('recoveryState: $recoveryState')
+          ..write('recoveryState: $recoveryState, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
         .toString();
   }
@@ -4589,6 +6058,8 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
     pausedMinutes,
     source,
     recoveryState,
+    createdAtUtc,
+    updatedAtUtc,
   );
   @override
   bool operator ==(Object other) =>
@@ -4600,7 +6071,9 @@ class TimeEntry extends DataClass implements Insertable<TimeEntry> {
           other.endedAtUtc == this.endedAtUtc &&
           other.pausedMinutes == this.pausedMinutes &&
           other.source == this.source &&
-          other.recoveryState == this.recoveryState);
+          other.recoveryState == this.recoveryState &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
 }
 
 class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
@@ -4611,6 +6084,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
   final Value<int> pausedMinutes;
   final Value<String> source;
   final Value<String> recoveryState;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
   final Value<int> rowid;
   const TimeEntriesCompanion({
     this.id = const Value.absent(),
@@ -4620,6 +6095,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
     this.pausedMinutes = const Value.absent(),
     this.source = const Value.absent(),
     this.recoveryState = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TimeEntriesCompanion.insert({
@@ -4630,6 +6107,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
     this.pausedMinutes = const Value.absent(),
     required String source,
     required String recoveryState,
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        taskId = Value(taskId),
@@ -4644,6 +6123,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
     Expression<int>? pausedMinutes,
     Expression<String>? source,
     Expression<String>? recoveryState,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -4654,6 +6135,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
       if (pausedMinutes != null) 'paused_minutes': pausedMinutes,
       if (source != null) 'source': source,
       if (recoveryState != null) 'recovery_state': recoveryState,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -4666,6 +6149,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
     Value<int>? pausedMinutes,
     Value<String>? source,
     Value<String>? recoveryState,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
     Value<int>? rowid,
   }) {
     return TimeEntriesCompanion(
@@ -4676,6 +6161,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
       pausedMinutes: pausedMinutes ?? this.pausedMinutes,
       source: source ?? this.source,
       recoveryState: recoveryState ?? this.recoveryState,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -4704,6 +6191,12 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
     if (recoveryState.present) {
       map['recovery_state'] = Variable<String>(recoveryState.value);
     }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -4720,6 +6213,8 @@ class TimeEntriesCompanion extends UpdateCompanion<TimeEntry> {
           ..write('pausedMinutes: $pausedMinutes, ')
           ..write('source: $source, ')
           ..write('recoveryState: $recoveryState, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6149,6 +7644,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AreasTable areas = $AreasTable(this);
   late final $ProjectsTable projects = $ProjectsTable(this);
   late final $TasksTable tasks = $TasksTable(this);
+  late final $TagsTable tags = $TagsTable(this);
+  late final $TaskTagsTable taskTags = $TaskTagsTable(this);
   late final $RecurrenceRulesTable recurrenceRules = $RecurrenceRulesTable(
     this,
   );
@@ -6173,6 +7670,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     areas,
     projects,
     tasks,
+    tags,
+    taskTags,
     recurrenceRules,
     calendarEvents,
     energyWindows,
@@ -6191,6 +7690,9 @@ typedef $$AreasTableCreateCompanionBuilder = AreasCompanion Function({
   required String name,
   required int color,
   required int sortOrder,
+  Value<bool> isLife,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
   Value<int> rowid,
 });
 typedef $$AreasTableUpdateCompanionBuilder = AreasCompanion Function({
@@ -6198,6 +7700,9 @@ typedef $$AreasTableUpdateCompanionBuilder = AreasCompanion Function({
   Value<String> name,
   Value<int> color,
   Value<int> sortOrder,
+  Value<bool> isLife,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
   Value<int> rowid,
 });
 
@@ -6268,6 +7773,21 @@ class $$AreasTableFilterComposer extends Composer<_$AppDatabase, $AreasTable> {
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
     column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isLife => $composableBuilder(
+    column: $table.isLife,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6350,6 +7870,21 @@ class $$AreasTableOrderingComposer
     column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get isLife => $composableBuilder(
+    column: $table.isLife,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$AreasTableAnnotationComposer
@@ -6372,6 +7907,19 @@ class $$AreasTableAnnotationComposer
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<bool> get isLife =>
+      $composableBuilder(column: $table.isLife, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
 
   Expression<T> projectsRefs<T extends Object>(
     Expression<T> Function($$ProjectsTableAnnotationComposer a) f,
@@ -6456,12 +8004,18 @@ class $$AreasTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<int> color = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
+                Value<bool> isLife = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => AreasCompanion(
                 id: id,
                 name: name,
                 color: color,
                 sortOrder: sortOrder,
+                isLife: isLife,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -6470,12 +8024,18 @@ class $$AreasTableTableManager
                 required String name,
                 required int color,
                 required int sortOrder,
+                Value<bool> isLife = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => AreasCompanion.insert(
                 id: id,
                 name: name,
                 color: color,
                 sortOrder: sortOrder,
+                isLife: isLife,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -6562,6 +8122,8 @@ typedef $$ProjectsTableCreateCompanionBuilder = ProjectsCompanion Function({
   required String areaId,
   required String name,
   Value<int?> archivedAtUtc,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
   Value<int> rowid,
 });
 typedef $$ProjectsTableUpdateCompanionBuilder = ProjectsCompanion Function({
@@ -6569,6 +8131,8 @@ typedef $$ProjectsTableUpdateCompanionBuilder = ProjectsCompanion Function({
   Value<String> areaId,
   Value<String> name,
   Value<int?> archivedAtUtc,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
   Value<int> rowid,
 });
 
@@ -6634,6 +8198,16 @@ class $$ProjectsTableFilterComposer
 
   ColumnFilters<int> get archivedAtUtc => $composableBuilder(
     column: $table.archivedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6710,6 +8284,16 @@ class $$ProjectsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$AreasTableOrderingComposer get areaId {
     final $$AreasTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -6751,6 +8335,16 @@ class $$ProjectsTableAnnotationComposer
 
   GeneratedColumn<int> get archivedAtUtc => $composableBuilder(
     column: $table.archivedAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => column,
   );
 
@@ -6835,12 +8429,16 @@ class $$ProjectsTableTableManager
                 Value<String> areaId = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<int?> archivedAtUtc = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProjectsCompanion(
                 id: id,
                 areaId: areaId,
                 name: name,
                 archivedAtUtc: archivedAtUtc,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -6849,12 +8447,16 @@ class $$ProjectsTableTableManager
                 required String areaId,
                 required String name,
                 Value<int?> archivedAtUtc = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProjectsCompanion.insert(
                 id: id,
                 areaId: areaId,
                 name: name,
                 archivedAtUtc: archivedAtUtc,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -6948,6 +8550,8 @@ typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
   required String splitMode,
   required int minChunkMinutes,
   required int maxChunkMinutes,
+  Value<int?> preferredStartMinute,
+  Value<int?> preferredEndMinute,
   required String status,
   required int createdAtUtc,
   required int updatedAtUtc,
@@ -6966,6 +8570,8 @@ typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
   Value<String> splitMode,
   Value<int> minChunkMinutes,
   Value<int> maxChunkMinutes,
+  Value<int?> preferredStartMinute,
+  Value<int?> preferredEndMinute,
   Value<String> status,
   Value<int> createdAtUtc,
   Value<int> updatedAtUtc,
@@ -6990,6 +8596,25 @@ final class $$TasksTableReferences
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$TaskTagsTable, List<TaskTag>> _taskTagsRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.taskTags,
+    aliasName: 'tasks__id__task_tags__task_id',
+  );
+
+  $$TaskTagsTableProcessedTableManager get taskTagsRefs {
+    final manager = $$TaskTagsTableTableManager(
+      $_db,
+      $_db.taskTags,
+    ).filter((f) => f.taskId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_taskTagsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
     );
   }
 
@@ -7093,6 +8718,16 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnFilters(column),
@@ -7129,6 +8764,31 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
           ),
     );
     return composer;
+  }
+
+  Expression<bool> taskTagsRefs(
+    Expression<bool> Function($$TaskTagsTableFilterComposer f) f,
+  ) {
+    final $$TaskTagsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskTags,
+      getReferencedColumn: (t) => t.taskId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskTagsTableFilterComposer(
+            $db: $db,
+            $table: $db.taskTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
   }
 
   Expression<bool> scheduleBlocksRefs(
@@ -7246,6 +8906,16 @@ class $$TasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get status => $composableBuilder(
     column: $table.status,
     builder: (column) => ColumnOrderings(column),
@@ -7337,6 +9007,16 @@ class $$TasksTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
@@ -7371,6 +9051,31 @@ class $$TasksTableAnnotationComposer
           ),
     );
     return composer;
+  }
+
+  Expression<T> taskTagsRefs<T extends Object>(
+    Expression<T> Function($$TaskTagsTableAnnotationComposer a) f,
+  ) {
+    final $$TaskTagsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskTags,
+      getReferencedColumn: (t) => t.taskId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskTagsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.taskTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
   }
 
   Expression<T> scheduleBlocksRefs<T extends Object>(
@@ -7439,6 +9144,7 @@ class $$TasksTableTableManager
           Task,
           PrefetchHooks Function({
             bool projectId,
+            bool taskTagsRefs,
             bool scheduleBlocksRefs,
             bool timeEntriesRefs,
           })
@@ -7468,6 +9174,8 @@ class $$TasksTableTableManager
                 Value<String> splitMode = const Value.absent(),
                 Value<int> minChunkMinutes = const Value.absent(),
                 Value<int> maxChunkMinutes = const Value.absent(),
+                Value<int?> preferredStartMinute = const Value.absent(),
+                Value<int?> preferredEndMinute = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<int> createdAtUtc = const Value.absent(),
                 Value<int> updatedAtUtc = const Value.absent(),
@@ -7485,6 +9193,8 @@ class $$TasksTableTableManager
                 splitMode: splitMode,
                 minChunkMinutes: minChunkMinutes,
                 maxChunkMinutes: maxChunkMinutes,
+                preferredStartMinute: preferredStartMinute,
+                preferredEndMinute: preferredEndMinute,
                 status: status,
                 createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
@@ -7504,6 +9214,8 @@ class $$TasksTableTableManager
                 required String splitMode,
                 required int minChunkMinutes,
                 required int maxChunkMinutes,
+                Value<int?> preferredStartMinute = const Value.absent(),
+                Value<int?> preferredEndMinute = const Value.absent(),
                 required String status,
                 required int createdAtUtc,
                 required int updatedAtUtc,
@@ -7521,6 +9233,8 @@ class $$TasksTableTableManager
                 splitMode: splitMode,
                 minChunkMinutes: minChunkMinutes,
                 maxChunkMinutes: maxChunkMinutes,
+                preferredStartMinute: preferredStartMinute,
+                preferredEndMinute: preferredEndMinute,
                 status: status,
                 createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
@@ -7537,12 +9251,14 @@ class $$TasksTableTableManager
           prefetchHooksCallback:
               ({
                 projectId = false,
+                taskTagsRefs = false,
                 scheduleBlocksRefs = false,
                 timeEntriesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
+                    if (taskTagsRefs) db.taskTags,
                     if (scheduleBlocksRefs) db.scheduleBlocks,
                     if (timeEntriesRefs) db.timeEntries,
                   ],
@@ -7578,6 +9294,23 @@ class $$TasksTableTableManager
                       },
                   getPrefetchedDataCallback: (items) async {
                     return [
+                      if (taskTagsRefs)
+                        await $_getPrefetchedData<Task, $TasksTable, TaskTag>(
+                          currentTable: table,
+                          referencedTable: $$TasksTableReferences
+                              ._taskTagsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TasksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).taskTagsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.taskId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                       if (scheduleBlocksRefs)
                         await $_getPrefetchedData<
                           Task,
@@ -7638,9 +9371,649 @@ typedef $$TasksTableProcessedTableManager =
       Task,
       PrefetchHooks Function({
         bool projectId,
+        bool taskTagsRefs,
         bool scheduleBlocksRefs,
         bool timeEntriesRefs,
       })
+    >;
+typedef $$TagsTableCreateCompanionBuilder = TagsCompanion Function({
+  required String id,
+  required String name,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
+  Value<int> rowid,
+});
+typedef $$TagsTableUpdateCompanionBuilder = TagsCompanion Function({
+  Value<String> id,
+  Value<String> name,
+  Value<int> createdAtUtc,
+  Value<int> updatedAtUtc,
+  Value<int> rowid,
+});
+
+final class $$TagsTableReferences
+    extends BaseReferences<_$AppDatabase, $TagsTable, Tag> {
+  $$TagsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$TaskTagsTable, List<TaskTag>> _taskTagsRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.taskTags,
+    aliasName: 'tags__id__task_tags__tag_id',
+  );
+
+  $$TaskTagsTableProcessedTableManager get taskTagsRefs {
+    final manager = $$TaskTagsTableTableManager(
+      $_db,
+      $_db.taskTags,
+    ).filter((f) => f.tagId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_taskTagsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$TagsTableFilterComposer extends Composer<_$AppDatabase, $TagsTable> {
+  $$TagsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> taskTagsRefs(
+    Expression<bool> Function($$TaskTagsTableFilterComposer f) f,
+  ) {
+    final $$TaskTagsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskTags,
+      getReferencedColumn: (t) => t.tagId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskTagsTableFilterComposer(
+            $db: $db,
+            $table: $db.taskTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TagsTableOrderingComposer extends Composer<_$AppDatabase, $TagsTable> {
+  $$TagsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TagsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TagsTable> {
+  $$TagsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  Expression<T> taskTagsRefs<T extends Object>(
+    Expression<T> Function($$TaskTagsTableAnnotationComposer a) f,
+  ) {
+    final $$TaskTagsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.taskTags,
+      getReferencedColumn: (t) => t.tagId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TaskTagsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.taskTags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TagsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TagsTable,
+          Tag,
+          $$TagsTableFilterComposer,
+          $$TagsTableOrderingComposer,
+          $$TagsTableAnnotationComposer,
+          $$TagsTableCreateCompanionBuilder,
+          $$TagsTableUpdateCompanionBuilder,
+          (Tag, $$TagsTableReferences),
+          Tag,
+          PrefetchHooks Function({bool taskTagsRefs})
+        > {
+  $$TagsTableTableManager(_$AppDatabase db, $TagsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TagsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TagsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TagsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TagsCompanion(
+                id: id,
+                name: name,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TagsCompanion.insert(
+                id: id,
+                name: name,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TagsTable, Tag>(table),
+                  $$TagsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({taskTagsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (taskTagsRefs) db.taskTags],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (taskTagsRefs)
+                    await $_getPrefetchedData<Tag, $TagsTable, TaskTag>(
+                      currentTable: table,
+                      referencedTable: $$TagsTableReferences._taskTagsRefsTable(
+                        db,
+                      ),
+                      managerFromTypedResult: (p0) =>
+                          $$TagsTableReferences(db, table, p0).taskTagsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.tagId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$TagsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TagsTable,
+      Tag,
+      $$TagsTableFilterComposer,
+      $$TagsTableOrderingComposer,
+      $$TagsTableAnnotationComposer,
+      $$TagsTableCreateCompanionBuilder,
+      $$TagsTableUpdateCompanionBuilder,
+      (Tag, $$TagsTableReferences),
+      Tag,
+      PrefetchHooks Function({bool taskTagsRefs})
+    >;
+typedef $$TaskTagsTableCreateCompanionBuilder = TaskTagsCompanion Function({
+  required String taskId,
+  required String tagId,
+  Value<int> createdAtUtc,
+  Value<int> rowid,
+});
+typedef $$TaskTagsTableUpdateCompanionBuilder = TaskTagsCompanion Function({
+  Value<String> taskId,
+  Value<String> tagId,
+  Value<int> createdAtUtc,
+  Value<int> rowid,
+});
+
+final class $$TaskTagsTableReferences
+    extends BaseReferences<_$AppDatabase, $TaskTagsTable, TaskTag> {
+  $$TaskTagsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $TasksTable _taskIdTable(_$AppDatabase db) =>
+      db.tasks.createAlias('task_tags__task_id__tasks__id');
+
+  $$TasksTableProcessedTableManager get taskId {
+    final $_column = $_itemColumn<String>('task_id')!;
+
+    final manager = $$TasksTableTableManager(
+      $_db,
+      $_db.tasks,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_taskIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $TagsTable _tagIdTable(_$AppDatabase db) =>
+      db.tags.createAlias('task_tags__tag_id__tags__id');
+
+  $$TagsTableProcessedTableManager get tagId {
+    final $_column = $_itemColumn<String>('tag_id')!;
+
+    final manager = $$TagsTableTableManager(
+      $_db,
+      $_db.tags,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_tagIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$TaskTagsTableFilterComposer
+    extends Composer<_$AppDatabase, $TaskTagsTable> {
+  $$TaskTagsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$TasksTableFilterComposer get taskId {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableFilterComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TagsTableFilterComposer get tagId {
+    final $$TagsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.tags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TagsTableFilterComposer(
+            $db: $db,
+            $table: $db.tags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskTagsTableOrderingComposer
+    extends Composer<_$AppDatabase, $TaskTagsTable> {
+  $$TaskTagsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$TasksTableOrderingComposer get taskId {
+    final $$TasksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableOrderingComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TagsTableOrderingComposer get tagId {
+    final $$TagsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.tags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TagsTableOrderingComposer(
+            $db: $db,
+            $table: $db.tags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskTagsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TaskTagsTable> {
+  $$TaskTagsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  $$TasksTableAnnotationComposer get taskId {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TagsTableAnnotationComposer get tagId {
+    final $$TagsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.tagId,
+      referencedTable: $db.tags,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TagsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.tags,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TaskTagsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TaskTagsTable,
+          TaskTag,
+          $$TaskTagsTableFilterComposer,
+          $$TaskTagsTableOrderingComposer,
+          $$TaskTagsTableAnnotationComposer,
+          $$TaskTagsTableCreateCompanionBuilder,
+          $$TaskTagsTableUpdateCompanionBuilder,
+          (TaskTag, $$TaskTagsTableReferences),
+          TaskTag,
+          PrefetchHooks Function({bool taskId, bool tagId})
+        > {
+  $$TaskTagsTableTableManager(_$AppDatabase db, $TaskTagsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TaskTagsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TaskTagsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TaskTagsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> taskId = const Value.absent(),
+                Value<String> tagId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TaskTagsCompanion(
+                taskId: taskId,
+                tagId: tagId,
+                createdAtUtc: createdAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String taskId,
+                required String tagId,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TaskTagsCompanion.insert(
+                taskId: taskId,
+                tagId: tagId,
+                createdAtUtc: createdAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$TaskTagsTable, TaskTag>(table),
+                  $$TaskTagsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({taskId = false, tagId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (taskId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.taskId,
+                        referencedTable: $$TaskTagsTableReferences._taskIdTable(
+                          db,
+                        ),
+                        referencedColumn: $$TaskTagsTableReferences
+                            ._taskIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+                    if (tagId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.tagId,
+                        referencedTable: $$TaskTagsTableReferences._tagIdTable(
+                          db,
+                        ),
+                        referencedColumn: $$TaskTagsTableReferences
+                            ._tagIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$TaskTagsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TaskTagsTable,
+      TaskTag,
+      $$TaskTagsTableFilterComposer,
+      $$TaskTagsTableOrderingComposer,
+      $$TaskTagsTableAnnotationComposer,
+      $$TaskTagsTableCreateCompanionBuilder,
+      $$TaskTagsTableUpdateCompanionBuilder,
+      (TaskTag, $$TaskTagsTableReferences),
+      TaskTag,
+      PrefetchHooks Function({bool taskId, bool tagId})
     >;
 typedef $$RecurrenceRulesTableCreateCompanionBuilder =
     RecurrenceRulesCompanion Function({
@@ -7651,6 +10024,8 @@ typedef $$RecurrenceRulesTableCreateCompanionBuilder =
       required String validFromLocalDate,
       Value<String?> validUntilLocalDate,
       required String timeZoneId,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 typedef $$RecurrenceRulesTableUpdateCompanionBuilder =
@@ -7662,6 +10037,8 @@ typedef $$RecurrenceRulesTableUpdateCompanionBuilder =
       Value<String> validFromLocalDate,
       Value<String?> validUntilLocalDate,
       Value<String> timeZoneId,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 
@@ -7737,6 +10114,16 @@ class $$RecurrenceRulesTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
   Expression<bool> calendarEventsRefs(
     Expression<bool> Function($$CalendarEventsTableFilterComposer f) f,
   ) {
@@ -7806,6 +10193,16 @@ class $$RecurrenceRulesTableOrderingComposer
     column: $table.timeZoneId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$RecurrenceRulesTableAnnotationComposer
@@ -7847,6 +10244,16 @@ class $$RecurrenceRulesTableAnnotationComposer
 
   GeneratedColumn<String> get timeZoneId => $composableBuilder(
     column: $table.timeZoneId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => column,
   );
 
@@ -7913,6 +10320,8 @@ class $$RecurrenceRulesTableTableManager
                 Value<String> validFromLocalDate = const Value.absent(),
                 Value<String?> validUntilLocalDate = const Value.absent(),
                 Value<String> timeZoneId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => RecurrenceRulesCompanion(
                 id: id,
@@ -7922,6 +10331,8 @@ class $$RecurrenceRulesTableTableManager
                 validFromLocalDate: validFromLocalDate,
                 validUntilLocalDate: validUntilLocalDate,
                 timeZoneId: timeZoneId,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -7933,6 +10344,8 @@ class $$RecurrenceRulesTableTableManager
                 required String validFromLocalDate,
                 Value<String?> validUntilLocalDate = const Value.absent(),
                 required String timeZoneId,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => RecurrenceRulesCompanion.insert(
                 id: id,
@@ -7942,6 +10355,8 @@ class $$RecurrenceRulesTableTableManager
                 validFromLocalDate: validFromLocalDate,
                 validUntilLocalDate: validUntilLocalDate,
                 timeZoneId: timeZoneId,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -8015,6 +10430,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<String?> exceptionOfId,
       Value<bool> locked,
       Value<String?> areaId,
+      Value<int> createdAtUtc,
       required int updatedAtUtc,
       Value<int> rowid,
     });
@@ -8029,6 +10445,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<String?> exceptionOfId,
       Value<bool> locked,
       Value<String?> areaId,
+      Value<int> createdAtUtc,
       Value<int> updatedAtUtc,
       Value<int> rowid,
     });
@@ -8131,6 +10548,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<bool> get locked => $composableBuilder(
     column: $table.locked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8248,6 +10670,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
     builder: (column) => ColumnOrderings(column),
@@ -8353,6 +10780,11 @@ class $$CalendarEventsTableAnnotationComposer
 
   GeneratedColumn<bool> get locked =>
       $composableBuilder(column: $table.locked, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
@@ -8472,6 +10904,7 @@ class $$CalendarEventsTableTableManager
                 Value<String?> exceptionOfId = const Value.absent(),
                 Value<bool> locked = const Value.absent(),
                 Value<String?> areaId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
                 Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion(
@@ -8484,6 +10917,7 @@ class $$CalendarEventsTableTableManager
                 exceptionOfId: exceptionOfId,
                 locked: locked,
                 areaId: areaId,
+                createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
@@ -8498,6 +10932,7 @@ class $$CalendarEventsTableTableManager
                 Value<String?> exceptionOfId = const Value.absent(),
                 Value<bool> locked = const Value.absent(),
                 Value<String?> areaId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
                 required int updatedAtUtc,
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion.insert(
@@ -8510,6 +10945,7 @@ class $$CalendarEventsTableTableManager
                 exceptionOfId: exceptionOfId,
                 locked: locked,
                 areaId: areaId,
+                createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
@@ -8617,6 +11053,8 @@ typedef $$EnergyWindowsTableCreateCompanionBuilder =
       required int endMinute,
       required String energyLevel,
       required String source,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 typedef $$EnergyWindowsTableUpdateCompanionBuilder =
@@ -8627,6 +11065,8 @@ typedef $$EnergyWindowsTableUpdateCompanionBuilder =
       Value<int> endMinute,
       Value<String> energyLevel,
       Value<String> source,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 
@@ -8666,6 +11106,16 @@ class $$EnergyWindowsTableFilterComposer
 
   ColumnFilters<String> get source => $composableBuilder(
     column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -8708,6 +11158,16 @@ class $$EnergyWindowsTableOrderingComposer
     column: $table.source,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$EnergyWindowsTableAnnotationComposer
@@ -8740,6 +11200,16 @@ class $$EnergyWindowsTableAnnotationComposer
 
   GeneratedColumn<String> get source =>
       $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
 }
 
 class $$EnergyWindowsTableTableManager
@@ -8779,6 +11249,8 @@ class $$EnergyWindowsTableTableManager
                 Value<int> endMinute = const Value.absent(),
                 Value<String> energyLevel = const Value.absent(),
                 Value<String> source = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EnergyWindowsCompanion(
                 id: id,
@@ -8787,6 +11259,8 @@ class $$EnergyWindowsTableTableManager
                 endMinute: endMinute,
                 energyLevel: energyLevel,
                 source: source,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -8797,6 +11271,8 @@ class $$EnergyWindowsTableTableManager
                 required int endMinute,
                 required String energyLevel,
                 required String source,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EnergyWindowsCompanion.insert(
                 id: id,
@@ -8805,6 +11281,8 @@ class $$EnergyWindowsTableTableManager
                 endMinute: endMinute,
                 energyLevel: energyLevel,
                 source: source,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -8844,12 +11322,14 @@ typedef $$EnergyWindowsTableProcessedTableManager =
 typedef $$SettingsTableCreateCompanionBuilder = SettingsCompanion Function({
   required String key,
   required String jsonValue,
+  Value<int> createdAtUtc,
   required int updatedAtUtc,
   Value<int> rowid,
 });
 typedef $$SettingsTableUpdateCompanionBuilder = SettingsCompanion Function({
   Value<String> key,
   Value<String> jsonValue,
+  Value<int> createdAtUtc,
   Value<int> updatedAtUtc,
   Value<int> rowid,
 });
@@ -8870,6 +11350,11 @@ class $$SettingsTableFilterComposer
 
   ColumnFilters<String> get jsonValue => $composableBuilder(
     column: $table.jsonValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8898,6 +11383,11 @@ class $$SettingsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
     builder: (column) => ColumnOrderings(column),
@@ -8918,6 +11408,11 @@ class $$SettingsTableAnnotationComposer
 
   GeneratedColumn<String> get jsonValue =>
       $composableBuilder(column: $table.jsonValue, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
     column: $table.updatedAtUtc,
@@ -8955,11 +11450,13 @@ class $$SettingsTableTableManager
               ({
                 Value<String> key = const Value.absent(),
                 Value<String> jsonValue = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
                 Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SettingsCompanion(
                 key: key,
                 jsonValue: jsonValue,
+                createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
@@ -8967,11 +11464,13 @@ class $$SettingsTableTableManager
               ({
                 required String key,
                 required String jsonValue,
+                Value<int> createdAtUtc = const Value.absent(),
                 required int updatedAtUtc,
                 Value<int> rowid = const Value.absent(),
               }) => SettingsCompanion.insert(
                 key: key,
                 jsonValue: jsonValue,
+                createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
@@ -9345,6 +11844,8 @@ typedef $$ScheduleBlocksTableCreateCompanionBuilder =
       required int endAtUtc,
       Value<bool> locked,
       required String explanationCode,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 typedef $$ScheduleBlocksTableUpdateCompanionBuilder =
@@ -9356,6 +11857,8 @@ typedef $$ScheduleBlocksTableUpdateCompanionBuilder =
       Value<int> endAtUtc,
       Value<bool> locked,
       Value<String> explanationCode,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 
@@ -9434,6 +11937,16 @@ class $$ScheduleBlocksTableFilterComposer
 
   ColumnFilters<String> get explanationCode => $composableBuilder(
     column: $table.explanationCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9518,6 +12031,16 @@ class $$ScheduleBlocksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$PlanVersionsTableOrderingComposer get planVersionId {
     final $$PlanVersionsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -9590,6 +12113,16 @@ class $$ScheduleBlocksTableAnnotationComposer
 
   GeneratedColumn<String> get explanationCode => $composableBuilder(
     column: $table.explanationCode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => column,
   );
 
@@ -9677,6 +12210,8 @@ class $$ScheduleBlocksTableTableManager
                 Value<int> endAtUtc = const Value.absent(),
                 Value<bool> locked = const Value.absent(),
                 Value<String> explanationCode = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ScheduleBlocksCompanion(
                 id: id,
@@ -9686,6 +12221,8 @@ class $$ScheduleBlocksTableTableManager
                 endAtUtc: endAtUtc,
                 locked: locked,
                 explanationCode: explanationCode,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -9697,6 +12234,8 @@ class $$ScheduleBlocksTableTableManager
                 required int endAtUtc,
                 Value<bool> locked = const Value.absent(),
                 required String explanationCode,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ScheduleBlocksCompanion.insert(
                 id: id,
@@ -9706,6 +12245,8 @@ class $$ScheduleBlocksTableTableManager
                 endAtUtc: endAtUtc,
                 locked: locked,
                 explanationCode: explanationCode,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -9793,6 +12334,8 @@ typedef $$TimeEntriesTableCreateCompanionBuilder =
       Value<int> pausedMinutes,
       required String source,
       required String recoveryState,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 typedef $$TimeEntriesTableUpdateCompanionBuilder =
@@ -9804,6 +12347,8 @@ typedef $$TimeEntriesTableUpdateCompanionBuilder =
       Value<int> pausedMinutes,
       Value<String> source,
       Value<String> recoveryState,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
       Value<int> rowid,
     });
 
@@ -9865,6 +12410,16 @@ class $$TimeEntriesTableFilterComposer
 
   ColumnFilters<String> get recoveryState => $composableBuilder(
     column: $table.recoveryState,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9931,6 +12486,16 @@ class $$TimeEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$TasksTableOrderingComposer get taskId {
     final $$TasksTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -9987,6 +12552,16 @@ class $$TimeEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get recoveryState => $composableBuilder(
     column: $table.recoveryState,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
     builder: (column) => column,
   );
 
@@ -10049,6 +12624,8 @@ class $$TimeEntriesTableTableManager
                 Value<int> pausedMinutes = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<String> recoveryState = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TimeEntriesCompanion(
                 id: id,
@@ -10058,6 +12635,8 @@ class $$TimeEntriesTableTableManager
                 pausedMinutes: pausedMinutes,
                 source: source,
                 recoveryState: recoveryState,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -10069,6 +12648,8 @@ class $$TimeEntriesTableTableManager
                 Value<int> pausedMinutes = const Value.absent(),
                 required String source,
                 required String recoveryState,
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TimeEntriesCompanion.insert(
                 id: id,
@@ -10078,6 +12659,8 @@ class $$TimeEntriesTableTableManager
                 pausedMinutes: pausedMinutes,
                 source: source,
                 recoveryState: recoveryState,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -10935,6 +13518,9 @@ class $AppDatabaseManager {
       $$ProjectsTableTableManager(_db, _db.projects);
   $$TasksTableTableManager get tasks =>
       $$TasksTableTableManager(_db, _db.tasks);
+  $$TagsTableTableManager get tags => $$TagsTableTableManager(_db, _db.tags);
+  $$TaskTagsTableTableManager get taskTags =>
+      $$TaskTagsTableTableManager(_db, _db.taskTags);
   $$RecurrenceRulesTableTableManager get recurrenceRules =>
       $$RecurrenceRulesTableTableManager(_db, _db.recurrenceRules);
   $$CalendarEventsTableTableManager get calendarEvents =>

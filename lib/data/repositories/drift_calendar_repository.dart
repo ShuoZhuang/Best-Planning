@@ -48,20 +48,40 @@ final class DriftCalendarRepository implements CalendarRepository {
   }
 
   @override
-  Future<void> save(domain.CalendarEvent event) => _database
-      .into(_database.calendarEvents)
-      .insertOnConflictUpdate(
-        db.CalendarEventsCompanion(
-          id: Value(event.id),
-          title: Value(event.title),
-          startAtUtc: Value(event.startAtUtc.microsecondsSinceEpoch),
-          endAtUtc: Value(event.endAtUtc.microsecondsSinceEpoch),
-          timeZoneId: Value(event.timeZoneId),
-          recurrenceRuleId: Value(event.recurrenceRuleId),
-          exceptionOfId: Value(event.exceptionOfId),
-          locked: Value(event.locked),
-          areaId: Value(event.areaId),
-          updatedAtUtc: Value(event.updatedAtUtc.microsecondsSinceEpoch),
-        ),
-      );
+  Future<void> save(domain.CalendarEvent event) {
+    final modifiedAt = event.updatedAtUtc.microsecondsSinceEpoch;
+    return _database
+        .into(_database.calendarEvents)
+        .insert(
+          db.CalendarEventsCompanion(
+            id: Value(event.id),
+            title: Value(event.title),
+            startAtUtc: Value(event.startAtUtc.microsecondsSinceEpoch),
+            endAtUtc: Value(event.endAtUtc.microsecondsSinceEpoch),
+            timeZoneId: Value(event.timeZoneId),
+            recurrenceRuleId: Value(event.recurrenceRuleId),
+            exceptionOfId: Value(event.exceptionOfId),
+            locked: Value(event.locked),
+            areaId: Value(event.areaId),
+            createdAtUtc: Value(modifiedAt),
+            updatedAtUtc: Value(modifiedAt),
+          ),
+          // A brand new event is created and modified at the same instant. For an
+          // existing one the conflict branch preserves the recorded creation time
+          // and only advances the modification time (FR-DATA-08).
+          onConflict: DoUpdate(
+            (old) => db.CalendarEventsCompanion(
+              title: Value(event.title),
+              startAtUtc: Value(event.startAtUtc.microsecondsSinceEpoch),
+              endAtUtc: Value(event.endAtUtc.microsecondsSinceEpoch),
+              timeZoneId: Value(event.timeZoneId),
+              recurrenceRuleId: Value(event.recurrenceRuleId),
+              exceptionOfId: Value(event.exceptionOfId),
+              locked: Value(event.locked),
+              areaId: Value(event.areaId),
+              updatedAtUtc: Value(modifiedAt),
+            ),
+          ),
+        );
+  }
 }

@@ -17,15 +17,28 @@ final class DriftSettingsRepository implements SettingsRepository {
   }
 
   @override
-  Future<void> write(String key, String value) => _database
-      .into(_database.settings)
-      .insertOnConflictUpdate(
-        db.SettingsCompanion(
-          key: Value(key),
-          jsonValue: Value(value),
-          updatedAtUtc: Value(_clock.nowUtc().microsecondsSinceEpoch),
-        ),
-      );
+  Future<void> write(String key, String value) {
+    final now = _clock.nowUtc().microsecondsSinceEpoch;
+    return _database
+        .into(_database.settings)
+        .insert(
+          db.SettingsCompanion(
+            key: Value(key),
+            jsonValue: Value(value),
+            createdAtUtc: Value(now),
+            updatedAtUtc: Value(now),
+          ),
+          // Rewriting an existing key must not reset its creation time, which
+          // FR-DATA-08 requires to be stable, so the conflict branch only
+          // touches the value and the modification time.
+          onConflict: DoUpdate(
+            (old) => db.SettingsCompanion(
+              jsonValue: Value(value),
+              updatedAtUtc: Value(now),
+            ),
+          ),
+        );
+  }
 
   @override
   Future<void> remove(String key) => (_database.delete(

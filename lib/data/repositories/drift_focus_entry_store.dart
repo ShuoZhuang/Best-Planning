@@ -30,7 +30,7 @@ final class DriftFocusEntryStore implements FocusEntryStore {
     });
     return _database
         .into(_database.timeEntries)
-        .insertOnConflictUpdate(
+        .insert(
           db.TimeEntriesCompanion(
             id: Value(session.id),
             taskId: Value(session.taskId),
@@ -39,6 +39,20 @@ final class DriftFocusEntryStore implements FocusEntryStore {
             pausedMinutes: const Value(0),
             source: Value(metadata),
             recoveryState: Value(session.recoveryState.name),
+            // The entry begins when the session starts. Repeated saves while the
+            // focus timer runs would otherwise reset the creation time, so the
+            // conflict branch below leaves it alone (FR-DATA-08).
+            createdAtUtc: Value(session.startedAtUtc.microsecondsSinceEpoch),
+            updatedAtUtc: Value(session.lastWallAtUtc.microsecondsSinceEpoch),
+          ),
+          onConflict: DoUpdate(
+            (old) => db.TimeEntriesCompanion(
+              endedAtUtc: Value(session.endedAtUtc?.microsecondsSinceEpoch),
+              pausedMinutes: const Value(0),
+              source: Value(metadata),
+              recoveryState: Value(session.recoveryState.name),
+              updatedAtUtc: Value(session.lastWallAtUtc.microsecondsSinceEpoch),
+            ),
           ),
         );
   }

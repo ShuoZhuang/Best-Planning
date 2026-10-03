@@ -5,11 +5,15 @@ import 'package:personal_planner/data/database/tables/planner_tables.dart';
 
 part 'app_database.g.dart';
 
+DateTime _systemNowUtc() => DateTime.now().toUtc();
+
 @DriftDatabase(
   tables: [
     Areas,
     Projects,
     Tasks,
+    Tags,
+    TaskTags,
     CalendarEvents,
     RecurrenceRules,
     EnergyWindows,
@@ -24,18 +28,108 @@ part 'app_database.g.dart';
   daos: [TaskDao],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase.openDefault() : super(driftDatabase(name: 'personal_planner'));
+  AppDatabase.openDefault({DateTime Function()? now})
+    : now = now ?? _systemNowUtc,
+      super(driftDatabase(name: 'personal_planner'));
 
-  AppDatabase.forTesting(super.e);
+  AppDatabase.forTesting(super.e, {DateTime Function()? now})
+    : now = now ?? _systemNowUtc;
+
+  /// Opens the database against an existing [QueryExecutor]. Drift's generated
+  /// migration tests use this form to point the database at a schema-managed
+  /// connection, so it must stay positional and unnamed.
+  AppDatabase(QueryExecutor e, {DateTime Function()? now})
+    : this.forTesting(e, now: now);
+
+  /// Instant source used to backfill timestamps added by a migration. Injectable
+  /// so that migration tests can assert an exact value instead of a range.
+  final DateTime Function() now;
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) => migrator.createAll(),
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) {
+        await _upgradeToV2(migrator);
+      }
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
+
+  /// v2 adds custom tags, the task preferred-time window, the area life flag,
+  /// and the FR-DATA-08 creation and modification timestamps that were missing
+  /// from several core tables.
+  ///
+  /// Existing rows cannot be given their true creation time, which was never
+  /// recorded, so every column added here is backfilled with the instantaneous
+  /// migration time. The columns are declared `NOT NULL` with the
+  /// [unsetTimestamp] sentinel because SQLite cannot add a `NOT NULL` column
+  /// without a default; the backfill below replaces the sentinel in every
+  /// historical row, so no row survives the migration holding it.
+  Future<void> _upgradeToV2(Migrator migrator) async {
+    // Tags must exist before the join table that references them.
+    await migrator.createTable(tags);
+    await migrator.createTable(taskTags);
+
+    await migrator.addColumn(areas, areas.isLife);
+    await migrator.addColumn(areas, areas.createdAtUtc);
+    await migrator.addColumn(areas, areas.updatedAtUtc);
+
+    await migrator.addColumn(projects, projects.createdAtUtc);
+    await migrator.addColumn(projects, projects.updatedAtUtc);
+
+    await migrator.addColumn(tasks, tasks.preferredStartMinute);
+    await migrator.addColumn(tasks, tasks.preferredEndMinute);
+
+    await migrator.addColumn(recurrenceRules, recurrenceRules.createdAtUtc);
+    await migrator.addColumn(recurrenceRules, recurrenceRules.updatedAtUtc);
+
+    await migrator.addColumn(energyWindows, energyWindows.createdAtUtc);
+    await migrator.addColumn(energyWindows, energyWindows.updatedAtUtc);
+
+    await migrator.addColumn(calendarEvents, calendarEvents.createdAtUtc);
+
+    await migrator.addColumn(settings, settings.createdAtUtc);
+
+    await migrator.addColumn(scheduleBlocks, scheduleBlocks.createdAtUtc);
+    await migrator.addColumn(scheduleBlocks, scheduleBlocks.updatedAtUtc);
+
+    await migrator.addColumn(timeEntries, timeEntries.createdAtUtc);
+    await migrator.addColumn(timeEntries, timeEntries.updatedAtUtc);
+
+    await _backfillTimestamps();
+  }
+
+  /// Writes the migration instant into every timestamp column that this
+  /// migration introduced, leaving columns that already held a real value
+  /// untouched.
+  Future<void> _backfillTimestamps() async {
+    final instant = now().toUtc().microsecondsSinceEpoch;
+
+    final added = <TableInfo, List<GeneratedColumn<Object>>>{
+      areas: [areas.createdAtUtc, areas.updatedAtUtc],
+      projects: [projects.createdAtUtc, projects.updatedAtUtc],
+      recurrenceRules: [recurrenceRules.createdAtUtc, recurrenceRules.updatedAtUtc],
+      energyWindows: [energyWindows.createdAtUtc, energyWindows.updatedAtUtc],
+      calendarEvents: [calendarEvents.createdAtUtc],
+      settings: [settings.createdAtUtc],
+      scheduleBlocks: [scheduleBlocks.createdAtUtc, scheduleBlocks.updatedAtUtc],
+      timeEntries: [timeEntries.createdAtUtc, timeEntries.updatedAtUtc],
+    };
+
+    for (final entry in added.entries) {
+      final table = entry.key.actualTableName;
+      for (final column in entry.value) {
+        await customStatement(
+          'UPDATE $table SET ${column.name} = ? WHERE ${column.name} = ?',
+          [instant, unsetTimestamp],
+        );
+      }
+    }
+  }
 }

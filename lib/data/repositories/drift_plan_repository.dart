@@ -84,6 +84,8 @@ final class DriftPlanRepository
                 endAtUtc: block.endUtc.microsecondsSinceEpoch,
                 locked: Value(block.locked),
                 explanationCode: block.explanationCode ?? 'undoRestore',
+                createdAtUtc: Value(now.microsecondsSinceEpoch),
+                updatedAtUtc: Value(now.microsecondsSinceEpoch),
               ),
             );
         blocks.add(
@@ -212,6 +214,8 @@ final class DriftPlanRepository
                 endAtUtc: block.endUtc.microsecondsSinceEpoch,
                 locked: Value(block.locked),
                 explanationCode: block.explanationCode ?? 'scheduled',
+                createdAtUtc: Value(now.microsecondsSinceEpoch),
+                updatedAtUtc: Value(now.microsecondsSinceEpoch),
               ),
             );
         await _database
