@@ -114,6 +114,41 @@ void main() {
     expect(find.text('已逾期'), findsNothing);
   });
 
+  // FR-REPLAN-07：设置截止时间。页面把**本地**日期与"当天第几分钟"交回，换算由注入方完成
+  // （真实装配里是持有 `zones` 的路由），因此这里注入一个记录用的回调，断言交回的正是用户
+  // 挑的那一天、以及"当天 23:59"这个固定口径——口径若变，这条会失败。
+  testWidgets('选定日期后把本地日期与当天 23:59 交给注入的设置入口', (tester) async {
+    final recorded = <(DateTime, int)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+            onSetDueDate: (localDate, minute) async {
+              recorded.add((localDate, minute));
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('set-due-date')));
+    await tester.tap(find.byKey(const Key('set-due-date')));
+    await tester.pumpAndSettle();
+    // 该测试的 MaterialApp 未装配本地化代理，因此日期选择器用默认的英文标签。
+    await tester.tap(find.text('20'));
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    expect(recorded, hasLength(1));
+    expect(recorded.single.$1.day, 20);
+    expect(recorded.single.$2, 23 * 60 + 59);
+  });
+
   // FR-REPLAN-07：处理入口之三——清除截止时间（"设置"那一半需先打通时区，见 §13.0 的 R9）。
   // 断言两半：存储里真的被置空，且入口随后消失（没有截止时间就不该再显示"清除"）。
   testWidgets('从界面清除截止时间会置空并隐藏该入口', (tester) async {

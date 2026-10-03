@@ -24,6 +24,7 @@ final class TaskDetailPage extends StatefulWidget {
     this.workspace,
     this.tags,
     this.onStartFocus,
+    this.onSetDueDate,
     super.key,
   });
 
@@ -47,6 +48,13 @@ final class TaskDetailPage extends StatefulWidget {
   /// 界面指向它，因此计时功能在真实运行中完全不可达（W3）。导航回调由路由器注入，
   /// 页面本身不认识路由。
   final VoidCallback? onStartFocus;
+
+  /// 设置截止时间的入口（FR-REPLAN-07）。为空时不显示该控件。
+  ///
+  /// **页面刻意不认识时区**：它只把用户挑选的**本地**日期与"当天第几分钟"交回，由持有
+  /// `TimeZoneDatabase` 的路由换算成 UTC 再落库。时区属于"环境知识"，与导航一样由外部
+  /// 注入——否则每个用到日期的页面都要自己拿一份时区，并各自决定换算口径。
+  final Future<bool> Function(DateTime localDate, int minute)? onSetDueDate;
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -374,10 +382,42 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                 ? '未设置'
                 : _formatInstant(task.dueAtUtc!),
           ),
-          // FR-REPLAN-07 的"修改截止日期"里**不需要时区换算的那一半**：清除。
+          // FR-REPLAN-07 的"修改截止日期"的**设置**一半。用日期选择器而不是文本框：
+          // 截止日期是"哪一天之前完成"，用户不需要输入时刻，因此统一取**当天本地 23:59**
+          // （见下面的分钟数），把"某天"的语义固定下来，避免同一入口在不同人手里产生不同口径。
+          if (widget.onSetDueDate != null) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('set-due-date'),
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: task.dueAtUtc?.toLocal() ?? widget.nowUtc,
+                    firstDate: DateTime(widget.nowUtc.year - 1),
+                    lastDate: DateTime(widget.nowUtc.year + 5),
+                  );
+                  if (picked == null) return;
+                  final saved = await widget.onSetDueDate!(
+                    picked,
+                    23 * 60 + 59,
+                  );
+                  if (!mounted) return;
+                  setState(
+                    () => _message = saved ? '已设置截止时间' : '设置失败，任务可能已不存在',
+                  );
+                  await _load();
+                },
+                icon: const Icon(Icons.event_available_outlined),
+                label: const Text('设置截止时间'),
+              ),
+            ),
+          ],
           // 设置一个日期要把本地日期换算成 UTC，而本页没有时区（`zones` 未注入），
           // 因此"设置"那一半仍需先打通时区，已登记在 §13.0 的 R9。
           // 这里只给出能工作的清除，而不放一个点了不知道会发生什么的"设置"。
+          // FR-REPLAN-07 的"修改截止日期"里**不需要时区换算的那一半**：清除（置空不需要换算）。
           if (task.dueAtUtc != null) ...[
             const SizedBox(height: 4),
             Align(
