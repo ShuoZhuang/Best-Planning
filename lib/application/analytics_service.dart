@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 
 abstract interface class AnalyticsDataSource {
   Future<AnalyticsDataset> load(AnalyticsFilter filter);
@@ -513,27 +514,48 @@ RestProtectionMetric? _restProtection({
 
   final localStart = zones.toLocal(filter.startUtc, timeZoneId);
   final localEnd = zones.toLocal(filter.endUtc, timeZoneId);
+
+  /// 把"锚定日在 [anchor]、本地第 [minute] 分钟"换算成 UTC。
+  ///
+  /// **`minute == 1440` 必须走次日零点**：`LocalTimeRange` 明确允许 `endMinute == 1440`
+  /// （09:00–24:00 是合法且不跨午夜的区间），而 `localDateTimeToUtc` 只接受 [0, 1439]，
+  /// 直接传会抛参数错误、让整个统计查询失败。这正是 §13.0 的 C11 在保护时间展开器上记过的
+  /// 那个"类型允许、运行必炸"——统计侧此前有同一处，只是从未被触发（用户没设过 24:00 的
+  /// 保护段）。**日期推进用日历加法**（`day + 1`）而不是 `add(Duration(days: 1))`：后者是
+  /// 绝对时间加法，在夏令时回拨日会让日期不变（C11 的第二半）。
+  DateTime boundaryUtc(DateTime anchor, int minute) {
+    // 1440 必须换成"次日本地零点"这**一个**调用，而不是把 1440 传给 `localDateTimeToUtc`
+    // ——后者只接受 [0, 1439]。（第一版就是只改了锚点日、仍把 1440 传下去，用例当场报
+    // `Invalid argument (minuteOfDay): 1440`。）
+    if (minute >= LocalTimeRange.minutesPerDay) {
+      return zones.localMidnightToUtc(
+        DateTime.utc(anchor.year, anchor.month, anchor.day + 1),
+        timeZoneId,
+      );
+    }
+    return zones.localDateTimeToUtc(anchor, minute, timeZoneId);
+  }
+
   var protectedMinutes = 0;
   var overlappedMinutes = 0;
   for (
     var day = DateTime.utc(localStart.year, localStart.month, localStart.day);
     !day.isAfter(DateTime.utc(localEnd.year, localEnd.month, localEnd.day));
-    day = day.add(const Duration(days: 1))
+    day = DateTime.utc(day.year, day.month, day.day + 1)
   ) {
     final isWeekend = day.weekday >= DateTime.saturday;
     for (final window in windows) {
       if (window.isWeekend != null && window.isWeekend != isWeekend) continue;
-      if (window.endMinute <= window.startMinute) continue;
-      final rawStart = zones.localDateTimeToUtc(
-        DateTime.utc(day.year, day.month, day.day),
-        window.startMinute,
-        timeZoneId,
-      );
-      final rawEnd = zones.localDateTimeToUtc(
-        DateTime.utc(day.year, day.month, day.day),
-        window.endMinute,
-        timeZoneId,
-      );
+      // **跨午夜的保护段现在被支持**：睡眠默认就是 23:00–07:00。此前这里直接 `continue`
+      // 跳过——理由是"`protectedTimes` 里只有午餐、晚餐与固定休息"，那句话对当时的数据是
+      // 对的，但睡眠正是最该被算进"休息保护"的那一段。`endMinute <= startMinute` 因此改判为
+      // "跨到次日"，终点锚在**次日**的同名分钟上。
+      final crossesMidnight = window.endMinute <= window.startMinute;
+      final rawStart = boundaryUtc(day, window.startMinute);
+      final rawEnd = crossesMidnight
+          ? boundaryUtc(DateTime.utc(day.year, day.month, day.day + 1),
+              window.endMinute)
+          : boundaryUtc(day, window.endMinute);
       final start = rawStart.isBefore(filter.startUtc)
           ? filter.startUtc
           : rawStart;

@@ -4,6 +4,8 @@ import 'package:drift/drift.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 
@@ -219,43 +221,108 @@ final class AnalyticsDao implements AnalyticsDataSource {
     return result;
   }
 
-  /// 读取用户的**保护时间**（睡眠／用餐／固定休息），供统计侧算"休息保护情况"。
+  /// 读取用户的**保护时间**（睡眠／用餐／固定休息），供统计侧算"休息保护情况"（FR-STAT-05）。
   ///
-  /// 与精力区间同一条设置路径。**`enabled=false` 的条目被跳过**——用户关掉的那段保护不该
-  /// 出现在"被占用"的统计里，否则关闭保护反而让数字变差，读起来像惩罚。
+  /// **`enabled=false` 的条目被跳过**——用户关掉的那段保护不该出现在"被占用"的统计里，
+  /// 否则关闭保护反而让数字变差，读起来像惩罚。
+  ///
+  /// **两处此前会让这一节事实上不显示的问题，本轮一并修掉**：
+  /// 1. **以默认值为底**。此前只读用户**已保存**的规则，而全新安装下这个键根本不存在，
+  ///    于是 `protectedWindows` 为空、`_restProtection` 返回 `null`、整节不显示——尽管
+  ///    默认值里午餐与晚餐本来就是受保护的。这与精力区间当初"区间不在数据集里"是同一类
+  ///    失效：功能各层都在，只是**数据永远拿不到**。现在先取 `DefaultSettings.v1()`，
+  ///    再用用户保存的列表**整体替换**（与 `PlanningRulesPatch.applyTo` 的语义一致：
+  ///    非空列表是替换而不是合并）。
+  /// 2. **把睡眠算进来**。"休息保护"里最主要的一段就是睡眠，而 `protectedTimes` 里只有
+  ///    午餐／晚餐／固定休息——睡眠在 `sleepRange`。此前它完全不在这一节里，于是"休息保护"
+  ///    只覆盖了三顿饭。睡眠**允许跨午夜**（默认 23:00–07:00），跨午夜的处理在服务侧。
   Future<List<AnalyticsProtectedWindow>> _protectedWindows() async {
+    final defaults = DefaultSettings.v1();
+    Map<String, Object?>? common;
     final query = database.select(database.settings)
       ..where((row) => row.key.equals('planning.userRules.v1'))
       ..limit(1);
     final setting = await query.getSingleOrNull();
-    if (setting == null) return const [];
-    try {
-      final json = jsonDecode(setting.jsonValue) as Map<String, Object?>;
-      final common = json['common'] as Map<String, Object?>?;
-      final raw = common?['protectedTimes'] as List<Object?>?;
-      if (raw == null) return const [];
-      return [
-        for (final item in raw)
-          if (item is Map<String, Object?> && item['enabled'] != false)
-            AnalyticsProtectedWindow(
-              label: switch (item['kind']) {
-                'lunch' => '午餐',
-                'dinner' => '晚餐',
-                'fixedRest' => '固定休息',
-                _ => '保护时间',
-              },
-              startMinute: _minuteOf(item['range'], 'startMinute'),
-              endMinute: _minuteOf(item['range'], 'endMinute'),
-              isWeekend: switch (item['dayKind']) {
-                'weekend' => true,
-                'weekday' => false,
-                _ => null,
-              },
-            ),
-      ];
-    } on FormatException {
-      return const [];
+    if (setting != null) {
+      try {
+        final json = jsonDecode(setting.jsonValue) as Map<String, Object?>;
+        common = json['common'] as Map<String, Object?>?;
+      } on FormatException {
+        // 设置损坏时退回默认值，而不是让整节消失：默认的午餐与晚餐确实存在。
+        common = null;
+      }
     }
+
+    final raw = common?['protectedTimes'] as List<Object?>?;
+    final windows = <AnalyticsProtectedWindow>[];
+    if (raw == null) {
+      for (final rule in defaults.protectedTimes) {
+        if (!rule.enabled) continue;
+        windows.add(
+          AnalyticsProtectedWindow(
+            label: _protectedLabel(rule.kind),
+            startMinute: rule.range.startMinute,
+            endMinute: rule.range.endMinute,
+            isWeekend: switch (rule.dayKind) {
+              DayKind.weekend => true,
+              DayKind.weekday => false,
+              DayKind.any => null,
+            },
+          ),
+        );
+      }
+    } else {
+      for (final item in raw) {
+        if (item is! Map<String, Object?> || item['enabled'] == false) continue;
+        windows.add(
+          AnalyticsProtectedWindow(
+            label: switch (item['kind']) {
+              'lunch' => '午餐',
+              'dinner' => '晚餐',
+              'fixedRest' => '固定休息',
+              _ => '保护时间',
+            },
+            startMinute: _minuteOf(item['range'], 'startMinute'),
+            endMinute: _minuteOf(item['range'], 'endMinute'),
+            isWeekend: switch (item['dayKind']) {
+              'weekend' => true,
+              'weekday' => false,
+              _ => null,
+            },
+          ),
+        );
+      }
+    }
+
+    // 睡眠始终加入：它不在 `protectedTimes` 里，而"休息保护"少了它就没有意义。
+    final sleep = _rangeOf(common?['sleepRange']) ?? defaults.sleepRange;
+    windows.add(
+      AnalyticsProtectedWindow(
+        label: '睡眠',
+        startMinute: sleep.startMinute,
+        endMinute: sleep.endMinute,
+        // 睡眠不区分工作日与周末（默认区间是同一段），因此 `null` 表示两者都适用。
+        isWeekend: null,
+      ),
+    );
+    return windows;
+  }
+
+  static String _protectedLabel(ProtectedTimeKind kind) => switch (kind) {
+    ProtectedTimeKind.lunch => '午餐',
+    ProtectedTimeKind.dinner => '晚餐',
+    ProtectedTimeKind.fixedRest => '固定休息',
+  };
+
+  LocalTimeRange? _rangeOf(Object? value) {
+    if (value is! Map<String, Object?>) return null;
+    final start = value['startMinute'];
+    final end = value['endMinute'];
+    if (start is! int || end is! int) return null;
+    return LocalTimeRange(
+      startMinute: start.clamp(0, 24 * 60),
+      endMinute: end.clamp(0, 24 * 60),
+    );
   }
 
   /// 读取用户的精力区间（**本地时刻**），供统计侧把实际投入分桶（FR-STAT-05）。

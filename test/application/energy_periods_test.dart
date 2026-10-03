@@ -287,4 +287,84 @@ void main() {
     final report = await withoutZones.query(filter);
     expect(report.restProtection, isNull);
   });
+
+  test('休息保护：跨午夜的保护段按"跨到次日"计算（睡眠就是这一段）', () async {
+    // 睡眠默认 23:00–07:00，是这个产品里最主要的一段"休息"，而它跨午夜。此前服务侧对
+    // `endMinute <= startMinute` 直接 `continue` 跳过——那句话对当时的数据（只有午餐、晚餐、
+    // 固定休息）是对的，但睡眠恰恰必须被算进来。
+    const sleep = AnalyticsProtectedWindow(
+      label: '睡眠',
+      startMinute: 23 * 60,
+      endMinute: 7 * 60,
+      isWeekend: null,
+    );
+    final dataset = AnalyticsDataset(
+      weeklyLifeQuotaMinutes: 600,
+      protectedWindows: const [sleep],
+      tasks: const [],
+    );
+
+    final metric = await protection(dataset);
+
+    // 筛选范围是 10-04 到 10-12 共 8 个本地日，每天 8 小时 = 480 分钟，合计 3840。
+    // 首日 23:00 起的窗口落在范围内，末日 23:00 起的窗口在次日 07:00 结束——
+    // 服务侧会把超出筛选范围的部分裁掉，因此这里逐日累加得到 8×480。
+    expect(metric!.protectedMinutes, 480 * 8);
+    expect(metric.overlappedMinutes, 0);
+  });
+
+  test('休息保护：把夜里的专注算作占用睡眠', () async {
+    const sleep = AnalyticsProtectedWindow(
+      label: '睡眠',
+      startMinute: 23 * 60,
+      endMinute: 7 * 60,
+      isWeekend: null,
+    );
+    final dataset = AnalyticsDataset(
+      weeklyLifeQuotaMinutes: 600,
+      protectedWindows: const [sleep],
+      // 本地 10-05 00:30–01:00（夜里）实际专注 20 分钟。
+      actualEntries: [
+        AnalyticsActualFact(
+          taskId: 'task-1',
+          startUtc: _local(0, 30, day: 5),
+          endUtc: _local(1, 0, day: 5),
+          activeMinutes: 20,
+        ),
+      ],
+      tasks: [_task('task-1')],
+    );
+
+    final metric = await protection(dataset);
+
+    expect(
+      metric!.overlappedMinutes,
+      20,
+      reason: '零点之后的专注属于**前一天** 23:00 起的那段睡眠，跨午夜判定错就会漏掉它',
+    );
+    expect(metric.protectedMinutes, 480 * 8);
+  });
+
+  test('休息保护：以 24:00 结束的保护段不会炸，也不会被算成跨午夜', () async {
+    // `LocalTimeRange` 允许 `endMinute == 1440`（09:00–24:00 合法且**不**跨午夜），而
+    // `localDateTimeToUtc` 只接受 [0, 1439]。统计侧此前直接把 endMinute 传进去，遇到 24:00
+    // 会抛参数错误让整个查询失败——§13.0 的 C11 在保护时间展开器上记过同一处（"类型允许、
+    // 运行必炸"），统计侧只是从未被触发。
+    const evening = AnalyticsProtectedWindow(
+      label: '固定休息',
+      startMinute: 22 * 60,
+      endMinute: 24 * 60,
+      isWeekend: null,
+    );
+    final metric = await protection(
+      AnalyticsDataset(
+        weeklyLifeQuotaMinutes: 600,
+        protectedWindows: const [evening],
+        tasks: const [],
+      ),
+    );
+
+    // 每天 2 小时 = 120 分钟，8 天。
+    expect(metric!.protectedMinutes, 120 * 8);
+  });
 }

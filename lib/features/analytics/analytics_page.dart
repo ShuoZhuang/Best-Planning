@@ -728,10 +728,14 @@ final class _EvidenceLists extends StatelessWidget {
             const SizedBox(height: 10),
           ],
           // FR-STAT-05 的"休息保护情况"。口径写在领域模型上：保护总时长与被实际专注覆盖的
-          // 分钟数。没有设置过保护时段时整行不显示。
+          // 分钟数。数据源为空时整行不显示。
+          //
+          // **文案要点明"睡眠与保护时段"**：这个数字现在**包含睡眠**（每天 8 小时上下），
+          // 只说"保护 N 分钟"会让用户以为它只算午餐和固定休息，从而觉得数字大得离谱。
           if (report.restProtection != null) ...[
             Text(
-              '休息保护：保护 ${report.restProtection!.protectedMinutes} 分钟，'
+              '休息保护：睡眠与保护时段共 '
+              '${report.restProtection!.protectedMinutes} 分钟，'
               '其中被专注占用 ${report.restProtection!.overlappedMinutes} 分钟',
             ),
             const SizedBox(height: 10),
