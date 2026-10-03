@@ -117,7 +117,9 @@ void main() {
   testWidgets('从界面修正剩余时长会更新任务并留下修正历史', (tester) async {
     await pumpDetail(tester, 'task-1');
 
-    await tester.enterText(find.byType(TextField), '150');
+    await tester.enterText(find.byKey(const Key('remaining-minutes')), '150');
+    // 页面较长，必须先滚动到可见位置再点，否则 tap 落在视口外不会生效。
+    await tester.ensureVisible(find.text('保存'));
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
@@ -137,7 +139,9 @@ void main() {
   testWidgets('非正剩余时长被拒绝且不留下历史', (tester) async {
     await pumpDetail(tester, 'task-1');
 
-    await tester.enterText(find.byType(TextField), '0');
+    await tester.enterText(find.byKey(const Key('remaining-minutes')), '0');
+    // 页面较长，必须先滚动到可见位置再点，否则 tap 落在视口外不会生效。
+    await tester.ensureVisible(find.text('保存'));
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 

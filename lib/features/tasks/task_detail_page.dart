@@ -37,6 +37,7 @@ final class TaskDetailPage extends StatefulWidget {
 final class _TaskDetailPageState extends State<TaskDetailPage> {
   final _remaining = TextEditingController();
   final _newProjectName = TextEditingController();
+  final _window = TextEditingController();
   PlannerTask? _task;
   List<PlannerProject> _projects = const [];
   List<PlannerArea> _areas = const [];
@@ -55,6 +56,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   void dispose() {
     _remaining.dispose();
     _newProjectName.dispose();
+    _window.dispose();
     super.dispose();
   }
 
@@ -83,6 +85,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           : (areas.isEmpty ? null : areas.first.id);
       _loading = false;
       if (task != null) _remaining.text = '${task.remainingMinutes}';
+      _window.text = _editableWindow(task?.preferredWindow);
     });
   }
 
@@ -173,6 +176,35 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           : result.fieldErrors.values.join('；');
     });
     if (result.isSuccess) await _load();
+  }
+
+  /// 保存期望时段；留空即清除偏好。
+  ///
+  /// 页面只做格式解析与提示，区间是否合法交给服务层——两处各写一份规则必然会脱节。
+  Future<void> _saveWindow() async {
+    final parsed = _parseWindow(_window.text);
+    if (parsed == null) {
+      setState(() => _message = '期望时段格式应为 09:00-12:00，留空表示不设偏好');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    final saved = await widget.service.setPreferredWindow(
+      widget.taskId,
+      startMinute: parsed.startMinute,
+      endMinute: parsed.endMinute,
+    );
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _message = saved
+          // 明说它是软约束：用户才不会再问"为什么安排还是落在区间外"。
+          ? '期望时段已保存。它是软约束，排程仍可能落在区间外，只是分数更低。'
+          : '期望时段无效（需起点早于终点且在一日之内），未保存';
+    });
+    if (saved) await _load();
   }
 
   @override
@@ -306,6 +338,35 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
             ],
           ],
           const Divider(height: 40),
+          Text('期望时段', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          const Text(
+            '偏好时段，格式 09:00-12:00，可跨午夜（如 22:00-02:00）；留空表示不设偏好。'
+            '它是软约束：排程仍可能落在区间外，只是分数更低。',
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              SizedBox(
+                width: 200,
+                child: TextField(
+                  key: const Key('preferred-window'),
+                  controller: _window,
+                  decoration: const InputDecoration(
+                    labelText: '期望时段',
+                    hintText: '09:00-12:00',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: _saving ? null : _saveWindow,
+                child: const Text('保存期望时段'),
+              ),
+            ],
+          ),
+          const Divider(height: 40),
           Text('修正剩余时长', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           const Text(
@@ -318,6 +379,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               SizedBox(
                 width: 160,
                 child: TextField(
+                  key: const Key('remaining-minutes'),
                   controller: _remaining,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
@@ -402,6 +464,38 @@ String _splitLabel(TaskSplitMode mode) => switch (mode) {
 String _windowLabel(LocalTimeRange? window) {
   if (window == null) return '未设置';
   return '${_minuteLabel(window.startMinute)}–${_minuteLabel(window.endMinute)}';
+}
+
+/// 期望时段的可编辑写法：`09:00-12:00`；没有偏好时为空串。
+///
+/// 用连字符而不是中文破折号，因为这是要用户输入的文本，必须能用普通键盘打出来。
+String _editableWindow(LocalTimeRange? window) => window == null
+    ? ''
+    : '${_minuteLabel(window.startMinute)}-${_minuteLabel(window.endMinute)}';
+
+/// 解析上一种写法。空串返回一个"清除"标记，格式错误返回 `null`。
+///
+/// 这里只做格式解析，不判断区间是否合法——合法性由 `TaskService.setPreferredWindow`
+/// 与 `LocalTimeRange` 负责，避免两处各写一份规则、日后互相脱节。
+({int? startMinute, int? endMinute})? _parseWindow(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return (startMinute: null, endMinute: null);
+  final parts = text.split('-');
+  if (parts.length != 2) return null;
+  final start = _parseMinuteLabel(parts[0]);
+  final end = _parseMinuteLabel(parts[1]);
+  if (start == null || end == null) return null;
+  return (startMinute: start, endMinute: end);
+}
+
+int? _parseMinuteLabel(String raw) {
+  final parts = raw.trim().split(':');
+  if (parts.length != 2) return null;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null) return null;
+  if (hour < 0 || hour > 24 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
 }
 
 String _minuteLabel(int minute) {
