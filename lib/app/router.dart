@@ -14,6 +14,7 @@ import 'package:personal_planner/features/calendar/week_view/week_view_page.dart
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
+import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
@@ -62,6 +63,16 @@ GoRouter createPlannerRouter({
         GoRoute(
           path: '/tasks',
           builder: (context, state) => TaskListPage(service: taskService),
+        ),
+        GoRoute(
+          // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
+          // 此前该路由不存在，点击提醒无处可去。
+          path: '/tasks/:taskId',
+          builder: (context, state) => TaskDetailPage(
+            service: taskService,
+            taskId: state.pathParameters['taskId']!,
+            nowUtc: nowUtc ?? todayStartUtc,
+          ),
         ),
         GoRoute(
           path: '/calendar',

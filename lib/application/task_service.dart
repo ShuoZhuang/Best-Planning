@@ -69,6 +69,12 @@ final class TaskService {
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
 
+  /// 按 id 读取单个任务，不存在时返回 `null`。
+  ///
+  /// 详情页与通知点击都需要它：`watchOpenTasks` 只返回未结束的任务，而提醒可能指向
+  /// 一个已经完成或被取消的任务——用列表去找会把"任务存在但已结束"误判成"任务不存在"。
+  Future<PlannerTask?> findById(String taskId) => _repository.getById(taskId);
+
   Future<TaskSaveResult> quickAdd(String title, int estimatedMinutes) =>
       saveDraft(TaskDraft(title: title, estimatedMinutes: estimatedMinutes));
 
