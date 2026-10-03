@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -91,13 +89,12 @@ final class NotificationService {
           scheduledAtUtc: scheduledAt,
           title: '日程提醒',
           body: '有一项安排即将开始',
-          payload: jsonEncode({
-            'schema': 1,
-            'notificationId': id,
-            'kind': 'taskStart',
-            'entityId': block.taskId,
-            'route': '/tasks/${block.taskId}',
-          }),
+          payload: NotificationPayload(
+            notificationId: id,
+            kind: NotificationKind.taskStart,
+            entityId: block.taskId,
+            route: '/tasks/${block.taskId}',
+          ).encode(),
         );
       }
     }
@@ -123,13 +120,12 @@ final class NotificationService {
             scheduledAtUtc: scheduledAt,
             title: '日程提醒',
             body: '有一项固定日程即将开始',
-            payload: jsonEncode({
-              'schema': 1,
-              'notificationId': id,
-              'kind': 'calendarStart',
-              'entityId': occurrence.eventId,
-              'route': '/calendar',
-            }),
+            payload: NotificationPayload(
+              notificationId: id,
+              kind: NotificationKind.calendarStart,
+              entityId: occurrence.eventId,
+              route: '/calendar',
+            ).encode(),
           );
         }
       }
@@ -159,13 +155,12 @@ final class NotificationService {
             scheduledAtUtc: scheduledAt,
             title: '截止提醒',
             body: '有任务临近截止时间',
-            payload: jsonEncode({
-              'schema': 1,
-              'notificationId': id,
-              'kind': 'deadline',
-              'entityId': task.id,
-              'route': '/tasks/${task.id}',
-            }),
+            payload: NotificationPayload(
+              notificationId: id,
+              kind: NotificationKind.deadline,
+              entityId: task.id,
+              route: '/tasks/${task.id}',
+            ).encode(),
           );
         }
       }
@@ -187,13 +182,12 @@ final class NotificationService {
               scheduledAtUtc: scheduledAt,
               title: '有冲突待处理',
               body: '当前计划中有 ${conflicts.length} 项冲突需要确认',
-              payload: jsonEncode({
-                'schema': 1,
-                'notificationId': id,
-                'kind': 'conflict',
-                'entityId': conflicts.first.taskId ?? '',
-                'route': '/calendar',
-              }),
+              payload: NotificationPayload(
+                notificationId: id,
+                kind: NotificationKind.conflict,
+                entityId: conflicts.first.taskId ?? '',
+                route: '/calendar',
+              ).encode(),
             );
           }
         }

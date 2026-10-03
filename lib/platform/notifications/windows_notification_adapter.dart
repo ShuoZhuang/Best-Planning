@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -25,6 +23,23 @@ final class WindowsNotificationAdapter implements NotificationPort {
   final bool hasPackageIdentity;
   Future<void>? _initializing;
 
+  /// 点击处理器。平台的回调在 `_initialize` 时一次性注册，而处理器可能在那之后才
+  /// 被替换，因此回调里读取的是当前值而不是把处理器捕获进去。
+  void Function(NotificationPayload payload)? _onTapped;
+
+  @override
+  void onTapped(void Function(NotificationPayload payload) handler) {
+    _onTapped = handler;
+  }
+
+  void _handleResponse(NotificationResponse response) {
+    final payload = NotificationPayload.decode(response.payload);
+    // 解析不出来的 payload 直接忽略：可能来自旧版本的待发通知，为它抛错会连带
+    // 丢掉用户真实的那次点击。
+    if (payload == null) return;
+    _onTapped?.call(payload);
+  }
+
   @override
   Future<NotificationCapability> capability() async => NotificationCapability(
     canSchedule: true,
@@ -43,7 +58,9 @@ final class WindowsNotificationAdapter implements NotificationPort {
         .map((item) {
           final payload = item.payload ?? '';
           return PendingNotification(
-            id: _notificationIdFrom(payload) ?? 'native.${item.id}',
+            id:
+                NotificationPayload.decode(payload)?.notificationId ??
+                'native.${item.id}',
             payload: payload,
           );
         })
@@ -82,17 +99,10 @@ final class WindowsNotificationAdapter implements NotificationPort {
   Future<void> _initialize() async {
     await _plugin.initialize(
       settings: const InitializationSettings(windows: _initialization),
+      // 此前没有注册该回调，因此点击通知什么也不会发生：界面无法知道用户点了哪条
+      // 提醒，FR-NOTIFY-04 要求的快捷入口整条链路都是断的。
+      onDidReceiveNotificationResponse: _handleResponse,
     );
-  }
-
-  static String? _notificationIdFrom(String payload) {
-    try {
-      final value = jsonDecode(payload);
-      if (value case {'notificationId': final String id}) return id;
-    } on FormatException {
-      return null;
-    }
-    return null;
   }
 
   static int _nativeId(String value) {
