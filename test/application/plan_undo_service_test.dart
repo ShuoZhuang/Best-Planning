@@ -19,6 +19,35 @@ void main() {
     expect(repository.versions.map((item) => item.id), ['A', 'B', 'undo-1']);
     expect(repository.audit, ['undo:B->A:undo-1']);
   });
+
+  // B5：撤销同样改变"当前计划"，因此同样要让提醒重新同步——否则撤销之后提醒还停在
+  // 被撤销的那一版计划上。这两条把"只有真的撤销成功才同步"钉住。
+  test('撤销成功时回调恰好一次', () async {
+    final repository = _HistoryRepository([_plan('A', 9), _plan('B', 11)]);
+    var calls = 0;
+    final service = PlanUndoService(
+      repository: repository,
+      onPlanChanged: () async => calls++,
+    );
+
+    await service.undoLastAppliedPlan();
+
+    expect(calls, 1);
+  });
+
+  test('无可撤销时不回调（抛出的那条路径没有改变计划）', () async {
+    // 只有一版计划：previous() 返回 null，服务按设计抛 StateError。
+    final repository = _HistoryRepository([_plan('A', 9)]);
+    var calls = 0;
+    final service = PlanUndoService(
+      repository: repository,
+      onPlanChanged: () async => calls++,
+    );
+
+    await expectLater(service.undoLastAppliedPlan(), throwsStateError);
+
+    expect(calls, 0);
+  });
 }
 
 ConfirmedPlan _plan(String id, int hour) => ConfirmedPlan(
