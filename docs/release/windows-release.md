@@ -10,12 +10,35 @@ Task 20 的交付物之一，定义首版 Windows 产物的构建、版本与校
 | --- | --- |
 | `flutter build windows`（release） | **成功**（56.7s） |
 | MSIX 文件组装与打包 | **成功**，产出 `build\windows\x64\runner\Release\personal_planner_1.0.0_x64.msix`（14.4 MB） |
-| **SignTool 签名** | **失败**：`No certificates were found that met all the given criteria`。即**没有任何代码签名证书**，产物因此是**未签名的 MSIX**（不可作为受信任包安装） |
+| **SignTool 签名** | **成功**（2026-10-03，见下方"签名已通过"一节）：产物**已签名**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN`，包身份 `ShuoZhuang.PersonalPlanner`。`Get-AuthenticodeSignature` 状态为 `UnknownError`／"证书链在不受信任的根证书中终止"——这是**未把证书导入受信任存储**导致的，属预期，签名本身有效 |
 
-因此**发布仍被证书挡住**，而证书正是下文第 2 节列为"待确认"的那一项。**本次刻意不生成自签
-证书**：`msix_config.install_certificate` 明确为 `false`（构建过程不得静默修改本机受信任证书
-库），而生成自签证书属于"替发布者做决定"。**包标识 `identity_name` 也刻意未改**——一旦发布
-不可更改，须由产品侧确定自有反向域名。
+**签名已通过（2026-10-03 实测）**。这一步踩到了一个不明显的坑，记在这里免得重复排查：
+
+1. **包内自带的测试证书用不了**。msix 在没配 `certificate_path` 时会退回包内自带的
+   `lib/assets/test_certificate.pfx`（密码 `1234`），但那张证书是 **X.509 v1、零扩展**
+   （没有 Code Signing EKU），本机 signtool 直接拒绝：`No certificates were found that met
+   all the given criteria`——**不是**"没有证书"，而是那张证书不被接受。
+2. **自己签一张**：`New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=…, O=…, C=…"
+   -CertStoreLocation Cert:\CurrentUser\My`（生成的是 v3、带代码签名 EKU 的证书），
+   再 `Export-PfxCertificate` 导出带私钥的 `.pfx`。
+3. **但 `/f <pfx> /p <密码>` 仍然失败**：`Store::ImportCertObject() failed`
+   （`0x80090010` = `NTE_PERM`）。密码正确也一样，直接从普通 shell 调用也一样（两条都实测过）。
+   结论是**这台机器上 msix 自带的 signtool（10.0.19041.1）无法导入它自己那代工具链生成的
+   CNG 私钥**——本例没有独立的 Windows SDK signtool 可比对，因此未能进一步定位到具体版本差异。
+4. **可行的方式是按指纹从证书库选取**：`signtool sign /sha1 <指纹> /fd SHA256`。它跳过了
+   pfx 导入这一步。因此 `pubspec.yaml` 用 `signtool_options` 指定自定义签名命令，而**不是**
+   `certificate_path` + `certificate_password`。
+5. **一个连带约束**：`certificate_path` 若指向 `.pfx`，msix 会**强制要求** `certificate_password`
+   （源码 `extension == '.pfx' && certificatePassword.isNull` 即抛错），那样密码就不得不写进
+   会进版本库的 `pubspec.yaml`。因此该字段改指**导出的 `.cer`（只含公钥）**：既满足
+   "publisher 由证书推导"的校验，又**让密码不出现在任何文件或命令里**。
+6. **私钥刻意放在仓库之外**（`C:\Users\zs200\signing\personal_planner.pfx`），因此"私钥不进
+   版本库"不依赖是否记得写 `.gitignore`。
+
+**因此本机现在能产出已签名的 MSIX**。**仍然待办的是"让它被信任并安装"**：把证书导入受信任
+存储需要 UAC 提权（`msix_config.install_certificate` 仍为 `false`，构建过程不静默改本机
+证书库），安装之后才能验证 **`hasPackageIdentity` 返回 true 的那一支**与**通知点击的真实
+toast 交互**——这两项至今仍未验证。
 
 **端到端集成测试同日实测**：`flutter test integration_test -d windows` 的三条流程
 （首周计划、临时晚归重排、备份恢复）**逐条单独运行时全部通过**；**一次性批量运行**时第一条

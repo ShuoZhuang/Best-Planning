@@ -137,10 +137,42 @@ flutter:
 msix_config:
   display_name: 智能日程
   publisher_display_name: Personal Planner
-  identity_name: PersonalPlanner.StudentScheduler
-  # 当前个人测试版使用 msix 包自带的测试证书；面向公众发布前必须替换为
-  # Microsoft Store 分配的发布者或自己的代码签名证书。
-  publisher: CN=Msix Testing, O=Msix Testing Corporation, S=Some-State, C=US
+  # 侧载用的稳定身份：3–50 字符，只允许字母数字与 . 和 -。**发布后不可更改**
+  # （换身份等于换应用，用户数据不会自动迁移）。
+  #
+  # 这里刻意**不**写成反向域名（如 com.<域名>.xxx）：那会暗示拥有某个域名，而本应用是个人
+  # 侧载、没有域名。上方第 135 行的既有约定也是这个口径——将来上 Microsoft Store 时由商店
+  # 后台分配 identity/publisher，并作为独立渠道迁移，不覆盖这个身份。
+  identity_name: ShuoZhuang.PersonalPlanner
+  # 发布者**必须与签名证书的 Subject 一字不差**（原样拷贝 `$cert.Subject` 的输出）。
+  # 换证书时这一行要同步改，否则包装不上。
+  publisher: CN=Shuo Zhuang, O=Personal User, C=CN
+  # **公钥**证书路径（不含私钥，因此不需要也不该给密码）。msix 用它推导 publisher 并校验
+  # 文件存在——也就是说它是"发布者从哪来"的依据。
+  #
+  # 这里刻意指向 `.cer` 而**不是** `.pfx`：msix 对 `.pfx` 会强制要求 `certificate_password`
+  # （源码 `extension == '.pfx' && certificatePassword.isNull` 即抛错），那样密码就不得不
+  # 写进会进版本库的 pubspec.yaml。`.cer` 没有这个约束，于是**密码不出现在任何文件里**。
+  #
+  # 私钥（`personal_planner.pfx`）**刻意放在仓库之外**：这样"私钥不进版本库"不依赖是否记得
+  # 写 .gitignore。换机器时两样都要带过去，并把下面两处的绝对路径改掉。
+  # 用正斜杠是刻意的——YAML 普通标量里的反斜杠容易与转义混淆，Dart 的 File 两种都认。
+  certificate_path: C:/Users/zs200/signing/personal_planner.cer
+  # 签名方式：**按指纹从当前用户的证书库选取**，而不是 `/f <pfx> /p <密码>`。
+  #
+  # 为什么不用更"自包含"的 pfx 方式：本机 msix 自带的 signtool（10.0.19041）对它自己
+  # 生成的 CNG 私钥执行 `Store::ImportCertObject()` 会失败（0x80090010 / NTE_PERM）——
+  # 密码正确也一样，直接从 shell 调用也一样（两条命令都实测过）。改成按指纹从证书库选取后
+  # 即通过：signtool 输出 `The following certificate was selected` 与
+  # `Done Adding Additional Store`。**副作用两处，都可接受**：
+  #   ① 打包前该证书必须已在**当前用户**的个人证书库中（本机已导入；换机器时先
+  #      `Import-PfxCertificate`）；
+  #   ② 密码不再出现在任何文件或命令里——这比对 pfx 方式更干净。
+  #
+  # 指纹不是秘密（私钥才是），因此写在版本库里的这一行没有问题。**换证书时同步改这里**。
+  # 若将来换成较新的 Windows SDK 里的 signtool，`/f` 方式更可移植（换机器只要带 pfx 即可），
+  # 届时把这一行删掉、改用 `--certificate-path` + `--certificate-password`。
+  signtool_options: '/sha1 9E157ECE535D16A224593CA39C084705A4FD3C13 /fd SHA256 /v'
   # 必须与 pubspec.yaml 的 version 对应（MSIX 要求四段式）。
   msix_version: 1.0.0.0
   output_name: personal_planner_1.0.0_x64
