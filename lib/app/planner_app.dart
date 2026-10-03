@@ -13,6 +13,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
@@ -32,6 +33,7 @@ final class PlannerApp extends StatefulWidget {
     this.correctionLog,
     this.analytics,
     this.preferences,
+    this.notifications,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
     super.key,
@@ -58,6 +60,10 @@ final class PlannerApp extends StatefulWidget {
 
   /// 学习偏好的读取与调整服务。为空时"偏好"页仍然可达，但会说明服务未装配。
   final PreferenceService? preferences;
+
+  /// 通知端口。除了安排提醒，它还负责把"用户点击了通知"交回来（FR-NOTIFY-04 的
+  /// 快捷入口）；为空时不会有任何点击来源，启动也照常。
+  final NotificationPort? notifications;
 
   final TimeZoneDatabase? zones;
 
@@ -115,6 +121,10 @@ final class _PlannerAppState extends State<PlannerApp> {
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
     );
+    // FR-NOTIFY-04：点击通知后按 payload 里已经写好的去处导航。路径由本应用的写入端
+    // 生成并写在 payload 中（见 `NotificationPayload`），读取端不自行拼路径，因此这里
+    // 直接用；`route` 指向的任务若已被删除，详情页会明确说明而不是崩溃。
+    widget.notifications?.onTapped((payload) => _router.go(payload.route));
   }
 
   @override
