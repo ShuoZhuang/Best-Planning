@@ -12,9 +12,11 @@ final class AvailabilityInput {
     List<TimeRange> fixedIntervals = const [],
     List<TimeRange> protectedIntervals = const [],
     List<TimeRange> lockedBlocks = const [],
+    List<TimeRange> chargedMovableBlocks = const [],
   }) : fixedIntervals = UnmodifiableListView(fixedIntervals),
        protectedIntervals = UnmodifiableListView(protectedIntervals),
-       lockedBlocks = UnmodifiableListView(lockedBlocks);
+       lockedBlocks = UnmodifiableListView(lockedBlocks),
+       chargedMovableBlocks = UnmodifiableListView(chargedMovableBlocks);
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -22,6 +24,13 @@ final class AvailabilityInput {
   final List<TimeRange> fixedIntervals;
   final List<TimeRange> protectedIntervals;
   final List<TimeRange> lockedBlocks;
+
+  /// 已经占住时间、**但落地为未锁定**的块（FR-CAL-05 里"拖动了但没锁定"的那一支）。
+  ///
+  /// 它们与 `lockedBlocks` 一样从可用时间里扣除（因此候选不会压上去），但**必须计入当日
+  /// 可移动任务预算**：`PlanValidator` 是按"未锁定块"统计每日上限的，若这里不扣，同一段时长
+  /// 在两侧算法不同，会凭空产生 `dailyLimitExceeded`，把一次合法的手动移动判为无效提案。
+  final List<TimeRange> chargedMovableBlocks;
 }
 
 final class AvailabilitySlot {
@@ -54,6 +63,19 @@ final class AvailabilityBuilder {
     );
 
     final output = <AvailabilitySlot>[];
+    // 已占住时间、但落地为未锁定的块先记到它们**起点所在**的本地日上，与
+    // `PlanValidator` 的统计口径逐字一致（同样取起点本地日、同样算整段时长）。
+    final chargedByLocalDate = <String, int>{};
+    for (final range in input.chargedMovableBlocks) {
+      final localDate = _dateOnly(
+        _zones.toLocal(range.startUtc, input.timeZoneId),
+      );
+      chargedByLocalDate.update(
+        _dateKey(localDate),
+        (value) => value + range.durationMinutes,
+        ifAbsent: () => range.durationMinutes,
+      );
+    }
     var localDate = _dateOnly(
       _zones.toLocal(input.planningWindow.startUtc, input.timeZoneId),
     );
@@ -78,7 +100,9 @@ final class AvailabilityBuilder {
             .nonNulls
             .toList();
         final free = _complement(dayWindow, dayBusy);
-        var remaining = input.rules.dailyMovableTaskLimitMinutes;
+        var remaining =
+            input.rules.dailyMovableTaskLimitMinutes -
+            (chargedByLocalDate[_dateKey(localDate)] ?? 0);
         for (final range in free) {
           if (remaining <= 0) break;
           final alignedMinutes =
@@ -198,3 +222,7 @@ TimeRange? _intersection(TimeRange a, TimeRange b) {
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+/// 与 `PlanValidator` 的每日上限统计用的键保持同一形状。
+String _dateKey(DateTime localDate) =>
+    '${localDate.year}-${localDate.month}-${localDate.day}';

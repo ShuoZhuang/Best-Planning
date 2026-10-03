@@ -128,9 +128,15 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                     date.day == day.day;
               }).toList(),
               onMove: (item) async {
+                final day = widget.weekStart.add(Duration(days: index));
+                // FR-CAL-05 的"手动移动后可选择锁定"：放手后先问一次是否锁定。放在拖动这一侧
+                // 而不是页面之外，是因为"锁定"是这次放置的属性，问在别处会丢掉上下文。
+                final lock = await _askLock(context, item, day);
+                if (lock == null) return;
                 final proposalId = await widget.moveController.proposeMove(
                   item,
-                  widget.weekStart.add(Duration(days: index)),
+                  day,
+                  lock: lock,
                 );
                 if (proposalId != null && mounted) {
                   widget.onProposalCreated?.call(proposalId);
@@ -187,6 +193,67 @@ final class _DayColumn extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 放手后问一次"是否锁定"，返回 `null` 表示用户取消。
+///
+/// **为什么默认勾选**：手动放置是用户的显式指令，默认不让后续自动调整把它挪走；取消勾选
+/// 仍然**按用户放的位置落地**（装配层照样钉住），只是落地为未锁定，后续重排可以再移动它。
+/// 把这个差别写在对话框里，是因为两个分支的后果不同且都不可从界面回推。
+Future<bool?> _askLock(
+  BuildContext context,
+  ScheduleViewItem item,
+  DateTime day,
+) => showDialog<bool>(
+  context: context,
+  builder: (dialogContext) => _MoveConfirmDialog(title: item.title, day: day),
+);
+
+final class _MoveConfirmDialog extends StatefulWidget {
+  const _MoveConfirmDialog({required this.title, required this.day});
+
+  final String title;
+  final DateTime day;
+
+  @override
+  State<_MoveConfirmDialog> createState() => _MoveConfirmDialogState();
+}
+
+final class _MoveConfirmDialogState extends State<_MoveConfirmDialog> {
+  bool _lock = true;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('把「${widget.title}」移到 ${widget.day.month} 月 ${widget.day.day} 日'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          key: const Key('move-lock'),
+          value: _lock,
+          onChanged: (value) => setState(() => _lock = value ?? false),
+          title: const Text('锁定'),
+          subtitle: const Text('锁定后，后续的自动调整不会再把这一块挪走'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+        const Text('取消勾选仍会移到这一天，但之后的重新排程可以再移动它。'),
+      ],
+    ),
+    actions: [
+      TextButton(
+        key: const Key('move-cancel'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      TextButton(
+        key: const Key('move-confirm'),
+        onPressed: () => Navigator.of(context).pop(_lock),
+        child: const Text('移动'),
+      ),
+    ],
+  );
 }
 
 final class _DraggableScheduleCard extends StatelessWidget {

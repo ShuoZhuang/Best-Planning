@@ -8,6 +8,7 @@ import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
@@ -60,6 +61,8 @@ final class PlannerApp extends StatefulWidget {
     this.calendar,
     this.calendarService,
     this.autoAdjustStore,
+    /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
+    this.pendingMoves,
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
     // 本地时间（作息、日界、"今天"是哪一天），而在别的时区只表现为"时间算错"、不报错。
@@ -146,6 +149,10 @@ final class PlannerApp extends StatefulWidget {
   /// 因此同一个设置在不同启动里表现不同（W8）。
   final AutoAdjustStore? autoAdjustStore;
 
+  /// 手动拖动的落点（FR-CAL-05）。组合根把**同一个实例**也交给
+  /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
+  final PendingMoveDrafts? pendingMoves;
+
   final TimeZoneDatabase? zones;
 
   /// IANA 时区标识。目前由调用方显式给出；自动识别本机时区见偏差登记 R11。
@@ -202,7 +209,17 @@ final class _PlannerAppState extends State<PlannerApp> {
       ),
       settingsService: SettingsService(repository: _settingsRepository),
       scheduleSource: widget.scheduleSource ?? const EmptyScheduleViewSource(),
-      moveController: const DisabledWeekMoveController(),
+      // FR-CAL-05：拖动**可移动任务块**。此前这里恒为 `DisabledWeekMoveController`，
+      // 于是周视图上的拖动在真实运行中永远没有反应——"拖动被禁用"不是一句说明，而是这行
+      // 常量。真正生效需要一个落点（`MoveDraftSink`）与一个装配进排程输入的通道，两者都由
+      // `widget.pendingMoves`（组合根构造、同时交给 `RepositoryScheduleProblemSource`）提供；
+      // 未提供时（测试、或未装配排程时）退回禁用，因此不会假装拖动生效。
+      moveController: widget.pendingMoves == null || widget.planningService == null
+          ? const DisabledWeekMoveController()
+          : PlanningServiceWeekMoveController(
+              drafts: widget.pendingMoves!,
+              planning: widget.planningService!,
+            ),
       autoAdjustStore: widget.autoAdjustStore ?? MemoryAutoAdjustStore(),
       todayStartUtc: todayStartUtc,
       zones: zones,

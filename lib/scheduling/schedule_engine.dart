@@ -60,6 +60,11 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             .map((item) => item.range)
             .toList(),
         lockedBlocks: problem.lockedBlocks.map((item) => item.range).toList(),
+        // "拖动了但没锁定"的块占住时间、且计入当日可移动预算（见该字段的说明）。
+        chargedMovableBlocks: [
+          for (final block in problem.lockedBlocks)
+            if (problem.pinnedUnlockedBlockIds.contains(block.id)) block.range,
+        ],
       ),
     );
     final targets = {
@@ -158,6 +163,24 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     }
 
     _improve(problem, slots, blocks, targets);
+    // FR-CAL-05 的"不锁定"那一支：被手动拖动、但用户没有选择锁定的块，在**本次生成**里
+    // 必须按锁定对待（因此上面的 `_improve` 跳过了它），否则局部改进会立刻把它搬回去，
+    // 用户看到的就是"拖了没用"。生成结束后再把这些块的 `locked` 改回 false 输出，于是它
+    // **落在用户放的位置、但落地为未锁定**，后续重排可以移动它——两条分支的差别到此是真实
+    // 且可观察的。
+    if (problem.pinnedUnlockedBlockIds.isNotEmpty) {
+      for (var index = 0; index < blocks.length; index++) {
+        final block = blocks[index];
+        if (block.locked && problem.pinnedUnlockedBlockIds.contains(block.id)) {
+          blocks[index] = PlannedBlock(
+            id: block.id,
+            taskId: block.taskId,
+            range: block.range,
+            explanationCode: block.explanationCode,
+          );
+        }
+      }
+    }
     blocks.sort(_compareBlocks);
     for (final block in blocks) {
       final code = block.explanationCode;

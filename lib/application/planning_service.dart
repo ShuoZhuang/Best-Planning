@@ -87,4 +87,7 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       rules: problem.rules,
       preferences: problem.preferences,
       inputHash: inputHash,
+      // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让
+      // 手动拖动产生的提案被判为过期（C8 那次"重放不一致"是同型缺陷）。
+      pinnedUnlockedBlockIds: problem.pinnedUnlockedBlockIds,
     );

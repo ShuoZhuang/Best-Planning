@@ -71,6 +71,10 @@ final class InputSnapshotBuilder {
           'locked': block.locked,
         },
     ],
+    // 手动拖动产生的"钉住但落地为未锁定"的块（FR-CAL-05）。它改变输出里的 `locked`
+    // 与当日可移动预算，因此必须进哈希——否则同一份 `lockedBlocks` 在两种解释下会算出
+    // 同一个哈希，确认阶段就可能接受一份按另一种解释生成的提案。
+    'pinnedUnlockedBlockIds': [...problem.pinnedUnlockedBlockIds]..sort(),
     'rules': _rules(problem.rules),
     'preferences': {
       'enabled': problem.preferences.enabled,

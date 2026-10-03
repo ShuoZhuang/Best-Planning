@@ -9,6 +9,7 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
+import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -118,6 +119,10 @@ Future<void> main() async {
 
   final settingsService = SettingsService(repository: settingsRepository);
   final ruleResolver = PlanningRuleResolver(settingsService);
+  // FR-CAL-05：手动拖动的意图。**同一个实例必须同时给"记录的落点"（周视图经 PlannerApp）
+  // 与"消费的通道"（下面的排程输入来源）**——只给一侧就是"拖了没用"或"记了没人看"，这正是
+  // 本次之前的状态（接口没有任何实现，且组合根注入的是 DisabledWeekMoveController）。
+  final pendingMoves = PendingMoveDrafts();
   final problemSource = RepositoryScheduleProblemSource(
     tasks: taskRepository,
     lifeAreas: DriftLifeAreaLookup(database),
@@ -127,6 +132,7 @@ Future<void> main() async {
     clock: clock,
     timeZoneId: timeZoneId,
     zones: zones,
+    pendingMoves: pendingMoves,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -300,6 +306,8 @@ Future<void> main() async {
         ),
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
+        // FR-CAL-05：与上面那个排程输入来源共用同一实例。
+        pendingMoves: pendingMoves,
         analytics: AnalyticsService(
           source: AnalyticsDao(database),
           // FR-STAT-05 的精力分桶按**本地时刻**归桶，因此这里必须把时区交进去；
