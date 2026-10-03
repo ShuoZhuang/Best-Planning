@@ -5,8 +5,17 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/features/tasks/quick_add_form.dart';
 
 final class TaskListPage extends StatefulWidget {
-  const TaskListPage({required this.service, super.key});
+  const TaskListPage({
+    required this.service,
+    required this.nowUtc,
+    super.key,
+  });
   final TaskService service;
+
+  /// 用于派生"已逾期"（R12）：该状态不落库，只取决于"截止已过且任务未结束"，
+  /// 因此必须显式传入当前时刻，不能由页面各自读时钟决定。
+  final DateTime nowUtc;
+
   @override
   State<TaskListPage> createState() => _TaskListPageState();
 }
@@ -50,7 +59,14 @@ final class _TaskListPageState extends State<TaskListPage> {
                     return CheckboxListTile(
                       value: task.status == TaskStatus.completed,
                       title: Text(task.title),
-                      subtitle: Text('预计 ${task.estimatedMinutes} 分钟'),
+                      subtitle: Text(
+                        // 派生状态此前只在详情页展示，列表里看不到，因此"哪些任务
+                        // 已经逾期"在清单上无从判断（R12）。
+                        task.statusAt(nowUtc: widget.nowUtc) ==
+                                TaskStatus.overdue
+                            ? '已逾期 · 预计 ${task.estimatedMinutes} 分钟'
+                            : '预计 ${task.estimatedMinutes} 分钟',
+                      ),
                       // 用 `secondary` 而不是 `trailing`：`CheckboxListTile` 没有
                       // `trailing` 参数，勾选框本身就占着那一侧；把入口放在对侧既不
                       // 与勾选冲突，也不必改掉"点整行即完成"的既有行为。

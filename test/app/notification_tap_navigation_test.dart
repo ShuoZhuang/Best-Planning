@@ -58,6 +58,8 @@ PlannerTask _task() => PlannerTask(
   priority: TaskPriority.high,
   estimatedMinutes: 120,
   remainingMinutes: 90,
+  // 远早于任何合理的运行时刻，因此派生状态必然为"已逾期"（R12）。
+  dueAtUtc: DateTime.utc(2020, 1, 1),
   energyLevel: TaskEnergyLevel.high,
   splitMode: TaskSplitMode.splittable,
   minChunkMinutes: 30,
@@ -136,6 +138,17 @@ void main() {
 
     expect(find.byType(TaskDetailPage), findsOneWidget);
     expect(find.text('写方案'), findsOneWidget);
+  });
+
+  testWidgets('任务清单展示派生的已逾期状态', (tester) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.text('任务'));
+    await tester.pumpAndSettle();
+
+    // 截止时间已过且任务未结束，该状态不落库、由事实派生，此前清单上看不到（R12）。
+    expect(find.textContaining('已逾期'), findsOneWidget);
+    expect(find.text('任务清单'), findsOneWidget);
   });
 
   testWidgets('未装配通知端口时照常启动', (tester) async {

@@ -62,7 +62,10 @@ GoRouter createPlannerRouter({
         ),
         GoRoute(
           path: '/tasks',
-          builder: (context, state) => TaskListPage(service: taskService),
+          builder: (context, state) => TaskListPage(
+            service: taskService,
+            nowUtc: nowUtc ?? todayStartUtc,
+          ),
         ),
         GoRoute(
           // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
