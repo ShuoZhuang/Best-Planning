@@ -64,6 +64,7 @@ GoRouter createPlannerRouter({
   ExportService? exportService,
   FocusService? focusService,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
+  void Function(String action, String suggestionId)? onSuggestionAction,
   RecoveryPlanningService? recovery,
   CalendarRepository? calendar,
   DateTime? nowUtc,
@@ -267,6 +268,8 @@ GoRouter createPlannerRouter({
               service: service,
               // FR-PREF-01/03 的输入端：没有它，这一页永远列不出建议。
               loadEvidence: loadPreferenceEvidence,
+              // FR-STAT 的"建议采纳行为"来源（W5）。
+              onSuggestionAction: onSuggestionAction,
             );
           },
         ),

@@ -4,7 +4,12 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
 final class PreferencesPage extends StatefulWidget {
-  const PreferencesPage({required this.service, this.loadEvidence, super.key});
+  const PreferencesPage({
+    required this.service,
+    this.loadEvidence,
+    this.onSuggestionAction,
+    super.key,
+  });
 
   final PreferenceService service;
 
@@ -14,6 +19,12 @@ final class PreferencesPage extends StatefulWidget {
   /// 因此建议永远不会被生成——偏好页列出的是一份永远空着的名单，即便证据已在积累。
   /// 这一页是它最自然的触发点：分析结果就是这一页要展示的内容。
   final Future<List<PreferenceEvidence>> Function()? loadEvidence;
+
+  /// 用户对某条建议采取的动作（`accepted`／`rejected`／`disabled`）。
+  ///
+  /// 统计的"建议采纳行为"（FR-STAT）读的正是 `suggestion:<code>` 这类事件，而此前没有任何
+  /// 代码产生它们，因此该项恒为空（W5）。这一页是这些动作唯一的发生地。
+  final void Function(String action, String suggestionId)? onSuggestionAction;
 
   @override
   State<PreferencesPage> createState() => _PreferencesPageState();
@@ -49,6 +60,19 @@ final class _PreferencesPageState extends State<PreferencesPage> {
     await _reload();
   }
 
+  /// 先记事件再执行动作。
+  ///
+  /// 事件记录的是"用户做了什么"，因此即使随后的服务调用失败，这次意图也该留下——否则统计
+  /// 只统计成功的动作，而"用户点了拒绝但保存失败"恰恰是需要被看见的情况。
+  Future<void> _recorded(
+    String action,
+    String suggestionId,
+    Future<void> Function() perform,
+  ) async {
+    widget.onSuggestionAction?.call(action, suggestionId);
+    await perform();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('学习偏好')),
@@ -76,12 +100,21 @@ final class _PreferencesPageState extends State<PreferencesPage> {
             for (final suggestion in _suggestions)
               _SuggestionCard(
                 suggestion: suggestion,
-                onConfirm: () =>
-                    _act(() => widget.service.confirm(suggestion.id)),
-                onReject: () =>
-                    _act(() => widget.service.reject(suggestion.id)),
-                onDisable: () =>
-                    _act(() => widget.service.disable(suggestion.id)),
+                onConfirm: () => _act(() => _recorded(
+                  'accepted',
+                  suggestion.id,
+                  () => widget.service.confirm(suggestion.id),
+                )),
+                onReject: () => _act(() => _recorded(
+                  'rejected',
+                  suggestion.id,
+                  () => widget.service.reject(suggestion.id),
+                )),
+                onDisable: () => _act(() => _recorded(
+                  'disabled',
+                  suggestion.id,
+                  () => widget.service.disable(suggestion.id),
+                )),
               ),
             const SizedBox(height: 12),
             Wrap(

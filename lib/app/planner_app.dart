@@ -49,6 +49,7 @@ final class PlannerApp extends StatefulWidget {
     this.exportService,
     this.focusService,
     this.loadPreferenceEvidence,
+    this.onSuggestionAction,
     this.recovery,
     this.calendar,
     this.autoAdjustStore,
@@ -105,6 +106,11 @@ final class PlannerApp extends StatefulWidget {
 
   /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
   final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
+
+  /// 记录用户对偏好建议的动作（FR-STAT 的"建议采纳行为"，W5）。
+  ///
+  /// 为空时偏好页的一切照旧，只是统计里那一项仍为空——即改动前的状态。
+  final void Function(String action, String suggestionId)? onSuggestionAction;
 
   /// 特殊日恢复服务与当日固定日程来源（Task 11）。两者缺一时该入口不显示。
   final RecoveryPlanningService? recovery;
@@ -186,6 +192,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       exportService: widget.exportService,
       focusService: widget.focusService,
       loadPreferenceEvidence: widget.loadPreferenceEvidence,
+      onSuggestionAction: widget.onSuggestionAction,
       recovery: widget.recovery,
       calendar: widget.calendar,
       preferences: widget.preferences,

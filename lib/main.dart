@@ -24,6 +24,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
@@ -34,7 +35,9 @@ import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
+import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
+
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
@@ -162,6 +165,12 @@ void main() {
   // （只有测试调用），因此建议永远不会被生成。这里把两端接上——专注结束时写证据，
   // 打开偏好页时按证据重新分析。
   final preferenceEvidence = DriftPreferenceEvidenceRepository(database);
+  // 行为事件（FR-STAT 的建议采纳行为）。此前 `change_log` 只有计划生命周期事件，
+  // 而统计读的是 interruption/replan/suggestion 三类行为事件，因此那几项恒为空（W5）。
+  final analyticsEvents = DriftAnalyticsEventLog(
+    database,
+    idGenerator: UuidIdGenerator(),
+  );
   final focusEvidence = FocusEvidenceRecorder(
     evidence: preferenceEvidence,
     tasks: taskRepository,
@@ -224,6 +233,13 @@ void main() {
         // 偏好页的分析输入（FR-PREF-03 的样本积累靠历史证据，因此给一个足够长的窗口）。
         loadPreferenceEvidence: () => preferenceEvidence.since(
           clock.nowUtc().subtract(const Duration(days: 180)),
+        ),
+        // 偏好页的建议动作写进行为事件，统计的"建议采纳行为"因此有了数据来源。
+        onSuggestionAction: (action, suggestionId) => analyticsEvents.record(
+          kind: AnalyticsEventKind.suggestion,
+          code: action,
+          observedAtUtc: clock.nowUtc(),
+          entityId: suggestionId,
         ),
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
