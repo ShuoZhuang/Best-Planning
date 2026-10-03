@@ -361,3 +361,51 @@ Windows 真的由 toast 拉起进程时才为 true，本机无法构造；测试
 3. 改完必须**重新打包安装**（`msix_version` 需大于已安装的 `1.0.1.0`）并**重跑点击验证**。
 
 **这一项不计入通过。** 通知能弹只兑现了两个未验证项里的一个；"点击进入正确页面"仍未兑现。
+---
+
+## 十、A①② 落地后的验证：清单已正确，但**发现一个新盲点**
+
+### 已确证：清单里的激活器写对了
+
+`dart run msix:create` 产出的 `1.0.2.0` 清单实测包含：
+
+```xml
+<desktop:Extension Category="windows.toastNotificationActivation">
+  <desktop:ToastNotificationActivation ToastActivatorCLSID="7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4"/>
+<com:Extension Category="windows.comServer">
+  <com:ComServer>
+    <com:ExeServer Executable="personal_planner.exe" Arguments="----AppNotificationActivationServer" DisplayName="智能日程">
+      <com:Class Id="7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4"/>
+```
+
+CLSID 与代码里的 `FlutterWindowsNotificationBackend.activatorGuid` 一致，且有一条例用测试
+（`windows_notification_activator_config_test.dart`）守着这个跨文件一致性。签名 `Valid`，
+安装为 `1.0.2.0`（`Status: Ok`）。
+
+### 新盲点：`initialize()` 似乎根本没跑到，而失败没有任何可查线索
+
+用一个**决定性实验**验证 A①：删掉插件写的那个 AUMID 注册表键
+（`HKCU\Software\Classes\AppUserModelId\PersonalPlanner.Desktop.App`），再以包身份重启应用，
+然后看它重建出哪一个。
+
+**结果：一个键都没有重建。**
+
+插件源码是无条件写这个键的（`src/plugin.cpp:176-181` 的 `registerApp` → `UpdateRegistry`），
+插件 Dart 侧也是把 `settings.appUserModelId` 原样交给原生（`plugin/lib/src/plugin/ffi.dart:87-104`）。
+因此"没有任何键"只能说明：**这次运行里 `initialize()` 压根没被调用**（或调用即抛且被吞）。
+
+而 `NotificationService.syncNextSevenDays()` 在 L200 **无条件**调用
+`notifications.pendingNotifications()`，后者会 `await _ensureInitialized()`。所以最可能的解释是
+**该方法在 L200 之前就抛了**——而组合根的 `resyncNotifications()` 用 `try/catch` 把异常吞成
+`debugPrint`，**Release 构建里 `debugPrint` 抓不到**（实测：把包内进程的 stdout 重定向到文件，
+只拿到引擎那行 Impeller 输出，没有任何 Dart 侧输出）。
+
+**后果（这是本轮真正要紧的发现）**：一旦同步失败，**既不会有提醒，也不会有任何可查的线索**——
+用户看到的只是"通知不弹"，而开发者在 Release 里连一行日志都拿不到。这与本次会话里其它"失败被
+静默吞掉"的问题（`on Object` 吞异常导致探针不可用与确实没有包身份无法区分）是同一类。
+
+### 下一轮的做法（不猜，先让它可观测）
+
+给"提醒同步失败"加一个**落到文件的诊断**（而不是只 `debugPrint`），放在数据库旁边；然后重打包、
+重启、读那个文件，就能看清 `syncNextSevenDays()` 到底在哪一步抛、抛了什么。**在拿到那份输出之前，
+不对原因下结论。**

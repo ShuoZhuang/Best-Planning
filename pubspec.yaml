@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.13.4
@@ -177,8 +177,8 @@ msix_config:
   #
   # **版本只能往上走**：`Add-AppxPackage` 不接受比已安装版本更低的包。本机已安装 `1.0.0.0`
   # （含首帧崩溃修复之前的那一版），因此这一版取 `1.0.1.0`，同时 `version` 提到 `1.0.1+2`。
-  msix_version: 1.0.1.0
-  output_name: personal_planner_1.0.1_x64
+  msix_version: 1.0.2.0
+  output_name: personal_planner_1.0.2_x64
   # 通知点击的**激活器**（A②）。打包应用走的是**清单声明**，不是插件那套
   # `HKCU\Software\Classes\AppUserModelId\<aumid>` 注册表约定——这正是"点通知只把窗口带到
   # 前台、不跳转"的原因之一（实测证据见 `docs/testing/flow-verification.md` 第九节）。
