@@ -274,4 +274,58 @@ void main() {
     // 单次日程若被写成"系列的一次"，它从此必须依赖规则才可见——那会把一条独立日程绑死。
     expect(rows.where((row) => row.exceptionOfId != null), isEmpty);
   });
+
+  test('改写整个系列会把**所有各次**一起换到新时间', () async {
+    await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+
+    await repository.replaceSeries(
+      anchorId: 'anchor-1',
+      newStartUtc: DateTime.utc(2026, 10, 5, 14),
+      newEndUtc: DateTime.utc(2026, 10, 5, 15),
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // **两次都要变**：只断言第一次会让"改了锚点、忘了改规则"的实现通过——那种实现里第二次
+    // 仍是 09:00，正是这条断言要挡的半成品。
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 5, 14),
+      DateTime.utc(2026, 10, 12, 14),
+    ]);
+    // 时长存在规则里，也必须跟着变。
+    final occurrences = await repository.occurrencesBetween(
+      DateTime.utc(2026, 10, 5),
+      DateTime.utc(2026, 10, 19),
+    );
+    expect(
+      occurrences.first.range.endUtc
+          .difference(occurrences.first.range.startUtc)
+          .inMinutes,
+      60,
+    );
+  });
+
+  test('对单次日程"改整个系列"退化为改那一行', () async {
+    await repository.save(
+      CalendarEvent(
+        id: 'single-3',
+        title: '一次性讲座',
+        startAtUtc: DateTime.utc(2026, 10, 12, 14),
+        endAtUtc: DateTime.utc(2026, 10, 12, 15),
+        timeZoneId: 'UTC',
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+    );
+
+    await repository.replaceSeries(
+      anchorId: 'single-3',
+      newStartUtc: DateTime.utc(2026, 10, 12, 18),
+      newEndUtc: DateTime.utc(2026, 10, 12, 19),
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    // 单次日程没有"系列"可言：既不能报错，也不能凭空造一条规则。
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 12, 18),
+    ]);
+  });
 }

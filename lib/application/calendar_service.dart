@@ -83,6 +83,25 @@ final class CalendarService {
   final IdGenerator _idGenerator;
   final TimeZoneDatabase _zones;
 
+  /// 改写整个系列（FR-CAL-02 的"整个系列"编辑一半）。所有各次一起换到新时间。
+  ///
+  /// 与 [replaceOccurrence] 同路：锚点与规则都在仓储侧读写（它才摸得到规则行），本服务只转发。
+  Future<bool> replaceSeries({
+    required String anchorId,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.replaceSeries(
+      anchorId: anchorId,
+      newStartUtc: newStartUtc,
+      newEndUtc: newEndUtc,
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    return true;
+  }
+
   /// 改写重复日程里的某一次（FR-CAL-02 的"修改单次实例"）。
   ///
   /// 与 [deleteOccurrence] 同路：判定"是不是重复日程"与例外的时区都在仓储侧（它才摸得到规则

@@ -140,6 +140,70 @@ final class DriftCalendarRepository
   /// **本次只删这一条事件行**：若它是某条重复规则的锚点，规则行本身仍然留着，而展开又依赖
   /// 锚点才发生，因此"整串消失"。**逐次例外与"改整个系列"仍属后续**（`EventEditScope` 目前
   /// 只被采集、未被使用），这一点在 §13.0 的 R4 行里写明，不在实现里假装已经支持。
+  /// 改写整个系列（FR-CAL-02），见端口的文档说明。
+  @override
+  Future<void> replaceSeries({
+    required String anchorId,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required DateTime updatedAtUtc,
+  }) async {
+    if (!newEndUtc.isAfter(newStartUtc)) {
+      throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
+    }
+    final anchor = await (_database.select(_database.calendarEvents)
+          ..where((row) => row.id.equals(anchorId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (anchor == null) return;
+
+    final ruleId = anchor.recurrenceRuleId;
+    final updatedEvent = domain.CalendarEvent(
+      id: anchor.id,
+      title: anchor.title,
+      startAtUtc: newStartUtc,
+      endAtUtc: newEndUtc,
+      timeZoneId: anchor.timeZoneId,
+      recurrenceRuleId: ruleId,
+      exceptionOfId: anchor.exceptionOfId,
+      locked: anchor.locked,
+      areaId: anchor.areaId,
+      updatedAtUtc: updatedAtUtc,
+    );
+
+    if (ruleId == null) {
+      // 单次日程没有"系列"可言：改那一行即可。
+      await save(updatedEvent);
+      return;
+    }
+
+    final stored = await (_database.select(_database.recurrenceRules)
+          ..where((row) => row.id.equals(ruleId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (stored == null) {
+      // 规则行缺失（正常路径由 `saveRecurring` 的事务保证）：只改锚点，不凭空造规则。
+      await save(updatedEvent);
+      return;
+    }
+
+    // **规则里的本地钟点必须跟着一起改**：否则锚点换了时间，展开器仍按旧钟点生成各次，
+    // 结果是"第一次是新的、后面还是旧的"。
+    final localStart = _zones.toLocal(newStartUtc, stored.timeZoneId);
+    final rule = domain.RecurrenceRule(
+      id: stored.id,
+      weekdays: _weekdays(stored.weekdaysMask),
+      localStartMinute: localStart.hour * 60 + localStart.minute,
+      durationMinutes: newEndUtc.difference(newStartUtc).inMinutes,
+      validFromLocalDate: DateTime.parse(stored.validFromLocalDate),
+      validUntilLocalDate: stored.validUntilLocalDate == null
+          ? null
+          : DateTime.parse(stored.validUntilLocalDate!),
+      timeZoneId: stored.timeZoneId,
+    );
+    await saveRecurring(updatedEvent, rule);
+  }
+
   /// 改写重复日程里的某一次（FR-CAL-02），见端口的文档说明。
   @override
   Future<void> replaceOccurrence({

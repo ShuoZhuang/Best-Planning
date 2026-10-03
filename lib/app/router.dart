@@ -332,6 +332,26 @@ GoRouter createPlannerRouter({
                           ),
                           title: title,
                         ),
+              // FR-CAL-02 的"改整个系列"：改锚点与规则本身（所有各次一起变）。
+              onReplaceSeries: calendarService == null
+                  ? null
+                  : (id, newStart, newEnd) => calendarService.replaceSeries(
+                      anchorId: id,
+                      newStartUtc: zones.localDateTimeToUtc(
+                        DateTime(
+                          newStart.year,
+                          newStart.month,
+                          newStart.day,
+                        ),
+                        newStart.hour * 60 + newStart.minute,
+                        timeZoneId,
+                      ),
+                      newEndUtc: zones.localDateTimeToUtc(
+                        DateTime(newEnd.year, newEnd.month, newEnd.day),
+                        newEnd.hour * 60 + newEnd.minute,
+                        timeZoneId,
+                      ),
+                    ),
             );
           },
         ),

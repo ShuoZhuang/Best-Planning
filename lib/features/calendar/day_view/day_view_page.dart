@@ -19,6 +19,7 @@ final class DayViewPage extends StatelessWidget {
     this.onDeleteEvent,
     this.onDeleteOccurrence,
     this.onReplaceOccurrence,
+    this.onReplaceSeries,
     super.key,
   });
 
@@ -61,6 +62,17 @@ final class DayViewPage extends StatelessWidget {
     String title,
   )?
   onReplaceOccurrence;
+
+  /// 改写**整个系列**（FR-CAL-02 的"整个系列"编辑）。为空时对话框里不出现该选项。
+  ///
+  /// 与 [onReplaceOccurrence] 分成两个回调而不是加一个布尔参数：两条路径**写入的东西不同**
+  /// （一条写例外，一条改锚点与规则），分开后各自的契约与用例也更清楚。
+  final Future<bool> Function(
+    String eventId,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+  )?
+  onReplaceSeries;
 
   final VoidCallback? onOpenWeek;
 
@@ -145,6 +157,7 @@ final class DayViewPage extends StatelessWidget {
                                     context,
                                     item,
                                     onReplaceOccurrence: onReplaceOccurrence,
+                                    onReplaceSeries: onReplaceSeries,
                                     zones: zones,
                                     timeZoneId: timeZoneId,
                                   ),
@@ -176,10 +189,16 @@ Future<void> _editOccurrence(
     String title,
   )?
   onReplaceOccurrence,
+  required Future<bool> Function(
+    String eventId,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+  )?
+  onReplaceSeries,
   required TimeZoneDatabase zones,
   required String timeZoneId,
 }) async {
-  final result = await showDialog<(DateTime, DateTime)>(
+  final result = await showDialog<(DateTime, DateTime, bool)>(
     context: context,
     // 控制器由对话框**自己**持有并释放。在 `showDialog` 返回后立刻 dispose 会在退出动画
     // 期间触发 "A TextEditingController was used after being disposed"——本文件第一版正是
@@ -188,14 +207,20 @@ Future<void> _editOccurrence(
       title: item.title,
       initialStart: _formatLocal(item.range.startUtc, zones, timeZoneId),
       initialEnd: _formatLocal(item.range.endUtc, zones, timeZoneId),
+      allowsWholeSeries: onReplaceSeries != null,
     ),
   );
   if (result == null) return;
+  final (start, end, wholeSeries) = result;
+  if (wholeSeries) {
+    await onReplaceSeries!(item.id, start, end);
+    return;
+  }
   await onReplaceOccurrence!(
     item.id,
     item.range.startUtc,
-    result.$1,
-    result.$2,
+    start,
+    end,
     item.title,
   );
 }
@@ -209,11 +234,15 @@ final class _OccurrenceEditDialog extends StatefulWidget {
     required this.title,
     required this.initialStart,
     required this.initialEnd,
+    this.allowsWholeSeries = false,
   });
 
   final String title;
   final String initialStart;
   final String initialEnd;
+
+  /// 是否允许选"改整个系列"。未注入对应回调时为 false——**不给一个选了也不生效的勾选框**。
+  final bool allowsWholeSeries;
 
   @override
   State<_OccurrenceEditDialog> createState() => _OccurrenceEditDialogState();
@@ -223,6 +252,7 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
   late final TextEditingController _start;
   late final TextEditingController _end;
   String? _error;
+  bool _wholeSeries = false;
 
   @override
   void initState() {
@@ -251,7 +281,7 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
       setState(() => _error = '结束时间必须晚于开始时间');
       return;
     }
-    Navigator.of(context).pop((start, end));
+    Navigator.of(context).pop((start, end, _wholeSeries));
   }
 
   @override
@@ -281,6 +311,17 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
+        if (widget.allowsWholeSeries)
+          CheckboxListTile(
+            key: const Key('occurrence-scope-series'),
+            value: _wholeSeries,
+            onChanged: (value) =>
+                setState(() => _wholeSeries = value ?? false),
+            title: const Text('改整个系列'),
+            subtitle: const Text('所有各次一起换到新时间'),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
       ],
     ),
     actions: [

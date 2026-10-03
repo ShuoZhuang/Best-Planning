@@ -62,4 +62,19 @@ abstract interface class CalendarEventDeletion {
     required String exceptionId,
     required DateTime updatedAtUtc,
   });
+
+  /// **改写整个系列**（FR-CAL-02 的"整个系列"编辑一半）：所有各次一起换到新时间。
+  ///
+  /// 与 [replaceOccurrence] 的区别是**改的是锚点行与规则本身**，而不是写一条例外。因此：
+  /// **规则里那两个本地时刻字段必须一起更新**（`localStartMinute` 与 `durationMinutes`），
+  /// 否则锚点换了时间、展开器仍按旧钟点生成各次——那会得到"第一次是新的、后面还是旧的"这种
+  /// 半成品。
+  ///
+  /// 锚点不带规则时**退化为改那一行**：单次日程没有"系列"可言。
+  Future<void> replaceSeries({
+    required String anchorId,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required DateTime updatedAtUtc,
+  });
 }

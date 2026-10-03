@@ -293,6 +293,87 @@ void main() {
     expect(find.byKey(const Key('edit-fixed-1')), findsNothing);
   });
 
+  testWidgets('勾选"改整个系列"走另一条入口，而不是改这一次', (tester) async {
+    final single = <String>[];
+    final series = <String>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'anchor-1',
+                title: '数据结构课',
+                kind: ScheduleItemKind.fixed,
+                startHourUtc: 9,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
+              single.add(id);
+              return true;
+            },
+            onReplaceSeries: (id, newStart, newEnd) async {
+              series.add(id);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('edit-anchor-1')));
+    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('occurrence-scope-series')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('occurrence-start')),
+      '2026-10-05 14:00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('occurrence-end')),
+      '2026-10-05 15:00',
+    );
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    // **两个入口互斥**：勾了"整个系列"就绝不能同时走"改这一次"，否则一次操作写两处数据。
+    expect(series, <String>['anchor-1']);
+    expect(single, isEmpty);
+  });
+
+  testWidgets('未注入系列编辑入口时不显示该勾选框', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('delete-fixed-1')));
+    await tester.tap(find.byKey(const Key('delete-fixed-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('delete-cancel')));
+    await tester.pumpAndSettle();
+
+    // 未注入改写入口时连编辑按钮都没有，因此这里确认的是"没有该按钮"。
+    expect(find.byKey(const Key('edit-fixed-1')), findsNothing);
+  });
+
   testWidgets('未注入删除入口时不显示删除按钮', (tester) async {
     await pump(
       tester,
