@@ -8,6 +8,7 @@ import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
+import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
@@ -18,6 +19,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
+import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
@@ -47,6 +49,8 @@ final class PlannerApp extends StatefulWidget {
     this.exportService,
     this.focusService,
     this.loadPreferenceEvidence,
+    this.recovery,
+    this.calendar,
     this.autoAdjustStore,
     this.zones,
     this.timeZoneId = 'Asia/Shanghai',
@@ -101,6 +105,10 @@ final class PlannerApp extends StatefulWidget {
 
   /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
   final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
+
+  /// 特殊日恢复服务与当日固定日程来源（Task 11）。两者缺一时该入口不显示。
+  final RecoveryPlanningService? recovery;
+  final CalendarRepository? calendar;
 
   /// "信任自动调整"的内存开关。为空时自建一个默认关闭的实例。
   ///
@@ -178,6 +186,8 @@ final class _PlannerAppState extends State<PlannerApp> {
       exportService: widget.exportService,
       focusService: widget.focusService,
       loadPreferenceEvidence: widget.loadPreferenceEvidence,
+      recovery: widget.recovery,
+      calendar: widget.calendar,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),

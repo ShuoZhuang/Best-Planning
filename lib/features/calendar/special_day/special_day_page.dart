@@ -12,6 +12,7 @@ final class SpecialDayPage extends StatefulWidget {
     required this.fixedEvents,
     required this.onCreateOverride,
     required this.timeZoneId,
+    this.onOpenPreview,
     super.key,
   });
 
@@ -28,6 +29,12 @@ final class SpecialDayPage extends StatefulWidget {
   final String timeZoneId;
 
   final Future<RecoveryPlan> Function(SpecialDayDraft draft) onCreateOverride;
+
+  /// 生成方案后进入调整预览的入口。为空时不显示该按钮。
+  ///
+  /// 恢复方案本身只是一份提案：没有这一步，用户拿到 proposalId 却无处确认，恢复保护
+  /// 就永远停在"已生成、未应用"。导航由路由器注入，页面不认识路由。
+  final ValueChanged<String>? onOpenPreview;
 
   @override
   State<SpecialDayPage> createState() => _SpecialDayPageState();
@@ -167,6 +174,16 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
                 leading: const Icon(Icons.lock_outline),
                 title: Text('已保留：${event.title}'),
               ),
+            if (widget.onOpenPreview != null) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const Key('open-recovery-preview'),
+                onPressed: () =>
+                    widget.onOpenPreview!(_result!.proposalId),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('查看调整预览'),
+              ),
+            ],
           ],
         ],
       ),

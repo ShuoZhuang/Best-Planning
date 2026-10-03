@@ -10,6 +10,7 @@ import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -190,6 +191,17 @@ void main() {
     }
   }());
 
+  final planningService = PlanningService(
+    source: problemSource,
+    engine: DeterministicScheduleEngine(zones),
+  );
+  // 特殊日与次日恢复保护（Task 11）。C8 修复后例外是**提案输入**而不是持久设置，
+  // 因此这条链路必须真正可达：页面早已存在，却从来没有路由（W3）。
+  final recovery = RecoveryPlanningService(
+    planning: planningService,
+    zones: zones,
+  );
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -222,10 +234,10 @@ void main() {
         ),
         zones: zones,
         timeZoneId: timeZoneId,
-        planningService: PlanningService(
-          source: problemSource,
-          engine: DeterministicScheduleEngine(zones),
-        ),
+        planningService: planningService,
+        // 特殊日页要装配"当日规则 + 当日固定日程"，因此两样依赖都交下去（W3）。
+        recovery: recovery,
+        calendar: calendarRepository,
         planApplication: PlanApplicationService(
           source: problemSource,
           repository: planRepository,

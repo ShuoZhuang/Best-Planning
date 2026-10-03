@@ -6,16 +6,21 @@ import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
+import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
+import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
@@ -58,6 +63,8 @@ GoRouter createPlannerRouter({
   ExportService? exportService,
   FocusService? focusService,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
+  RecoveryPlanningService? recovery,
+  CalendarRepository? calendar,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -69,6 +76,9 @@ GoRouter createPlannerRouter({
             ? null
             : (shellContext) =>
                   _generatePlan(shellContext, planningService),
+        onSpecialDay: recovery == null || calendar == null
+            ? null
+            : (shellContext) => shellContext.go('/special-day'),
         child: child,
       ),
       routes: [
@@ -223,6 +233,31 @@ GoRouter createPlannerRouter({
           },
         ),
         GoRoute(
+          // 特殊日与次日恢复保护（Task 11）。C8 修复后恢复例外不再落库，因此这条链路
+          // 必须真正可达：页面早已存在，却从来没有路由，也没有任何界面指向它（W3）。
+          path: '/special-day',
+          builder: (context, state) {
+            final service = recovery;
+            final events = calendar;
+            if (service == null || events == null) {
+              return const _UnavailablePage(
+                title: '特殊日与恢复保护',
+                message: '恢复服务未装配，暂无法生成恢复方案。',
+              );
+            }
+            return _SpecialDayLoader(
+              recovery: service,
+              calendar: events,
+              settings: settingsService,
+              zones: zones,
+              timeZoneId: timeZoneId,
+              nowUtc: nowUtc ?? todayStartUtc,
+              onOpenPreview: (proposalId) =>
+                  context.go('/planning/preview/$proposalId'),
+            );
+          },
+        ),
+        GoRoute(
           path: '/planning/preview/:proposalId',
           builder: (context, state) => _PlanPreviewLoader(
             proposalId: state.pathParameters['proposalId']!,
@@ -238,6 +273,81 @@ GoRouter createPlannerRouter({
     ),
   ],
 );
+
+/// 特殊日页需要**当日的规则与固定日程**，因此先把它们装配好再渲染页面。
+///
+/// 这正是 W3 里说的"特殊日需要动态数据装配"：页面本身只接收已经解析好的规则与事件，
+/// 因为它不该知道规则来自设置、事件来自日历仓库。
+final class _SpecialDayLoader extends StatelessWidget {
+  const _SpecialDayLoader({
+    required this.recovery,
+    required this.calendar,
+    required this.settings,
+    required this.zones,
+    required this.timeZoneId,
+    required this.nowUtc,
+    required this.onOpenPreview,
+  });
+
+  final RecoveryPlanningService recovery;
+  final CalendarRepository calendar;
+  final SettingsService settings;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
+  final DateTime nowUtc;
+  final ValueChanged<String> onOpenPreview;
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<_SpecialDayInputs>(
+    future: _load(),
+    builder: (context, snapshot) {
+      final inputs = snapshot.data;
+      if (inputs == null) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return SpecialDayPage(
+        recoveryDate: inputs.recoveryDate,
+        rules: inputs.rules,
+        fixedEvents: inputs.fixedEvents,
+        timeZoneId: timeZoneId,
+        onCreateOverride: recovery.createOverride,
+        onOpenPreview: onOpenPreview,
+      );
+    },
+  );
+
+  Future<_SpecialDayInputs> _load() async {
+    // "恢复日"取本机今天：用户是在当晚或次日处理"晚归"的。选择其它日期需要日期选择器，
+    // 那属于界面功能，不在本轮范围内，因此这里只用今天而不是假装支持任意日期。
+    final local = zones.toLocal(nowUtc, timeZoneId);
+    final today = DateTime(local.year, local.month, local.day);
+    final startUtc = zones.localMidnightToUtc(today, timeZoneId);
+    final endUtc = zones.localMidnightToUtc(
+      today.add(const Duration(days: 1)),
+      timeZoneId,
+    );
+    final rules = (await settings.resolveForDate(today)).rules;
+    // 早课之类的固定日程会与"最低睡眠"冲突（FR-RECOVERY-04），因此必须带上当日实际事件。
+    final events = await calendar.occurrencesBetween(startUtc, endUtc);
+    return _SpecialDayInputs(
+      recoveryDate: today,
+      rules: rules,
+      fixedEvents: events,
+    );
+  }
+}
+
+final class _SpecialDayInputs {
+  const _SpecialDayInputs({
+    required this.recoveryDate,
+    required this.rules,
+    required this.fixedEvents,
+  });
+
+  final DateTime recoveryDate;
+  final PlanningRules rules;
+  final List<CalendarOccurrence> fixedEvents;
+}
 
 /// 专注页需要"任务身份"（标题），因此这里先把任务读出来再渲染页面。
 ///
@@ -298,11 +408,15 @@ final class _PlannerShell extends StatelessWidget {
     required this.location,
     required this.child,
     this.onGeneratePlan,
+    this.onSpecialDay,
   });
 
   final String location;
   final Widget child;
   final Future<void> Function(BuildContext context)? onGeneratePlan;
+
+  /// 特殊日与恢复保护的入口。为空时不显示该动作——未装配恢复服务时不留死按钮。
+  final void Function(BuildContext context)? onSpecialDay;
 
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
@@ -319,10 +433,18 @@ final class _PlannerShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final generate = onGeneratePlan;
+    final specialDay = onSpecialDay;
     return Scaffold(
       appBar: AppBar(
         title: const Text('智能日程'),
         actions: [
+          if (specialDay != null)
+            TextButton.icon(
+              key: const Key('open-special-day'),
+              onPressed: () => specialDay(context),
+              icon: const Icon(Icons.bedtime_outlined),
+              label: const Text('特殊日'),
+            ),
           if (generate != null)
             TextButton.icon(
               onPressed: () => generate(context),
