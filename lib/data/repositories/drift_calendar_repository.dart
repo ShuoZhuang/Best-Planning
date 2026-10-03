@@ -13,9 +13,14 @@ final class DriftCalendarRepository
         RecurringCalendarRepository,
         CalendarEventDeletion {
   DriftCalendarRepository(this._database, {TimeZoneDatabase? zones})
-    : _recurrence = RecurrenceExpander(zones ?? TimeZoneDatabase());
+    : _zones = zones ?? TimeZoneDatabase(),
+      _recurrence = RecurrenceExpander(zones ?? TimeZoneDatabase());
 
   final db.AppDatabase _database;
+
+  /// 例外行的 `startAtUtc` 要换算成**规则时区里的本地日期**才能与展开器对齐，
+  /// 因此除了展开器本身，仓储也要持有同一份时区数据库。
+  final TimeZoneDatabase _zones;
   final RecurrenceExpander _recurrence;
 
   @override
@@ -30,6 +35,9 @@ final class DriftCalendarRepository
       ..where(
         (row) =>
             row.recurrenceRuleId.isNull() &
+            // **例外行不是独立事件**：它只通过展开器生效（见下方 `replacedByAnchor`）。
+            // 不排除它，同一次就会既作为"独立事件"出现、又作为"替换结果"出现——实测重复。
+            row.exceptionOfId.isNull() &
             row.startAtUtc.isSmallerThanValue(endUtc.microsecondsSinceEpoch) &
             row.endAtUtc.isBiggerThanValue(startUtc.microsecondsSinceEpoch),
       )
@@ -57,6 +65,31 @@ final class DriftCalendarRepository
       ),
     ])..where(_database.calendarEvents.exceptionOfId.isNull());
     final window = TimeRange(startUtc: startUtc, endUtc: endUtc);
+
+    // **例外必须被读出来并交给展开器**，否则它们会被静默丢弃：下面的锚点查询排除了
+    // `exceptionOfId` 非空的行，而展开器此前收到的是空表，于是"改这一次"既不生效、那行
+    // 也消失（见 §13.0 的 R4）。这里一次取出全部例外并按锚点分组，避免每个锚点一次查询。
+    //
+    // 本次只处理**替换型**例外（改到别的时间）。"删掉这一次"在库里没有表示——没有任何列
+    // 能表达它，那需要产品与数据模型决策（同行的三条出路）。
+    final exceptionRows = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.isNotNull())).get();
+    final replacedByAnchor = <String, List<RecurrenceException>>{};
+    for (final row in exceptionRows) {
+      final anchorId = row.exceptionOfId!;
+      (replacedByAnchor[anchorId] ??= <RecurrenceException>[]).add(
+        RecurrenceException.replaced(
+          // 展开器按**本地日期**对齐例外，因此这里要用规则时区换算，而不是直接取 UTC 日期。
+          localDate: _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId),
+          replacement: TimeRange(
+            startUtc: _instant(row.startAtUtc),
+            endUtc: _instant(row.endAtUtc),
+          ),
+        ),
+      );
+    }
+
     for (final joined in await recurring.get()) {
       final event = joined.readTable(_database.calendarEvents);
       final stored = joined.readTable(_database.recurrenceRules);
@@ -71,7 +104,11 @@ final class DriftCalendarRepository
             : DateTime.parse(stored.validUntilLocalDate!),
         timeZoneId: stored.timeZoneId,
       );
-      for (final occurrence in _recurrence.expand(rule, window, const [])) {
+      for (final occurrence in _recurrence.expand(
+        rule,
+        window,
+        replacedByAnchor[event.id] ?? const <RecurrenceException>[],
+      )) {
         result.add(
           domain.CalendarOccurrence(
             eventId: event.id,
