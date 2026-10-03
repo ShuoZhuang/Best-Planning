@@ -1,12 +1,33 @@
+import 'dart:async';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:timezone/timezone.dart' as tz;
 
-final class WindowsNotificationAdapter implements NotificationPort {
-  WindowsNotificationAdapter({
-    FlutterLocalNotificationsPlugin? plugin,
-    this.hasPackageIdentity = false,
-  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+abstract interface class WindowsNotificationBackend {
+  Future<void> initialize({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+  });
+
+  Future<NotificationAppLaunchDetails?> launchDetails();
+
+  Future<List<PendingNotificationRequest>> pendingRequests();
+
+  Future<void> schedule({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledAtUtc,
+    required String payload,
+  });
+
+  Future<void> cancel({required int id});
+}
+
+final class FlutterWindowsNotificationBackend
+    implements WindowsNotificationBackend {
+  FlutterWindowsNotificationBackend({FlutterLocalNotificationsPlugin? plugin})
+    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   static const _initialization = WindowsInitializationSettings(
     appName: '智能日程',
@@ -20,6 +41,55 @@ final class WindowsNotificationAdapter implements NotificationPort {
   );
 
   final FlutterLocalNotificationsPlugin _plugin;
+
+  @override
+  Future<void> initialize({
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+  }) async {
+    await _plugin.initialize(
+      settings: const InitializationSettings(windows: _initialization),
+      onDidReceiveNotificationResponse: onDidReceiveNotificationResponse,
+    );
+  }
+
+  @override
+  Future<NotificationAppLaunchDetails?> launchDetails() =>
+      _plugin.getNotificationAppLaunchDetails();
+
+  @override
+  Future<List<PendingNotificationRequest>> pendingRequests() =>
+      _plugin.pendingNotificationRequests();
+
+  @override
+  Future<void> schedule({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledAtUtc,
+    required String payload,
+  }) => _plugin.zonedSchedule(
+    id: id,
+    title: title,
+    body: body,
+    scheduledDate: tz.TZDateTime.from(scheduledAtUtc, tz.UTC),
+    notificationDetails: _details,
+    androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+    payload: payload,
+  );
+
+  @override
+  Future<void> cancel({required int id}) => _plugin.cancel(id: id);
+}
+
+final class WindowsNotificationAdapter implements NotificationPort {
+  WindowsNotificationAdapter({
+    FlutterLocalNotificationsPlugin? plugin,
+    WindowsNotificationBackend? backend,
+    this.hasPackageIdentity = false,
+  }) : assert(plugin == null || backend == null),
+       _backend = backend ?? FlutterWindowsNotificationBackend(plugin: plugin);
+
+  final WindowsNotificationBackend _backend;
   final bool hasPackageIdentity;
   Future<void>? _initializing;
 
@@ -43,7 +113,7 @@ final class WindowsNotificationAdapter implements NotificationPort {
   @override
   Future<NotificationPayload?> launchPayload() async {
     await _ensureInitialized();
-    final details = await _plugin.getNotificationAppLaunchDetails();
+    final details = await _backend.launchDetails();
     if (details == null || !details.didNotificationLaunchApp) return null;
     // 与 _handleResponse 同一份解码、同一条"解不出就忽略"的规则：旧版本留下的 payload
     // 不该让启动失败，也不该伪造一次导航。
@@ -63,7 +133,7 @@ final class WindowsNotificationAdapter implements NotificationPort {
   @override
   Future<List<PendingNotification>> pendingNotifications() async {
     await _ensureInitialized();
-    final pending = await _plugin.pendingNotificationRequests();
+    final pending = await _backend.pendingRequests();
     return pending
         .map((item) {
           final payload = item.payload ?? '';
@@ -87,13 +157,11 @@ final class WindowsNotificationAdapter implements NotificationPort {
       );
     }
     await _ensureInitialized();
-    await _plugin.zonedSchedule(
+    await _backend.schedule(
       id: _nativeId(request.id),
       title: request.title,
       body: request.body,
-      scheduledDate: tz.TZDateTime.from(request.scheduledAtUtc, tz.UTC),
-      notificationDetails: _details,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      scheduledAtUtc: request.scheduledAtUtc,
       payload: request.payload,
     );
   }
@@ -101,14 +169,34 @@ final class WindowsNotificationAdapter implements NotificationPort {
   @override
   Future<void> cancel(String id) async {
     await _ensureInitialized();
-    await _plugin.cancel(id: _nativeId(id));
+    await _backend.cancel(id: _nativeId(id));
   }
 
-  Future<void> _ensureInitialized() => _initializing ??= _initialize();
+  Future<void> _ensureInitialized() {
+    final current = _initializing;
+    if (current != null) return current;
+
+    // The Windows plugin can invoke an FFI callback before initialize()
+    // returns its Future. Store our shared Future first so another startup
+    // path cannot enter the native initializer a second time.
+    final completer = Completer<void>();
+    _initializing = completer.future;
+    unawaited(_completeInitialization(completer));
+    return completer.future;
+  }
+
+  Future<void> _completeInitialization(Completer<void> completer) async {
+    try {
+      await _initialize();
+      completer.complete();
+    } on Object catch (error, stackTrace) {
+      _initializing = null;
+      completer.completeError(error, stackTrace);
+    }
+  }
 
   Future<void> _initialize() async {
-    await _plugin.initialize(
-      settings: const InitializationSettings(windows: _initialization),
+    await _backend.initialize(
       // 此前没有注册该回调，因此点击通知什么也不会发生：界面无法知道用户点了哪条
       // 提醒，FR-NOTIFY-04 要求的快捷入口整条链路都是断的。
       onDidReceiveNotificationResponse: _handleResponse,
