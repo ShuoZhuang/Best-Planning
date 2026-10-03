@@ -521,7 +521,7 @@ backup.zip
 | --- | --- | --- |
 | Task 1–19 | 已完成并提交 | 提交 `8b2838e..e15d243`；逐任务测试日志见 `.superpowers/sdd/2026-10-01-personal-intelligent-scheduler-technical-design/task-N-tests.log` |
 | Task 10A | 已完成并提交 | 提交 `05ac22a` |
-| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`）；`msix` 依赖与 `msix_config` 已加入 `pubspec.yaml`；**`dart run msix:create` 已于 2026-10-03 实际执行**：`flutter build windows` 成功、MSIX 组装与打包成功（产出 14.4 MB 的 `personal_planner_1.0.0_x64.msix`），**仅 SignTool 签名失败**（无代码签名证书）；**三条端到端流程同日逐条单独运行全部通过**（批量运行会因测试装置连接问题在 loading 阶段失败）。**仍待办**：签名证书与包标识/发布者的取值（须产品侧决定，`identity_name` 一经发布不可更改）、通知点击的真实 toast 交互、`hasPackageIdentity` 的真实判定、spec §18 已完成逐项核对：**17/19 勾选**，逐项证据见 `docs/testing/spec-18-acceptance.md`；手工验收清单仍未执行 |
+| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`）；`msix` 依赖与 `msix_config` 已加入 `pubspec.yaml`；**`dart run msix:create` 已于 2026-10-03 实际执行**：`flutter build windows` 成功、MSIX 组装与打包成功（产出 14.4 MB 的 `personal_planner_1.0.0_x64.msix`），**仅 SignTool 签名失败**（无代码签名证书）；**三条端到端流程同日逐条单独运行全部通过**（批量运行会因测试装置连接问题在 loading 阶段失败）。**仍待办**：签名证书与包标识/发布者的取值（须产品侧决定，`identity_name` 一经发布不可更改）、通知点击的真实 toast 交互、`hasPackageIdentity` 的真实判定、spec §18 已完成逐项核对：**18/19 勾选**，逐项证据见 `docs/testing/spec-18-acceptance.md`；手工验收清单仍未执行 |
 
 Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该任务自身步骤已执行且其测试通过，**不代表产品整体可用**。
 

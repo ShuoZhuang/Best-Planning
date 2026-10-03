@@ -17,9 +17,9 @@
 | 项 | 值 |
 | --- | --- |
 | 记录日期 | 2026-10-03 |
-| 提交 | `61dd18b`（本记录之前最后一次代码提交） |
+| 提交 | `3a85f19`（本记录之前最后一次代码提交） |
 | `flutter analyze` | No issues found! |
-| `flutter test` | **470 项全部通过** |
+| `flutter test` | **479 项全部通过** |
 | `flutter test integration_test -d windows` | 三条流程**逐条单独运行全部通过**（批量运行会在 loading 阶段因测试装置连接失败，与断言无关） |
 | 手工验收清单 | **尚未执行** |
 
@@ -58,12 +58,12 @@ flutter test integration_test/backup_restore_flow_test.dart -d windows
 | 15 | 自动调整不能移动用户锁定的事项 | **通过** | `test/scheduling/plan_validator_test.dart` :: 报告锁定块被移动；`test/application/repository_schedule_problem_source_test.dart` :: 只有已锁定的已确认计划块进入 lockedBlocks；`test/scheduling/availability_builder_test.dart` :: 扣除睡眠、午餐、课程和锁定块后应用每日六小时上限；`test/application/requested_move_test.dart` :: 已锁定的块被拖动时也只剩一条，位置换成目标日 | 直接 |
 | 16 | 异常退出后已确认计划和有效计时数据不丢失 | **通过（附下方注意事项）** | `test/application/focus_service_test.dart` :: 重启发现 running 记录时要求确认，时钟跳变不直接计入；`test/features/focus/recovery_wiring_test.dart` :: 进入专注页即提示确认上次未结束的计时；`test/platform/sqlite_database_lifecycle_adapter_test.dart` :: WAL 中残留已提交数据时备份快照仍然完整；`integration_test/backup_restore_flow_test.dart` | 直接 |
 | 17 | 备份可验证并恢复，损坏备份不会覆盖现有数据 | **通过** | `test/application/backup_service_test.dart` :: 错误哈希、截断数据库、新 schema 和路径穿越全部被拒绝且**原库不变**；同上文件 :: 包含任务、计划和计时的数据库可完整备份并恢复；`test/app/backup_pending_restore_test.dart` :: 有待恢复文件时替换数据库，并留下**回滚副本**、清掉旧 sidecar；`integration_test/backup_restore_flow_test.dart`（Windows 实机通过） | 直接 |
-| 18 | 用户可完整导出和永久清除自己的数据 | **未通过** | 导出：`test/app/export_route_test.dart` :: 侧边导航可以进入数据导出页；`test/features/settings/data/export_page_test.dart`；`test/application/export_service_test.dart`（2 条）。**永久清除**：`test/application/data_erasure_service_test.dart` :: 只有明确确认短语才清除数据库、索引、通知和锁凭据（服务层有测试） | 一半直接、一半**在真实用户路径上不可达** |
+| 18 | 用户可完整导出和永久清除自己的数据 | **通过** | 导出：`test/app/export_route_test.dart` :: 侧边导航可以进入数据导出页；`test/features/settings/data/export_page_test.dart`；`test/application/export_service_test.dart`（2 条）。**永久清除**：`test/features/settings/backup_erasure_entry_test.dart` :: 装配了清除服务时备份页出现该入口（5 条 widget 用例）；`test/app/pending_erasure_test.dart` :: 启动期删除的 4 条；`test/application/data_erasure_service_test.dart` :: 只有明确确认短语才清除 | 直接 |
 | 19 | 应用密码锁的保护边界有明确说明 | **通过** | `test/features/settings/app_lock/app_lock_unlock_test.dart` :: 说明它只挡正常界面、不宣称加密数据库；`test/features/settings/app_lock/app_lock_page_test.dart` :: 应用锁页面明确说明数据库未加密并要求两次输入一致；`lib/features/onboarding/onboarding_page.dart` 的"应用锁保持关闭"说明；`docs/release/windows-release.md` | 直接 |
 
 ---
 
-## 未通过的 3 项：缺什么、谁来补
+## 未通过的 1 项，以及一处仍然欠着的手工场景
 
 **第 3 项「普通任务可在一分钟内完成快速录入」——缺的是手工计时，不是功能。**
 按钮、键盘提交、字段校验都有自动化覆盖（`quick_add_test`、`task_service_test`、`task_validation_test`），
@@ -77,38 +77,11 @@ flutter test integration_test/backup_restore_flow_test.dart -d windows
 计划仍在"。手工清单 `10.1` 正是它，**尚未执行**。因此本项按规格"自动化证据即可"通过，但那一条
 手工场景仍然欠着——写在这里，免得它被这次勾选掩盖。
 
-**第 18 项「用户可完整导出和永久清除自己的数据」——一半兑现，一半不可达。**
-导出这条链路完整且有测试（服务、适配器、页面、路由）。
-**永久清除不是这样**：`DataErasureService` 已实现且有自己的单测，`BackupPage` 也已经有那一块
-界面（`widget.erasure != null` 时才渲染），但 **`lib/app/router.dart` 刻意不传 `erasure`**
-（那里写着：永久清除同样需要"关库—换实例—重开"，因此先不显示该入口）。于是**真实用户路径上
-没有这个入口**。这是"结构就绪 ≠ 需求兑现"的又一例：服务层与组件都在、有测试，用户却点不到。
-**因此本项不勾选**，直到该入口接通并实测。
-
-**接通它的做法已经查清（留给下一轮照做，避免重推）**——关键是把"删库"变成**延迟到启动时**，
-与恢复那条链路同一个套路（`lib/app/backup_assembly.dart` 的 `preparePlannerDatabase()`）：
-
-1. **为什么不能在运行中删**：`_PendingRestoreLifecycle.eraseAll()` 现在直接委托
-   `SqliteDatabaseLifecycleAdapter.eraseAll()`，后者**立刻删除数据库文件与 `-wal`/`-shm`**。
-   而运行中的 drift 连接仍指向那个文件（Windows 上还可能直接因共享冲突抛错）。两种结果都不好：
-   前者是"界面还显示着数据、重启后才真的空"，后者更糟——`eraseAll` 在
-   `DataErasureService` 里是**最后一步**，前面已经清掉了密码锁凭据与通知，删除失败就会留下
-   **半清除状态**（锁没了、提醒没了、数据还在），而用户只会看到一个错误。
-2. **具体改法**（三处）：
-   - `backup_assembly.dart` 加 `pendingErasurePath(databasePath) => '$databasePath.erase-pending'`，
-     并把 `_PendingRestoreLifecycle.eraseAll()` 改成**写这个标记文件**（与 `replaceWith` 写
-     `.restore-pending` 完全对称）；
-   - `preparePlannerDatabase()` 里在 `applyPendingRestoreFor` **之前**先看标记：存在就删除
-     数据库与 sidecar，**并且一并删掉 `.restore-pending` 与 `.restore-old`**（否则一个残留的
-     待恢复文件会在下次启动把数据搬回来），然后删掉标记。**顺序不能反**：若先应用恢复，
-     被恢复的数据会存活一整个会话。
-   - 组合根构造 `DataErasureService` 并传给 `/settings/backup` 路由。它要四样：
-     `DatabaseLifecyclePort`（用上面那个延迟实现）、`BackupIndexPort`（`FileBackupIndexAdapter`
-     目前**在生产里没有装配点**，需要一并决定它指向哪个索引文件）、`NotificationPort`
-     （已有）、`AppLockCredentialStore`（已有 `SettingsAppLockCredentialStore`）。
-3. **界面文案要如实**：因为删除发生在下次启动，提示必须写"**重启后生效**"，与恢复那条路径的
-   措辞一致；`BackupPage` 里已经有一句"本机应用数据已永久清除；自行导出的外部文件未删除"，
-   落到这条路径时也要点明范围（外部导出文件与用户自己的备份文件不在清除范围内）。
+**第 18 项「用户可完整导出和永久清除自己的数据」——已于 `3a85f19` 补齐，不再是缺口。**
+原先不勾选的理由不是功能缺失，而是**入口缺失**：`DataErasureService` 与 `BackupPage` 里那一块
+都已存在、也各有测试，但组合根从不构造它、`router.dart` 刻意不传 `erasure`。
+本轮把"删库"改为**延迟到下次启动执行**（与恢复那条路径同一个套路），因此不需要在运行中换库实例，
+入口随之接通；文案也改为如实说"**下次启动**生效"，并去掉了"备份索引"这个生产里并不存在的承诺。
 
 ## 顺带查出并修掉的一处缺陷（本条不算任何一项的通过理由）
 
