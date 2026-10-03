@@ -47,6 +47,7 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
+import 'package:personal_planner/platform/notifications/diagnostic_notification_port.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -179,9 +180,14 @@ Future<void> main() async {
     '通知：hasPackageIdentity=$hasPackageIdentity '
     'appUserModelId=${appUserModelId ?? '(取不到 → 回退 ${FlutterWindowsNotificationBackend.fallbackAppUserModelId})'}',
   );
-  final notifications = WindowsNotificationAdapter(
-    hasPackageIdentity: hasPackageIdentity,
-    appUserModelId: appUserModelId,
+  final notifications = DiagnosticNotificationPort(
+    inner: WindowsNotificationAdapter(
+      hasPackageIdentity: hasPackageIdentity,
+      appUserModelId: appUserModelId,
+    ),
+    // 把"用户点了通知"这件事落盘：这条链路此前在 Release 里完全不可观测，于是"点了没反应"
+    // 只能靠猜（本会话已为它猜错过一次）。装饰器让 `PlannerApp` 不必新增参数，也不会漏路径。
+    log: diagnostics,
   );
   // 最近一次生成的提案。冲突**不是持久事实**，只活在提案里，因此"冲突待处理"通知必须有一个
   // 持有者——此前应用里没有任何组件持有它，于是那一类通知只能被跳过而不是伪造（R8 ③；与 W9
