@@ -114,6 +114,24 @@ void main() {
     expect(find.text('已逾期'), findsNothing);
   });
 
+  // FR-REPLAN-07：处理入口之三——清除截止时间（"设置"那一半需先打通时区，见 §13.0 的 R9）。
+  // 断言两半：存储里真的被置空，且入口随后消失（没有截止时间就不该再显示"清除"）。
+  testWidgets('从界面清除截止时间会置空并隐藏该入口', (tester) async {
+    await pumpDetail(tester, 'task-1');
+    expect(tasks.tasks['task-1']!.dueAtUtc, isNotNull);
+    expect(find.byKey(const Key('clear-due-date')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('clear-due-date')));
+    await tester.tap(find.byKey(const Key('clear-due-date')));
+    await tester.pumpAndSettle();
+
+    expect(tasks.tasks['task-1']!.dueAtUtc, isNull);
+    expect(find.byKey(const Key('clear-due-date')), findsNothing);
+    // 不断言界面上的"未设置"：期望时段为空时同一页也会显示该文案，全局计数会因无关字段
+    // 而失败（我第一版就是这么写的，运行把它挡下了）。界面是否随之刷新由"入口消失"覆盖，
+    // 存储是否真的被置空由上一行覆盖——两条都精确，胜过一次模糊的文案计数。
+  });
+
   // FR-REPLAN-07：没有可行计划时，用户要能**就地**处置任务（这里是"取消事项"）。
   // 服务侧 `changeStatus` 早已存在，缺的只是入口，因此这条用例钉的正是"入口是否可达、
   // 点击是否真的落到存储"。

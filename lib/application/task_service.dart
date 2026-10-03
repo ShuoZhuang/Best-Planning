@@ -157,6 +157,30 @@ final class TaskService {
     return TaskSaveResult.success(updated);
   }
 
+  /// 设置或清除任务截止时间（FR-REPLAN-07 的处理入口之一）。
+  ///
+  /// `dueAtUtc` 为 null 表示**清除**（`PlannerTask.copyWith` 对可空字段用哨兵值，因此传
+  /// null 是"置空"而不是"不改"）。与 [setPriority] 同型：读取—改一个字段—保存。
+  ///
+  /// **与 FR-REPLAN-08 不冲突**：那条禁止的是**系统自行**改截止日期；这里由用户显式调用。
+  /// **必须传入 UTC 时刻**：本地日期到 UTC 的换算需要时区，而本服务不持有它，因此换算由
+  /// 调用方（持有 `TimeZoneDatabase` 的界面层或组合根）负责，与 `TaskDraft` 的既有约定一致。
+  Future<TaskSaveResult> setDueDate(String taskId, DateTime? dueAtUtc) async {
+    if (dueAtUtc != null && !dueAtUtc.isUtc) {
+      return TaskSaveResult.invalid({'dueAtUtc': '截止时间必须转换为 UTC'});
+    }
+    final existing = await _repository.getById(taskId);
+    if (existing == null) {
+      return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    }
+    final updated = existing.copyWith(
+      dueAtUtc: dueAtUtc,
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    await _repository.save(updated);
+    return TaskSaveResult.success(updated);
+  }
+
   /// 调整任务优先级（FR-REPLAN-07 的处理入口之一）。
   ///
   /// 与 [correctRemainingMinutes] 同型：读取—改一个字段—保存，并推进修改时间。

@@ -374,6 +374,27 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                 ? '未设置'
                 : _formatInstant(task.dueAtUtc!),
           ),
+          // FR-REPLAN-07 的"修改截止日期"里**不需要时区换算的那一半**：清除。
+          // 设置一个日期要把本地日期换算成 UTC，而本页没有时区（`zones` 未注入），
+          // 因此"设置"那一半仍需先打通时区，已登记在 §13.0 的 R9。
+          // 这里只给出能工作的清除，而不放一个点了不知道会发生什么的"设置"。
+          if (task.dueAtUtc != null) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('clear-due-date'),
+                onPressed: () async {
+                  await widget.service.setDueDate(widget.taskId, null);
+                  if (!mounted) return;
+                  setState(() => _message = '已清除截止时间');
+                  await _load();
+                },
+                icon: const Icon(Icons.event_busy_outlined),
+                label: const Text('清除截止时间'),
+              ),
+            ),
+          ],
           _Fact(label: '精力要求', value: _energyLabel(task.energyLevel)),
           _Fact(label: '拆分方式', value: _splitLabel(task.splitMode)),
           _Fact(
