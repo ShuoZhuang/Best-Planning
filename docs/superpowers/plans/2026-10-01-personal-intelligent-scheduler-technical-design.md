@@ -521,7 +521,7 @@ backup.zip
 | --- | --- | --- |
 | Task 1–19 | 已完成并提交 | 提交 `8b2838e..e15d243`；逐任务测试日志见 `.superpowers/sdd/2026-10-01-personal-intelligent-scheduler-technical-design/task-N-tests.log` |
 | Task 10A | 已完成并提交 | 提交 `05ac22a` |
-| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`）；`msix` 依赖与 `msix_config` 已加入 `pubspec.yaml`，但 `dart run msix:create` 尚未执行、包标识仍为示例值；手工验收清单尚未执行 |
+| Task 20 | **进行中** | 首次引导门控已生效（`7955037`）；`docs/testing/manual-windows-checklist.md` 与 `docs/release/windows-release.md` 已创建；`integration_test/` 下已有三条端到端流程并加入 SDK 自带的 `integration_test` 依赖（`bac1f7d`）；`msix` 依赖与 `msix_config` 已加入 `pubspec.yaml`；**`dart run msix:create` 已于 2026-10-03 实际执行**：`flutter build windows` 成功、MSIX 组装与打包成功（产出 14.4 MB 的 `personal_planner_1.0.0_x64.msix`），**仅 SignTool 签名失败**（无代码签名证书）；**三条端到端流程同日逐条单独运行全部通过**（批量运行会因测试装置连接问题在 loading 阶段失败）。**仍待办**：签名证书与包标识/发布者的取值（须产品侧决定，`identity_name` 一经发布不可更改）、通知点击的真实 toast 交互、`hasPackageIdentity` 的真实判定、手工验收清单尚未执行 |
 
 Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该任务自身步骤已执行且其测试通过，**不代表产品整体可用**。
 
@@ -728,11 +728,38 @@ FileSystemException: Failed to set file modification time, path = '...\.dart-too
 
 - **必须显式把项目自带的 SDK 加进 PATH**：`G:\best-planing\.tooling\flutter-bundle\flutter\bin`
   （Flutter 3.47.5 / Dart 3.13.4，`pubspec.yaml` 要求 `sdk: ^3.13.4`）。
-- **Windows 构建插件需要符号链接支持**，须先开启"开发人员模式"（`start ms-settings:developers`），否则
-  `flutter pub get` 报 `Building with plugins requires symlink support.`，随后 `flutter test` 同样失败。
+- **Windows 构建插件需要符号链接支持**，否则 `flutter pub get` 报 `Building with plugins requires
+  symlink support.`，随后**桌面构建与 `flutter test integration_test -d windows` 同样失败**。
   注意 `flutter clean` 会删除 `windows/flutter/ephemeral`，因此**在权限确认之前不要 clean**。
+  **2026-10-03 第四次复核更正了本条的成因（此前写的是"须先开启开发人员模式"）**：本机开发人员
+  模式**已经开启**（`HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock` 的
+  `AllowDevelopmentWithoutDevLicense = 1`），失败**不是**开发人员模式的问题。实测三步可复现：
+  ① 本 shell 在 `windows\flutter\ephemeral\.plugin_symlinks` 里建符号链接**成功**；② 由本
+  shell 派生的 **Dart 进程**建符号链接**失败**，`errno = 1314 ERROR_PRIVILEGE_NOT_HELD`
+  （最小复现：`Link.createSync` 一个临时路径）；③ 于是 flutter_tools（它本身是 Dart 进程）
+  一律报符号链接不受支持。**同一现象也解释了此前遥测的 `setLastModifiedSync` 被拒**（`errno = 5`）
+  ——派生进程的令牌比交互 shell 少一些权限。**绕法**：从普通 shell 先把
+  `windows\flutter\ephemeral\.plugin_symlinks\<插件>` 手工指向 pub 缓存中的插件目录（清单见
+  `windows/flutter/generated_plugins.cmake` 的 `FLUTTER_PLUGIN_LIST` 与
+  `FLUTTER_FFI_PLUGIN_LIST`，具体路径见 `.flutter-plugins-dependencies` 的 `plugins.windows`），
+  flutter_tools 发现链接已存在就不再创建。本轮据此把桌面构建与集成测试跑通（见下条）。
 - `flutter doctor` 中 **Android SDK 缺失、Chrome 缺失、maven.google.com 超时**三项对本项目**均无影响**
   （Windows 桌面应用）；Visual Studio 2026 与 Windows 10 SDK 已就绪，原生资产与桌面构建工具链齐备。
+- **平台验收的实测状态（2026-10-03 第四次复核，本机直接执行）**，逐项区分"已验证"与"未验证"：
+  - **`flutter test integration_test -d windows`：三条流程逐条单独运行全部通过**（首周计划、
+    临时晚归重排、备份恢复）。**一次性批量运行会失败**：第一条通过，后两条在 `loading` 阶段报
+    `Error waiting for a debug connection: The log reader stopped unexpectedly, or never
+    started.`——**失败在测试装置与应用的连接上，不在任何断言上**，因此逐条运行是目前可靠的
+    跑法。命令形如 `flutter test integration_test/first_plan_flow_test.dart -d windows`。
+  - **`dart run msix:create`：已实际执行**。`flutter build windows` 成功（56.7s）、MSIX 组装与
+    打包成功并产出 14.4 MB 的 `personal_planner_1.0.0_x64.msix`，**仅 SignTool 签名失败**
+    （`No certificates were found that met all the given criteria`）。即**剩余阻塞只有签名证书
+    与包标识/发布者这两个必须由产品侧决定的取值**。**刻意未生成自签证书**（`install_certificate:
+    false` 是刻意的：构建不得静默修改本机受信任证书库），也**刻意未改 `identity_name`**
+    （一旦发布不可更改）。
+  - **仍未验证**：通知点击的**真实 toast 交互**（需要已安装并受信任的包，因此被上一条的证书挡住），
+    以及 **`hasPackageIdentity` 的真实判定**——它只有在**带包身份运行**时才可能为 true，未签名的
+    MSIX 装不上，因此本机依然只能验证"无包身份返回 false"那一支。**这两项不得计入已验证。**
 - 本机已在当前提交实测：`flutter analyze` **No issues found!**，`flutter test` **447 项全部通过**
   （2026-10-03 第四次复核；此前三次分别为 410、401 与 392）。
 - **FR-REPLAN-07 的"临时放宽每日上限"入口只在设置里**（`/settings/relaxation`）。需求写的是"提供处理入口"，因此这满足字面要求；但**"无可行计划"报告（FR-REPLAN-06）里还没有直达该页的链接**——用户看到"可用时间不足"时本应能就地放宽。这一条如实登记为欠缺，而不是当成已完成的收尾。
