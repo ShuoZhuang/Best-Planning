@@ -23,6 +23,14 @@ final class TaskListPage extends StatefulWidget {
 final class _TaskListPageState extends State<TaskListPage> {
   String _query = '';
 
+  /// 批量操作（FR-TASK-03 要求支持"批量调整和状态变更"）。
+  ///
+  /// 进入多选后，点整行是"选中／取消选中"而不是"完成"——两者都是"点一行"的自然含义，
+  /// 同时生效会让用户无法预料点击结果，因此进入多选就明确切换语义，并在退出时清空选择。
+  bool _selecting = false;
+  final Set<String> _selected = {};
+  String? _batchMessage;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -39,6 +47,36 @@ final class _TaskListPageState extends State<TaskListPage> {
             leading: const Icon(Icons.search),
             onChanged: (value) => setState(() => _query = value.trim()),
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              TextButton.icon(
+                key: const Key('toggle-batch-mode'),
+                onPressed: () => setState(() {
+                  _selecting = !_selecting;
+                  _selected.clear();
+                  _batchMessage = null;
+                }),
+                icon: Icon(_selecting ? Icons.close : Icons.checklist),
+                label: Text(_selecting ? '退出多选' : '多选'),
+              ),
+              if (_selecting) ...[
+                const SizedBox(width: 8),
+                Text('已选 ${_selected.length}'),
+                const Spacer(),
+                FilledButton.tonal(
+                  key: const Key('batch-cancel'),
+                  // 空集合时禁用：给出一个作用不到任何对象的按钮只会让人怀疑它坏了。
+                  onPressed: _selected.isEmpty ? null : _cancelSelected,
+                  child: const Text('取消所选项'),
+                ),
+              ],
+            ],
+          ),
+          if (_batchMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(_batchMessage!),
+          ],
           const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<List<PlannerTask>>(
@@ -57,7 +95,9 @@ final class _TaskListPageState extends State<TaskListPage> {
                   itemBuilder: (context, index) {
                     final task = tasks[index];
                     return CheckboxListTile(
-                      value: task.status == TaskStatus.completed,
+                      value: _selecting
+                          ? _selected.contains(task.id)
+                          : task.status == TaskStatus.completed,
                       title: Text(task.title),
                       subtitle: Text(
                         // 派生状态此前只在详情页展示，列表里看不到，因此"哪些任务
@@ -75,12 +115,24 @@ final class _TaskListPageState extends State<TaskListPage> {
                         tooltip: '查看详情',
                         onPressed: () => context.go('/tasks/${task.id}'),
                       ),
-                      onChanged: (checked) => widget.service.changeStatus(
-                        task.id,
-                        checked == true
-                            ? TaskStatus.completed
-                            : TaskStatus.open,
-                      ),
+                      onChanged: (checked) {
+                        if (_selecting) {
+                          setState(() {
+                            if (checked == true) {
+                              _selected.add(task.id);
+                            } else {
+                              _selected.remove(task.id);
+                            }
+                          });
+                          return;
+                        }
+                        widget.service.changeStatus(
+                          task.id,
+                          checked == true
+                              ? TaskStatus.completed
+                              : TaskStatus.open,
+                        );
+                      },
                     );
                   },
                 );
@@ -90,5 +142,22 @@ final class _TaskListPageState extends State<TaskListPage> {
         ],
       ),
     );
+  }
+
+  /// 批量把选中的任务置为**已取消**（FR-TASK-03 的"状态变更"）。
+  ///
+  /// 只改状态、不删除：取消是用户能看见、也能再改回来的一个状态，而删除不可逆。
+  Future<void> _cancelSelected() async {
+    final ids = [..._selected];
+    for (final id in ids) {
+      // 逐条串行：仓储写入是串行的，且这样失败时前面的结果仍然有效。
+      await widget.service.changeStatus(id, TaskStatus.cancelled);
+    }
+    if (!mounted) return;
+    setState(() {
+      // 选中的任务已不在"未结束"列表里，继续留着选择状态只会显示一个空的多选。
+      _selected.clear();
+      _batchMessage = '已取消 ${ids.length} 项';
+    });
   }
 }
