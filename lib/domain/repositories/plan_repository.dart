@@ -63,3 +63,17 @@ abstract interface class PlanHistoryRepository {
     required ConfirmedPlan replaced,
   });
 }
+
+/// 同时具备"应用方案"与"计划历史"两种能力的计划仓储。
+///
+/// **为什么需要它**：撤销（FR-REPLAN-08）需要 `previous()` 与 `restoreAsNewVersion`，而"应用
+/// 方案"需要 `applyProposal`，两者分属上面两个端口。真实的 `DriftPlanRepository` **本来就同时
+/// 实现两者**，但在路由那一层静态类型被窄化成 `PlanRepository`，撤销于是拿不到 `previous()`。
+/// 声明这个组合接口后，路由按它收取即可，**不必新增一条从 `main.dart` 穿过 `PlannerApp` 到页面
+/// 的参数链**（那会多出 4 处装配）。
+///
+/// Dart **没有结构化子类型**：实现了这两个端口的类不会自动成为本接口的子类型，因此实现类必须
+/// 显式把本接口写进 `implements`（`DriftPlanRepository` 已如此）。
+abstract interface class PlanStore
+    implements PlanRepository, PlanHistoryRepository {}
+

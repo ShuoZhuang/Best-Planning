@@ -195,6 +195,12 @@ final class _PlannerAppState extends State<PlannerApp> {
       planningService: widget.planningService,
       planApplication: widget.planApplication,
       plans: widget.planRepository,
+      // 撤销（FR-REPLAN-08）只在这份仓储**同时**提供计划历史时才有入口。真实装配里
+      // `DriftPlanRepository` 两者都实现；测试里只实现 `PlanRepository` 的替身则没有撤销
+      // 按钮——这比"按钮在、点了却不生效"好。
+      planHistory: widget.planRepository is PlanStore
+          ? widget.planRepository as PlanStore
+          : null,
       analytics: widget.analytics,
       workspaceService: widget.workspaceService,
       tagService: widget.tagService,

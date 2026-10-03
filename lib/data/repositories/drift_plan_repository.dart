@@ -8,8 +8,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
-final class DriftPlanRepository
-    implements PlanRepository, PlanHistoryRepository {
+final class DriftPlanRepository implements PlanStore {
   DriftPlanRepository(this._database, {this.clock = const SystemClock()});
 
   final AppDatabase _database;

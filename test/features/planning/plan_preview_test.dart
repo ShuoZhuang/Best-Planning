@@ -102,4 +102,81 @@ void main() {
     expect(store.history, contains('proposal-2'));
     expect(confirmations, 1);
   });
+  // FR-REPLAN-08：撤销入口。两条用例分别钉住"确实撤销时给出已撤销"，以及"无可撤销时
+  // 这是正常结局而不是故障"——后者若被当成异常，用户会看到一个错误提示。
+  testWidgets('undo button reports the outcome it actually got', (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: PlanPreviewModel(
+            proposalId: 'proposal-1',
+            changes: const [],
+            conflicts: const [],
+            isStale: false,
+          ),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+          onUndoPlan: () async {
+            calls++;
+            return true;
+          },
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('undo-plan')));
+    await tester.tap(find.byKey(const Key('undo-plan')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+    // 断言文案：只断言"点到了"无法区分"撤销成功"与"无可撤销"。
+    expect(find.text('已撤销上一次计划'), findsOneWidget);
+  });
+
+  testWidgets('undo button says so when there is nothing to undo', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: PlanPreviewModel(
+            proposalId: 'proposal-1',
+            changes: const [],
+            conflicts: const [],
+            isStale: false,
+          ),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+          onUndoPlan: () async => false,
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('undo-plan')));
+    await tester.tap(find.byKey(const Key('undo-plan')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('没有可撤销的已执行计划'), findsOneWidget);
+  });
+
+  testWidgets('no undo button when nothing is wired', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: PlanPreviewModel(
+            proposalId: 'proposal-1',
+            changes: const [],
+            conflicts: const [],
+            isStale: false,
+          ),
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+        ),
+      ),
+    );
+
+    // 宁可没有按钮，也不要一个点了不生效的图标。
+    expect(find.byKey(const Key('undo-plan')), findsNothing);
+  });
 }

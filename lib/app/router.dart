@@ -5,6 +5,7 @@ import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
@@ -59,6 +60,10 @@ GoRouter createPlannerRouter({
   PlanningService? planningService,
   PlanApplicationService? planApplication,
   PlanRepository? plans,
+  /// 撤销（FR-REPLAN-08）用的**计划历史**端口。**单独成参而不改上面 `plans` 的类型**：
+  /// 有 6 处测试替身只实现 `applyProposal`／`current`，把 `plans` 改宽会一次性牵动它们，
+  /// 而"提供不了历史"本身是合法状态（那就没有撤销按钮）。
+  PlanHistoryRepository? planHistory,
   AnalyticsQuery? analytics,
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
@@ -421,6 +426,7 @@ GoRouter createPlannerRouter({
             planning: planningService,
             application: planApplication,
             plans: plans,
+            planHistory: planHistory,
             autoAdjustStore: autoAdjustStore,
             zones: zones,
             timeZoneId: timeZoneId,
@@ -703,6 +709,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.planning,
     this.application,
     this.plans,
+    this.planHistory,
   });
 
   final String proposalId;
@@ -712,6 +719,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
   final PlanningService? planning;
   final PlanApplicationService? application;
   final PlanRepository? plans;
+  final PlanHistoryRepository? planHistory;
 
   @override
   State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
@@ -778,6 +786,21 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         model: model,
         autoAdjustStore: widget.autoAdjustStore,
         onConfirm: () => _confirm(context, model),
+        // FR-REPLAN-08 的撤销入口。`PlanUndoService` 是**无状态**的薄服务，因此就地构造，
+        // 不再穿一条 main→PlannerApp→router 的参数链（那要多 4 处装配）。
+        onUndoPlan: widget.planHistory == null
+            ? null
+            : () async {
+                try {
+                  await PlanUndoService(
+                    repository: widget.planHistory!,
+                  ).undoLastAppliedPlan();
+                  return true;
+                } on StateError {
+                  // 没有当前或上一版计划：这是"无可撤销"，不是故障。
+                  return false;
+                }
+              },
       );
     },
   );

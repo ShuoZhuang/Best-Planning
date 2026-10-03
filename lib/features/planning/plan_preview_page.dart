@@ -65,12 +65,19 @@ final class PlanPreviewPage extends StatefulWidget {
     required this.model,
     required this.autoAdjustStore,
     required this.onConfirm,
+    this.onUndoPlan,
     super.key,
   });
 
   final PlanPreviewModel model;
   final AutoAdjustStore autoAdjustStore;
   final Future<void> Function() onConfirm;
+
+  /// 撤销上一次已确认的计划（FR-REPLAN-08）。返回 `true` 表示确实撤销了。
+  ///
+  /// 为空时**不显示**该按钮：宁可没有，也不要一个点了不生效的图标。返回布尔而不是抛异常，
+  /// 是因为"没有可撤销的计划"是一种正常状态，不是故障。
+  final Future<bool> Function()? onUndoPlan;
 
   @override
   State<PlanPreviewPage> createState() => _PlanPreviewPageState();
@@ -141,6 +148,27 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   : const Icon(Icons.check),
               label: const Text('确认应用'),
             ),
+            // FR-REPLAN-08：撤销上一次已确认的计划。结果用 SnackBar 回报，因此这里不需要
+            // 额外状态——"已撤销"与"无可撤销"是两种正常结局，都应由用户看见。
+            if (widget.onUndoPlan != null) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: const Key('undo-plan'),
+                onPressed: () async {
+                  final undone = await widget.onUndoPlan!();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        undone ? '已撤销上一次计划' : '没有可撤销的已执行计划',
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.undo),
+                label: const Text('撤销上一次计划'),
+              ),
+            ],
           ],
         ),
       ),
