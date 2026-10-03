@@ -172,7 +172,31 @@ final class FocusService {
     return updated;
   }
 
-  Future<FocusSession> finish({String? note}) async {
+  Future<FocusSession>? _finishing;
+
+  /// 并发调用共享同一个在途 Future。
+  ///
+  /// `_current` 是在 `await store.save(...)` **之后**才赋值的——这是"写入失败时内存状态
+  /// 不提前变化"所要求的既有保证。代价是：并发的第二次 `finish()` 会在那个 await 期间读到
+  /// **仍然 running** 的会话，于是 `phase == finished` 这道幂等保护看不到"已结束"，会把结束
+  /// 流程走两遍——完成回调因此触发两次，重复写入一条偏好证据（学习分析器按"20 条 / 14 天"
+  /// 判定门槛，重复计入会扭曲结论）。
+  ///
+  /// 共享在途 Future 使"一次结束"只发生一次，且**不动**上面那条保证；`phase == finished`
+  /// 的原保护保留给"完成之后再调用"的情形。
+  Future<FocusSession> finish({String? note}) {
+    final inFlight = _finishing;
+    if (inFlight != null) return inFlight;
+    final future = _finishOnce(note);
+    _finishing = future;
+    return future.whenComplete(() {
+      // 只在仍是我们这一份时清空：失败或成功后都允许后续调用重新进入，
+      // 后续调用会由 `phase == finished` 的保护直接返回，不会再触发回调。
+      if (identical(_finishing, future)) _finishing = null;
+    });
+  }
+
+  Future<FocusSession> _finishOnce(String? note) async {
     final session = _requireCurrent();
     if (session.phase == FocusPhase.finished) return session;
     final now = clock.nowUtc();

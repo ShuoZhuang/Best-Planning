@@ -168,6 +168,35 @@ void main() {
     expect(confirmed.single.activeMinutes, 45);
     expect(confirmed.single.note, '已核对');
   });
+
+  // T4：真正的并发交错用例。
+  //
+  // 双重点击"结束"时两次 finish() **互不 await**，因此第二次会在第一次的
+  // `await store.save(...)` 让出执行权期间进入。此时 `_current` 尚未更新——它在 await
+  // **之后**才赋值，而这正是上面"写入失败时内存状态不提前变化"那条用例所要求的保证。
+  // 于是 `phase == finished` 这道幂等保护看不到"已结束"，会再走完一遍结束流程。
+  test('并发重复调用 finish() 只结束一次、只触发一次完成回调', () async {
+    final store = _Store();
+    var finishedCalls = 0;
+    final service = FocusService(
+      store: store,
+      clock: _WallClock(() => Duration.zero),
+      monotonicClock: CallbackMonotonicClock(() => Duration.zero),
+      idGenerator: _Ids(),
+      onFinished: (_) async {
+        finishedCalls++;
+      },
+    );
+    await service.start('task-1');
+
+    final first = service.finish();
+    final second = service.finish();
+    await Future.wait([first, second]);
+
+    // 一次专注只能留下一条完成证据：学习分析器按"20 条 / 14 天"判定门槛，
+    // 重复计入会扭曲最终学到的结论，所以这不只是"多调了一次"。
+    expect(finishedCalls, 1, reason: '一次专注只能产生一条完成证据');
+  });
 }
 
 final class _Store implements FocusEntryStore {
