@@ -114,6 +114,21 @@ void main() {
     expect(find.text('已逾期'), findsNothing);
   });
 
+  // FR-REPLAN-07：没有可行计划时，用户要能**就地**处置任务（这里是"取消事项"）。
+  // 服务侧 `changeStatus` 早已存在，缺的只是入口，因此这条用例钉的正是"入口是否可达、
+  // 点击是否真的落到存储"。
+  testWidgets('从界面取消事项会把任务置为已取消，并隐藏该入口', (tester) async {
+    await pumpDetail(tester, 'task-1');
+    expect(find.byKey(const Key('cancel-task')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('cancel-task')));
+    await tester.pumpAndSettle();
+
+    expect(tasks.tasks['task-1']!.status, TaskStatus.cancelled);
+    // 已取消之后不再显示入口：重复点击一个已经生效的动作没有意义。
+    expect(find.byKey(const Key('cancel-task')), findsNothing);
+  });
+
   testWidgets('从界面修正剩余时长会更新任务并留下修正历史', (tester) async {
     await pumpDetail(tester, 'task-1');
 

@@ -318,6 +318,28 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
               label: const Text('开始专注'),
             ),
           ],
+          // FR-REPLAN-07 的"取消事项"处理入口：没有可行计划时，用户需要能**就地**处置这个
+          // 任务（优先级、截止日期、取消等），而不是只能离开这一页去别处改。服务侧的
+          // `changeStatus` 早已存在，缺的只是入口——这正是该项此前"未实现"的实情。
+          if (task.status != TaskStatus.cancelled) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('cancel-task'),
+              onPressed: () async {
+                final changed = await widget.service.changeStatus(
+                  widget.taskId,
+                  TaskStatus.cancelled,
+                );
+                if (!mounted) return;
+                setState(
+                  () => _message = changed ? '已取消该事项' : '取消失败，任务可能已不存在',
+                );
+                await _load();
+              },
+              icon: const Icon(Icons.cancel_outlined),
+              label: const Text('取消事项'),
+            ),
+          ],
           const SizedBox(height: 20),
           _Fact(label: '预计时长', value: '${task.estimatedMinutes} 分钟'),
           _Fact(label: '剩余时长', value: '${task.remainingMinutes} 分钟'),
