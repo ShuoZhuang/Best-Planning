@@ -534,6 +534,10 @@ GoRouter createPlannerRouter({
             return AnalyticsPage(
               analytics: query,
               nowUtc: nowUtc ?? todayStartUtc,
+              // 必填：统计的"今天／本周／本月"必须是用户本机时区的日界（§13／R11）。
+              // 路由器本来就持有这两样，因此这里只是把已有的东西交下去。
+              zones: zones,
+              timeZoneId: timeZoneId,
               // FR-STAT-02 的标签筛选。标签服务未装配时整块不渲染。
               loadTagNames: tagService?.allTagNames,
             );

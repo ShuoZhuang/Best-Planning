@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/feedback_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/feedback_message.dart';
 import 'package:personal_planner/features/analytics/feedback_cards.dart';
@@ -13,6 +14,13 @@ final class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({
     required this.analytics,
     required this.nowUtc,
+    // 必填：统计的"今天／本周／本月"必须是**用户本机时区**的日界。此前这里按 UTC 取日界
+    // （`DateTime.utc(now.year, now.month, now.day)`），于是对东八区用户在本地 00:00–08:00
+    // 之间打开统计页，"今天"会落到**前一天**；需求 §13 与 R11 要求的正是"以本机当前时区
+    // 保存和展示"。与 R11 那几处同类默认值一样，改为必填后"忘记传"是编译错误，而不是在
+    // 别的时区静默算错一天。
+    required this.zones,
+    required this.timeZoneId,
     this.feedbackMessages = const [],
     this.loadTagNames,
     super.key,
@@ -20,6 +28,8 @@ final class AnalyticsPage extends StatefulWidget {
 
   final AnalyticsQuery analytics;
   final DateTime nowUtc;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
   final List<FeedbackMessage> feedbackMessages;
 
   /// 读取可筛选的标签名；为空时不显示标签筛选。
@@ -50,15 +60,34 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   @override
   void initState() {
     super.initState();
-    final now = widget.nowUtc;
-    final day = DateTime.utc(now.year, now.month, now.day);
+    final today = _todayLocalDate();
     _filter = AnalyticsFilter(
-      startUtc: day,
-      endUtc: day.add(const Duration(days: 1)),
+      startUtc: _localMidnight(today),
+      endUtc: _localMidnight(_addDays(today, 1)),
     );
     _load();
     _loadTagNames();
   }
+
+  /// `nowUtc` 在**本机时区**下的日历日（只取年月日）。
+  ///
+  /// 用 `zones.toLocal` 而不是 `nowUtc.year/month/day`：后者拿到的是 **UTC** 的日期，
+  /// 在 UTC+8 的凌晨会差一天。
+  DateTime _todayLocalDate() {
+    final local = widget.zones.toLocal(widget.nowUtc, widget.timeZoneId);
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  /// 本地日期的零点对应的 UTC 瞬时。
+  DateTime _localMidnight(DateTime localDate) =>
+      widget.zones.localMidnightToUtc(localDate, widget.timeZoneId);
+
+  /// 按**日历**加减天数，而不是 `add(Duration(days: n))`。
+  ///
+  /// 后者是绝对时间加法：夏令时切换日的本地一天不是 24 小时，加 24 小时会回到当天 23:00，
+  /// 日期不变——§13.0 的 C11 在保护时间展开器上记过同一处（"按日推进用了绝对时间加法"）。
+  DateTime _addDays(DateTime localDate, int days) =>
+      DateTime(localDate.year, localDate.month, localDate.day + days);
 
   Future<void> _loadTagNames() async {
     final loader = widget.loadTagNames;
@@ -107,42 +136,43 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       : _feedback;
 
   void _selectToday() {
-    final now = widget.nowUtc;
-    final start = DateTime.utc(now.year, now.month, now.day);
-    _setRange(start, start.add(const Duration(days: 1)));
+    final today = _todayLocalDate();
+    _setRange(_localMidnight(today), _localMidnight(_addDays(today, 1)));
   }
 
   void _selectWeek() {
-    final now = widget.nowUtc;
-    final day = DateTime.utc(now.year, now.month, now.day);
-    final start = day.subtract(Duration(days: day.weekday - 1));
-    _setRange(start, start.add(const Duration(days: 7)));
+    final today = _todayLocalDate();
+    // 周一为一周之始；同样用日历加法退到周一。
+    final monday = _addDays(today, -(today.weekday - 1));
+    _setRange(_localMidnight(monday), _localMidnight(_addDays(monday, 7)));
   }
 
   void _selectMonth() {
-    final now = widget.nowUtc;
+    final today = _todayLocalDate();
     _setRange(
-      DateTime.utc(now.year, now.month),
-      DateTime.utc(now.year, now.month + 1),
+      _localMidnight(DateTime(today.year, today.month)),
+      _localMidnight(DateTime(today.year, today.month + 1)),
     );
   }
 
   Future<void> _selectCustom() async {
+    // 选择器显示的是**用户看到的本地日期**，因此预填值也要按本机时区换算，
+    // 不能用 `_filter.startUtc.year`（那是 UTC 的分量，同样会差一天）。
+    final localStart = widget.zones.toLocal(
+      _filter.startUtc,
+      widget.timeZoneId,
+    );
+    final localEnd = widget.zones.toLocal(
+      _filter.endUtc.subtract(const Duration(microseconds: 1)),
+      widget.timeZoneId,
+    );
     final selected = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
       initialDateRange: DateTimeRange(
-        start: DateTime(
-          _filter.startUtc.year,
-          _filter.startUtc.month,
-          _filter.startUtc.day,
-        ),
-        end: DateTime(
-          _filter.endUtc.subtract(const Duration(microseconds: 1)).year,
-          _filter.endUtc.subtract(const Duration(microseconds: 1)).month,
-          _filter.endUtc.subtract(const Duration(microseconds: 1)).day,
-        ),
+        start: DateTime(localStart.year, localStart.month, localStart.day),
+        end: DateTime(localEnd.year, localEnd.month, localEnd.day),
       ),
       helpText: '选择统计范围',
       cancelText: '取消',
@@ -150,12 +180,13 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
     );
     if (selected == null) return;
     _setRange(
-      DateTime.utc(
-        selected.start.year,
-        selected.start.month,
-        selected.start.day,
+      _localMidnight(
+        DateTime(selected.start.year, selected.start.month, selected.start.day),
       ),
-      DateTime.utc(selected.end.year, selected.end.month, selected.end.day + 1),
+      // 用户选的末日**含当天**，因此终点取次日零点。
+      _localMidnight(
+        DateTime(selected.end.year, selected.end.month, selected.end.day + 1),
+      ),
     );
   }
 

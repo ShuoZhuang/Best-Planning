@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 
@@ -25,6 +26,8 @@ void main() {
         home: AnalyticsPage(
           analytics: query,
           nowUtc: DateTime.utc(2026, 10, 8, 8),
+          zones: TimeZoneDatabase(),
+          timeZoneId: 'Asia/Shanghai',
           loadTagNames: withTagSource ? () async => availableTags : null,
         ),
       ),
@@ -60,8 +63,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(query.filters.last.tags, {'论文'});
-    expect(query.filters.last.startUtc, DateTime.utc(2026, 10, 1));
-    expect(query.filters.last.endUtc, DateTime.utc(2026, 11, 1));
+    // **本地日界**（与 `analytics_page_test.dart` 同一条更正）：东八区下 10 月从
+    // 09-30T16:00Z 开始，而不再是 UTC 的 10-01T00:00Z。
+    final zonesForRange = TimeZoneDatabase();
+    expect(
+      query.filters.last.startUtc,
+      zonesForRange.localMidnightToUtc(DateTime(2026, 10), 'Asia/Shanghai'),
+    );
+    expect(
+      query.filters.last.endUtc,
+      zonesForRange.localMidnightToUtc(DateTime(2026, 11), 'Asia/Shanghai'),
+    );
   });
 
   testWidgets('可以清除标签筛选，且时间范围保持不变', (tester) async {
