@@ -562,7 +562,7 @@ Task 1–19 的复选框已按上述证据勾选。每个 checkbox 只代表该�
 | 编号 | 需求 | 现状 |
 | --- | --- | --- |
 | R1 | FR-TASK-02 自定义标签、FR-STAT-02 按标签筛选 | **结构已就绪，功能未接入**：`tags` 表与 `task_tags` 关联表（复合主键）已随 schema v2 落地，迁移、快照与测试均已提交。仍缺：标签仓库、任务打标签入口，以及统计页按标签筛选——该处当前仍靠子串匹配 |
-| R2 | FR-TASK-02 项目、FR-STAT-02 按项目/领域筛选 | `projects`/`areas` 表已建但无任何创建入口，`task.projectId` 恒为空，领域统计退化为"未分类"。**R2 现同时是两条需求的必经之路**：R13 的 `areas.is_life` 只能经领域/项目编辑入口赋值，而领域、项目两表在 schema v2 已获得 `created_at_utc`/`updated_at_utc`/`is_life`，创建路径必须写入这些列，否则会留下哨兵值 0 |
+| R2 | FR-TASK-02 项目、FR-STAT-02 按项目/领域筛选 | **数据层已完成，界面仍缺**。此前 `projects`/`areas` 表已建但无任何写入路径，`task.projectId` 恒为空，领域统计退化为"未分类"。本轮补上领域与项目的**第一个写入方**：`PlannerArea`/`PlannerProject` 领域模型、`WorkspaceRepository` 端口与 `DriftWorkspaceRepository` 实现（含 `onConflict` 保留 `createdAtUtc`、归档可往返、取消归档能写回 NULL）。**关键验证**：经该仓库写入的领域与项目能被 `DriftLifeAreaLookup` 认出来，即 R2 的写入端与 R13 的读取端首次在真实数据上对齐。**仍缺**：创建与编辑领域/项目的服务与界面，以及默认领域的初始化——因此在最终用户路径上 `is_life` 仍无人赋值，生活配额与统计"生活"分类依然不生效。注意 R2 是两条需求的必经之路：R13 的 `is_life` 只能经领域/项目写入路径赋值 |
 | R3 | FR-CAL-03 日视图 | 未实现；本方案亦未列出该任务 |
 | R4 | FR-CAL-02 按周重复、单次/系列编辑、删除 | `recurrence_rules` 无写入方，`RecurrenceExpander` 仅测试引用，`occurrencesBetween` 不展开重复，`editScope` 被表单采集后丢弃，仓储无 delete |
 | R5 | spec §7.1 期望时段（plan §3、§9.4 亦要求） | **评分已注入**（提交 `fb3eb06`）：`preferred_start_minute` / `preferred_end_minute` 随 schema v2 落地，领域模型、drift 映射、`SchedulableTask` 与输入快照哈希均已接通，因子由纯函数 `preferred_time_scorer.dart` 计算并注入（算法版本提升到 9，golden fixture 同步）。**仍缺**：任务编辑界面没有设置期望时段的入口，因此该字段目前没有任何写入方 |
