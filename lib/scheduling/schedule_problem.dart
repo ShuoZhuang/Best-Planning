@@ -16,6 +16,7 @@ final class SchedulableTask {
     this.priority = TaskPriority.medium,
     this.energyLevel = TaskEnergyLevel.medium,
     this.isLifeTask = false,
+    this.preferredWindow,
   });
 
   final String id;
@@ -27,6 +28,13 @@ final class SchedulableTask {
   final TaskPriority priority;
   final TaskEnergyLevel energyLevel;
   final bool isLifeTask;
+
+  /// 任务的期望时段，本地分钟区间；为空表示用户没有表达偏好。
+  ///
+  /// 设计 §5.4 的"任务期望时段"因子用。区间允许跨越本地午夜，换算时由
+  /// `LocalTimeRange.splitAtMidnight` 拆成两段处理，因此 22:00–02:00 这类
+  /// 写法不会被当成空区间或反向区间。
+  final LocalTimeRange? preferredWindow;
 }
 
 final class BusyInterval {

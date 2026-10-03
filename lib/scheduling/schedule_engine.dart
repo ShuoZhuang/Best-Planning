@@ -8,6 +8,7 @@ import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
+import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -33,7 +34,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 版本 7 注入同任务连续性与类别切换成本两个因子（此前从未被引擎设置）。
   /// 版本 8 注入移动成本：`ScheduleProblem.existingBlocks`（已确认但未锁定的块）
   /// 被占用时计一次移动代价。
-  static const String algorithmVersion = '8';
+  /// 版本 9 注入任务期望时段因子（此前 `CandidateScoringContext` 的该字段从未被
+  /// 引擎设置，恒为 0）。
+  static const String algorithmVersion = '9';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -323,6 +326,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       CandidateScoringContext(
         task: task,
         slotEnergyLevel: _energyAt(problem, candidate),
+        preferredTimeScore: _preferredTimeScore(problem, task, candidate),
         deadlineRiskPermille: task.dueAtUtc == null ? 0 : 1000,
         progressPressurePermille: task.requiredMinutes == 0
             ? 0
@@ -348,6 +352,28 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             (task.dueAtUtc == null ||
                 !candidate.endUtc.isAfter(task.dueAtUtc!)),
       ),
+    );
+  }
+
+  /// 计算设计 §5.4「任务期望时段」因子。
+  ///
+  /// 因子本身的语义、插值方式以及午夜与 24:00 边界的处理实现在
+  /// `preferred_time_scorer.dart` 的纯函数中——那里是可直接单测的位置；这里只负责
+  /// 把问题与权重折算成它需要的参数。
+  int _preferredTimeScore(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+  ) {
+    final weights = _candidateScorer.weights;
+    return preferredTimeScore(
+      window: task.preferredWindow,
+      candidateRange: candidate.range,
+      localDate: candidate.localDate,
+      timeZoneId: problem.timeZoneId,
+      zones: _zones,
+      minimumScore: weights.minimumPreferredTime,
+      maximumScore: weights.maximumPreferredTime,
     );
   }
 

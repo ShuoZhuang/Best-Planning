@@ -1,4 +1,5 @@
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 
 enum TaskPriority { low, medium, high, urgent }
 
@@ -54,6 +55,7 @@ final class PlannerTask {
     required this.splitMode,
     required this.minChunkMinutes,
     required this.maxChunkMinutes,
+    this.preferredWindow,
     required this.status,
     required this.createdAtUtc,
     required this.updatedAtUtc,
@@ -87,6 +89,12 @@ final class PlannerTask {
   final TaskSplitMode splitMode;
   final int minChunkMinutes;
   final int maxChunkMinutes;
+
+  /// 用户表达的期望时段（本地分钟区间），为空表示没有偏好。
+  ///
+  /// 这是软约束的输入而不是硬约束：排程可以落在区间之外，只是分数更低
+  /// （见设计 §5.4 的"任务期望时段"因子与 §9.4）。
+  final LocalTimeRange? preferredWindow;
   final TaskStatus status;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
@@ -129,6 +137,7 @@ final class PlannerTask {
     TaskSplitMode? splitMode,
     int? minChunkMinutes,
     int? maxChunkMinutes,
+    Object? preferredWindow = _unset,
     TaskStatus? status,
     DateTime? createdAtUtc,
     DateTime? updatedAtUtc,
@@ -149,6 +158,9 @@ final class PlannerTask {
     splitMode: splitMode ?? this.splitMode,
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
     maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+    preferredWindow: identical(preferredWindow, _unset)
+        ? this.preferredWindow
+        : preferredWindow as LocalTimeRange?,
     status: status ?? this.status,
     createdAtUtc: createdAtUtc ?? this.createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,

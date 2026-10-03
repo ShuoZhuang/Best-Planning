@@ -39,6 +39,9 @@ final class InputSnapshotBuilder {
           'minChunkMinutes': task.minChunkMinutes,
           'maxChunkMinutes': task.maxChunkMinutes,
           'isLifeTask': task.isLifeTask,
+          // 期望时段参与评分，因此改变它必须改变输入哈希，否则会命中旧提案。
+          'preferredStartMinute': task.preferredWindow?.startMinute,
+          'preferredEndMinute': task.preferredWindow?.endMinute,
         },
     ],
     'fixedIntervals': _intervals(problem.fixedIntervals),

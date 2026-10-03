@@ -32,7 +32,7 @@
     {"id": "movie", "minutes": 120, "splitMode": "continuous", "minChunk": 120, "maxChunk": 120, "due": null, "priority": "medium", "energy": "low", "life": true}
   ],
   "expected": {
-    "algorithmVersion": "8",
+    "algorithmVersion": "9",
     "fullyFeasible": false,
     "unscheduled": [
       {"taskId": "research", "shortageMinutes": 30}

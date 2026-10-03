@@ -84,6 +84,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           dueAtUtc: task.dueAtUtc,
           priority: task.priority,
           energyLevel: task.energyLevel,
+          preferredWindow: task.preferredWindow,
         ),
     ];
     final schedulableIds = {for (final task in schedulable) task.id};

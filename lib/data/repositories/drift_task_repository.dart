@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/data/database/daos/task_dao.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 
 final class DriftTaskRepository implements TaskRepository {
@@ -30,6 +31,8 @@ final class DriftTaskRepository implements TaskRepository {
       splitMode: Value(task.splitMode.name),
       minChunkMinutes: Value(task.minChunkMinutes),
       maxChunkMinutes: Value(task.maxChunkMinutes),
+      preferredStartMinute: Value(task.preferredWindow?.startMinute),
+      preferredEndMinute: Value(task.preferredWindow?.endMinute),
       status: Value(task.status.name),
       createdAtUtc: Value(task.createdAtUtc.microsecondsSinceEpoch),
       updatedAtUtc: Value(task.updatedAtUtc.microsecondsSinceEpoch),
@@ -56,6 +59,7 @@ final class DriftTaskRepository implements TaskRepository {
     splitMode: TaskSplitMode.values.byName(row.splitMode),
     minChunkMinutes: row.minChunkMinutes,
     maxChunkMinutes: row.maxChunkMinutes,
+    preferredWindow: _preferredWindowOf(row),
     status: TaskStatus.values.byName(row.status),
     createdAtUtc: DateTime.fromMicrosecondsSinceEpoch(
       row.createdAtUtc,
@@ -66,4 +70,20 @@ final class DriftTaskRepository implements TaskRepository {
       isUtc: true,
     ),
   );
+
+  /// 从两列还原期望时段。任一列为空表示用户没有表达偏好。
+  ///
+  /// 两列都存在但组合非法时（起点不早于终点、或超出一日范围，`LocalTimeRange`
+  /// 的构造校验会抛 `ArgumentError`）同样按"无偏好"处理。损坏的偏好数据不应让
+  /// 任务加载或整轮排程失败：期望时段只是软约束，忽略它比拒绝加载任务更安全。
+  LocalTimeRange? _preferredWindowOf(db.Task row) {
+    final start = row.preferredStartMinute;
+    final end = row.preferredEndMinute;
+    if (start == null || end == null) return null;
+    try {
+      return LocalTimeRange(startMinute: start, endMinute: end);
+    } on ArgumentError {
+      return null;
+    }
+  }
 }
