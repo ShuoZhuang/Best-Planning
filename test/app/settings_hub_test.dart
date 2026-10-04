@@ -71,7 +71,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           // 四个子页都装配，入口页才应列出四条。
           preferences: PreferenceService(
@@ -134,6 +135,30 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PlanningRulesPage), findsOneWidget);
+    expect(find.byKey(const Key('shell-back-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('shell-back-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsHubPage), findsOneWidget);
+  });
+
+  testWidgets('一级页面不显示返回按钮，子页面统一显示', (tester) async {
+    await pumpApp(tester);
+
+    expect(find.byKey(const Key('shell-back-button')), findsNothing);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('设置'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('shell-back-button')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('settings-relaxation')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('shell-back-button')), findsOneWidget);
   });
 
   // B6：通知设置（四类提醒开关、提前量、免打扰时段）装在"规划规则"这一页里，而入口副标题

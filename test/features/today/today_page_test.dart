@@ -9,6 +9,119 @@ import 'package:personal_planner/features/today/today_page.dart';
 void main() {
   final day = DateTime.utc(2026, 10, 5);
 
+  testWidgets('today page renders its UTC window in the selected local zone', (
+    tester,
+  ) async {
+    final utcDayStart = DateTime.utc(2026, 10, 4, 16);
+    final lunch = ScheduleViewItem(
+      id: 'lunch',
+      title: '午餐时间',
+      kind: ScheduleItemKind.protectedTime,
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 4),
+        endUtc: DateTime.utc(2026, 10, 5, 5),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(Stream.value([lunch])),
+          day: utcDayStart,
+          toLocal: (value) => value.add(const Duration(hours: 8)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('10月5日 · 星期一'), findsOneWidget);
+    expect(find.text('12:00–13:00 · 保护时间'), findsWidgets);
+  });
+
+  testWidgets('wide today page presents a timeline and planning rail', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              _item('class', '高等数学', ScheduleItemKind.fixed, day, 8),
+              _item('research', '整理实验', ScheduleItemKind.task, day, 14),
+              _item('movie', '看电影', ScheduleItemKind.life, day, 19),
+            ]),
+          ),
+          day: day,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('today-wide-layout')), findsOneWidget);
+    expect(find.text('今日时间线'), findsOneWidget);
+    expect(find.text('当前安排'), findsOneWidget);
+    expect(find.text('今日容量'), findsOneWidget);
+    expect(find.text('共安排 3 小时'), findsOneWidget);
+  });
+
+  testWidgets('compact today page keeps the planning summary below timeline', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(760, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              _item('research', '整理实验', ScheduleItemKind.task, day, 14),
+            ]),
+          ),
+          day: day,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('today-compact-layout')), findsOneWidget);
+    expect(find.text('今日时间线'), findsOneWidget);
+    expect(find.text('今日容量'), findsOneWidget);
+  });
+
+  testWidgets('compact today page tolerates 150 percent text scaling', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(760, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+          child: TodayPage(
+            source: _Source(
+              Stream.value([
+                _item('research', '整理实验', ScheduleItemKind.task, day, 14),
+              ]),
+            ),
+            day: day,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('today-compact-layout')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('today page covers loading, empty and content states', (
     tester,
   ) async {
@@ -32,10 +145,10 @@ void main() {
     ]);
     await tester.pump();
 
-    expect(find.text('高等数学'), findsOneWidget);
+    expect(find.text('高等数学'), findsWidgets);
     expect(find.text('固定日程'), findsOneWidget);
     expect(find.text('保护时间'), findsOneWidget);
-    expect(find.text('任务'), findsOneWidget);
+    expect(find.text('可移动任务'), findsOneWidget);
     expect(find.text('生活'), findsOneWidget);
   });
 

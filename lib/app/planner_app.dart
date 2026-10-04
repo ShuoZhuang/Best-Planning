@@ -22,6 +22,7 @@ import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -345,13 +346,7 @@ final class _PlannerAppState extends State<PlannerApp> {
     super.dispose();
   }
 
-  ThemeData get _theme => ThemeData(
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xff315b4c),
-      brightness: Brightness.light,
-    ),
-    useMaterial3: true,
-  );
+  ThemeData get _theme => PlannerTheme.dark();
 
   @override
   Widget build(BuildContext context) {

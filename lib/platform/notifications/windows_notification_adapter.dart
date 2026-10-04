@@ -24,6 +24,56 @@ abstract interface class WindowsNotificationBackend {
   Future<void> cancel({required int id});
 }
 
+/// 按当前 Windows 运行方式选择通知端口。
+///
+/// `flutter_local_notifications` 的 Windows 原生后端在本项目的免安装进程中会以
+/// `0xc0000409` 越过 Dart 异常边界并直接终止进程；同一构建装进 MSIX 后则稳定，且
+/// 包身份也是可靠取消和点击激活的前提。因此免安装 EXE 明确降级为不可安排通知，
+/// 不让一个附加能力拖垮整个日程应用。
+NotificationPort buildWindowsNotificationPort({
+  required bool hasPackageIdentity,
+  String? appUserModelId,
+  WindowsNotificationBackend? backend,
+}) {
+  if (!hasPackageIdentity) return const UnpackagedWindowsNotificationPort();
+  return WindowsNotificationAdapter(
+    backend: backend,
+    hasPackageIdentity: true,
+    appUserModelId: appUserModelId,
+  );
+}
+
+final class UnpackagedWindowsNotificationPort implements NotificationPort {
+  const UnpackagedWindowsNotificationPort();
+
+  static const _diagnostic =
+      '当前为免安装 EXE。为避免 Windows 原生通知组件导致程序退出，系统提醒已停用；'
+      '安装 MSIX 版本后可启用完整提醒。';
+
+  @override
+  Future<NotificationCapability> capability() async =>
+      const NotificationCapability(
+        canSchedule: false,
+        canCancelReliably: false,
+        diagnostic: _diagnostic,
+      );
+
+  @override
+  Future<List<PendingNotification>> pendingNotifications() async => const [];
+
+  @override
+  Future<void> scheduleOneShot(NotificationRequest request) async {}
+
+  @override
+  Future<void> cancel(String id) async {}
+
+  @override
+  void onTapped(void Function(NotificationPayload payload) handler) {}
+
+  @override
+  Future<NotificationPayload?> launchPayload() async => null;
+}
+
 final class FlutterWindowsNotificationBackend
     implements WindowsNotificationBackend {
   FlutterWindowsNotificationBackend({
@@ -118,6 +168,7 @@ final class WindowsNotificationAdapter implements NotificationPort {
     FlutterLocalNotificationsPlugin? plugin,
     WindowsNotificationBackend? backend,
     this.hasPackageIdentity = false,
+
     /// 真实 AUMID（`<包族名>!<应用Id>`，由 `currentApplicationUserModelId()` 取得）。
     ///
     /// 为空时后端回退到 [FlutterWindowsNotificationBackend.fallbackAppUserModelId]——那条回退

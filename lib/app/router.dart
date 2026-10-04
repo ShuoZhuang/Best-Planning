@@ -258,19 +258,9 @@ GoRouter createPlannerRouter({
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
-                        children: [
-                          IconButton(
-                            tooltip: '返回日历',
-                            onPressed: () => context.go('/calendar'),
-                            icon: const Icon(Icons.arrow_back),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '新建固定日程',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                        ],
+                      Text(
+                        '新建固定日程',
+                        style: Theme.of(context).textTheme.headlineSmall,
                       ),
                       const SizedBox(height: 20),
                       EventEditorForm(
@@ -827,6 +817,33 @@ final class _PlannerShell extends StatelessWidget {
   /// 特殊日与恢复保护的入口。为空时不显示该动作——未装配恢复服务时不留死按钮。
   final void Function(BuildContext context)? onSpecialDay;
 
+  static const _topLevelLocations = <String>{
+    '/today',
+    '/tasks',
+    '/workspace',
+    '/calendar',
+    '/analytics',
+    '/settings',
+  };
+
+  bool get _showsBackButton => !_topLevelLocations.contains(location);
+
+  String get _parentLocation {
+    if (location.startsWith('/focus/')) {
+      final segments = Uri.tryParse(location)?.pathSegments;
+      final taskId = segments == null || segments.isEmpty
+          ? null
+          : segments.last;
+      return taskId == null ? '/tasks' : '/tasks/$taskId';
+    }
+    if (location.startsWith('/tasks/')) return '/tasks';
+    if (location.startsWith('/calendar/')) return '/calendar';
+    if (location.startsWith('/settings/')) return '/settings';
+    if (location == '/special-day') return '/today';
+    if (location.startsWith('/planning/preview/')) return '/calendar';
+    return '/today';
+  }
+
   int get _selectedIndex => switch (location) {
     '/tasks' => 1,
     '/workspace' => 2,
@@ -844,6 +861,16 @@ final class _PlannerShell extends StatelessWidget {
     final specialDay = onSpecialDay;
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: _showsBackButton
+            ? IconButton(
+                key: const Key('shell-back-button'),
+                tooltip: '返回',
+                onPressed: () => context.go(_parentLocation),
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
+        titleSpacing: _showsBackButton ? 4 : 20,
         toolbarHeight: 68,
         title: const Row(
           mainAxisSize: MainAxisSize.min,
