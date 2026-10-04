@@ -387,6 +387,23 @@ final class _RangeControls extends StatelessWidget {
           runSpacing: 10,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            // **扩展点：将来加"学期"维度就加在这里（2026-10-04 登记）。**
+            //
+            // 用户原始需求里写着「统计范围可选今天／本周／本月／自定义，并**为以后增加学期维度
+            // 预留空间**」，而规格 §17「后续路线」把「学期目标、考试周和假期模板」划在首版之外。
+            // 因此这里**不实现**学期，但把"以后怎么加"写清楚，免得下一个做的人重新推一遍：
+            //
+            // 1. **服务层不需要改**：`AnalyticsFilter` 就是一对起止瞬时（`startUtc`／`endUtc`），
+            //    今天／本周／本月／自定义走的都是同一个查询，因此学期只是**另一个区间**；
+            // 2. **界面上加一个按钮**（与下面四个并列）→ 用学期起止算出区间 → 与 `onCustom` 同样
+            //    的方式回调即可；**本机时区日界**必须沿用上面 `analytics_page.dart` 顶部那段说明
+            //    里的口径（按用户本机时区的日界，而不是 UTC），否则"学期的第一天"会偏一天；
+            // 3. **需要的新数据是"学期起止日期"**（外加考试周／假期模板）：本仓库现在**没有**
+            //    这个概念，所以那一步要先在设置里落一个键（形如 `planning.term.v1`），
+            //    并进 `input_snapshot_builder` 的哈希——否则改了学期不会触发计划重算；
+            // 4. **在那之前，用户已经可以用「自定义范围」选中一个学期**：所以这不是功能缺口，
+            //    只是"少一个一键预设"。这一判断同时写在 `docs/testing/original-requirements-audit.md`
+            //    的第 ⑮ 条里。
             OutlinedButton(onPressed: onToday, child: const Text('今天')),
             OutlinedButton(onPressed: onWeek, child: const Text('本周')),
             OutlinedButton(onPressed: onMonth, child: const Text('本月')),
