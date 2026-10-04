@@ -251,6 +251,48 @@ final class TaskService {
     return TaskSaveResult.success(updated);
   }
 
+  /// **延后任务**（需求 FR-REPLAN-01 的"延期事项"；2026-10-04 补上真正的动作）。
+  ///
+  /// **为什么需要它**：此前 `DomainChangeKind.taskDeferred` **没有任何动作能产生**（§13.0 的 W12
+  /// 行登记过）——"延期"只能靠在任务详情页**改截止日期**来表达，而那条路发的是
+  /// `taskSchedulingChanged`。枚举里那个值因此一直不可达，读代码的人会以为"延期"这个动作已经
+  /// 有了。这个方法把它做成**一个动作**。
+  ///
+  /// 四条刻意定死的语义：
+  /// - **延后＝把截止日期整体后移 [by]**，不是"设为某一天"。用户说"往后挪一点"与"挪到哪天"是
+  ///   两件事，后者是 [setDueDate]；两者分开，免得同一个按钮在不同人手里产生不同口径；
+  /// - **没有截止日期的任务不能延后**：连"原本什么时候要交"都没有，往后挪就没有基准。这里返回
+  ///   `invalid` 而**不是悄悄设一个日期**——那等于**替用户编一个他没说过的截止时间**；
+  /// - **[by] 必须为正**：负值或零是"提前/不动"，那是另一个动作（而且更容易误用），先拒绝；
+  /// - **发出的类别是 [DomainChangeKind.taskDeferred]**（不是 `taskSchedulingChanged`）：两者都会
+  ///   触发重排，但统计页的"重排原因"把这个标签**直接显示给用户**，用户该看到"延后任务"而不是
+  ///   笼统的"截止日期变化"。
+  Future<TaskSaveResult> deferTask(String taskId, {required Duration by}) async {
+    if (by <= Duration.zero) {
+      return TaskSaveResult.invalid({'by': '延后量必须为正'});
+    }
+    final existing = await _repository.getById(taskId);
+    if (existing == null) {
+      return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    }
+    final due = existing.dueAtUtc;
+    if (due == null) {
+      return TaskSaveResult.invalid({'dueAtUtc': '没有截止日期的任务无法延后'});
+    }
+    final updated = existing.copyWith(
+      dueAtUtc: due.add(by),
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    await _repository.save(updated);
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '延后任务',
+        kind: DomainChangeKind.taskDeferred,
+      ),
+    );
+    return TaskSaveResult.success(updated);
+  }
+
   /// 调整任务优先级（FR-REPLAN-07 的处理入口之一）。
   ///
   /// 与 [correctRemainingMinutes] 同型：读取—改一个字段—保存，并推进修改时间。

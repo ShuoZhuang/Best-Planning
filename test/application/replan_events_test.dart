@@ -182,4 +182,52 @@ void main() {
     expect(tasks.tasks['task-1']!.priority, TaskPriority.high);
     expect(reasons, isEmpty);
   });
+  // **延后任务**（FR-REPLAN-01 的"延期事项"，2026-10-04）。此前 `DomainChangeKind.taskDeferred`
+  // 没有任何动作能产生（§13.0 的 W12 行登记过），因此枚举里那个值不可达。这三条钉住：动作存在、
+  // 发出的是**专属类别**（不是笼统的"截止日期变化"）、以及两条拒绝路径**不留下任何痕迹**。
+  test('延后任务：截止日期整体后移，并记一条"延后任务"', () async {
+    tasks.tasks['task-1'] = _task().copyWith(
+      dueAtUtc: DateTime.utc(2026, 10, 20, 9),
+    );
+
+    await build().deferTask('task-1', by: const Duration(days: 1));
+
+    expect(reasons, <String>['延后任务']);
+    expect(
+      changes.single.kind,
+      DomainChangeKind.taskDeferred,
+      reason: '必须发专属类别：统计页把标签直接显示给用户，笼统的"截止日期变化"会掩盖这是延后',
+    );
+    expect(
+      (await tasks.getById('task-1'))!.dueAtUtc,
+      DateTime.utc(2026, 10, 21, 9),
+      reason: '延后＝整体后移，不是设成某一天',
+    );
+  });
+
+  test('没有截止日期的任务不能延后，且不留下痕迹', () async {
+    // `_task()` 默认没有截止日期：往后挪没有基准，应当拒绝而不是替用户编一个日期。
+    await build().deferTask('task-1', by: const Duration(days: 1));
+
+    expect(reasons, isEmpty, reason: '被拒绝的动作不该触发重排');
+    expect(
+      (await tasks.getById('task-1'))!.dueAtUtc,
+      isNull,
+      reason: '绝不能悄悄设一个用户没说过的截止时间',
+    );
+  });
+
+  test('延后量为零或负值时拒绝', () async {
+    tasks.tasks['task-1'] = _task().copyWith(dueAtUtc: DateTime.utc(2026, 10, 20, 9));
+
+    await build().deferTask('task-1', by: Duration.zero);
+    await build().deferTask('task-1', by: const Duration(days: -1));
+
+    expect(reasons, isEmpty);
+    expect(
+      (await tasks.getById('task-1'))!.dueAtUtc,
+      DateTime.utc(2026, 10, 20, 9),
+      reason: '提前/不动是另一个动作，不能借延后之名生效',
+    );
+  });
 }
