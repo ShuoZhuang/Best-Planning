@@ -106,6 +106,71 @@ void main() {
     );
   });
 
+  // C12（2026-10-04 产品侧确认按**文案**为准）：冲突提醒**在免打扰期间也要保留**，不延后。
+  //
+  // 设置页对用户写的是「普通通知在免打扰期间延后；**冲突待处理提醒仍会保留**」，而代码此前对它
+  // **同样**调了 `_delayPastQuietHours`——文案承诺了、代码没兑现。这条用例把"文案与代码一致"
+  // 钉住，并且**同时**守住"其余三类仍然延后"（免得为了改一类而把免打扰整体废掉）。
+  test('冲突提醒在免打扰期间不延后，其余三类仍然延后', () async {
+    // 东八区 00:00，正在默认免打扰时段（23:30–07:30）内。
+    final inQuietHours = DateTime.utc(2026, 10, 5, 16);
+    final port = _RecordingPort();
+    final service = NotificationService(
+      plans: _FakePlans(planWith(inQuietHours.add(const Duration(hours: 1)))),
+      settings: SettingsService(repository: MemorySettingsRepository()),
+      notifications: port,
+      clock: _FixedClock(inQuietHours),
+      zones: TimeZoneDatabase(),
+      timeZoneId: zoneId,
+      calendar: _FakeCalendar([
+        CalendarOccurrence(
+          eventId: 'class-1',
+          title: '课程',
+          range: TimeRange(
+            startUtc: inQuietHours.add(const Duration(hours: 3)),
+            endUtc: inQuietHours.add(const Duration(hours: 4)),
+          ),
+          locked: true,
+        ),
+      ]),
+      tasks: _FakeTasks([task('due-soon', inQuietHours.add(const Duration(hours: 20)))]),
+      pendingConflicts: () async => [
+        PlanningConflict(
+          code: ConflictCode.insufficientCapacity,
+          taskId: 'task-1',
+        ),
+      ],
+    );
+
+    await service.syncNextSevenDays();
+
+    // 冲突提醒 = now + conflictLeadMinutes(30)，**不被推到免打扰结束**。
+    final conflict = port.scheduled.firstWhere(
+      (request) => request.id == 'planner.conflict.pending',
+    );
+    expect(
+      conflict.scheduledAtUtc,
+      inQuietHours.add(const Duration(minutes: 30)),
+      reason: '冲突提醒在免打扰期间必须保留原时刻，否则界面上那句话就是空头承诺',
+    );
+    // 免打扰结束（东八区 07:30）= 前一日 23:30 UTC。
+    expect(
+      conflict.scheduledAtUtc,
+      isNot(DateTime.utc(2026, 10, 5, 23, 30)),
+      reason: '被推到 07:30 就是旧行为（代码没兑现文案）',
+    );
+
+    // 对照：任务开始提醒（提前 10 分钟）落在免打扰内，**仍然延后**到免打扰结束。
+    final taskStart = port.scheduled.firstWhere(
+      (request) => request.id == 'planner.task_start.block-1',
+    );
+    expect(
+      taskStart.scheduledAtUtc,
+      DateTime.utc(2026, 10, 5, 23, 30),
+      reason: '普通提醒的免打扰延后必须保持不变',
+    );
+  });
+
   test('截止提醒：只提醒窗口内到期的任务，且不因提前时间已过而丢失', () async {
     final port = _RecordingPort();
     final service = NotificationService(

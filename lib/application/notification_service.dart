@@ -173,9 +173,18 @@ final class NotificationService {
       if (source != null) {
         final conflicts = await source();
         if (conflicts.isNotEmpty) {
-          final scheduledAt = _delayPastQuietHours(
-            now.add(Duration(minutes: preferences.conflictLeadMinutes)),
-            preferences.quietHours,
+          // **冲突提醒不套免打扰延后（C12，2026-10-04 产品侧确认）。**
+          //
+          // 界面上写的是「普通通知在免打扰期间延后；**冲突待处理提醒仍会保留**」
+          // （`notification_preferences_section.dart`），而代码此前对它**同样**调了
+          // `_delayPastQuietHours`——文案承诺了、代码没兑现。产品侧确认按**文案**为准：
+          // 冲突是"计划已经排不下、等你决定"的状态，**夜里压到早上**会让用户在最需要知道的
+          // 时候看不到它，而它并不像"某任务即将开始"那样具有时效性。
+          //
+          // 因此这里**刻意只保留 `now + conflictLeadMinutes`**，不加免打扰处理。三条普通提醒
+          // （任务开始／固定日程／截止）**仍然延后**，这一行为不变。
+          final scheduledAt = now.add(
+            Duration(minutes: preferences.conflictLeadMinutes),
           );
           if (!scheduledAt.isAfter(horizon)) {
             final id = '$_managedPrefix' 'conflict.pending';
