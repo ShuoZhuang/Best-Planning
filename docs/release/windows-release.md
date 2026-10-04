@@ -76,10 +76,10 @@ stopped unexpectedly, or never started.`——失败发生在**测试装置与�
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 应用版本 | `pubspec.yaml` 的 `version` | 当前仍为模板默认 `1.0.0+1`，发布前必须确定为正式版本号 |
+| 应用版本 | `pubspec.yaml` 的 `version` | 当前为 `1.0.4+5`（**原文写"仍是模板默认 `1.0.0+1`"已过期**，2026-10-04 更正）。这是逐轮验证时升上来的值，**发布前必须确定为正式版本号** |
 | 包标识（Identity Name） | `msix_config.identity_name`，当前为 `ShuoZhuang.PersonalPlanner`（**原文写的"示例值 `com.example.personal_planner`"已过期**，2026-10-04 据 `pubspec.yaml` 与已安装包更正） | 一旦发布不可更改，需在首次发布前固定为自有反向域名 |
-| 发布者（Publisher） | `msix_config.publisher_display_name`，当前为示例值 | 与签名证书主体一致 |
-| MSIX 版本 | `msix_config.msix_version`，四段式 | 必须与 `pubspec.yaml` 的 `version` 对应，当前均为 1.0.0 |
+| 发布者（Publisher） | `msix_config.publisher`，当前为 `CN=Shuo Zhuang, O=Personal User, C=CN` | **必须与签名证书主体一字不差**，否则包装不上（原文只写"与签名证书主体一致"却把值留成"示例值"，2026-10-04 更正） |
+| MSIX 版本 | `msix_config.msix_version`，四段式 | 当前为 `1.0.4.0`（**原文写"当前均为 1.0.0"已过期**，2026-10-04 更正）。必须与 `pubspec.yaml` 的 `version` 同步升，且**安装包不接受更低版本**（降级安装报错） |
 | 升级策略 | 同一包标识 + 递增版本 | 换标识等于换应用，用户数据不会自动迁移 |
 | 版本号同步 | `windows/runner/Runner.rc` | **自动的，不需要手工改**（2026-10-03 实测更正，见下） |
 
@@ -96,7 +96,53 @@ set(FLUTTER_VERSION_MAJOR 1) … MINOR 0 … PATCH 0 … BUILD 1
 而 `Runner.rc` 用 `#if defined(FLUTTER_VERSION_MAJOR)` 优先取这些宏（`1,0,0,0` 与 `"1.0.0"`
 只是**宏未定义时的回退值**）。实测证据：已构建的 `personal_planner.exe` 报
 `FileVersion = 1.0.0+1`、`ProductVersion = 1.0.0+1`，与 `pubspec.yaml` 的 `version: 1.0.0+1`
-一致，**期间没有任何人手工改过 `Runner.rc`**。因此这一项不需要动作；真要改版本，改
+
+
+### 2.1 包身份与证书：**改一个等于换一个应用**（2026-10-04 补写）
+
+**为什么补这一节**：上表里"一旦发布不可更改"只有结论、没讲**代价**，因此"要不要改"这个问题在文档
+里根本回答不了。本节把代价写清，并给出与本项目计划（**自己用 → 给朋友 → 公开**）对应的几条路。
+
+#### 身份由两样东西共同决定（**不只 identity_name**）
+
+| 组成 | 来自 | 当前值 |
+| --- | --- | --- |
+| 包名 | `msix_config.identity_name` | `ShuoZhuang.PersonalPlanner` |
+| 发布者哈希 | **由签名证书的 Subject 推导** | `_v9555qkaxdyym` |
+
+两者拼成 **PackageFamilyName** = `ShuoZhuang.PersonalPlanner_v9555qkaxdyym`。
+**关键在第二行**：改 `identity_name` 会让它变，**换证书同样会让它变**——那个后缀是从发布者推导的。
+
+#### 这个身份已经"长进"系统哪些地方（本机实测值）
+
+- 安装目录 `C:\Program Files\WindowsApps\ShuoZhuang.PersonalPlanner_1.0.4.0_x64__v9555qkaxdyym`；
+- 虚拟化数据/注册根 `%LOCALAPPDATA%\Packages\ShuoZhuang.PersonalPlanner_v9555qkaxdyym\`
+  ——**通知激活的注册就在这里**（`SystemAppData\Helium\UserClasses.dat`）；
+- **通知 AUMID** `ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner`（清单里的 toast 激活器与它绑定）。
+
+#### 换身份的代价（四条）
+
+1. **不能就地升级**：Windows 视为**全新包**，与旧包并存，必须先卸载旧的；
+2. **虚拟化设置与注册不迁移**：注册表与 `%LOCALAPPDATA%\Packages\<包族名>` 按包族名分家；
+3. **AUMID 变 → 通知授权要在系统设置里重新开一次**（Windows 的"允许通知"按 AUMID 记录）；
+4. **上商店时身份由商店后台分配**，且那是**独立渠道**，不覆盖侧载身份。
+
+**唯一的好消息**：**用户数据不受影响**——数据库在真实的"文档"已知文件夹（本机
+`F:\Documents\personal_planner.sqlite`），**不经过 MSIX 文件重定向**（已实测）。所以换身份丢的是
+"系统层面的注册与授权"，**不是任务数据**。
+
+#### 与本项目计划对应的路
+
+| 目标 | 需要什么 | 必须在什么时候定 |
+| --- | --- | --- |
+| 自己用（现在） | 自签证书 + 本机已信任（**现状即可，无需动作**） | — |
+| 给朋友 | 自签证书 + **对方先导入一次 `.cer`**；或改用正规代码签名证书免去这一步 | **交给第一个朋友之前** |
+| 公开分发 | 正规代码签名证书（否则每次安装都弹"未知发布者"）+ 下载与更新说明 | 公开之前 |
+| Microsoft Store | 开发者账号（约 \$19 一次性）+ 商店分配身份 | 走上架流程之前 |
+
+**一条容易漏掉的连带**：若公开分发时**不想露真名**，要改的**不只是 `identity_name`，还得换一张
+证书**——因为 `publisher` 的 CN 是真名，而包族名后缀由它推导。**两件事必须一起定**，否则先改一个
+再改另一个，等于**换了两次身份**。一致，**期间没有任何人手工改过 `Runner.rc`**。因此这一项不需要动作；真要改版本，改
 `pubspec.yaml` 即可。
 
 **版本号本身（2026-10-03 定）**：首版取 `pubspec.yaml` 的 `version: 1.0.0+1`，
