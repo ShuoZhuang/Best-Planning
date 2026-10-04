@@ -482,9 +482,17 @@ List<EnergyPeriodMetric> _energyPeriods({
 /// 逐"本地日 × 保护段"生成区间，而不是逐分钟扫描：一年的范围有几十万分钟，而这里的规模是
 /// "天数 × 保护段数"，即便再乘以专注条数也仍然很小。
 ///
-/// 跨午夜的保护段（`endMinute <= startMinute`）**被跳过**：`protectedTimes` 里只有午餐、晚餐
-/// 与固定休息，睡眠另在 `sleepRange`，因此这里不猜跨午夜语义；若日后要支持，应先在设置侧
-/// 定义清楚。
+/// **跨午夜的保护段（`endMinute <= startMinute`）是被支持的**：睡眠默认就是 23:30–07:30，
+/// 而"休息保护"少了它就没有意义（数据层 `analytics_dao.dart` 的 `_protectedWindows()` 会把
+/// 睡眠**始终**加入窗口，那里有同样的说明）。实现方式是把终点锚在**次日**的同名分钟上。
+///
+/// **此处曾有一句反过来的旧注释**（原文："跨午夜的保护段被跳过……因此这里不猜跨午夜语义"），
+/// 它描述的是更早的实现，与本方法下文的 `crossesMidnight` 处理**直接矛盾**，已删除——
+/// 留着它会让下一个读代码的人以为睡眠没被算进去，从而去修一个不存在的问题。
+///
+/// **口径经产品侧确认（2026-10-04）：休息保护按"实际发生"计算**——保护窗口被**实际专注**占用
+/// 即算被牺牲，空着即算被保护；**不是**看计划块有没有排进保护窗口（"排程器尊不尊重休息"是另一种
+/// 定义，会给出不同数字，本轮未采用）。
 RestProtectionMetric? _restProtection({
   required List<AnalyticsProtectedWindow> windows,
   required List<DateTime> relaxedLocalDates,
