@@ -66,6 +66,7 @@ GoRouter createPlannerRouter({
   PlanningService? planningService,
   PlanApplicationService? planApplication,
   PlanRepository? plans,
+
   /// 撤销（FR-REPLAN-08）用的**计划历史**端口。**单独成参而不改上面 `plans` 的类型**：
   /// 有 6 处测试替身只实现 `applyProposal`／`current`，把 `plans` 改宽会一次性牵动它们，
   /// 而"提供不了历史"本身是合法状态（那就没有撤销按钮）。
@@ -76,6 +77,7 @@ GoRouter createPlannerRouter({
   TagService? tagService,
   AppLockService? appLock,
   ExportService? exportService,
+
   /// 数据备份页（W3 最后一条缺失路由）。为空时不出现入口，也不注册路由内容。
   BackupService? backupService,
   DataErasureService? erasure,
@@ -108,8 +110,11 @@ GoRouter createPlannerRouter({
       routes: [
         GoRoute(
           path: '/today',
-          builder: (context, state) =>
-              TodayPage(source: scheduleSource, day: todayStartUtc),
+          builder: (context, state) => TodayPage(
+            source: scheduleSource,
+            day: todayStartUtc,
+            toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
+          ),
         ),
         GoRoute(
           path: '/tasks',
@@ -174,7 +179,10 @@ GoRouter createPlannerRouter({
                     final entries = await focusService.store.confirmedEntries();
                     final actualMinutes = entries
                         .where((entry) => entry.taskId == taskId)
-                        .fold<int>(0, (sum, entry) => sum + entry.activeMinutes);
+                        .fold<int>(
+                          0,
+                          (sum, entry) => sum + entry.activeMinutes,
+                        );
                     final result = await taskService.applyFocusRecompute(
                       taskId: taskId,
                       actualMinutes: actualMinutes,
@@ -199,6 +207,11 @@ GoRouter createPlannerRouter({
               focus: service,
               tasks: taskService,
               taskId: state.pathParameters['taskId']!,
+              // 2026-10-04 的需求：「专注中断后可以继续接续，**前提是还在待办时间段内**；超出了
+              // 就要对剩余待办时间重新排序。」因此这一页需要知道该任务在**当前已确认计划**里的
+              // 计划块终点。`plans` 为空（未装配计划仓储）时窗口未知——按服务里的规则，那种情况
+              // 一律允许接续，因为**没有依据就别说超出了**。
+              plans: plans,
             );
           },
         ),
@@ -341,11 +354,7 @@ GoRouter createPlannerRouter({
                   : (id, newStart, newEnd) => calendarService.replaceSeries(
                       anchorId: id,
                       newStartUtc: zones.localDateTimeToUtc(
-                        DateTime(
-                          newStart.year,
-                          newStart.month,
-                          newStart.day,
-                        ),
+                        DateTime(newStart.year, newStart.month, newStart.day),
                         newStart.hour * 60 + newStart.minute,
                         timeZoneId,
                       ),
@@ -440,10 +449,10 @@ GoRouter createPlannerRouter({
             // 不必再向路由器引入一个时钟（那会让"今天"有两个来源）。
             final today = zones.toLocal(todayStartUtc, timeZoneId);
             final localDate = DateTime(today.year, today.month, today.day);
-            Future<int> effectiveLimit() async => (await settingsService
-                    .resolveForDate(localDate))
-                .rules
-                .dailyMovableTaskLimitMinutes;
+            Future<int> effectiveLimit() async =>
+                (await settingsService.resolveForDate(localDate))
+                    .rules
+                    .dailyMovableTaskLimitMinutes;
             Future<int?> overrideMinutes() async =>
                 (await settingsService.loadDateOverride(localDate))
                     ?.dailyMovableTaskLimitMinutes;
@@ -456,9 +465,7 @@ GoRouter createPlannerRouter({
                 // 规则：复制整份会让今天之后任何规则改动都和这条例外脱节。
                 await settingsService.saveDateOverride(
                   localDate,
-                  PlanningRulesPatch(
-                    dailyMovableTaskLimitMinutes: minutes,
-                  ),
+                  PlanningRulesPatch(dailyMovableTaskLimitMinutes: minutes),
                 );
                 return true;
               },
@@ -708,27 +715,49 @@ final class _FocusLoader extends StatefulWidget {
     required this.focus,
     required this.tasks,
     required this.taskId,
+    this.plans,
   });
 
   final FocusService focus;
   final TaskService tasks;
   final String taskId;
 
+  /// 当前已确认计划，用来判断"接续是否已超出计划时段"。为空时窗口未知。
+  final PlanRepository? plans;
+
   @override
   State<_FocusLoader> createState() => _FocusLoaderState();
 }
 
 final class _FocusLoaderState extends State<_FocusLoader> {
-  late final Future<PlannerTask?> _task = widget.tasks.findById(widget.taskId);
+  late final Future<_FocusData> _data = _load();
+
+  Future<_FocusData> _load() async => _FocusData(
+    task: await widget.tasks.findById(widget.taskId),
+    plannedEndUtc: await _plannedEnd(),
+  );
+
+  /// 该任务在当前已确认计划里的**计划块终点**；没有计划、或该任务没有块时为 null。
+  ///
+  /// 取**最早**那一块：一个任务可能被拆成多段，而"待办时间段"在用户心里就是眼下这一段；用最早
+  /// 那块判断"是否超出"最保守——不会因为后面还排了一段就以为时间还多。
+  Future<DateTime?> _plannedEnd() async {
+    final plan = await widget.plans?.current();
+    if (plan == null) return null;
+    final blocks = plan.blocks.where((b) => b.taskId == widget.taskId).toList()
+      ..sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
+    return blocks.isEmpty ? null : blocks.first.range.endUtc;
+  }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<PlannerTask?>(
-    future: _task,
+  Widget build(BuildContext context) => FutureBuilder<_FocusData>(
+    future: _data,
     builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done) {
         return const Center(child: CircularProgressIndicator());
       }
-      final task = snapshot.data;
+      final data = snapshot.data;
+      final task = data?.task;
       if (task == null) {
         return const _UnavailablePage(
           title: '专注计时',
@@ -739,9 +768,17 @@ final class _FocusLoaderState extends State<_FocusLoader> {
         service: widget.focus,
         taskId: task.id,
         taskTitle: task.title,
+        plannedEndUtc: data?.plannedEndUtc,
       );
     },
   );
+}
+
+final class _FocusData {
+  const _FocusData({required this.task, required this.plannedEndUtc});
+
+  final PlannerTask? task;
+  final DateTime? plannedEndUtc;
 }
 
 Future<void> _generatePlan(
@@ -756,21 +793,21 @@ Future<void> _generatePlan(
   // FR-REPLAN-03/04：默认只打开预览等确认；"信任自动调整"开启时**直接应用**，而历史与原因
   // 仍会写入（应用本身会落新计划版本与变更日志），因此"开启后仍记录"不是额外要做的事。
   // 分支抽在 `PlanGenerationFlow` 里，那段逻辑因此有测试——路由在本仓库从不被测试覆盖。
-  final outcome = await PlanGenerationFlow(
-    // 未装配应用服务时**不自动应用**：宁可回落到"去预览确认"，也不假装应用了。
-    isTrusted: () => autoAdjustStore.enabled && application != null,
-  ).run(
-    proposal: proposal,
-    // 不可达的兜底：`application == null` 时上面的 isTrusted 为 false，apply 不会被调用。
-    apply: application == null
-        ? (proposal) async => ApplyPlanResult.stale()
-        : application.apply,
-  );
+  final outcome =
+      await PlanGenerationFlow(
+        // 未装配应用服务时**不自动应用**：宁可回落到"去预览确认"，也不假装应用了。
+        isTrusted: () => autoAdjustStore.enabled && application != null,
+      ).run(
+        proposal: proposal,
+        // 不可达的兜底：`application == null` 时上面的 isTrusted 为 false，apply 不会被调用。
+        apply: application == null
+            ? (proposal) async => ApplyPlanResult.stale()
+            : application.apply,
+      );
   if (!context.mounted) return;
   if (outcome.message.isNotEmpty) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(outcome.message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(outcome.message)));
   }
   context.go('/planning/preview/${proposal.proposalId}');
 }
@@ -807,7 +844,18 @@ final class _PlannerShell extends StatelessWidget {
     final specialDay = onSpecialDay;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('智能日程'),
+        toolbarHeight: 68,
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _BrandMark(),
+            SizedBox(width: 12),
+            Text(
+              '智能日程',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
         actions: [
           if (specialDay != null)
             TextButton.icon(
@@ -817,12 +865,15 @@ final class _PlannerShell extends StatelessWidget {
               label: const Text('特殊日'),
             ),
           if (generate != null)
-            TextButton.icon(
-              onPressed: () => generate(context),
-              icon: const Icon(Icons.auto_awesome_outlined),
-              label: const Text('生成计划'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: FilledButton.icon(
+                onPressed: () => generate(context),
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('生成计划'),
+              ),
             ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 16),
         ],
       ),
       body: Row(
@@ -843,32 +894,32 @@ final class _PlannerShell extends StatelessWidget {
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.today_outlined),
-                selectedIcon: Icon(Icons.today),
+                selectedIcon: _SelectedNavIcon(Icons.today),
                 label: Text('今日'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.checklist_outlined),
-                selectedIcon: Icon(Icons.checklist),
+                selectedIcon: _SelectedNavIcon(Icons.checklist),
                 label: Text('任务'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.account_tree_outlined),
-                selectedIcon: Icon(Icons.account_tree),
+                selectedIcon: _SelectedNavIcon(Icons.account_tree),
                 label: Text('领域'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.calendar_view_week_outlined),
-                selectedIcon: Icon(Icons.calendar_view_week),
+                selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
                 label: Text('日历'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.insights_outlined),
-                selectedIcon: Icon(Icons.insights),
+                selectedIcon: _SelectedNavIcon(Icons.insights),
                 label: Text('统计'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.tune_outlined),
-                selectedIcon: Icon(Icons.tune),
+                selectedIcon: _SelectedNavIcon(Icons.tune),
                 label: Text('设置'),
               ),
             ],
@@ -879,6 +930,45 @@ final class _PlannerShell extends StatelessWidget {
       ),
     );
   }
+}
+
+final class _BrandMark extends StatelessWidget {
+  const _BrandMark();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 34,
+    height: 34,
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primary,
+      borderRadius: BorderRadius.circular(9),
+    ),
+    alignment: Alignment.center,
+    child: const Icon(Icons.view_timeline_outlined, size: 20),
+  );
+}
+
+final class _SelectedNavIcon extends StatelessWidget {
+  const _SelectedNavIcon(this.icon);
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 3,
+        height: 20,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      const SizedBox(width: 6),
+      Icon(icon),
+    ],
+  );
 }
 
 /// 依赖未装配时的占位页。

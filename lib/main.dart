@@ -170,7 +170,8 @@ Future<void> main() async {
   final appUserModelId = currentApplicationUserModelId(
     onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
   );
-  if (hasPackageIdentity && (appUserModelId == null || appUserModelId.isEmpty)) {
+  if (hasPackageIdentity &&
+      (appUserModelId == null || appUserModelId.isEmpty)) {
     // **这是一个缺陷状态，不是一个可接受的降级**：有包身份却取不到 AUMID，说明取 AUMID 的
     // 调用出了问题，而回退常量与包身份必然不符——通知点击将无法正确激活。因此这里明确记一条
     // 诊断（**落到文件**：Release 里 debugPrint 抓不到），而不是安静地回退。
@@ -181,7 +182,7 @@ Future<void> main() async {
     'appUserModelId=${appUserModelId ?? '(取不到 → 回退 ${FlutterWindowsNotificationBackend.fallbackAppUserModelId})'}',
   );
   final notifications = DiagnosticNotificationPort(
-    inner: WindowsNotificationAdapter(
+    inner: buildWindowsNotificationPort(
       hasPackageIdentity: hasPackageIdentity,
       appUserModelId: appUserModelId,
     ),
@@ -341,6 +342,18 @@ Future<void> main() async {
       code: reason?.label ?? InterruptionReason.neutralLabel,
       observedAtUtc: clock.nowUtc(),
       entityId: session.taskId,
+    ),
+    // 「专注中断后继续接续」的后一半（2026-10-04 的需求）：**超出原计划时段**仍然让用户继续，
+    // 但要把"剩余待办时间"重排一次。走的正是与"专注结束"**同一条领域变化通道**，因此它会经过
+    // 协调器生成**调整预览**等用户确认（符合"先预览再确认"，不会悄悄改计划）。
+    //
+    // 判定"是否超出"在 `FocusService.canResumeWithinPlan` 里，计划窗口由专注页从当前已确认计划
+    // 查出后传入——计时服务因此不必认识计划。
+    onResumedBeyondPlan: (session, plannedEndUtc) => onScheduleInputChange(
+      const ScheduleInputChange(
+        label: '专注超出计划时段继续',
+        kind: DomainChangeKind.focusActualChanged,
+      ),
     ),
   );
 

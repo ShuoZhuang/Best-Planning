@@ -100,6 +100,7 @@ final class FocusService {
     required this.idGenerator,
     this.onFinished,
     this.onInterrupted,
+    this.onResumedBeyondPlan,
   });
 
   final FocusEntryStore store;
@@ -181,19 +182,50 @@ final class FocusService {
     return updated;
   }
 
-  Future<FocusSession> resume() async {
+  /// 一次专注**在计划时段之外继续**时的回调（2026-10-04 的新需求）。
+  ///
+  /// 需求原文：「专注期间中断后，可以点击继续接续专注，**前提是还在待办时间段内**；如果**超出了
+  /// 待办时间段**就要对剩余待办时间重新排序。」
+  ///
+  /// **为什么由调用方传入计划窗口**：`FocusSession` 里**没有** `blockId` 或计划窗口字段，而
+  /// "计划"属于应用层（提案/确认的产物），计时不该去查它——这与本类其它回调同一分工：计时只做
+  /// 判断，装配与副作用交给组合根。因此 `resume()` 收一个可选的 `plannedWindow`，判定"是否已
+  /// 超出"这件事留在本类里（**可测**），而"重排"由这个回调完成。
+  final void Function(FocusSession session, DateTime plannedEndUtc)?
+  onResumedBeyondPlan;
+
+  /// 暂停中的专注是否可以**接续**（而不是必须重开一次）。
+  ///
+  /// 判定规则按需求写死两条：**计划窗口未知时一律允许接续**（没有依据就别说超出了），
+  /// **已知时要求"现在还没到窗口终点"**。`!isBefore` 而不是 `isAfter`：恰好等于终点算超出——
+  /// 那一刻本段计划时段已经用完。
+  static bool canResumeWithinPlan({
+    required DateTime nowUtc,
+    required DateTime? plannedEndUtc,
+  }) {
+    if (plannedEndUtc == null) return true;
+    return nowUtc.isBefore(plannedEndUtc);
+  }
+
+  Future<FocusSession> resume({DateTime? plannedEndUtc}) async {
     final session = _requireCurrent();
     if (session.phase == FocusPhase.running) return session;
     if (session.phase != FocusPhase.paused) {
       throw const FocusTransitionException('只有暂停的专注可继续');
     }
+    final now = clock.nowUtc();
     final updated = session.copyWith(
       phase: FocusPhase.running,
-      lastWallAtUtc: clock.nowUtc(),
+      lastWallAtUtc: now,
     );
     await store.save(updated);
     _current = updated;
     _lastMonotonicMark = monotonicClock.now();
+    // **超出计划时段仍然允许继续**（用户正在专注，不能把他拦下），但要**通知一次**，让组合根去
+    // 重排剩余时间。需求说的正是这一步：超出之后"对剩余待办时间重新排序"。
+    if (!canResumeWithinPlan(nowUtc: now, plannedEndUtc: plannedEndUtc)) {
+      onResumedBeyondPlan?.call(updated, plannedEndUtc!);
+    }
     return updated;
   }
 

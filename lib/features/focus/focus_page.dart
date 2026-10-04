@@ -56,12 +56,20 @@ final class FocusPage extends StatefulWidget {
     required this.service,
     required this.taskId,
     required this.taskTitle,
+    this.plannedEndUtc,
     super.key,
   });
 
   final FocusService service;
   final String taskId;
   final String taskTitle;
+
+  /// 该任务在**当前已确认计划**里的计划块终点（"待办时间段"的结束）。
+  ///
+  /// 为空表示**窗口未知**（没有已确认计划、该任务还没有块，或未装配计划仓储）——那时一律允许
+  /// 接续且不做任何超时提示，因为**没有依据就别说超出了**。由路由侧的 `_FocusLoader` 查出后传入；
+  /// 这一页因此不必认识计划仓储。
+  final DateTime? plannedEndUtc;
 
   @override
   State<FocusPage> createState() => _FocusPageState();
@@ -128,6 +136,30 @@ final class _FocusPageState extends State<FocusPage> {
   /// **取舍**：先问再暂停，因此暂停时刻会晚一次对话交互。这是有意的——如果再发一条"补充
   /// 原因"的事件，同一次中断会在统计里出现两次；而时长本就按分钟级粒度记录，问清楚比抢那
   /// 几秒更重要（同一条理由也写在 `FocusService.pause` 上）。
+  /// 继续接续专注（2026-10-04 的需求）。
+  ///
+  /// 需求：「中断后可以点击继续接续专注，**前提是还在待办时间段内**；如果**超出了待办时间段**
+  /// 就要对剩余待办时间重新排序。」
+  ///
+  /// 三条实现上的取舍：
+  /// - **超出时仍然让用户继续**：不拿"计划时段已过"去拦一个正在做事的人；超出只意味着**要重排**，
+  ///   不意味着"不许做了"。重排由 `FocusService.onResumedBeyondPlan` 交给组合根（与"专注结束"
+  ///   走同一条领域变化通道，因此会生成调整预览等用户确认，而不是悄悄改计划）。
+  /// - **提示用与判定相同的那个函数**（`FocusService.canResumeWithinPlan`）：两处各写一份判断迟早
+  ///   会不一致，而这里的不一致会直接表现为"提示说没超、实际超了"。
+  /// - **计划窗口未知时不提示**：没有依据就别说超出了。
+  Future<void> _resume() async {
+    final beyond = !FocusService.canResumeWithinPlan(
+      nowUtc: DateTime.now().toUtc(),
+      plannedEndUtc: widget.plannedEndUtc,
+    );
+    await _run(() => widget.service.resume(plannedEndUtc: widget.plannedEndUtc));
+    if (!mounted || !beyond) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已超出原计划时段，剩余待办时间将重新排程')),
+    );
+  }
+
   Future<void> _pause() async {
     final choice = await showDialog<_PauseChoice>(
       context: context,
@@ -190,7 +222,8 @@ final class _FocusPageState extends State<FocusPage> {
               child: const Text('暂停'),
             ),
             OutlinedButton(
-              onPressed: () => _run(widget.service.resume),
+              key: const Key('focus-resume'),
+              onPressed: _resume,
               child: const Text('继续'),
             ),
             FilledButton.tonal(

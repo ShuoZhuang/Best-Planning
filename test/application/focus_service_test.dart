@@ -197,6 +197,82 @@ void main() {
     // 重复计入会扭曲最终学到的结论，所以这不只是"多调了一次"。
     expect(finishedCalls, 1, reason: '一次专注只能产生一条完成证据');
   });
+
+  // 2026-10-04 的需求：「专注中断后可以点击继续接续专注，**前提是还在待办时间段内**；如果
+  // **超出了待办时间段**就要对剩余待办时间重新排序。」续接本身早已存在（`resume` + 「继续」
+  // 按钮），缺的是"超出"这一判定与随之而来的重排通知——下面三条把它钉住。
+  group('超出计划时段继续（2026-10-04 需求）', () {
+    /// 起一个"已暂停"的专注，并记录 `onResumedBeyondPlan` 收到的计划终点。
+    Future<(FocusService, _WallClock, List<DateTime>)> pausedService() async {
+      final wall = _WallClock(() => Duration.zero);
+      final beyond = <DateTime>[];
+      final service = FocusService(
+        store: _Store(),
+        clock: wall,
+        monotonicClock: CallbackMonotonicClock(() => Duration.zero),
+        idGenerator: _Ids(),
+        onResumedBeyondPlan: (session, plannedEndUtc) =>
+            beyond.add(plannedEndUtc),
+      );
+      await service.start('task-1');
+      await service.pause();
+      return (service, wall, beyond);
+    }
+
+    test('计划时段内继续：不触发重排', () async {
+      final (service, wall, beyond) = await pausedService();
+
+      final resumed = await service.resume(
+        plannedEndUtc: wall.nowUtc().add(const Duration(hours: 1)),
+      );
+
+      expect(resumed.phase, FocusPhase.running);
+      expect(beyond, isEmpty, reason: '还在计划时段内，不该触发重排');
+    });
+
+    test('超出计划时段继续：仍然允许继续，但触发一次重排通知', () async {
+      final (service, wall, beyond) = await pausedService();
+
+      final plannedEnd = wall.nowUtc().subtract(const Duration(minutes: 5));
+      final resumed = await service.resume(plannedEndUtc: plannedEnd);
+
+      expect(
+        resumed.phase,
+        FocusPhase.running,
+        reason: '超出计划时段不是"不许做"，只意味着要重排',
+      );
+      expect(beyond, [plannedEnd], reason: '超出时必须通知一次重排');
+    });
+
+    test('窗口未知（没有已确认计划）时不触发，也不拦人', () async {
+      final (service, _, beyond) = await pausedService();
+
+      final resumed = await service.resume();
+
+      expect(resumed.phase, FocusPhase.running);
+      expect(beyond, isEmpty, reason: '没有依据就别说超出了');
+    });
+
+    test('判定函数：恰好等于计划终点算超出（那一段计划时间已经用完）', () {
+      final end = DateTime.utc(2026, 10, 4, 10);
+      expect(
+        FocusService.canResumeWithinPlan(nowUtc: end, plannedEndUtc: end),
+        isFalse,
+      );
+      expect(
+        FocusService.canResumeWithinPlan(
+          nowUtc: end.subtract(const Duration(seconds: 1)),
+          plannedEndUtc: end,
+        ),
+        isTrue,
+      );
+      expect(
+        FocusService.canResumeWithinPlan(nowUtc: end, plannedEndUtc: null),
+        isTrue,
+        reason: '窗口未知时一律允许接续',
+      );
+    });
+  });
 }
 
 final class _Store implements FocusEntryStore {
