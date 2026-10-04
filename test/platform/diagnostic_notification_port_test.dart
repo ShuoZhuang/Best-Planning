@@ -11,8 +11,11 @@ import 'package:personal_planner/platform/notifications/diagnostic_notification_
 
 /// 最小假端口：记录被调用的成员，并可指定冷启动 payload。
 final class _FakePort implements NotificationPort {
-  _FakePort({this.launch});
+  _FakePort({this.launch, this.failPending = false});
   final NotificationPayload? launch;
+
+  /// 模拟"原生调用抛异常"，用来验面包屑的失败分支。
+  final bool failPending;
   final List<String> calls = [];
   void Function(NotificationPayload payload)? tapped;
 
@@ -28,6 +31,7 @@ final class _FakePort implements NotificationPort {
   @override
   Future<List<PendingNotification>> pendingNotifications() async {
     calls.add('pendingNotifications');
+    if (failPending) throw StateError('原生调用炸了');
     return const [];
   }
 
@@ -139,5 +143,50 @@ void main() {
       'scheduleOneShot:x',
       'cancel:x',
     ]);
+  });
+  // 崩溃定位用的面包屑（2026-10-04）：`0xc0000409` 至今没有栈可用，因此"最后一条落盘的
+  // 面包屑"就是栈的替代品。这两条用例守住它**真的在原生调用前后各落一行**，以及
+  // **失败时先记再抛**（吞掉异常会掩盖真正的故障）。
+  test('原生调用前后各落一行面包屑，标签一致', () async {
+    final inner = _FakePort();
+    final port = DiagnosticNotificationPort(inner: inner, log: log);
+
+    await port.pendingNotifications();
+
+    final written = File(logPath).readAsLinesSync();
+    expect(
+      written.where((line) => line.contains('原生调用进入：查询待发通知')).length,
+      1,
+      reason: '进入必须恰好记一次',
+    );
+    expect(
+      written.where((line) => line.contains('原生调用返回：查询待发通知')).length,
+      1,
+      reason: '返回必须恰好记一次——崩溃时缺的就是这一行',
+    );
+    expect(inner.calls, ['pendingNotifications'], reason: '照旧转发');
+  });
+
+  test('原生调用抛异常时先记"失败"再把异常抛出去', () async {
+    final inner = _FakePort(failPending: true);
+    final port = DiagnosticNotificationPort(inner: inner, log: log);
+
+    await expectLater(port.pendingNotifications(), throwsStateError);
+
+    final written = File(logPath).readAsLinesSync();
+    expect(
+      written.where((line) => line.contains('原生调用进入：查询待发通知')).length,
+      1,
+    );
+    expect(
+      written.where((line) => line.contains('原生调用失败：查询待发通知')).length,
+      1,
+      reason: '失败要留下痕迹，否则排查时只看到"进入"会误判成崩溃',
+    );
+    expect(
+      written.where((line) => line.contains('原生调用返回：查询待发通知')).length,
+      0,
+      reason: '没返回就不该记返回',
+    );
   });
 }

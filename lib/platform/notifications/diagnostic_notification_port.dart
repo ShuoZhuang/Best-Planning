@@ -29,14 +29,47 @@ final class DiagnosticNotificationPort implements NotificationPort {
 
   @override
   Future<List<PendingNotification>> pendingNotifications() =>
-      inner.pendingNotifications();
+      _breadcrumb('查询待发通知', inner.pendingNotifications);
 
   @override
-  Future<void> scheduleOneShot(NotificationRequest request) =>
-      inner.scheduleOneShot(request);
+  Future<void> scheduleOneShot(NotificationRequest request) => _breadcrumb(
+    '安排通知 ${request.id}',
+    () => inner.scheduleOneShot(request),
+  );
 
   @override
-  Future<void> cancel(String id) => inner.cancel(id);
+  Future<void> cancel(String id) =>
+      _breadcrumb('取消通知 $id', () => inner.cancel(id));
+
+  /// **崩溃定位用的面包屑**（2026-10-04）：在每次原生调用**前后**各落一行盘。
+  ///
+  /// **为什么这么做**：`0xc0000409`（BEX64，故障模块 `ucrtbase.dll`）至今未定位——按事件日志
+  /// 逐条核对后已确认**16 次崩溃全部来自未打包运行方式**（`Faulting 包全名` 为空），安装版
+  /// 从未被观察到崩溃；但**触发点未知，且没有栈**（WER 没有转储，开 LocalDumps 要管理员权限）。
+  ///
+  /// 拿不到栈时，**"最后一条落盘的面包屑"就是栈的替代品**：这些调用是 Dart 与原生之间唯一的
+  /// 边界，进程若在这里死掉，"进入"那行会留在盘上、"返回"那行不会——于是能判定**是哪一次调用**，
+  /// 而不必去猜。
+  ///
+  /// 三条刻意的取舍：
+  /// - **只包通知端口的四个原生调用**：它们是本应用仅有的 FFI 面（`flutter_local_notifications`
+  ///   的 win32 实现）。**不碰** `windows_notification_adapter.dart` 本身——那个文件此刻正被
+  ///   另一位写者修改，往里面加代码会把他的改动一起卷进我的提交；
+  /// - **每条都写盘**：`FileDiagnosticLog.write` 逐次追加，不做缓冲——缓冲过的日志在崩溃时会**丢掉
+  ///   最后那几行**，而最后几行正是这里唯一要拿的东西；
+  /// - **失败也记，然后照常抛**：记 `调用失败：…` 再让异常继续往上走。这一层不改行为，
+  ///   只让它可观测——把异常吞掉会掩盖真正的故障。
+  Future<T> _breadcrumb<T>(String what, Future<T> Function() call) async {
+    log.write('原生调用进入：$what');
+    try {
+      final result = await call();
+      log.write('原生调用返回：$what');
+      return result;
+    } catch (error) {
+      log.write('原生调用失败：$what → $error');
+      rethrow;
+    }
+  }
 
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {
