@@ -292,4 +292,98 @@ void main() {
 
     expect(find.text('任务不存在或已被永久删除'), findsOneWidget);
   });
+  // FR-REPLAN-01 的"延期事项"（2026-10-04）：**延后**是独立入口，参数是"延后多久"。
+  // 三条用例分别钉住：预设、**自定义时长**（用户要求"延后时间可自定义"）、以及零值当场被拦。
+  testWidgets('延后：选预设 1 天后把 Duration(days: 1) 交给注入的入口', (tester) async {
+    final recorded = <Duration>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+            onDeferTask: (by) async {
+              recorded.add(by);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('defer-task')));
+    await tester.tap(find.byKey(const Key('defer-task')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('defer-1-days')));
+    await tester.pumpAndSettle();
+
+    expect(recorded, [const Duration(days: 1)]);
+  });
+
+  testWidgets('延后：自定义「5 天 6 小时」被原样交出', (tester) async {
+    final recorded = <Duration>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+            onDeferTask: (by) async {
+              recorded.add(by);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('defer-task')));
+    await tester.tap(find.byKey(const Key('defer-task')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('defer-days-input')), '5');
+    await tester.enterText(find.byKey(const Key('defer-hours-input')), '6');
+    await tester.tap(find.byKey(const Key('defer-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(
+      recorded,
+      [const Duration(days: 5, hours: 6)],
+      reason: '自定义的天与小时必须原样交出，不能被四舍五入或只取天数',
+    );
+  });
+
+  testWidgets('延后：自定义填 0 时当场拦下，不调用入口', (tester) async {
+    final recorded = <Duration>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+            onDeferTask: (by) async {
+              recorded.add(by);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('defer-task')));
+    await tester.tap(find.byKey(const Key('defer-task')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('defer-days-input')), '0');
+    await tester.enterText(find.byKey(const Key('defer-hours-input')), '0');
+    await tester.tap(find.byKey(const Key('defer-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(recorded, isEmpty, reason: '零延后什么都不该发生');
+    expect(find.text('延后量必须大于 0'), findsOneWidget);
+  });
 }

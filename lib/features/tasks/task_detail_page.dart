@@ -25,6 +25,7 @@ final class TaskDetailPage extends StatefulWidget {
     this.tags,
     this.onStartFocus,
     this.onSetDueDate,
+    this.onDeferTask,
     this.onCreateEvent,
     this.onRecomputeFromFocus,
     super.key,
@@ -57,6 +58,17 @@ final class TaskDetailPage extends StatefulWidget {
   /// `TimeZoneDatabase` 的路由换算成 UTC 再落库。时区属于"环境知识"，与导航一样由外部
   /// 注入——否则每个用到日期的页面都要自己拿一份时区，并各自决定换算口径。
   final Future<bool> Function(DateTime localDate, int minute)? onSetDueDate;
+
+  /// 「延后」入口（FR-REPLAN-01 的"延期事项"，2026-10-04）。为空时不显示该按钮。
+  ///
+  /// **为什么把"延后"与"设置截止时间"做成两个入口**：前者是**把已有的截止时间整体后移**
+  /// （"往后挪一点"），后者是**重新指定哪天到期**（"挪到哪一天"）。合成一个入口，同一个按钮
+  /// 在不同人手里就会产生不同口径；而且这两件事在统计页的"重排原因"里该显示成不同的词
+  /// （"延后任务" vs "截止日期变化"）。
+  ///
+  /// 参数是**延后多久**而不是"新的截止时间"：目标时刻由服务层按"原截止时间 + 时长"算出，
+  /// 页面因此不必知道原截止时间、也不必碰时区。
+  final Future<bool> Function(Duration by)? onDeferTask;
 
   /// 把这条任务转成固定日程的入口（FR-TASK-04）。为空时不显示该按钮。
   ///
@@ -304,6 +316,24 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
     });
   }
 
+  /// 「延后」：先选延后多久（预设 + **自定义时长**），再交给 `onDeferTask`。
+  ///
+  /// **自定义做成"天 + 小时"两格，而不是日期选择器**：延后的语义是"往后挪**多久**"，让用户挑一个
+  /// **新的到期日**会与旁边的"设置截止时间"重复，还会把"延后"与"改期"混成同一个动作。天/小时
+  /// 足以表达日常需求（例如"延后 6 小时"）。
+  Future<void> _defer() async {
+    final by = await showDialog<Duration>(
+      context: context,
+      builder: (context) => const _DeferDialog(),
+    );
+    if (by == null) return;
+    final ok = await widget.onDeferTask!(by);
+    if (!mounted) return;
+    setState(
+      () => _message = ok ? '已延后' : '延后失败：任务可能已不存在，或它没有截止时间',
+    );
+    await _load();
+  }
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -425,6 +455,21 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                 },
                 icon: const Icon(Icons.event_available_outlined),
                 label: const Text('设置截止时间'),
+              ),
+            ),
+          ],
+          // FR-REPLAN-01 的"延期事项"：**把截止时间整体后移**。与上面的"设置截止时间"分开，
+          // 因为"往后挪一点"与"挪到哪一天"是两件事（见 `onDeferTask` 的说明）。
+          // 只对有截止时间的任务显示：没有基准就没有"延后"可言，而这里**不替用户编一个日期**。
+          if (widget.onDeferTask != null && task.dueAtUtc != null) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('defer-task'),
+                onPressed: _defer,
+                icon: const Icon(Icons.schedule_outlined),
+                label: const Text('延后'),
               ),
             ),
           ],
@@ -813,4 +858,111 @@ String _formatInstant(DateTime instantUtc) {
   String two(int value) => value.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
+}
+
+/// 选择"延后多久"：**预设 + 自定义**。预设覆盖最常用的三种（1／3／7 天），自定义用"天 + 小时"
+/// 两格兜底。返回选中的 `Duration`，取消时返回 null。
+///
+/// **校验放在这里**（而不是靠服务层报错）：服务层只接受正时长，让用户在对话框里当场看到
+/// "延后量必须大于 0"比点完按钮再看一句失败提示更直接。
+final class _DeferDialog extends StatefulWidget {
+  const _DeferDialog();
+
+  @override
+  State<_DeferDialog> createState() => _DeferDialogState();
+}
+
+final class _DeferDialogState extends State<_DeferDialog> {
+  final _days = TextEditingController(text: '1');
+  final _hours = TextEditingController(text: '0');
+  String? _error;
+
+  @override
+  void dispose() {
+    _days.dispose();
+    _hours.dispose();
+    super.dispose();
+  }
+
+  void _submitCustom() {
+    final days = int.tryParse(_days.text.trim());
+    final hours = int.tryParse(_hours.text.trim());
+    if (days == null || hours == null || days < 0 || hours < 0) {
+      setState(() => _error = '请填非负整数');
+      return;
+    }
+    final by = Duration(days: days, hours: hours);
+    if (by <= Duration.zero) {
+      setState(() => _error = '延后量必须大于 0');
+      return;
+    }
+    Navigator.of(context).pop(by);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('延后多久？'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final days in const [1, 3, 7])
+              ActionChip(
+                key: Key('defer-$days-days'),
+                label: Text('$days 天'),
+                onPressed: () =>
+                    Navigator.of(context).pop(Duration(days: days)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text('或自定义：'),
+        Row(
+          children: [
+            SizedBox(
+              width: 84,
+              child: TextField(
+                key: const Key('defer-days-input'),
+                controller: _days,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '天'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 84,
+              child: TextField(
+                key: const Key('defer-hours-input'),
+                controller: _hours,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: '小时'),
+              ),
+            ),
+          ],
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        key: const Key('defer-cancel'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const Key('defer-confirm'),
+        onPressed: _submitCustom,
+        child: const Text('延后'),
+      ),
+    ],
+  );
 }
