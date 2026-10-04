@@ -147,3 +147,113 @@ Task 20 的交付物之一。本清单用于在 Windows 桌面上逐项确认自
 | 阻塞发布的不通过项 | |
 | 需要先完成的接线或实现 | |
 | 执行人 / 日期 | |
+
+---
+
+# 附：可直接执行的 PowerShell 指令
+
+**为什么要写成指令**：清单里每一项都要求"证据"，而手打命令容易漏字段、也容易在不同时间用不同口径
+重来一遍。下面按阶段给可直接粘贴的命令；**每一步都注明它对应清单的哪一节**。
+
+## A. 采集环境信息（对应 §0）
+
+```powershell
+$pkg = Get-AppxPackage -Name ShuoZhuang.PersonalPlanner
+$db  = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'personal_planner.sqlite'
+"Windows    : $((Get-CimInstance Win32_OperatingSystem).Caption) / $([Environment]::OSVersion.Version)"
+"安装形态   : MSIX 安装版 $($pkg.Version)（状态 $($pkg.Status)）"
+"Flutter    : $(flutter --version | Select-Object -First 1)"
+"提交       : $(git -C G:\best-planing\.worktrees\native-implementation rev-parse --short HEAD)"
+"数据库     : $db（存在：$(Test-Path $db)）"
+"诊断日志   : $db.diagnostics.log"
+```
+
+> 说明：数据库路径**不要写死** `C:\Users\<你>\Documents` —— 已知文件夹可能被搬走（本机就在
+> `F:`），用 `[Environment]::GetFolderPath('MyDocuments')` 取。
+
+## B. 构建并安装新版本（发布相关两项的前置）
+
+```powershell
+cd G:\best-planing\.worktrees\native-implementation
+# 先手改 pubspec.yaml：version 与 msix_version 都要**升**（MSIX 不接受更低版本）
+Get-Process personal_planner -ErrorAction SilentlyContinue | Stop-Process -Force   # 安装前必须关闭
+dart run msix:create
+$msix = Get-ChildItem build\windows\x64\runner\Release\personal_planner_*.msix |
+        Sort-Object LastWriteTime | Select-Object -Last 1
+Add-AppxPackage -Path $msix.FullName
+(Get-AppxPackage -Name ShuoZhuang.PersonalPlanner).Version
+```
+
+## C. 启动与关闭（各节都用得到）
+
+```powershell
+Start-Process 'shell:AppsFolder\ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner'
+Get-Process personal_planner -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+## D. 通知验证：含**冷启动**那一支（对应第 9 节）
+
+```powershell
+$db = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'personal_planner.sqlite'
+Get-Content "$db.diagnostics.log" -Tail 12
+```
+
+**冷启动的步骤（顺序不能反）**：
+
+1. 启动应用 —— 它会把"截止提醒"排在**现在 +1 分钟**（前提：有一个截止时间在未来 24 小时内的任务）；
+2. **在这一分钟内把应用关掉**（上一条命令的第二个）；
+3. 等通知**在应用没运行时**弹出来；
+4. **点它**，然后再读一次诊断日志。
+
+**三种痕迹的含义**（前两种才算通过）：
+
+| 日志行 | 含义 |
+| --- | --- |
+| `通知被点击（应用在运行）：route=…` | 点击交给了**运行中的实例** |
+| `冷启动由通知拉起：route=…` | 应用没运行，Windows 拉起它**并交付了 payload** |
+| `冷启动未拿到通知 payload（…）` | **每次普通启动都会出现**，只有在"点了通知但没跳转、且只有这一行"时才算问题 |
+
+## E. 数据与崩溃检查
+
+```powershell
+$db = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'personal_planner.sqlite'
+
+# 任务与截止时间（due_at_utc 是微秒时间戳；需要本机有 sqlite3）
+& 'E:\anaconda3\Library\bin\sqlite3.exe' $db -header -column "SELECT substr(id,1,8) AS id, title, due_at_utc, status FROM tasks;"
+
+# 崩溃：**务必看这两个字段再谈归因**（本会话两次栽在没看它们上）
+Get-WinEvent -LogName Application -MaxEvents 200 |
+  Where-Object { $_.Id -eq 1000 -and $_.Message -like '*personal_planner*' } |
+  ForEach-Object {
+    $lines = $_.Message -split "`r?`n"
+    $path  = ($lines | Where-Object { $_ -like 'Faulting 应用程序路径*' })
+    $pkg   = ($lines | Where-Object { $_ -like 'Faulting 包全名*' })
+    "$($_.TimeCreated) | $path | $pkg"
+  }
+```
+
+**判定规则**：`Faulting 包全名` 为空的崩溃来自**未打包副本**（`可运行程序\*`、Debug、release 快照），
+**不是**安装版。
+
+## F. 异常场景（对应 §10）
+
+```powershell
+# 10.1 生成计划途中强制杀进程 —— 先点"生成计划"，在它还没结束时执行这一行，然后重启看是否恢复
+Get-Process personal_planner -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 10.3 数据库只读（测完记得还原）
+$db = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'personal_planner.sqlite'
+Set-ItemProperty $db -Name IsReadOnly -Value $true     # 期望：应用明确报错，且最后一次完整事务不受损
+# ……启动应用、观察、关闭……
+Set-ItemProperty $db -Name IsReadOnly -Value $false    # 还原
+```
+
+```powershell
+# 10.2 大幅改系统时间 / 10.4 夏令时 —— **两者都需要管理员**，且会改本机设置，做前请确认
+# Set-Date -Date (Get-Date).AddHours(6)
+# Set-TimeZone -Id 'Pacific/Auckland'     # 夏令时切换用；记得改回
+# Get-TimeZone | Select-Object Id, DisplayName
+```
+
+> **为什么要提示风险**：这两条会改动系统时间/时区，可能影响别的程序与定时任务；清单要求"记录证据"，
+> 所以做完务必改回并把前后时间写进结果格。
