@@ -162,6 +162,20 @@ GoRouter createPlannerRouter({
               );
               return result.isSuccess;
             },
+            // FR-REPLAN-01 的"延期事项"：把截止时间**整体后移**。页面只交回"延后多久"，目标时刻由
+            // 服务层按"原截止时间 + 时长"算出——**页面因此不必知道原截止时间，也不必碰时区**
+            // （与上面那条"设置截止时间"的分工正好互补）。
+            //
+            // 与上面刻意分成两个入口：一个是"挪到哪一天"，一个是"往后挪多久"；两者发出的领域变化
+            // 类别也不同（`taskSchedulingChanged` / `taskDeferred`），统计页的"重排原因"会显示成
+            // 不同的词。没有截止时间的任务**由服务层拒绝**（页面也不再显示入口）。
+            onDeferTask: (by) async {
+              final result = await taskService.deferTask(
+                state.pathParameters['taskId']!,
+                by: by,
+              );
+              return result.isSuccess;
+            },
             // FR-TASK-04：任务转固定日程。**只预填标题**——事件编辑器没有"所属领域"控件，
             // 因此领域无从预填（这一点已登记，而不是假装填了）；任务本身**不动**，任务页上
             // 有对应提示，避免同一件事被排两次。
