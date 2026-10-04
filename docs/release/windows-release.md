@@ -77,7 +77,7 @@ stopped unexpectedly, or never started.`——失败发生在**测试装置与�
 | 项 | 值 | 说明 |
 | --- | --- | --- |
 | 应用版本 | `pubspec.yaml` 的 `version` | 当前仍为模板默认 `1.0.0+1`，发布前必须确定为正式版本号 |
-| 包标识（Identity Name） | `msix_config.identity_name`，当前为示例值 `com.example.personal_planner` | 一旦发布不可更改，需在首次发布前固定为自有反向域名 |
+| 包标识（Identity Name） | `msix_config.identity_name`，当前为 `ShuoZhuang.PersonalPlanner`（**原文写的"示例值 `com.example.personal_planner`"已过期**，2026-10-04 据 `pubspec.yaml` 与已安装包更正） | 一旦发布不可更改，需在首次发布前固定为自有反向域名 |
 | 发布者（Publisher） | `msix_config.publisher_display_name`，当前为示例值 | 与签名证书主体一致 |
 | MSIX 版本 | `msix_config.msix_version`，四段式 | 必须与 `pubspec.yaml` 的 `version` 对应，当前均为 1.0.0 |
 | 升级策略 | 同一包标识 + 递增版本 | 换标识等于换应用，用户数据不会自动迁移 |
