@@ -240,7 +240,7 @@
 
 ### 7.2 第二步：校对识别结果
 
-本地 OCR 返回文字、边界框和置信度。课表解析器利用星期标题、节次刻度和单元格位置生成课程草稿。每个草稿包含：
+本地 OCR 返回文字、边界框和文字旋转角度。Windows 系统 OCR 不提供置信度，因此课表解析器利用星期标题、节次刻度、单元格位置和规则完整性生成课程草稿及“需要检查”的原因。每个草稿包含：
 
 - 课程名称；
 - 教师；
@@ -252,7 +252,7 @@
 - 领域，默认学业；
 - 可选项目。
 
-低置信度、缺少周次、无法定位节次或解析出异常范围的字段必须标记并要求检查。用户可以新增、删除、合并或拆分识别行。
+存在解析歧义、缺少周次、无法定位节次或解析出异常范围的字段必须标记并要求检查。用户可以新增、删除、合并或拆分识别行。
 
 总教学周数优先取识别结果中的最大结束周，但始终允许手动修改。
 
@@ -293,7 +293,7 @@
 
 ```text
 TimetableOcrEngine
-  recognize(image) -> OcrDocument(lines, words, boundingBoxes, confidence)
+  recognize(image) -> OcrDocument(lines, words, boundingBoxes, textAngle)
 
 TimetableParser
   parse(document, imageGeometry) -> TimetableDraft
