@@ -5,18 +5,14 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
 
 void main() {
-  testWidgets('选择目录后显示导出数量和文件路径摘要', (tester) async {
+  testWidgets('选择保存位置后显示导出数量和文件路径摘要', (tester) async {
     final files = _ChosenDirectoryFiles('G:\\exports');
     final service = ExportService(
       source: const _OneFactSource(),
       files: files,
       clock: const _FixedClock(),
     );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ExportPage(service: service, files: files),
-      ),
-    );
+    await tester.pumpWidget(MaterialApp(home: ExportPage(service: service)));
 
     await tester.tap(find.text('导出完整 JSON'));
     await tester.pumpAndSettle();
@@ -27,6 +23,29 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('无法写入时不暴露本机路径并可重新选择', (tester) async {
+    final files = _AccessDeniedFiles();
+    final service = ExportService(
+      source: const _OneFactSource(),
+      files: files,
+      clock: const _FixedClock(),
+    );
+    await tester.pumpWidget(MaterialApp(home: ExportPage(service: service)));
+
+    await tester.tap(find.text('导出 CSV'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('所选位置'), findsOneWidget);
+    expect(find.textContaining('下载'), findsOneWidget);
+    expect(find.text('F:\\zs200\\Documents'), findsNothing);
+    expect(find.textContaining('PathAccessException'), findsNothing);
+    expect(find.text('重新选择保存位置'), findsOneWidget);
+
+    await tester.tap(find.text('重新选择保存位置'));
+    await tester.pumpAndSettle();
+    expect(files.selectionCount, 2);
+  });
 }
 
 final class _ChosenDirectoryFiles implements ExportFilePort {
@@ -34,16 +53,18 @@ final class _ChosenDirectoryFiles implements ExportFilePort {
   final String directory;
 
   @override
-  Future<String?> chooseDirectory() async => directory;
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async => '$directory\\$suggestedName';
 
   @override
-  Future<String> writeNewFile({
-    required String directory,
-    required String preferredName,
+  Future<String> writeFile({
+    required String destination,
     required Stream<List<int>> bytes,
   }) async {
     await bytes.drain<void>();
-    return '$directory\\$preferredName';
+    return destination;
   }
 }
 
@@ -56,6 +77,27 @@ final class _OneFactSource implements ExportDataSource {
       {'id': 'task-1', 'title': '论文'},
     ],
   };
+}
+
+final class _AccessDeniedFiles implements ExportFilePort {
+  var selectionCount = 0;
+
+  @override
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async {
+    selectionCount++;
+    return 'F:\\zs200\\Documents\\$suggestedName';
+  }
+
+  @override
+  Future<String> writeFile({
+    required String destination,
+    required Stream<List<int>> bytes,
+  }) async {
+    throw const ExportWriteException();
+  }
 }
 
 final class _FixedClock implements Clock {

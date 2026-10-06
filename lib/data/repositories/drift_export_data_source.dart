@@ -29,6 +29,26 @@ final class DriftExportDataSource implements ExportDataSource {
         (row) => row.toJson(),
       ),
     ),
+    'academicTerms': _sorted(
+      (await database.select(database.academicTerms).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'periodTemplates': _sorted(
+      (await database.select(database.periodTemplates).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'periodTemplateEntries': _sorted(
+      (await database.select(database.periodTemplateEntries).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'timetableImportBatches': _sorted(
+      (await database.select(database.timetableImportBatches).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
     'energyWindows': _sorted(
       (await database.select(database.energyWindows).get()).map(
         (row) => row.toJson(),

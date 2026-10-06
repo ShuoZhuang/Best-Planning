@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/export_service.dart';
 
 final class ExportPage extends StatefulWidget {
-  const ExportPage({required this.service, required this.files, super.key});
+  const ExportPage({required this.service, super.key});
 
   final ExportService service;
-  final ExportFilePort files;
 
   @override
   State<ExportPage> createState() => _ExportPageState();
@@ -13,20 +12,21 @@ final class ExportPage extends StatefulWidget {
 
 final class _ExportPageState extends State<ExportPage> {
   bool _exporting = false;
+  bool _lastExportWasJson = true;
   String? _summary;
   String? _error;
 
   Future<void> _export(bool json) async {
     setState(() {
+      _lastExportWasJson = json;
       _exporting = true;
       _summary = null;
       _error = null;
     });
     try {
-      final directory = await widget.files.chooseDirectory();
       final result = json
-          ? await widget.service.exportJson(directory)
-          : await widget.service.exportCsv(directory);
+          ? await widget.service.exportJson()
+          : await widget.service.exportCsv();
       if (!mounted) return;
       setState(() {
         _summary = result.status == ExportStatus.cancelled
@@ -34,7 +34,7 @@ final class _ExportPageState extends State<ExportPage> {
             : '已导出 ${result.recordCount} 条记录\n${result.files.join('\n')}';
       });
     } catch (error) {
-      if (mounted) setState(() => _error = '导出失败：$error');
+      if (mounted) setState(() => _error = _messageFor(error));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -97,6 +97,13 @@ final class _ExportPageState extends State<ExportPage> {
                   icon: Icons.error_outline,
                   text: _error!,
                   color: Theme.of(context).colorScheme.errorContainer,
+                  action: TextButton.icon(
+                    onPressed: _exporting
+                        ? null
+                        : () => _export(_lastExportWasJson),
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: const Text('重新选择保存位置'),
+                  ),
                 ),
               ],
             ],
@@ -105,6 +112,14 @@ final class _ExportPageState extends State<ExportPage> {
       ),
     ),
   );
+
+  static String _messageFor(Object error) {
+    if (error is ExportWriteException) {
+      return '无法写入所选位置。该文件夹可能受 Windows 保护，'
+          '请改选“下载”或其他可写位置。';
+    }
+    return '导出没有完成。请重新选择保存位置后再试。';
+  }
 }
 
 final class _MessageCard extends StatelessWidget {
@@ -112,11 +127,13 @@ final class _MessageCard extends StatelessWidget {
     required this.icon,
     required this.text,
     required this.color,
+    this.action,
   });
 
   final IconData icon;
   final String text;
   final Color color;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -128,7 +145,15 @@ final class _MessageCard extends StatelessWidget {
         children: [
           Icon(icon),
           const SizedBox(width: 12),
-          Expanded(child: SelectableText(text)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(text),
+                if (action != null) ...[const SizedBox(height: 8), action!],
+              ],
+            ),
+          ),
         ],
       ),
     ),

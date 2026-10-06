@@ -14,7 +14,7 @@ void main() {
     directory = await Directory.systemTemp.createTemp('planner-export-test-');
     service = ExportService(
       source: _FactSource(_facts),
-      files: const FileSelectorAdapter(),
+      files: _SavingFilePort(directory),
       clock: _FixedClock(DateTime.utc(2026, 10, 2, 9, 8, 7)),
     );
   });
@@ -24,7 +24,7 @@ void main() {
   });
 
   test('JSON 含格式版本并完整保留所有用户事实数据集', () async {
-    final result = await service.exportJson(directory.path);
+    final result = await service.exportJson();
 
     expect(result.status, ExportStatus.completed);
     expect(
@@ -43,7 +43,7 @@ void main() {
   });
 
   test('CSV 使用 UTF-8 BOM 且计划和实际时间列明确分开', () async {
-    final result = await service.exportCsv(directory.path);
+    final result = await service.exportCsv();
     final bytes = await File(result.files.single).readAsBytes();
 
     expect(bytes.take(3), [0xEF, 0xBB, 0xBF]);
@@ -57,36 +57,63 @@ void main() {
     expect(content, contains('2026-10-02T10:05:00.000Z'));
   });
 
-  test('同一时刻重复导出不覆盖已有同名文件', () async {
-    final first = await service.exportJson(directory.path);
-    final firstFile = File(first.files.single);
-    final original = await firstFile.readAsBytes();
+  test('导出时请求带默认文件名的标准另存为位置', () async {
+    final files = _SavingFilePort(directory);
+    final selectingService = ExportService(
+      source: _FactSource(_facts),
+      files: files,
+      clock: _FixedClock(DateTime.utc(2026, 10, 2, 9, 8, 7)),
+    );
 
-    final second = await service.exportJson(directory.path);
+    await selectingService.exportJson();
+    await selectingService.exportCsv();
 
-    expect(second.files.single, isNot(first.files.single));
-    expect(await firstFile.readAsBytes(), original);
+    expect(files.suggestedNames, [
+      'planner-export-20261002-090807.json',
+      'planner-export-20261002-090807.csv',
+    ]);
+    expect(files.extensions, ['json', 'csv']);
   });
 
-  test('取消目录选择不创建文件', () async {
-    final result = await service.exportJson(null);
+  test('取消保存位置选择不创建文件', () async {
+    final cancelledService = ExportService(
+      source: _FactSource(_facts),
+      files: const _CancelledFilePort(),
+      clock: _FixedClock(DateTime.utc(2026, 10, 2, 9, 8, 7)),
+    );
+
+    final result = await cancelledService.exportJson();
 
     expect(result.status, ExportStatus.cancelled);
     expect(await directory.list().toList(), isEmpty);
   });
 
-  test('写入失败会删除临时文件', () async {
+  test('写入失败不会留下未完成的目标文件', () async {
     const files = FileSelectorAdapter();
+    final destination = '${directory.path}${Platform.pathSeparator}broken.json';
 
     await expectLater(
-      files.writeNewFile(
-        directory: directory.path,
-        preferredName: 'broken.json',
+      files.writeFile(
+        destination: destination,
         bytes: Stream<List<int>>.error(StateError('write failed')),
       ),
       throwsStateError,
     );
 
+    expect(await File(destination).exists(), isFalse);
+  });
+
+  test('文件适配器只在用户选定的最终路径创建文件', () async {
+    const files = FileSelectorAdapter();
+    final destination = '${directory.path}${Platform.pathSeparator}export.csv';
+
+    final written = await files.writeFile(
+      destination: destination,
+      bytes: Stream<List<int>>.value(utf8.encode('a,b\r\n1,2')),
+    );
+
+    expect(written, destination);
+    expect(await File(destination).readAsString(), 'a,b\r\n1,2');
     expect(
       await directory
           .list()
@@ -95,6 +122,66 @@ void main() {
       isEmpty,
     );
   });
+
+  test('目标位置拒绝写入时只向上层返回脱敏错误', () async {
+    const files = FileSelectorAdapter();
+    final destination =
+        '${directory.path}${Platform.pathSeparator}missing'
+        '${Platform.pathSeparator}private.csv';
+
+    await expectLater(
+      files.writeFile(
+        destination: destination,
+        bytes: Stream<List<int>>.value(utf8.encode('private')),
+      ),
+      throwsA(isA<ExportWriteException>()),
+    );
+  });
+}
+
+final class _SavingFilePort implements ExportFilePort {
+  _SavingFilePort(this.directory);
+
+  final Directory directory;
+  final List<String> suggestedNames = [];
+  final List<String> extensions = [];
+
+  @override
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async {
+    suggestedNames.add(suggestedName);
+    extensions.add(extension);
+    return '${directory.path}${Platform.pathSeparator}$suggestedName';
+  }
+
+  @override
+  Future<String> writeFile({
+    required String destination,
+    required Stream<List<int>> bytes,
+  }) async {
+    final sink = File(destination).openWrite();
+    await sink.addStream(bytes);
+    await sink.close();
+    return destination;
+  }
+}
+
+final class _CancelledFilePort implements ExportFilePort {
+  const _CancelledFilePort();
+
+  @override
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async => null;
+
+  @override
+  Future<String> writeFile({
+    required String destination,
+    required Stream<List<int>> bytes,
+  }) => throw StateError('cancelled export must not write');
 }
 
 final _facts = <String, List<Map<String, Object?>>>{

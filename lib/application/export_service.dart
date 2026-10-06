@@ -7,13 +7,19 @@ abstract interface class ExportDataSource {
 }
 
 abstract interface class ExportFilePort {
-  Future<String?> chooseDirectory();
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  });
 
-  Future<String> writeNewFile({
-    required String directory,
-    required String preferredName,
+  Future<String> writeFile({
+    required String destination,
     required Stream<List<int>> bytes,
   });
+}
+
+final class ExportWriteException implements Exception {
+  const ExportWriteException();
 }
 
 enum ExportStatus { completed, cancelled }
@@ -53,12 +59,16 @@ final class ExportService {
   final ExportFilePort files;
   final Clock clock;
 
-  Future<ExportResult> exportJson(String? directory) async {
-    if (directory == null) return const ExportResult.cancelled();
+  Future<ExportResult> exportJson() async {
+    final preferredName = '${_fileStem()}.json';
+    final destination = await files.chooseSaveLocation(
+      suggestedName: preferredName,
+      extension: 'json',
+    );
+    if (destination == null) return const ExportResult.cancelled();
     final facts = await source.loadAllFacts();
-    final path = await files.writeNewFile(
-      directory: directory,
-      preferredName: '${_fileStem()}.json',
+    final path = await files.writeFile(
+      destination: destination,
       bytes: _jsonBytes(facts),
     );
     return ExportResult.completed(
@@ -67,12 +77,16 @@ final class ExportService {
     );
   }
 
-  Future<ExportResult> exportCsv(String? directory) async {
-    if (directory == null) return const ExportResult.cancelled();
+  Future<ExportResult> exportCsv() async {
+    final preferredName = '${_fileStem()}.csv';
+    final destination = await files.chooseSaveLocation(
+      suggestedName: preferredName,
+      extension: 'csv',
+    );
+    if (destination == null) return const ExportResult.cancelled();
     final facts = await source.loadAllFacts();
-    final path = await files.writeNewFile(
-      directory: directory,
-      preferredName: '${_fileStem()}.csv',
+    final path = await files.writeFile(
+      destination: destination,
       bytes: _csvBytes(facts),
     );
     return ExportResult.completed(

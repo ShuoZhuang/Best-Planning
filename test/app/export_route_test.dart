@@ -29,11 +29,13 @@ final class _NoFacts implements ExportDataSource {
 final class _NoFiles implements ExportFilePort {
   const _NoFiles();
   @override
-  Future<String?> chooseDirectory() async => null;
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async => null;
   @override
-  Future<String> writeNewFile({
-    required String directory,
-    required String preferredName,
+  Future<String> writeFile({
+    required String destination,
     required Stream<List<int>> bytes,
   }) async => '';
 }
@@ -61,7 +63,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           exportService: exportService,
         ),
