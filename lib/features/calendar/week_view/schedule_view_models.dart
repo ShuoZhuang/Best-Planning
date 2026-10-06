@@ -28,6 +28,22 @@ extension ScheduleItemKindPresentation on ScheduleItemKind {
   };
 }
 
+/// 今日页图例用的领域条目：领域名 + **已解析**的颜色（ARGB）。
+///
+/// 颜色在这里就已经把"没选过颜色"的兜底算完，图例因此不必再知道色板规则。
+final class ScheduleLegendArea {
+  const ScheduleLegendArea({required this.name, required this.colorArgb});
+
+  final String name;
+  final int colorArgb;
+}
+
+/// 周视图与日视图里相邻日程条目之间的纵向间距。
+///
+/// 两处共用同一个值：它们展示的是同一批条目，间距不同会让"同日历的两个视图"看起来像
+/// 两套界面。此前两处都是 0，卡片彼此紧贴，扫读时容易把上一条的时间读成下一条的。
+const double scheduleItemGap = 10;
+
 final class ScheduleViewItem {
   const ScheduleViewItem({
     required this.id,
@@ -35,6 +51,8 @@ final class ScheduleViewItem {
     required this.kind,
     required this.range,
     this.explanation,
+    this.areaColor,
+    this.areaName,
   });
 
   final String id;
@@ -42,6 +60,25 @@ final class ScheduleViewItem {
   final ScheduleItemKind kind;
   final TimeRange range;
   final String? explanation;
+
+  /// 条目所属领域的颜色（ARGB），没有领域时为 null。
+  ///
+  /// 由数据源按 `areas.color` 解析（含"没选过颜色"的兜底），视图不自己推断。
+  final int? areaColor;
+
+  /// 条目所属领域的名字，没有领域时为 null。
+  ///
+  /// 今日页的图例按它生成（"学业／科研／生活…"），因此图例不需要另外注入领域表，
+  /// 也不会出现"图例里有某个领域、今天根本没它的条目"这种对不上的情况。
+  final String? areaName;
+
+  /// 实际用于绘制的颜色。
+  ///
+  /// **有领域就用领域色**（学业／科研／竞赛／工作／生活各一色，用户可在领域设置里改），
+  /// 没有领域的条目（保护时间）保持按类型着色。今日页、周视图、日视图都走这一个函数，
+  /// 三个界面的分类颜色因此不可能各说各话。
+  Color color(ColorScheme scheme) =>
+      areaColor == null ? kind.color(scheme) : Color(areaColor!);
 }
 
 abstract interface class ScheduleViewSource {
@@ -58,6 +95,33 @@ abstract interface class WeekMoveController {
     DateTime localDay, {
     bool lock,
   });
+}
+
+/// 固定日程条目 id 的命名空间前缀。
+///
+/// 视图列表把固定日程、保护时间与计划块混在一起，所以条目 id 必须带命名空间；但
+/// **日程端口只认领域事件 id**。取用时一律走 [fixedEventId]，不要自己切字符串。
+const String scheduleFixedItemPrefix = 'fixed:';
+
+/// 给领域事件 id 套上视图条目的命名空间。
+String scheduleFixedItemId(String eventId) =>
+    '$scheduleFixedItemPrefix$eventId';
+
+/// 从视图条目里取出**固定日程的领域 id**（去掉命名空间前缀）。
+///
+/// 只有 `ScheduleItemKind.fixed` 能交给日程删除／改写端口：保护时间是按规则算出来的区间，
+/// 任务块属于计划（应当撤销计划，而不是删一条日程）。返回 `null` 表示这一类**不该**走日程
+/// 端口，调用方应当不显示该入口。
+///
+/// **这个函数存在的理由**：把条目 id 原样交给仓储会执行
+/// `DELETE ... WHERE id = 'fixed:<uuid>'`——匹配 0 行、不报错，而服务层按幂等语义返回成功，
+/// 界面于是显示"已删除"却什么都没删。拖动那条路径早就用 [movableTaskBlockId] 做同样的拆解，
+/// 删除与改写此前漏了。
+String? fixedEventId(ScheduleViewItem item) {
+  if (item.kind != ScheduleItemKind.fixed) return null;
+  if (!item.id.startsWith(scheduleFixedItemPrefix)) return null;
+  final eventId = item.id.substring(scheduleFixedItemPrefix.length);
+  return eventId.isEmpty ? null : eventId;
 }
 
 /// 从视图条目里取出**可移动的计划块 id**（FR-CAL-05 的"可移动任务块"）。

@@ -10,6 +10,8 @@ import 'package:personal_planner/data/database/app_database.dart'
     hide CalendarEvent, RecurrenceRule;
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 final _start = DateTime.utc(2026, 10, 5, 9);
 
@@ -80,6 +82,33 @@ void main() {
     // 无关的竞态后报错，因此第二次删除必须安静地成功。
     await expectLater(repository.deleteEvent('event-1'), completes);
     await expectLater(repository.deleteEvent('never-existed'), completes);
+  });
+
+  test('从周/日视图条目 id 解出的**领域 id** 才删得掉那一行', () async {
+    // 这是把两段各自正确的代码接起来的那条断言：仓储按领域 id 删除是对的，视图按自己的
+    // 命名空间发 id 也是对的，但把 `fixed:<uuid>` 直接交给仓储会执行
+    // `DELETE ... WHERE id = 'fixed:<uuid>'`——匹配 0 行、不报错，于是"删不掉"却看不出错。
+    await repository.saveRecurring(_recurringEvent(), _recurringRule());
+
+    final item = ScheduleViewItem(
+      id: scheduleFixedItemId('anchor-1'),
+      title: '数据结构课',
+      kind: ScheduleItemKind.fixed,
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 9),
+        endUtc: DateTime.utc(2026, 10, 5, 10),
+      ),
+    );
+
+    // 条目 id 本身不是领域 id，直接拿去删等于删空气。
+    await repository.deleteEvent(item.id);
+    expect(await titlesInWindow(), <String>['数据结构课']);
+
+    // 取用必须先解出领域 id。
+    final eventId = fixedEventId(item);
+    expect(eventId, 'anchor-1');
+    await repository.deleteEvent(eventId!);
+    expect(await titlesInWindow(), isEmpty);
   });
 
   test('改本次及以后会截断旧规则并从选中日期建立新系列', () async {

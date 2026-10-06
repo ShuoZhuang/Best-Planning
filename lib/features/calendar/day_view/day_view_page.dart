@@ -128,54 +128,69 @@ final class DayViewPage extends StatelessWidget {
               const Text('这一天没有固定日程、保护时间或已确认的计划块。')
             else
               Expanded(
-                child: ListView(
-                  children: [
-                    for (final item in items)
-                      // 删除按钮放在卡片**外面**而不是 `_DayItemTile` 里面：这样不必给
-                      // 展示用的子控件增加一个只为删除而存在的参数，卡片也不必知道删除。
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _DayItemTile(
-                              item: item,
-                              start: zones.toLocal(
-                                item.range.startUtc,
-                                timeZoneId,
-                              ),
-                              end: zones.toLocal(item.range.endUtc, timeZoneId),
+                child: ListView.separated(
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: scheduleItemGap),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    // 只对**固定日程**开放删除与改写：保护时间是算出来的区间，任务块
+                    // 属于计划。把条目 id 原样交给日程端口会删 0 行而不报错。
+                    final eventId = fixedEventId(item);
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _DayItemTile(
+                            item: item,
+                            start: zones.toLocal(
+                              item.range.startUtc,
+                              timeZoneId,
                             ),
+                            end: zones.toLocal(item.range.endUtc, timeZoneId),
                           ),
-                          if (onDeleteEvent != null)
-                            IconButton(
-                              key: Key('delete-${item.id}'),
-                              tooltip: '删除这条日程',
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => _confirmDelete(
-                                context,
-                                item,
-                                onDeleteEvent: onDeleteEvent,
-                                onDeleteOccurrence: onDeleteOccurrence,
-                                onDeleteFollowing: onDeleteFollowing,
-                              ),
-                            ),
-                          if (onReplaceOccurrence != null)
-                            IconButton(
-                              key: Key('edit-${item.id}'),
-                              tooltip: '改这一次',
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _editOccurrence(
-                                context,
-                                item,
-                                onReplaceOccurrence: onReplaceOccurrence,
-                                onReplaceFollowing: onReplaceFollowing,
-                                onReplaceSeries: onReplaceSeries,
-                                zones: zones,
-                                timeZoneId: timeZoneId,
-                              ),
-                            ),
-                        ],
-                      ),
-                  ],
+                        ),
+                        // 两个图标位**对每个条目都在**，只是不可用时变暗且点不动。
+                        //
+                        // 为什么不做成"不可用就不显示"：那样只有固定日程带图标，其余卡片
+                        // 右边空着，同一列里宽窄参差（用户报的就是这个）。图标位的宽度
+                        // 因此必须与可用性无关。
+                        if (onDeleteEvent != null)
+                          IconButton(
+                            key: Key('delete-${item.id}'),
+                            tooltip: eventId == null ? '只有固定日程可以删除' : '删除这条日程',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: eventId == null
+                                ? null
+                                : () => _confirmDelete(
+                                    context,
+                                    item,
+                                    eventId: eventId,
+                                    onDeleteEvent: onDeleteEvent,
+                                    onDeleteOccurrence: onDeleteOccurrence,
+                                    onDeleteFollowing: onDeleteFollowing,
+                                  ),
+                          ),
+                        if (onReplaceOccurrence != null)
+                          IconButton(
+                            key: Key('edit-${item.id}'),
+                            tooltip: eventId == null ? '只有固定日程可以改写' : '改这一次',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: eventId == null
+                                ? null
+                                : () => _editOccurrence(
+                                    context,
+                                    item,
+                                    eventId: eventId,
+                                    onReplaceOccurrence: onReplaceOccurrence,
+                                    onReplaceFollowing: onReplaceFollowing,
+                                    onReplaceSeries: onReplaceSeries,
+                                    zones: zones,
+                                    timeZoneId: timeZoneId,
+                                  ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
           ],
@@ -192,6 +207,7 @@ final class DayViewPage extends StatelessWidget {
 Future<void> _editOccurrence(
   BuildContext context,
   ScheduleViewItem item, {
+  required String eventId,
   required Future<bool> Function(
     String eventId,
     DateTime occurrenceStartUtc,
@@ -232,15 +248,15 @@ Future<void> _editOccurrence(
   if (result == null) return;
   final (start, end, scope) = result;
   if (scope == _OccurrenceScope.series) {
-    await onReplaceSeries!(item.id, start, end);
+    await onReplaceSeries!(eventId, start, end);
     return;
   }
   if (scope == _OccurrenceScope.following) {
-    await onReplaceFollowing!(item.id, item.range.startUtc, start, end);
+    await onReplaceFollowing!(eventId, item.range.startUtc, start, end);
     return;
   }
   await onReplaceOccurrence!(
-    item.id,
+    eventId,
     item.range.startUtc,
     start,
     end,
@@ -424,6 +440,7 @@ DateTime? _parseLocalDateTime(String raw) {
 Future<void> _confirmDelete(
   BuildContext context,
   ScheduleViewItem item, {
+  required String eventId,
   required Future<bool> Function(String eventId)? onDeleteEvent,
   required Future<bool> Function(
     String eventId,
@@ -469,11 +486,11 @@ Future<void> _confirmDelete(
     ),
   );
   if (choice == 'occurrence') {
-    await onDeleteOccurrence!(item.id, item.range.startUtc, item.title);
+    await onDeleteOccurrence!(eventId, item.range.startUtc, item.title);
   } else if (choice == 'following') {
-    await onDeleteFollowing!(item.id, item.range.startUtc);
+    await onDeleteFollowing!(eventId, item.range.startUtc);
   } else if (choice == 'entire') {
-    await onDeleteEvent!(item.id);
+    await onDeleteEvent!(eventId);
   }
 }
 
@@ -492,7 +509,7 @@ final class _DayItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Card(
-      color: item.kind.color(scheme),
+      color: item.color(scheme),
       child: ListTile(
         key: Key('day-item-${item.id}'),
         leading: Icon(item.kind.icon),

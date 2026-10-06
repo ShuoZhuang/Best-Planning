@@ -53,6 +53,14 @@ void main() {
     required List<ScheduleViewItem> items,
     String timeZoneId = 'UTC',
     Future<bool> Function(String eventId)? onDeleteEvent,
+    Future<bool> Function(
+      String eventId,
+      DateTime occurrenceStartUtc,
+      DateTime newStartUtc,
+      DateTime newEndUtc,
+      String title,
+    )?
+    onReplaceOccurrence,
   }) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
@@ -66,6 +74,7 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: timeZoneId,
             onDeleteEvent: onDeleteEvent,
+            onReplaceOccurrence: onReplaceOccurrence,
           ),
         ),
       ),
@@ -78,13 +87,13 @@ void main() {
       tester,
       items: [
         _item(
-          id: 'fixed-1',
+          id: 'fixed:event-1',
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
         ),
         _item(
-          id: 'task-1',
+          id: 'block:block-1',
           title: '写方案',
           kind: ScheduleItemKind.task,
           startHourUtc: 14,
@@ -103,7 +112,7 @@ void main() {
   testWidgets('换一个时区，同一批 UTC 条目显示为不同时刻', (tester) async {
     final items = [
       _item(
-        id: 'fixed-1',
+        id: 'fixed:event-1',
         title: '数据结构课',
         kind: ScheduleItemKind.fixed,
         startHourUtc: 9,
@@ -117,19 +126,19 @@ void main() {
     expect(find.textContaining('09:00–10:00'), findsNothing);
   });
 
-  testWidgets('注入删除入口时每条日程都有删除按钮，点击交回**那一条**的 id', (tester) async {
+  testWidgets('删除固定日程传回的是**领域事件 id**，不带视图条目的命名空间', (tester) async {
     final deleted = <String>[];
     await pump(
       tester,
       items: [
         _item(
-          id: 'fixed-1',
+          id: 'fixed:event-1',
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
         ),
         _item(
-          id: 'task-1',
+          id: 'block:block-1',
           title: '写方案',
           kind: ScheduleItemKind.task,
           startHourUtc: 14,
@@ -141,18 +150,115 @@ void main() {
       },
     );
 
-    expect(find.byKey(const Key('delete-fixed-1')), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('delete-task-1')));
-    await tester.tap(find.byKey(const Key('delete-task-1')));
+    expect(find.byKey(const Key('delete-fixed:event-1')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
     await tester.pumpAndSettle();
     // 删除自本轮起会先确认（FR-CAL-02 要区分"只删这一次"与"删除整条"），因此这里必须
     // 走完"删除整条"这一步——否则断言的是"没发生删除"。
     await tester.tap(find.byKey(const Key('delete-entire')));
     await tester.pumpAndSettle();
 
-    // 交回的必须是那一条的 id：删除最危险的错误是删错对象，而"被点了"与"删对了"
-    // 是两件事，只断言"发生过一次删除"证明不了后者。
-    expect(deleted, <String>['task-1']);
+    // 交回的必须是**领域事件 id**：曾经的实现在这里交回 `fixed:<uuid>`，仓储执行
+    // `DELETE ... WHERE id = 'fixed:<uuid>'` 匹配 0 行且不报错，服务层按幂等语义返回成功，
+    // 于是界面显示"已删除"而日程仍在。这条断言就是那次缺陷的回归守卫。
+    expect(deleted, <String>['event-1']);
+  });
+
+  testWidgets('计划块与保护时间不提供删除／改写入口（它们不是日程）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'block:block-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'protected:sleep',
+          title: '睡眠',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
+          true,
+    );
+
+    // 图标位**保留但不可用**：不够删这两类条目（它们的 id 不是事件 id），但也不能
+    // 只有固定日程带图标——那会让同一列里卡片宽窄参差。
+    for (final key in const [
+      Key('delete-block:block-1'),
+      Key('edit-block:block-1'),
+      Key('delete-protected:sleep'),
+      Key('edit-protected:sleep'),
+    ]) {
+      final button = tester.widget<IconButton>(find.byKey(key));
+      expect(button.onPressed, isNull, reason: '$key 应当存在但点不动');
+    }
+  });
+
+  testWidgets('所有条目的卡片等宽（图标位与可用性无关）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:event-1',
+          title: '出门摄影',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'block:block-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
+          true,
+    );
+
+    final fixed = tester.getSize(
+      find.byKey(const Key('day-item-fixed:event-1')),
+    );
+    final task = tester.getSize(
+      find.byKey(const Key('day-item-block:block-1')),
+    );
+    expect(task.width, fixed.width, reason: '固定日程带删除/编辑图标，其余条目也必须为同样的图标位留出宽度');
+  });
+
+  testWidgets('相邻条目之间留出间距', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:event-1',
+          title: '出门摄影',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'block:block-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+    );
+
+    final first = tester.getRect(
+      find.byKey(const Key('day-item-fixed:event-1')),
+    );
+    final second = tester.getRect(
+      find.byKey(const Key('day-item-block:block-1')),
+    );
+    // 间距为 0 时两条只剩卡片自身的外边距（4+4），因此这里用 token 值做下界：
+    // 少了这个间隔断言就会失败。
+    expect(second.top - first.bottom, greaterThanOrEqualTo(scheduleItemGap));
   });
 
   testWidgets('删除前问清"只删这一次"还是"删除整条"，并把选择交给对应入口', (tester) async {
@@ -168,7 +274,7 @@ void main() {
           body: DayViewPage(
             source: _Items([
               _item(
-                id: 'anchor-1',
+                id: 'fixed:event-1',
                 title: '数据结构课',
                 kind: ScheduleItemKind.fixed,
                 startHourUtc: 9,
@@ -191,8 +297,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('delete-anchor-1')));
-    await tester.tap(find.byKey(const Key('delete-anchor-1')));
+    await tester.ensureVisible(find.byKey(const Key('delete-fixed:event-1')));
+    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
     await tester.pumpAndSettle();
     // 删除不可逆，因此对话框必须把两种后果说明白。
     expect(find.textContaining('只删这一次会保留其它各次'), findsOneWidget);
@@ -200,18 +306,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(occurrences, hasLength(1));
-    expect(occurrences.single.$1, 'anchor-1');
+    expect(occurrences.single.$1, 'event-1');
     expect(occurrences.single.$3, '数据结构课');
     // **"被点了"与"删对了对象"是两件事**：选了"只删这一次"，整条删除的入口就不该被调用。
     expect(entire, isEmpty);
 
     // 再删一次，这次选"删除整条"：应当走另一个入口，且不再走"只删这一次"。
-    await tester.tap(find.byKey(const Key('delete-anchor-1')));
+    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('delete-entire')));
     await tester.pumpAndSettle();
 
-    expect(entire, <String>['anchor-1']);
+    expect(entire, <String>['event-1']);
     expect(occurrences, hasLength(1));
   });
 
@@ -226,7 +332,7 @@ void main() {
           body: DayViewPage(
             source: _Items([
               _item(
-                id: 'anchor-1',
+                id: 'fixed:event-1',
                 title: '数据结构课',
                 kind: ScheduleItemKind.fixed,
                 startHourUtc: 9,
@@ -246,8 +352,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('edit-anchor-1')));
-    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.ensureVisible(find.byKey(const Key('edit-fixed:event-1')));
+    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
     await tester.pumpAndSettle();
 
     // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法值交给下游。
@@ -270,7 +376,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(replaced, hasLength(1));
-    expect(replaced.single.$1, 'anchor-1');
+    expect(replaced.single.$1, 'event-1');
     expect(replaced.single.$3.hour, 14);
     expect(replaced.single.$4.hour, 15);
   });
@@ -280,7 +386,7 @@ void main() {
       tester,
       items: [
         _item(
-          id: 'fixed-1',
+          id: 'fixed:event-1',
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
@@ -289,7 +395,7 @@ void main() {
       onDeleteEvent: (id) async => true,
     );
 
-    expect(find.byKey(const Key('edit-fixed-1')), findsNothing);
+    expect(find.byKey(const Key('edit-fixed:event-1')), findsNothing);
   });
 
   testWidgets('勾选"改整个系列"走另一条入口，而不是改这一次', (tester) async {
@@ -304,7 +410,7 @@ void main() {
           body: DayViewPage(
             source: _Items([
               _item(
-                id: 'anchor-1',
+                id: 'fixed:event-1',
                 title: '数据结构课',
                 kind: ScheduleItemKind.fixed,
                 startHourUtc: 9,
@@ -328,8 +434,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('edit-anchor-1')));
-    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.ensureVisible(find.byKey(const Key('edit-fixed:event-1')));
+    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('occurrence-scope-series')));
     await tester.pumpAndSettle();
@@ -345,7 +451,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // **两个入口互斥**：勾了"整个系列"就绝不能同时走"改这一次"，否则一次操作写两处数据。
-    expect(series, <String>['anchor-1']);
+    expect(series, <String>['event-1']);
     expect(single, isEmpty);
   });
 
@@ -362,7 +468,7 @@ void main() {
           body: DayViewPage(
             source: _Items([
               _item(
-                id: 'anchor-1',
+                id: 'fixed:event-1',
                 title: '数据结构课',
                 kind: ScheduleItemKind.fixed,
                 startHourUtc: 9,
@@ -390,7 +496,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
     await tester.pumpAndSettle();
     expect(find.text('仅本次'), findsOneWidget);
     expect(find.text('本次及以后'), findsOneWidget);
@@ -407,7 +513,7 @@ void main() {
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 
-    expect(following, ['anchor-1']);
+    expect(following, ['event-1']);
     expect(single, isEmpty);
     expect(series, isEmpty);
   });
@@ -417,7 +523,7 @@ void main() {
       tester,
       items: [
         _item(
-          id: 'fixed-1',
+          id: 'fixed:event-1',
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
@@ -426,14 +532,14 @@ void main() {
       onDeleteEvent: (id) async => true,
     );
 
-    await tester.ensureVisible(find.byKey(const Key('delete-fixed-1')));
-    await tester.tap(find.byKey(const Key('delete-fixed-1')));
+    await tester.ensureVisible(find.byKey(const Key('delete-fixed:event-1')));
+    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('delete-cancel')));
     await tester.pumpAndSettle();
 
     // 未注入改写入口时连编辑按钮都没有，因此这里确认的是"没有该按钮"。
-    expect(find.byKey(const Key('edit-fixed-1')), findsNothing);
+    expect(find.byKey(const Key('edit-fixed:event-1')), findsNothing);
   });
 
   testWidgets('未注入删除入口时不显示删除按钮', (tester) async {
@@ -441,7 +547,7 @@ void main() {
       tester,
       items: [
         _item(
-          id: 'fixed-1',
+          id: 'fixed:event-1',
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
@@ -450,7 +556,7 @@ void main() {
     );
 
     // 宁可没有按钮，也不要一个点了不生效的图标。
-    expect(find.byKey(const Key('delete-fixed-1')), findsNothing);
+    expect(find.byKey(const Key('delete-fixed:event-1')), findsNothing);
   });
 
   testWidgets('这一天没有安排时说明"空"是什么意思', (tester) async {
