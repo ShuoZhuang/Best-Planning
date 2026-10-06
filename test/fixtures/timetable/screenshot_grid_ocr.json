@@ -1,0 +1,1912 @@
+{
+ "width": 1200,
+ "height": 1600,
+ "textAngle": 0,
+ "lines": [
+  {
+   "text": "10 ： 08",
+   "words": [
+    {
+     "text": "10",
+     "bounds": {
+      "left": 85.0,
+      "top": 20.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "：",
+     "bounds": {
+      "left": 109.0,
+      "top": 20.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "08",
+     "bounds": {
+      "left": 129.0,
+      "top": 20.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "首 页 » 我 的 课 表 » 学 期 个 人 课 表",
+   "words": [
+    {
+     "text": "首",
+     "bounds": {
+      "left": 40.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "页",
+     "bounds": {
+      "left": 60.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "»",
+     "bounds": {
+      "left": 80.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "我",
+     "bounds": {
+      "left": 100.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "的",
+     "bounds": {
+      "left": 120.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "课",
+     "bounds": {
+      "left": 140.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "表",
+     "bounds": {
+      "left": 160.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "»",
+     "bounds": {
+      "left": 180.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "学",
+     "bounds": {
+      "left": 200.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 220.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "个",
+     "bounds": {
+      "left": 240.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "人",
+     "bounds": {
+      "left": 260.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "课",
+     "bounds": {
+      "left": 280.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "表",
+     "bounds": {
+      "left": 300.0,
+      "top": 90.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "周 次 ： （ 全 部 ） 学 年 学 期 ： 2026-2027-1",
+   "words": [
+    {
+     "text": "周",
+     "bounds": {
+      "left": 40.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "次",
+     "bounds": {
+      "left": 60.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "：",
+     "bounds": {
+      "left": 80.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 100.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "全",
+     "bounds": {
+      "left": 120.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "部",
+     "bounds": {
+      "left": 140.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 160.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "学",
+     "bounds": {
+      "left": 180.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "年",
+     "bounds": {
+      "left": 200.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "学",
+     "bounds": {
+      "left": 220.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 240.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "：",
+     "bounds": {
+      "left": 260.0,
+      "top": 120.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "2026-2027-1",
+     "bounds": {
+      "left": 280.0,
+      "top": 120.0,
+      "width": 132.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 一",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 120.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 140.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 160.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 二",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 270.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 290.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "二",
+     "bounds": {
+      "left": 310.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 三",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 420.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 440.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "三",
+     "bounds": {
+      "left": 460.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 四",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 570.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 590.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "四",
+     "bounds": {
+      "left": 610.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 五",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 720.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 740.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "五",
+     "bounds": {
+      "left": 760.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 六",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 870.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 890.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "六",
+     "bounds": {
+      "left": 910.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "星 期 日",
+   "words": [
+    {
+     "text": "星",
+     "bounds": {
+      "left": 1020.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "期",
+     "bounds": {
+      "left": 1040.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "日",
+     "bounds": {
+      "left": 1060.0,
+      "top": 190.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "软 件 工 程",
+   "words": [
+    {
+     "text": "软",
+     "bounds": {
+      "left": 80.0,
+      "top": 215.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "件",
+     "bounds": {
+      "left": 100.0,
+      "top": 215.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "工",
+     "bounds": {
+      "left": 120.0,
+      "top": 215.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "程",
+     "bounds": {
+      "left": 140.0,
+      "top": 215.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "陈 一",
+   "words": [
+    {
+     "text": "陈",
+     "bounds": {
+      "left": 110.0,
+      "top": 245.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 130.0,
+      "top": 245.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "1 ． 16 （ 周 ）",
+   "words": [
+    {
+     "text": "1",
+     "bounds": {
+      "left": 95.0,
+      "top": 275.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "．",
+     "bounds": {
+      "left": 107.0,
+      "top": 275.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "16",
+     "bounds": {
+      "left": 127.0,
+      "top": 275.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 151.0,
+      "top": 275.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 171.0,
+      "top": 275.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 191.0,
+      "top": 275.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "01 · 02 节",
+   "words": [
+    {
+     "text": "01",
+     "bounds": {
+      "left": 30.0,
+      "top": 290.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "·",
+     "bounds": {
+      "left": 54.0,
+      "top": 290.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "02",
+     "bounds": {
+      "left": 74.0,
+      "top": 290.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "节",
+     "bounds": {
+      "left": 98.0,
+      "top": 290.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "D206",
+   "words": [
+    {
+     "text": "D206",
+     "bounds": {
+      "left": 110.0,
+      "top": 305.0,
+      "width": 48.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "数 据 结 构 与 算 法",
+   "words": [
+    {
+     "text": "数",
+     "bounds": {
+      "left": 230.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "据",
+     "bounds": {
+      "left": 250.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "结",
+     "bounds": {
+      "left": 270.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "构",
+     "bounds": {
+      "left": 290.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "与",
+     "bounds": {
+      "left": 310.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "算",
+     "bounds": {
+      "left": 330.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "法",
+     "bounds": {
+      "left": 350.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "大 学 英 语 （ 下 ）",
+   "words": [
+    {
+     "text": "大",
+     "bounds": {
+      "left": 380.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "学",
+     "bounds": {
+      "left": 400.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "英",
+     "bounds": {
+      "left": 420.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "语",
+     "bounds": {
+      "left": 440.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 460.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "下",
+     "bounds": {
+      "left": 480.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 500.0,
+      "top": 380.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "03 · 04 节",
+   "words": [
+    {
+     "text": "03",
+     "bounds": {
+      "left": 30.0,
+      "top": 410.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "·",
+     "bounds": {
+      "left": 54.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "04",
+     "bounds": {
+      "left": 74.0,
+      "top": 410.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "节",
+     "bounds": {
+      "left": 98.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "林 二",
+   "words": [
+    {
+     "text": "林",
+     "bounds": {
+      "left": 260.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "二",
+     "bounds": {
+      "left": 280.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "赵 敏",
+   "words": [
+    {
+     "text": "赵",
+     "bounds": {
+      "left": 410.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "敏",
+     "bounds": {
+      "left": 430.0,
+      "top": 410.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "1 ． 13 （ 周 ）",
+   "words": [
+    {
+     "text": "1",
+     "bounds": {
+      "left": 245.0,
+      "top": 440.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "．",
+     "bounds": {
+      "left": 257.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "13",
+     "bounds": {
+      "left": 277.0,
+      "top": 440.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 301.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 321.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 341.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "1 ． 16 （ 单 周 ）",
+   "words": [
+    {
+     "text": "1",
+     "bounds": {
+      "left": 395.0,
+      "top": 440.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "．",
+     "bounds": {
+      "left": 407.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "16",
+     "bounds": {
+      "left": 427.0,
+      "top": 440.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 451.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "单",
+     "bounds": {
+      "left": 471.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 491.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 511.0,
+      "top": 440.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "D206",
+   "words": [
+    {
+     "text": "D206",
+     "bounds": {
+      "left": 260.0,
+      "top": 470.0,
+      "width": 48.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "A402",
+   "words": [
+    {
+     "text": "A402",
+     "bounds": {
+      "left": 410.0,
+      "top": 470.0,
+      "width": 48.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "中 午 休",
+   "words": [
+    {
+     "text": "中",
+     "bounds": {
+      "left": 40.0,
+      "top": 500.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "午",
+     "bounds": {
+      "left": 60.0,
+      "top": 500.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "休",
+     "bounds": {
+      "left": 80.0,
+      "top": 500.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "概 率 论 与",
+   "words": [
+    {
+     "text": "概",
+     "bounds": {
+      "left": 380.0,
+      "top": 530.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "率",
+     "bounds": {
+      "left": 400.0,
+      "top": 530.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "论",
+     "bounds": {
+      "left": 420.0,
+      "top": 530.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "与",
+     "bounds": {
+      "left": 440.0,
+      "top": 530.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "数 理 统 计",
+   "words": [
+    {
+     "text": "数",
+     "bounds": {
+      "left": 380.0,
+      "top": 560.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "理",
+     "bounds": {
+      "left": 400.0,
+      "top": 560.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "统",
+     "bounds": {
+      "left": 420.0,
+      "top": 560.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "计",
+     "bounds": {
+      "left": 440.0,
+      "top": 560.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "05 · 06 节",
+   "words": [
+    {
+     "text": "05",
+     "bounds": {
+      "left": 30.0,
+      "top": 590.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "·",
+     "bounds": {
+      "left": 54.0,
+      "top": 590.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "06",
+     "bounds": {
+      "left": 74.0,
+      "top": 590.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "节",
+     "bounds": {
+      "left": 98.0,
+      "top": 590.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "钱 六",
+   "words": [
+    {
+     "text": "钱",
+     "bounds": {
+      "left": 410.0,
+      "top": 590.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "六",
+     "bounds": {
+      "left": 430.0,
+      "top": 590.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "2 一 6 （ 双 周 ）",
+   "words": [
+    {
+     "text": "2",
+     "bounds": {
+      "left": 395.0,
+      "top": 620.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 407.0,
+      "top": 620.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "6",
+     "bounds": {
+      "left": 427.0,
+      "top": 620.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 439.0,
+      "top": 620.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "双",
+     "bounds": {
+      "left": 459.0,
+      "top": 620.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 479.0,
+      "top": 620.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 499.0,
+      "top": 620.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "A304",
+   "words": [
+    {
+     "text": "A304",
+     "bounds": {
+      "left": 410.0,
+      "top": 650.0,
+      "width": 48.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "人 工 智 能",
+   "words": [
+    {
+     "text": "人",
+     "bounds": {
+      "left": 980.0,
+      "top": 690.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "工",
+     "bounds": {
+      "left": 1000.0,
+      "top": 690.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "智",
+     "bounds": {
+      "left": 1020.0,
+      "top": 690.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "能",
+     "bounds": {
+      "left": 1040.0,
+      "top": 690.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "07 · 08 节",
+   "words": [
+    {
+     "text": "07",
+     "bounds": {
+      "left": 30.0,
+      "top": 710.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "·",
+     "bounds": {
+      "left": 54.0,
+      "top": 710.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "08",
+     "bounds": {
+      "left": 74.0,
+      "top": 710.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "节",
+     "bounds": {
+      "left": 98.0,
+      "top": 710.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "导 论",
+   "words": [
+    {
+     "text": "导",
+     "bounds": {
+      "left": 980.0,
+      "top": 720.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "论",
+     "bounds": {
+      "left": 1000.0,
+      "top": 720.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "李 八",
+   "words": [
+    {
+     "text": "李",
+     "bounds": {
+      "left": 1010.0,
+      "top": 750.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "八",
+     "bounds": {
+      "left": 1030.0,
+      "top": 750.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "1 一 4 （ 周 ）",
+   "words": [
+    {
+     "text": "1",
+     "bounds": {
+      "left": 995.0,
+      "top": 780.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 1007.0,
+      "top": 780.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "4",
+     "bounds": {
+      "left": 1027.0,
+      "top": 780.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 1039.0,
+      "top": 780.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 1059.0,
+      "top": 780.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 1079.0,
+      "top": 780.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "碳 中 和 技 术 概 论 田 程 程 1 一 16 周 ； 形 势 与 政 策 （ 3 ） 1 一 16 周 ； 思 政 课 实 践 教 学 （ 2 ）",
+   "words": [
+    {
+     "text": "碳",
+     "bounds": {
+      "left": 40.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "中",
+     "bounds": {
+      "left": 60.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "和",
+     "bounds": {
+      "left": 80.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "技",
+     "bounds": {
+      "left": 100.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "术",
+     "bounds": {
+      "left": 120.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "概",
+     "bounds": {
+      "left": 140.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "论",
+     "bounds": {
+      "left": 160.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "田",
+     "bounds": {
+      "left": 180.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "程",
+     "bounds": {
+      "left": 200.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "程",
+     "bounds": {
+      "left": 220.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "1",
+     "bounds": {
+      "left": 240.0,
+      "top": 1480.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 252.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "16",
+     "bounds": {
+      "left": 272.0,
+      "top": 1480.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 296.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "；",
+     "bounds": {
+      "left": 316.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "形",
+     "bounds": {
+      "left": 336.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "势",
+     "bounds": {
+      "left": 356.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "与",
+     "bounds": {
+      "left": 376.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "政",
+     "bounds": {
+      "left": 396.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "策",
+     "bounds": {
+      "left": 416.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 436.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "3",
+     "bounds": {
+      "left": 456.0,
+      "top": 1480.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 468.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "1",
+     "bounds": {
+      "left": 488.0,
+      "top": 1480.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "一",
+     "bounds": {
+      "left": 500.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "16",
+     "bounds": {
+      "left": 520.0,
+      "top": 1480.0,
+      "width": 24.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "周",
+     "bounds": {
+      "left": 544.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "；",
+     "bounds": {
+      "left": 564.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "思",
+     "bounds": {
+      "left": 584.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "政",
+     "bounds": {
+      "left": 604.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "课",
+     "bounds": {
+      "left": 624.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "实",
+     "bounds": {
+      "left": 644.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "践",
+     "bounds": {
+      "left": 664.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "教",
+     "bounds": {
+      "left": 684.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "学",
+     "bounds": {
+      "left": 704.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "（",
+     "bounds": {
+      "left": 724.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "2",
+     "bounds": {
+      "left": 744.0,
+      "top": 1480.0,
+      "width": 12.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "）",
+     "bounds": {
+      "left": 756.0,
+      "top": 1480.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "备 注 ：",
+   "words": [
+    {
+     "text": "备",
+     "bounds": {
+      "left": 30.0,
+      "top": 1510.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "注",
+     "bounds": {
+      "left": 50.0,
+      "top": 1510.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    },
+    {
+     "text": "：",
+     "bounds": {
+      "left": 70.0,
+      "top": 1510.0,
+      "width": 20.0,
+      "height": 22.0
+     }
+    }
+   ]
+  },
+  {
+   "text": "inquiry.example.edu.cn",
+   "words": [
+    {
+     "text": "inquiry.example.edu.cn",
+     "bounds": {
+      "left": 380.0,
+      "top": 1560.0,
+      "width": 264.0,
+      "height": 22.0
+     }
+    }
+   ]
+  }
+ ]
+}
