@@ -3,7 +3,9 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "resource.h"
 #include "timetable_ocr_channel.h"
+#include "window_channel.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -27,7 +29,12 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   RegisterTimetableOcrChannel(flutter_controller_->engine()->messenger());
+  RegisterWindowChannel(flutter_controller_->engine()->messenger(), this);
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+
+  // The tray icon exists for the whole process lifetime: it is the only way back to a
+  // window the user closed, and the only way to exit once closing hides the window.
+  EnsureTrayIcon();
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -42,11 +49,59 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Remove the tray icon before the window goes away: the shell would otherwise keep a
+  // dead entry until the user hovers over it.
+  tray_icon_.reset();
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
 
   Win32Window::OnDestroy();
+}
+
+bool FlutterWindow::EnsureTrayIcon() {
+  if (tray_icon_ != nullptr) {
+    return true;
+  }
+  HICON icon =
+      ::LoadIconW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON));
+  if (icon == nullptr) {
+    tray_status_ = "icon_load_failed";
+    return false;
+  }
+  // The tooltip repeats the window title; \u escapes keep this file pure ASCII (see the
+  // note in tray_icon.cpp about code page 936 and warning C4819).
+  auto tray = std::make_unique<TrayIcon>(GetHandle(), icon,
+                                         L"\u667A\u80FD\u65E5\u7A0B",
+                                         [this]() { QuitFromTray(); });
+  if (!tray->Add()) {
+    // Keep nothing on failure: a TrayIcon that is not in the shell would still answer
+    // tray_icon_available() with true, and "minimize to tray" would then hide the window
+    // with no way back.
+    //
+    // GetLastError is worth carrying: Shell_NotifyIcon fails for reasons the user cannot
+    // guess (no interactive notification area, explorer restarted, ...).
+    tray_status_ = "shell_add_failed:" + std::to_string(::GetLastError());
+    return false;
+  }
+  tray_status_ = "ok";
+  tray_icon_ = std::move(tray);
+  return true;
+}
+
+void FlutterWindow::SetCloseToTray(bool close_to_tray) {
+  if (close_to_tray) {
+    EnsureTrayIcon();
+  }
+  // Refuse the setting when there is no tray icon: with it, closing the window would hide
+  // the only window while leaving no way to bring it back or to exit.
+  close_to_tray_ = close_to_tray && tray_icon_available();
+}
+
+void FlutterWindow::QuitFromTray() {
+  tray_icon_.reset();
+  Destroy();
 }
 
 LRESULT
@@ -63,7 +118,24 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
   }
 
+  if (tray_icon_ && message == TrayIcon::CallbackMessage() &&
+      tray_icon_->HandleMessage(wparam, lparam)) {
+    return 0;
+  }
+
   switch (message) {
+    case WM_CLOSE:
+      // "Minimize to the background": hide the window and keep the process (and the
+      // scheduler) running. Not chaining to the base class here is what stops
+      // DefWindowProc from destroying the window and ending the app.
+      //
+      // Session end (WM_QUERYENDSESSION / WM_ENDSESSION) is deliberately left alone, so
+      // shutting Windows down still ends the app instead of stranding it in the tray.
+      if (close_to_tray_) {
+        ::ShowWindow(hwnd, SW_HIDE);
+        return 0;
+      }
+      break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;

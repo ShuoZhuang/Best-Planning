@@ -23,6 +23,7 @@ import 'package:personal_planner/application/repository_schedule_problem_source.
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -59,6 +60,7 @@ import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
+import 'package:personal_planner/platform/windows/window_shell.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -190,6 +192,11 @@ Future<void> main() async {
   final settingsRepository = DriftSettingsRepository(database, clock);
 
   final settingsService = SettingsService(repository: settingsRepository);
+  // 关闭窗口的行为：设置存在 Dart 侧（`window.closeBehavior.v1`），宿主窗口只负责执行。
+  final windowBehaviorService = WindowBehaviorService(
+    settings: settingsService,
+    shell: const MethodChannelWindowShell(),
+  );
   final ruleResolver = PlanningRuleResolver(settingsService);
   // FR-CAL-05：手动拖动的意图。**同一个实例必须同时给"记录的落点"（周视图经 PlannerApp）
   // 与"消费的通道"（下面的排程输入来源）**——只给一侧就是"拖了没用"或"记了没人看"，这正是
@@ -495,6 +502,23 @@ Future<void> main() async {
     unawaited(resyncNotifications());
   };
 
+  // 启动时就把**已存的**关闭行为下发给宿主窗口。放在这里而不是等用户打开设置页：用户上次
+  // 若选了"收进后台"，这次启动点关闭却直接退出，就等于设置没生效。
+  //
+  // 不 await：托盘图标是否可用只影响设置页的提示，不该拖住首帧。但**结果要记进诊断**——
+  // 托盘建不出来时，用户看到的现象是"关闭窗口把程序关了"，而没有任何线索说明为什么。
+  unawaited(() async {
+    try {
+      final behavior = await windowBehaviorService.load();
+      final tray = await windowBehaviorService.pushStored();
+      diagnostics.write(
+        '窗口行为：关闭窗口=${behavior.name}，托盘可用=${tray.available}，原因=${tray.detail}',
+      );
+    } catch (error) {
+      diagnostics.write('窗口行为下发失败：$error');
+    }
+  }());
+
   runApp(
     ProviderScope(
       child: PlannerApp(
@@ -513,6 +537,8 @@ Future<void> main() async {
         // 与启动时的默认领域初始化共用同一实例：任务详情页要用它列出项目，
         // 用户才能把任务归属到领域下的项目（R2）。
         workspaceService: workspaceService,
+        // 关闭主窗口的行为（托盘后台运行 / 直接退出），见「设置 → 窗口与后台」。
+        windowBehavior: windowBehaviorService,
         // 任务详情页的标签区（FR-TASK-02）。与统计的标签筛选读的是同一批表。
         tagService: tagService,
         // 启动门控：锁开启时必须先解锁；设置页也用它开启/关闭（需求 §11.3）。

@@ -17,6 +17,7 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_glass.dart';
@@ -44,6 +45,7 @@ import 'package:personal_planner/features/settings/academic_calendar/academic_ca
 import 'package:personal_planner/features/settings/appearance/appearance_page.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/features/settings/data/backup_page.dart';
+import 'package:personal_planner/features/settings/window/window_background_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
@@ -86,6 +88,7 @@ GoRouter createPlannerRouter({
   AnalyticsQuery? analytics,
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
+  WindowBehaviorService? windowBehavior,
   TagService? tagService,
   AppLockService? appLock,
   ExportService? exportService,
@@ -551,6 +554,13 @@ GoRouter createPlannerRouter({
                 subtitle: '在无玻璃、克制、激进和极致液态玻璃之间切换',
                 onOpen: () => context.go('/settings/appearance'),
               ),
+              if (windowBehavior != null)
+                SettingsHubEntry(
+                  key: const Key('settings-window'),
+                  title: '窗口与后台',
+                  subtitle: '关闭窗口后收进托盘后台运行，还是直接退出程序',
+                  onOpen: () => context.go('/settings/window'),
+                ),
               SettingsHubEntry(
                 key: const Key('settings-rules'),
                 title: '规划规则与默认值',
@@ -608,6 +618,20 @@ GoRouter createPlannerRouter({
         GoRoute(
           path: '/settings/appearance',
           builder: (context, state) => AppearancePage(service: appearance),
+        ),
+        GoRoute(
+          path: '/settings/window',
+          builder: (context, state) {
+            final service = windowBehavior;
+            if (service == null) {
+              // 未装配时给出说明，而不是一个点了不生效的开关（与学期页同一条约定）。
+              return const _UnavailablePage(
+                title: '窗口与后台',
+                message: '窗口行为服务未装配，暂无法设置关闭窗口时的行为。',
+              );
+            }
+            return WindowBackgroundPage(windowBehavior: service);
+          },
         ),
         GoRoute(
           path: '/settings/academic-calendar',

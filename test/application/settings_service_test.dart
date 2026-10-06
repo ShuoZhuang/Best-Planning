@@ -8,6 +8,7 @@ import 'package:personal_planner/data/repositories/drift_settings_repository.dar
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/models/window_behavior.dart';
 
 void main() {
   late AppDatabase database;
@@ -19,6 +20,34 @@ void main() {
   });
 
   tearDown(() => database.close());
+
+  test('关闭窗口行为默认为收进后台，存下后读回同一值', () async {
+    final service = SettingsService(repository: repository);
+    // 从未设置过：默认"收进后台运行"，这是用户要求的常态。
+    expect(
+      await service.loadCloseBehavior(),
+      WindowCloseBehavior.minimizeToTray,
+    );
+
+    await service.saveCloseBehavior(WindowCloseBehavior.quit);
+    expect(await service.loadCloseBehavior(), WindowCloseBehavior.quit);
+
+    await service.saveCloseBehavior(WindowCloseBehavior.minimizeToTray);
+    expect(
+      await service.loadCloseBehavior(),
+      WindowCloseBehavior.minimizeToTray,
+    );
+  });
+
+  test('存储里是不认识的值时退回默认，而不是启动失败', () async {
+    // 这个键是用户可手改的存储项：读到垃圾值时能开机比抛异常有用。
+    await repository.write('window.closeBehavior.v1', 'whatever');
+    final service = SettingsService(repository: repository);
+    expect(
+      await service.loadCloseBehavior(),
+      WindowCloseBehavior.minimizeToTray,
+    );
+  });
 
   test('指定日期、用户规则、已确认偏好和默认值按优先级解析', () async {
     final service = SettingsService(repository: repository);

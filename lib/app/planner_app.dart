@@ -20,6 +20,7 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
+import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -61,6 +62,7 @@ final class PlannerApp extends StatefulWidget {
     this.preferences,
     this.notifications,
     this.workspaceService,
+    this.windowBehavior,
     this.tagService,
     this.appLock,
     this.exportService,
@@ -129,6 +131,11 @@ final class PlannerApp extends StatefulWidget {
 
   /// 领域与项目服务。为空时任务详情页不提供项目选择，其余功能不受影响。
   final WorkspaceService? workspaceService;
+
+  /// 关闭主窗口的行为（收进托盘后台运行 / 直接退出）。
+  ///
+  /// 由组合根构造并下发；为空时设置页不显示该入口，而不是显示一个点了不生效的控件。
+  final WindowBehaviorService? windowBehavior;
 
   /// 标签服务。为空时任务详情页不提供标签区（FR-TASK-02），统计的标签筛选也就没有
   /// 数据可筛——标签此前只有两张表，没有任何写入方（R1）。
@@ -335,6 +342,7 @@ final class _PlannerAppState extends State<PlannerApp> {
           : null,
       analytics: widget.analytics,
       workspaceService: widget.workspaceService,
+      windowBehavior: widget.windowBehavior,
       tagService: widget.tagService,
       appLock: widget.appLock,
       exportService: widget.exportService,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/models/window_behavior.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 
@@ -88,6 +89,7 @@ final class SettingsService {
   static const _learnedPreferencesKey = 'planning.learnedPreferences.v1';
   static const _notificationsKey = 'notifications.v1';
   static const _trustAutoAdjustKey = 'planning.trustAutoAdjust.v1';
+  static const _closeBehaviorKey = 'window.closeBehavior.v1';
 
   final SettingsRepository repository;
 
@@ -281,6 +283,13 @@ final class SettingsService {
     final raw = await repository.read(key);
     return raw == null ? null : _patchFromJson(jsonDecode(raw));
   }
+
+  /// 关闭主窗口时的行为。从未设置过时是"最小化到后台运行"。
+  Future<WindowCloseBehavior> loadCloseBehavior() async =>
+      WindowCloseBehavior.fromStorage(await repository.read(_closeBehaviorKey));
+
+  Future<void> saveCloseBehavior(WindowCloseBehavior behavior) =>
+      repository.write(_closeBehaviorKey, behavior.name);
 
   static void _validatePatch(
     PlanningRulesPatch patch,
