@@ -24,14 +24,16 @@ UINT TrayIcon::CallbackMessage() {
 }
 
 TrayIcon::TrayIcon(HWND window, HICON icon, const std::wstring& tooltip,
-                   std::function<void()> on_quit)
+                   std::function<void()> on_quit, DWORD cb_size,
+                   UINT callback_message)
     : window_(window), icon_(icon), tooltip_(tooltip),
       on_quit_(std::move(on_quit)) {
-  data_.cbSize = sizeof(NOTIFYICONDATAW);
+  data_.cbSize = cb_size == 0 ? sizeof(NOTIFYICONDATAW) : cb_size;
   data_.hWnd = window_;
   data_.uID = 1;
   data_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-  data_.uCallbackMessage = CallbackMessage();
+  data_.uCallbackMessage =
+      callback_message == 0 ? CallbackMessage() : callback_message;
   data_.hIcon = icon_;
   if (!tooltip_.empty()) {
     ::wcsncpy_s(data_.szTip, kTooltipCapacity, tooltip_.c_str(), _TRUNCATE);

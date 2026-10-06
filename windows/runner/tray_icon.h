@@ -20,8 +20,12 @@ class TrayIcon {
   static UINT CallbackMessage();
 
   // `on_quit` runs when the user picks the quit item from the context menu.
+  //
+  // `cb_size` and `callback_message` are overridable for the shell-compatibility retry in
+  // FlutterWindow::EnsureTrayIcon (see the note there).
   TrayIcon(HWND window, HICON icon, const std::wstring& tooltip,
-           std::function<void()> on_quit);
+           std::function<void()> on_quit, DWORD cb_size = 0,
+           UINT callback_message = 0);
   ~TrayIcon();
 
   TrayIcon(const TrayIcon&) = delete;

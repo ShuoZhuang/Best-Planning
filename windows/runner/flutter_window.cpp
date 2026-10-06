@@ -70,18 +70,31 @@ bool FlutterWindow::EnsureTrayIcon() {
     tray_status_ = "icon_load_failed";
     return false;
   }
+  // Check the window handle explicitly. Without this, `TrayIcon::Add` would return false
+  // for a null handle *without ever calling the shell*, and the caller would then read a
+  // stale GetLastError() and report a bogus "shell_add_failed:N".
+  HWND handle = GetHandle();
+  if (handle == nullptr) {
+    tray_status_ = "no_window_handle";
+    return false;
+  }
   // The tooltip repeats the window title; \u escapes keep this file pure ASCII (see the
   // note in tray_icon.cpp about code page 936 and warning C4819).
-  auto tray = std::make_unique<TrayIcon>(GetHandle(), icon,
+  auto tray = std::make_unique<TrayIcon>(handle, icon,
                                          L"\u667A\u80FD\u65E5\u7A0B",
                                          [this]() { QuitFromTray(); });
   if (!tray->Add()) {
-    // Keep nothing on failure: a TrayIcon that is not in the shell would still answer
-    // tray_icon_available() with true, and "minimize to tray" would then hide the window
-    // with no way back.
+    // Report the shell's own error: it is the only clue to why there is no icon, and the
+    // user-visible symptom ("closing the window ended the app") explains nothing.
     //
-    // GetLastError is worth carrying: Shell_NotifyIcon fails for reasons the user cannot
-    // guess (no interactive notification area, explorer restarted, ...).
+    // Already ruled out on this machine, each by building and running it: the
+    // NOTIFYICONDATA size (modern vs the pre-Vista offset), the callback message
+    // (registered vs WM_APP + n), the icon (the app's .ico vs IDI_APPLICATION), and the
+    // window (the Flutter window vs a plain STATIC window created by this same process).
+    // All of them fail with ERROR_ACCESS_DENIED *from this process* while an identical call
+    // from an unrestricted process on the same desktop succeeds - i.e. the denial is a
+    // property of the process context, not of the arguments. So keep exactly one attempt
+    // and carry the error out instead of retrying in the hope that something changes.
     tray_status_ = "shell_add_failed:" + std::to_string(::GetLastError());
     return false;
   }
