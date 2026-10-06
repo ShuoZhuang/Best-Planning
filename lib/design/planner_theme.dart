@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/appearance_service.dart';
 
 /// “专注控制台”视觉令牌。
 ///
@@ -21,9 +22,155 @@ abstract final class PlannerPalette {
   static const danger = Color(0xfff06f7a);
 }
 
+@immutable
+final class PlannerGlassTheme extends ThemeExtension<PlannerGlassTheme> {
+  const PlannerGlassTheme({
+    required this.mode,
+    required this.surface,
+    required this.surfaceHighlight,
+    required this.chrome,
+    required this.border,
+    required this.ambientPrimary,
+    required this.ambientSecondary,
+    required this.shadow,
+    required this.blurSigma,
+    required this.chromeBlurSigma,
+    required this.shadowBlur,
+  });
+
+  final PlannerMaterialMode mode;
+  final Color surface;
+  final Color surfaceHighlight;
+  final Color chrome;
+  final Color border;
+  final Color ambientPrimary;
+  final Color ambientSecondary;
+  final Color shadow;
+  final double blurSigma;
+  final double chromeBlurSigma;
+  final double shadowBlur;
+
+  static PlannerGlassTheme of(BuildContext context) =>
+      Theme.of(context).extension<PlannerGlassTheme>() ??
+      forMode(PlannerMaterialMode.restrained);
+
+  static PlannerGlassTheme forMode(PlannerMaterialMode mode) => switch (mode) {
+    PlannerMaterialMode.off => const PlannerGlassTheme(
+      mode: PlannerMaterialMode.off,
+      surface: PlannerPalette.surface,
+      surfaceHighlight: PlannerPalette.surface,
+      chrome: PlannerPalette.navigation,
+      border: PlannerPalette.outline,
+      ambientPrimary: Colors.transparent,
+      ambientSecondary: Colors.transparent,
+      shadow: Colors.transparent,
+      blurSigma: 0,
+      chromeBlurSigma: 0,
+      shadowBlur: 0,
+    ),
+    PlannerMaterialMode.restrained => const PlannerGlassTheme(
+      mode: PlannerMaterialMode.restrained,
+      surface: Color(0xcc142131),
+      surfaceHighlight: Color(0xd6182a3d),
+      chrome: Color(0xc4101b2a),
+      border: Color(0x26ffffff),
+      ambientPrimary: Color(0x332f86ff),
+      ambientSecondary: Color(0x1c53c7a5),
+      shadow: Color(0x38000000),
+      blurSigma: 16,
+      chromeBlurSigma: 18,
+      shadowBlur: 24,
+    ),
+    PlannerMaterialMode.aggressive => const PlannerGlassTheme(
+      mode: PlannerMaterialMode.aggressive,
+      surface: Color(0xa6142131),
+      surfaceHighlight: Color(0xb51d3045),
+      chrome: Color(0x99101b2a),
+      border: Color(0x3dffffff),
+      ambientPrimary: Color(0x522f86ff),
+      ambientSecondary: Color(0x3353c7a5),
+      shadow: Color(0x66000000),
+      blurSigma: 26,
+      chromeBlurSigma: 28,
+      shadowBlur: 34,
+    ),
+    PlannerMaterialMode.liquid => const PlannerGlassTheme(
+      mode: PlannerMaterialMode.liquid,
+      surface: Color(0x73142131),
+      surfaceHighlight: Color(0x8a2b4562),
+      chrome: Color(0x70101b2a),
+      border: Color(0x66ffffff),
+      ambientPrimary: Color(0x702f86ff),
+      ambientSecondary: Color(0x5053c7a5),
+      shadow: Color(0x80000000),
+      blurSigma: 38,
+      chromeBlurSigma: 40,
+      shadowBlur: 44,
+    ),
+  };
+
+  @override
+  PlannerGlassTheme copyWith({
+    PlannerMaterialMode? mode,
+    Color? surface,
+    Color? surfaceHighlight,
+    Color? chrome,
+    Color? border,
+    Color? ambientPrimary,
+    Color? ambientSecondary,
+    Color? shadow,
+    double? blurSigma,
+    double? chromeBlurSigma,
+    double? shadowBlur,
+  }) => PlannerGlassTheme(
+    mode: mode ?? this.mode,
+    surface: surface ?? this.surface,
+    surfaceHighlight: surfaceHighlight ?? this.surfaceHighlight,
+    chrome: chrome ?? this.chrome,
+    border: border ?? this.border,
+    ambientPrimary: ambientPrimary ?? this.ambientPrimary,
+    ambientSecondary: ambientSecondary ?? this.ambientSecondary,
+    shadow: shadow ?? this.shadow,
+    blurSigma: blurSigma ?? this.blurSigma,
+    chromeBlurSigma: chromeBlurSigma ?? this.chromeBlurSigma,
+    shadowBlur: shadowBlur ?? this.shadowBlur,
+  );
+
+  @override
+  PlannerGlassTheme lerp(PlannerGlassTheme? other, double t) {
+    if (other == null) return this;
+    return PlannerGlassTheme(
+      mode: t < 0.5 ? mode : other.mode,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceHighlight: Color.lerp(
+        surfaceHighlight,
+        other.surfaceHighlight,
+        t,
+      )!,
+      chrome: Color.lerp(chrome, other.chrome, t)!,
+      border: Color.lerp(border, other.border, t)!,
+      ambientPrimary: Color.lerp(ambientPrimary, other.ambientPrimary, t)!,
+      ambientSecondary: Color.lerp(
+        ambientSecondary,
+        other.ambientSecondary,
+        t,
+      )!,
+      shadow: Color.lerp(shadow, other.shadow, t)!,
+      blurSigma: _lerpDouble(blurSigma, other.blurSigma, t),
+      chromeBlurSigma: _lerpDouble(chromeBlurSigma, other.chromeBlurSigma, t),
+      shadowBlur: _lerpDouble(shadowBlur, other.shadowBlur, t),
+    );
+  }
+
+  static double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+}
+
 abstract final class PlannerTheme {
-  static ThemeData dark() {
-    const scheme = ColorScheme.dark(
+  static ThemeData dark({
+    PlannerMaterialMode glassMode = PlannerMaterialMode.restrained,
+  }) {
+    final glass = PlannerGlassTheme.forMode(glassMode);
+    final scheme = ColorScheme.dark(
       primary: PlannerPalette.accent,
       onPrimary: PlannerPalette.textPrimary,
       primaryContainer: Color(0xff163b67),
@@ -38,7 +185,7 @@ abstract final class PlannerTheme {
       onTertiaryContainer: Color(0xffffe4ba),
       error: PlannerPalette.danger,
       onError: Color(0xff310006),
-      surface: PlannerPalette.surface,
+      surface: glass.surface,
       onSurface: PlannerPalette.textPrimary,
       onSurfaceVariant: PlannerPalette.textSecondary,
       outline: PlannerPalette.outline,
@@ -51,8 +198,9 @@ abstract final class PlannerTheme {
       brightness: Brightness.dark,
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: PlannerPalette.canvas,
+      scaffoldBackgroundColor: Colors.transparent,
       fontFamily: 'Microsoft YaHei UI',
+      extensions: [glass],
     );
 
     return base.copyWith(
@@ -92,8 +240,8 @@ abstract final class PlannerTheme {
           height: 1.5,
         ),
       ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: PlannerPalette.canvas,
+      appBarTheme: AppBarTheme(
+        backgroundColor: glass.chrome,
         foregroundColor: PlannerPalette.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -101,7 +249,7 @@ abstract final class PlannerTheme {
         titleSpacing: 20,
       ),
       navigationRailTheme: const NavigationRailThemeData(
-        backgroundColor: PlannerPalette.navigation,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         useIndicator: true,
         indicatorColor: Color(0xff173b67),
@@ -127,15 +275,15 @@ abstract final class PlannerTheme {
           fontWeight: FontWeight.w500,
         ),
       ),
-      cardTheme: const CardThemeData(
-        color: PlannerPalette.surface,
+      cardTheme: CardThemeData(
+        color: glass.surface,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: PlannerPalette.outline),
-          borderRadius: BorderRadius.all(Radius.circular(12)),
+          side: BorderSide(color: glass.border),
+          borderRadius: const BorderRadius.all(Radius.circular(12)),
         ),
       ),
       dividerTheme: const DividerThemeData(
@@ -174,18 +322,20 @@ abstract final class PlannerTheme {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
+      inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: PlannerPalette.surface,
-        border: OutlineInputBorder(
+        fillColor: glassMode == PlannerMaterialMode.off
+            ? PlannerPalette.surface
+            : const Color(0xe6142131),
+        border: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(8)),
           borderSide: BorderSide(color: PlannerPalette.outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(8)),
-          borderSide: BorderSide(color: PlannerPalette.outline),
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          borderSide: BorderSide(color: glass.border),
         ),
-        focusedBorder: OutlineInputBorder(
+        focusedBorder: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(8)),
           borderSide: BorderSide(color: PlannerPalette.accent, width: 2),
         ),
