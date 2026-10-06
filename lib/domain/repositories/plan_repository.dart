@@ -76,4 +76,3 @@ abstract interface class PlanHistoryRepository {
 /// 显式把本接口写进 `implements`（`DriftPlanRepository` 已如此）。
 abstract interface class PlanStore
     implements PlanRepository, PlanHistoryRepository {}
-

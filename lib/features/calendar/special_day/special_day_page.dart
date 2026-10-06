@@ -178,8 +178,7 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
               const SizedBox(height: 12),
               FilledButton.icon(
                 key: const Key('open-recovery-preview'),
-                onPressed: () =>
-                    widget.onOpenPreview!(_result!.proposalId),
+                onPressed: () => widget.onOpenPreview!(_result!.proposalId),
                 icon: const Icon(Icons.fact_check_outlined),
                 label: const Text('查看调整预览'),
               ),

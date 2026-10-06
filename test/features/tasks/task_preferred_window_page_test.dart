@@ -75,19 +75,33 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: TaskDetailPage(service: service, taskId: 'task-1', nowUtc: _now),
+          body: TaskDetailPage(
+            service: service,
+            taskId: 'task-1',
+            nowUtc: _now,
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
 
+  Future<void> savePreferredWindow(WidgetTester tester) async {
+    final save = find.text('保存期望时段');
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('保存期望时段并说明它是软约束', (tester) async {
     await pump(tester);
 
-    await tester.enterText(find.byKey(const Key('preferred-window')), '09:00-12:00');
-    await tester.tap(find.text('保存期望时段'));
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('preferred-window')),
+      '09:00-12:00',
+    );
+    await savePreferredWindow(tester);
 
     final saved = tasks.tasks['task-1']!;
     expect(saved.preferredWindow, isNotNull);
@@ -117,8 +131,7 @@ void main() {
     await pump(tester);
 
     await tester.enterText(find.byKey(const Key('preferred-window')), '');
-    await tester.tap(find.text('保存期望时段'));
-    await tester.pumpAndSettle();
+    await savePreferredWindow(tester);
 
     expect(tasks.tasks['task-1']!.preferredWindow, isNull);
   });
@@ -130,8 +143,7 @@ void main() {
     await pump(tester);
 
     await tester.enterText(find.byKey(const Key('preferred-window')), '下午两点');
-    await tester.tap(find.text('保存期望时段'));
-    await tester.pumpAndSettle();
+    await savePreferredWindow(tester);
 
     expect(find.textContaining('格式应为 09:00-12:00'), findsOneWidget);
     expect(tasks.tasks['task-1']!.preferredWindow!.startMinute, 14 * 60);
@@ -145,9 +157,11 @@ void main() {
     //
     // 注意不能用"起点晚于终点"来构造非法：22:00-02:00 这类跨午夜区间是合法的，
     // 起点大于终点本身并不表示错误。
-    await tester.enterText(find.byKey(const Key('preferred-window')), '09:00-09:00');
-    await tester.tap(find.text('保存期望时段'));
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('preferred-window')),
+      '09:00-09:00',
+    );
+    await savePreferredWindow(tester);
 
     expect(find.textContaining('期望时段无效'), findsOneWidget);
     expect(tasks.tasks['task-1']!.preferredWindow, isNull);

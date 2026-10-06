@@ -95,7 +95,9 @@ void main() {
     expect(recorded, hasLength(2));
     // 统计要看的是"每次修正多少、往哪个方向"，因此每个中间值都要留住。
     expect(
-      recorded.map((item) => '${item.previousMinutes}->${item.correctedMinutes}'),
+      recorded.map(
+        (item) => '${item.previousMinutes}->${item.correctedMinutes}',
+      ),
       containsAll(['90->150', '150->120']),
     );
   });

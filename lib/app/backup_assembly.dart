@@ -10,16 +10,18 @@ import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/files/backup_archive_adapter.dart';
 import 'package:personal_planner/platform/files/sqlite_database_lifecycle_adapter.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 /// 应用的版本号，写进备份清单。
 ///
 /// **必须与 `pubspec.yaml` 的 `version` 手工保持一致**：本项目没有 `package_info` 一类依赖，
 /// 运行时读不到真实版本。这是**已知的诚实下限**——清单里记的是这个常量，而不是假装它自动
 /// 跟随构建。日后若加入版本读取依赖，只需改这一处。
-const appVersion = '1.0.0';
+const appVersion = '1.0.8+10';
 
 /// 待恢复文件的路径：恢复**不立刻**替换正在使用的数据库，而是写到这里，等下次启动时生效。
-String pendingRestorePath(String databasePath) => '$databasePath.restore-pending';
+String pendingRestorePath(String databasePath) =>
+    '$databasePath.restore-pending';
 
 /// 待清除标记的路径：永久清除**不立刻**删库，而是写下这个标记，等下次启动时执行。
 ///
@@ -42,15 +44,133 @@ String pendingErasurePath(String databasePath) => '$databasePath.erase-pending';
 /// **为什么清除也要等到启动**：同一个理由，而且更严重——`eraseAll` 在 `DataErasureService`
 /// 里是**最后一步**，前面已经清掉了密码锁凭据与全部通知。若此时删库在 Windows 上因共享冲突
 /// 抛错，用户会留下**半清除状态**（锁没了、提醒没了、数据还在），而屏幕上只有一条错误。
-Future<String> preparePlannerDatabase() async {
-  final documents = await getApplicationDocumentsDirectory();
-  final databasePath =
+typedef PlannerDirectoryProbe = Future<bool> Function(Directory directory);
+
+/// 解析一个当前进程真正可写的数据库目录，并在首次切换路径时安全迁移旧库。
+///
+/// Windows 的“文档”目录可能能被资源管理器访问，却被当前应用身份以只读方式打开。仅凭路径
+/// 存在不能证明 SQLite 可写，所以必须先做真实写入探针；若默认目录不可写，则把旧库通过
+/// SQLite backup API 复制到便携程序的用户数据目录。原库不删除，作为迁移保险。
+Future<String> preparePlannerDatabase({
+  Future<Directory> Function()? documentsDirectory,
+  List<Directory>? fallbackDirectories,
+  PlannerDirectoryProbe? writableProbe,
+}) async {
+  final documents =
+      await (documentsDirectory ?? getApplicationDocumentsDirectory)();
+  final fallbacks =
+      fallbackDirectories ??
+      [
+        Directory(
+          '${File(Platform.resolvedExecutable).parent.path}'
+          '${Platform.pathSeparator}user-data',
+        ),
+        if (Platform.environment['LOCALAPPDATA'] case final localAppData?)
+          Directory('$localAppData${Platform.pathSeparator}PersonalPlanner'),
+      ];
+  final probe = writableProbe ?? _canWritePlannerDirectory;
+  final candidates = [documents, ...fallbacks];
+  Directory? selected;
+  for (final candidate in candidates) {
+    if (await probe(candidate)) {
+      selected = candidate;
+      break;
+    }
+  }
+  if (selected == null) {
+    throw FileSystemException(
+      '找不到可写的应用数据目录',
+      candidates.map((directory) => directory.path).join('; '),
+    );
+  }
+
+  final legacyPath =
       '${documents.path}${Platform.pathSeparator}personal_planner.sqlite';
+  final databasePath =
+      '${selected.path}${Platform.pathSeparator}personal_planner.sqlite';
+  if (!_samePath(databasePath, legacyPath)) {
+    await _migrateLegacyPlannerDatabase(
+      legacyPath: legacyPath,
+      databasePath: databasePath,
+    );
+  }
   // **顺序是刻意的：先处理清除**。若先应用恢复，被恢复的数据会活过这一整个会话，而用户
   // 上一次的动作明明是"永久清除"。
   final erased = await applyPendingErasureFor(databasePath);
   if (!erased) await applyPendingRestoreFor(databasePath);
   return databasePath;
+}
+
+Future<bool> _canWritePlannerDirectory(Directory directory) async {
+  final probe = File(
+    '${directory.path}${Platform.pathSeparator}'
+    '.planner-write-probe-$pid-${DateTime.now().microsecondsSinceEpoch}',
+  );
+  try {
+    await directory.create(recursive: true);
+    await probe.writeAsString('writable', flush: true);
+    await probe.delete();
+    return true;
+  } on FileSystemException {
+    if (await probe.exists()) {
+      try {
+        await probe.delete();
+      } on FileSystemException {
+        // 探针清理失败不改变“该目录不可可靠写入”的结论。
+      }
+    }
+    return false;
+  }
+}
+
+bool _samePath(String left, String right) {
+  final leftAbsolute = File(left).absolute.path;
+  final rightAbsolute = File(right).absolute.path;
+  if (Platform.isWindows) {
+    return leftAbsolute.toLowerCase() == rightAbsolute.toLowerCase();
+  }
+  return leftAbsolute == rightAbsolute;
+}
+
+String _legacyMigrationMarker(String databasePath) =>
+    '$databasePath.legacy-migration-complete';
+
+Future<void> _migrateLegacyPlannerDatabase({
+  required String legacyPath,
+  required String databasePath,
+}) async {
+  final destination = File(databasePath);
+  final marker = File(_legacyMigrationMarker(databasePath));
+  await destination.parent.create(recursive: true);
+  if (await marker.exists()) return;
+
+  if (!await destination.exists() &&
+      !await File(pendingErasurePath(legacyPath)).exists()) {
+    final pendingRestore = File(pendingRestorePath(legacyPath));
+    final source = await pendingRestore.exists()
+        ? pendingRestore
+        : File(legacyPath);
+    if (await source.exists()) {
+      await _backupSqliteDatabase(source.path, databasePath);
+    }
+  }
+
+  // 标记独立于数据库文件。这样用户在新目录执行“永久清除”后，旧目录里保留的迁移保险不会
+  // 在下一次启动时又被导入，造成数据“复活”。
+  await marker.writeAsString('complete', flush: true);
+}
+
+Future<void> _backupSqliteDatabase(String sourcePath, String targetPath) async {
+  Database? source;
+  Database? target;
+  try {
+    source = sqlite3.open(sourcePath, mode: OpenMode.readOnly);
+    target = sqlite3.open(targetPath);
+    await source.backup(target, nPage: -1).drain<void>();
+  } finally {
+    target?.close();
+    source?.close();
+  }
 }
 
 /// 应用待生效的**永久清除**：删掉数据库、它的 sidecar，以及任何残留的待恢复/回滚文件。

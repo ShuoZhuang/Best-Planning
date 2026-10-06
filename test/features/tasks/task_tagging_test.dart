@@ -110,15 +110,17 @@ void main() {
     await tester.enterText(find.byKey(const Key('new-tag-name')), '论文');
     await tapKey(tester, 'add-tag');
 
-    expect(
-      (await tags.tagsForTask('task-1')).map((tag) => tag.name).toList(),
-      ['论文'],
-    );
+    expect((await tags.tagsForTask('task-1')).map((tag) => tag.name).toList(), [
+      '论文',
+    ]);
     expect(chipSelected(tester, '论文'), isTrue);
     expect(find.textContaining('已更新标签：论文'), findsOneWidget);
     // 输入框被清空，方便连续加下一个。
     expect(
-      tester.widget<TextField>(find.byKey(const Key('new-tag-name'))).controller!.text,
+      tester
+          .widget<TextField>(find.byKey(const Key('new-tag-name')))
+          .controller!
+          .text,
       isEmpty,
     );
   });

@@ -136,11 +136,7 @@ void main() {
         async.flushMicrotasks();
 
         expect(creator.calls, 1);
-        expect(
-          applied,
-          isEmpty,
-          reason: 'FR-REPLAN-03：默认必须由用户确认，不能替用户应用',
-        );
+        expect(applied, isEmpty, reason: 'FR-REPLAN-03：默认必须由用户确认，不能替用户应用');
         expect(outcomes.single.applied, isFalse);
         expect(outcomes.single.awaitsConfirmation, isTrue);
         expect(outcomes.single.message, isNotEmpty);
@@ -178,7 +174,10 @@ void main() {
 
     test('自动应用失败或过期时如实说明"原有计划保留"（FR-REPLAN-05）', () {
       fakeAsync((async) {
-        final statuses = [ApplyPlanResult.stale(), ApplyPlanResult.invalid(const [])];
+        final statuses = [
+          ApplyPlanResult.stale(),
+          ApplyPlanResult.invalid(const []),
+        ];
         var index = 0;
         final outcomes = <ReplanOutcome>[];
         final coordinator = ReplanningCoordinator(

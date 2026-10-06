@@ -159,7 +159,9 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                           icon: _recalculating
                               ? const SizedBox.square(
                                   dimension: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.autorenew),
                           label: const Text('重新生成计划'),
@@ -208,9 +210,7 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(
-                        undone ? '已撤销上一次计划' : '没有可撤销的已执行计划',
-                      ),
+                      content: Text(undone ? '已撤销上一次计划' : '没有可撤销的已执行计划'),
                     ),
                   );
                 },

@@ -52,7 +52,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           workspaceService: workspace,
         ),

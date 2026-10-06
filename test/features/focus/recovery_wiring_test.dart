@@ -64,11 +64,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FocusPage(
-            service: service,
-            taskId: 'task-1',
-            taskTitle: '写方案',
-          ),
+          body: FocusPage(service: service, taskId: 'task-1', taskTitle: '写方案'),
         ),
       ),
     );
@@ -127,7 +123,9 @@ void main() {
     expect(store.saved.single.taskId, 'task-1');
     // 开始时刻由时长倒推：记录落在时间轴上的位置要与真实发生的时间一致。
     expect(
-      store.saved.single.endedAtUtc!.difference(store.saved.single.startedAtUtc),
+      store.saved.single.endedAtUtc!.difference(
+        store.saved.single.startedAtUtc,
+      ),
       const Duration(minutes: 25),
     );
     // 补录是历史记录；上面那行"当前状态"不该因此变成"已完成"。

@@ -15,6 +15,8 @@
 
 核对日期：2026-10-03。基线：`flutter analyze` 无问题、`flutter test` **494 项通过**。
 
+> 2026-10-06 补充：课表导入的自动化证据记在本文末“十六”。上面的 494 项是历史基线，不代表本轮最终数量。
+
 ---
 
 ## 一、图 1：架构分层流程图（技术设计 §3 起）
@@ -652,3 +654,31 @@ Faulting 包全名：
 
 > **为什么留这一节**：这条日志措辞是我自己写的，而它**会误导人**——本次差点据此把一次成功的冷启动
 > 记成"未被交付"。日志的措辞也是实现的一部分，含糊的措辞等于埋一个坑。
+
+---
+
+## 十六、课表导入：自动化闭环已通过，真实 OCR 仍待人工点选
+
+核对日期：2026-10-06。
+
+Windows 端到端用例 `integration_test/timetable_import_flow_test.dart` 已在桌面测试设备通过。它使用确定性 OCR 夹具，走完了选图、解析、预览、批次提交、排程避让、整批撤销和撤销后重新生成提案。断言不是“页面能打开”，而是导入后的可移动任务不与任何课程区间重叠；撤销后，日历中的该批课程归零。
+
+同轮还有三组可重跑证据：
+
+- `test/application/timetable_import_privacy_test.dart`：数据库与结构化导出只留图片哈希和基本文件名，不留原路径；OCR 底层就算返回带私密路径的错误，界面也不会照抄。
+- `test/architecture/no_network_test.dart`：继续扫描直接依赖和 `lib/` 生产代码，拒绝 HTTP、WebSocket、gRPC 与分析 SDK。
+- 课表导入项测试：覆盖 800px 窗口、返回保留编辑、缺少中文 OCR 时的手动录入、冲突课次单次排除、重复导入与受保护撤销。
+
+**不能由自动化结论代替的一项**：还需在安装了简体中文 OCR 语言能力的 Windows 实机上，用一张不含真实学号的课表图亲自点选。需检查原生 OCR 的中文文字、坐标、旋转和裁剪结果。本记录不预填“通过”；执行步骤见 `docs/testing/manual-windows-checklist.md` 的 3.7–3.10。
+
+### 16.1 有效 JPG 被误报为“无法读取”的修复（2026-10-06）
+
+实机选择的 JPG、F 盘路径、简体中文 OCR 语言能力以及 Windows 解码器均单独验证正常。原生分阶段诊断最终定位到 `StorageFile::GetFileFromPathAsync`：它在桌面 Runner 内返回 `0x80070005`，因此旧版尚未进入图片解码器就已经失败。修复后，原生层先用普通桌面文件 I/O 读取用户已选择的路径，再通过 `InMemoryRandomAccessStream` 交给 `BitmapDecoder`；不复制、上传或持久化课表原图。
+
+回归证据为 `integration_test/windows_timetable_ocr_native_test.dart`：修复前对程序现场生成的标准 PNG 稳定抛出同样的 `decode_failed`，修复后通过真实 Windows method channel 返回正确的 640×480 图像尺寸。界面错误提示也改为先检查文件是否移动或删除，再建议重新选择 PNG/JPG，避免对有效 JPG 给出自相矛盾的建议。
+
+### 16.2 受保护目录中导出被拒绝的修复（2026-10-06）
+
+旧流程先选目录，再在该目录中自行创建 `planner-export-*.csv.tmp-*`；Windows 保护的“文档”目录会拒绝这类临时文件，原界面还会把 `PathAccessException` 和用户完整路径显示出来。新流程改用标准“另存为”对话框，让用户选定最终 JSON/CSV 文件；流式内容先在系统临时区写完，再仅写入明确选定的最终路径。如果该位置仍被系统拒绝，界面不再暴露路径或内部异常，而是建议改选“下载”或其他可写位置，并提供“重新选择保存位置”。
+
+回归证据：`export_service_test.dart`、`export_page_test.dart`、`export_route_test.dart` 与 `settings_hub_test.dart` 共 19 项通过，覆盖 JSON/CSV 内容、建议文件名、取消保存、临时文件清理、路径脱敏和重试。同轮全量测试 654/654 通过，静态检查无问题，Windows 原生 OCR 通道回归通过，Release 构建成功。

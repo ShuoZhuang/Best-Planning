@@ -58,9 +58,8 @@ final class _FakeCalendar implements CalendarRepository {
     DateTime endUtc,
   ) async => occurrences
       .where(
-        (item) => item.range.overlaps(
-          TimeRange(startUtc: startUtc, endUtc: endUtc),
-        ),
+        (item) =>
+            item.range.overlaps(TimeRange(startUtc: startUtc, endUtc: endUtc)),
       )
       .toList();
   @override
@@ -254,8 +253,10 @@ void main() {
       ).load();
 
       expect(problem.lockedBlocks, hasLength(1));
-      expect(problem.lockedBlocks.single.range.startUtc,
-          DateTime.utc(2026, 10, 9, 2));
+      expect(
+        problem.lockedBlocks.single.range.startUtc,
+        DateTime.utc(2026, 10, 9, 2),
+      );
     });
 
     test('id 已经对不上任何已确认块时不钉任何东西（落地后自动失效）', () async {
@@ -347,16 +348,13 @@ void main() {
       );
 
       expect(pinned.range.startUtc, DateTime.utc(2026, 10, 7, 2));
-      expect(
-        pinned.locked,
-        isFalse,
-        reason: '未锁定的一支必须落地为未锁定，否则"可选择锁定"这一支没有意义',
-      );
+      expect(pinned.locked, isFalse, reason: '未锁定的一支必须落地为未锁定，否则"可选择锁定"这一支没有意义');
       // 未锁定的块要计入当日可移动上限；若装配与校验两侧口径不同，这里会凭空出现
       // dailyLimitExceeded 把合法提案判为无效。
       expect(
-        proposal.conflicts
-            .where((item) => item.code == ConflictCode.dailyLimitExceeded),
+        proposal.conflicts.where(
+          (item) => item.code == ConflictCode.dailyLimitExceeded,
+        ),
         isEmpty,
       );
     });
@@ -368,10 +366,7 @@ void main() {
 
       // 没有意图就不该有任何 id 为 block-1 的块——它是"已确认但未锁定"的块，引擎会
       // 重新安排任务，而不是把这一块原样搬过去。
-      expect(
-        proposal.blocks.where((block) => block.id == 'block-1'),
-        isEmpty,
-      );
+      expect(proposal.blocks.where((block) => block.id == 'block-1'), isEmpty);
     });
   });
 
@@ -405,8 +400,9 @@ void main() {
       final proposal = DeterministicScheduleEngine(zones).generate(problem);
 
       expect(
-        proposal.conflicts
-            .where((item) => item.code == ConflictCode.fixedEventOverlap),
+        proposal.conflicts.where(
+          (item) => item.code == ConflictCode.fixedEventOverlap,
+        ),
         isNotEmpty,
         reason: '与固定日程重叠必须被报出，界面据此显示「与固定日程重叠」',
       );

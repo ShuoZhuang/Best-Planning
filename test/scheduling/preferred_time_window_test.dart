@@ -93,7 +93,10 @@ void main() {
         startMinute: 9 * 60,
         endMinute: LocalTimeRange.minutesPerDay,
       );
-      expect(_score(untilMidnight, DateTime.utc(2026, 10, 5, 23), 30), _maximum);
+      expect(
+        _score(untilMidnight, DateTime.utc(2026, 10, 5, 23), 30),
+        _maximum,
+      );
       expect(_score(untilMidnight, DateTime.utc(2026, 10, 5, 8), 30), _minimum);
     });
 

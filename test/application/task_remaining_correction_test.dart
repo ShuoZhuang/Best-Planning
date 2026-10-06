@@ -26,7 +26,13 @@ void main() {
   });
 
   test('修正剩余时长会保留前后值，且不改写预计时长', () async {
-    final created = await service.quickAdd('课程论文', 180);
+    final created = await service.saveDraft(
+      const TaskDraft(
+        title: '课程论文',
+        estimatedMinutes: 180,
+        areaId: 'area-test',
+      ),
+    );
     final id = created.task!.id;
 
     clock.instant = DateTime.utc(2026, 10, 5, 11);
@@ -48,7 +54,9 @@ void main() {
   });
 
   test('允许上调剩余时长（用户可能低估了工作量）', () async {
-    final created = await service.quickAdd('科研', 120);
+    final created = await service.saveDraft(
+      const TaskDraft(title: '科研', estimatedMinutes: 120, areaId: 'area-test'),
+    );
     final corrected = await service.correctRemainingMinutes(
       created.task!.id,
       240,
@@ -60,7 +68,9 @@ void main() {
   });
 
   test('负剩余时长与不存在的任务都被拒绝且不写库', () async {
-    final created = await service.quickAdd('任务', 60);
+    final created = await service.saveDraft(
+      const TaskDraft(title: '任务', estimatedMinutes: 60, areaId: 'area-test'),
+    );
     final id = created.task!.id;
     final savesBefore = repository.saveCount;
 
@@ -82,7 +92,13 @@ void main() {
       clock: clock,
       idGenerator: _SequentialIds(),
     );
-    final created = await bare.quickAdd('无记录端口', 60);
+    final created = await bare.saveDraft(
+      const TaskDraft(
+        title: '无记录端口',
+        estimatedMinutes: 60,
+        areaId: 'area-test',
+      ),
+    );
 
     final corrected = await bare.correctRemainingMinutes(created.task!.id, 30);
 

@@ -19,7 +19,11 @@ final class PlannerArea {
       throw ArgumentError.value(name, 'name', 'Cannot be empty.');
     }
     if (sortOrder < 0) {
-      throw ArgumentError.value(sortOrder, 'sortOrder', 'Must not be negative.');
+      throw ArgumentError.value(
+        sortOrder,
+        'sortOrder',
+        'Must not be negative.',
+      );
     }
     _requireUtc(createdAtUtc, 'createdAtUtc');
     _requireUtc(updatedAtUtc, 'updatedAtUtc');

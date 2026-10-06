@@ -201,18 +201,16 @@ void main() {
       final problem = _validationProblem();
       final hash = snapshots.hash(InputSnapshot(problem: problem));
 
-      final result = await serviceOver(
-        problem,
-      ).apply(_overrideProposal(inputHash: hash, override: null));
+      final result = await serviceOver(problem)
+          .apply(_overrideProposal(inputHash: hash, override: null));
 
       expect(result.status, ApplyPlanStatus.applied);
       expect(calls, 1);
     });
 
     test('过期提案不回调（计划没变，重排只会掩盖这次确认失败）', () async {
-      final result = await serviceOver(
-        _validationProblem(),
-      ).apply(_overrideProposal(inputHash: 'stale-hash', override: null));
+      final result = await serviceOver(_validationProblem())
+          .apply(_overrideProposal(inputHash: 'stale-hash', override: null));
 
       expect(result.status, ApplyPlanStatus.staleProposal);
       expect(calls, 0);

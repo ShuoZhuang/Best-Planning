@@ -37,7 +37,7 @@ void main() {
         updatedAtUtc: _created,
       );
 
-  Future<void> seedTask(String id, String projectId) => database
+  Future<void> seedTask(String id, String projectId, String areaId) => database
       .into(database.tasks)
       .insert(
         TasksCompanion.insert(
@@ -54,6 +54,7 @@ void main() {
           createdAtUtc: 1,
           updatedAtUtc: 1,
           projectId: Value(projectId),
+          areaId: Value(areaId),
         ),
       );
 
@@ -127,8 +128,8 @@ void main() {
         updatedAtUtc: _created,
       ),
     );
-    await seedTask('task-life', 'project-life');
-    await seedTask('task-work', 'project-work');
+    await seedTask('task-life', 'project-life', '生活');
+    await seedTask('task-work', 'project-work', '工作');
 
     final lifeTaskIds = await DriftLifeAreaLookup(database).lifeTaskIds();
 

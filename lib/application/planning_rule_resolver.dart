@@ -20,7 +20,10 @@ final class PlanningRuleResolver {
     ScheduleRuleOverride? override,
   }) async {
     final startRules = await _rulesFor(startLocalDate, override);
-    final weekendRules = await _rulesFor(_nextWeekend(startLocalDate), override);
+    final weekendRules = await _rulesFor(
+      _nextWeekend(startLocalDate),
+      override,
+    );
 
     return startRules.copyWith(
       energyWindows: _mergeDistinct(

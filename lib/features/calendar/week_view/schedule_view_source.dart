@@ -1,5 +1,6 @@
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
@@ -49,6 +50,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     DateTime endUtc,
   ) async {
     final items = <ScheduleViewItem>[];
+    final window = TimeRange(startUtc: startUtc, endUtc: endUtc);
 
     for (final occurrence in await calendar.occurrencesBetween(
       startUtc,
@@ -89,6 +91,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           task.id: task.title,
       };
       for (final block in confirmed.blocks) {
+        if (!block.range.overlaps(window)) continue;
         items.add(
           ScheduleViewItem(
             id: 'block:${block.id}',
@@ -102,7 +105,9 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     }
 
     items.sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
-    return List.unmodifiable(items);
+    return List.unmodifiable(
+      items.where((item) => item.range.overlaps(window)),
+    );
   }
 }
 

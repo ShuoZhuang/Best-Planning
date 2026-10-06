@@ -42,9 +42,7 @@ void main() {
       weeklyLifeQuotaMinutes: 600,
     );
 
-    final patched = overrideFor(
-      DateTime(2026, 10, 3),
-    ).patch.applyTo(base);
+    final patched = overrideFor(DateTime(2026, 10, 3)).patch.applyTo(base);
 
     expect(patched.sleepRange, LocalTimeRange(startMinute: 60, endMinute: 480));
     expect(patched.minimumSleepMinutes, 420);

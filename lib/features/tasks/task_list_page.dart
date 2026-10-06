@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/domain/models/task.dart';
-import 'package:personal_planner/features/tasks/quick_add_form.dart';
 
 /// 清单的排序方式（FR-TASK-03 要求支持排序）。
 ///
@@ -28,7 +27,11 @@ final class TaskListPage extends StatefulWidget {
   /// 签名收的是**一组任务 id 加一个本地日期与分钟**，而不是逐条回调：整批共用同一天，
   /// 换算因此只需做一次。与"设置截止时间"同理，**页面不认识时区**——本地日期到 UTC 的
   /// 换算由注入方（持有 `TimeZoneDatabase` 的路由）完成。
-  final Future<bool> Function(List<String> taskIds, DateTime localDate, int minute)?
+  final Future<bool> Function(
+    List<String> taskIds,
+    DateTime localDate,
+    int minute,
+  )?
   onSetDueDateForSelection;
 
   @override
@@ -72,7 +75,15 @@ final class _TaskListPageState extends State<TaskListPage> {
         children: [
           Text('任务清单', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 16),
-          QuickAddForm(service: widget.service),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              key: const Key('new-task'),
+              onPressed: () => context.go('/tasks/new'),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('新建任务'),
+            ),
+          ),
           const SizedBox(height: 16),
           Row(
             children: [
@@ -80,21 +91,25 @@ final class _TaskListPageState extends State<TaskListPage> {
                 child: SearchBar(
                   hintText: '搜索任务',
                   leading: const Icon(Icons.search),
-                  onChanged: (value) =>
-                      setState(() => _query = value.trim()),
+                  onChanged: (value) => setState(() => _query = value.trim()),
                 ),
               ),
               const SizedBox(width: 12),
               DropdownButton<_TaskSort>(
                 key: const Key('task-sort'),
                 value: _sort,
-                onChanged: (value) => setState(
-                  () => _sort = value ?? _TaskSort.none,
-                ),
+                onChanged: (value) =>
+                    setState(() => _sort = value ?? _TaskSort.none),
                 items: const [
                   DropdownMenuItem(value: _TaskSort.none, child: Text('默认顺序')),
-                  DropdownMenuItem(value: _TaskSort.dueDate, child: Text('按截止时间')),
-                  DropdownMenuItem(value: _TaskSort.priority, child: Text('按优先级')),
+                  DropdownMenuItem(
+                    value: _TaskSort.dueDate,
+                    child: Text('按截止时间'),
+                  ),
+                  DropdownMenuItem(
+                    value: _TaskSort.priority,
+                    child: Text('按优先级'),
+                  ),
                   DropdownMenuItem(
                     value: _TaskSort.estimatedMinutes,
                     child: Text('按预计时长'),

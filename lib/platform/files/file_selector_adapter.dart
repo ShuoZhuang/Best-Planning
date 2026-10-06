@@ -7,7 +7,21 @@ final class FileSelectorAdapter implements ExportFilePort {
   const FileSelectorAdapter();
 
   @override
-  Future<String?> chooseDirectory() => getDirectoryPath();
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async {
+    final location = await getSaveLocation(
+      suggestedName: suggestedName,
+      acceptedTypeGroups: [
+        XTypeGroup(
+          label: extension == 'json' ? 'JSON 数据' : 'CSV 表格',
+          extensions: [extension],
+        ),
+      ],
+    );
+    return location?.path;
+  }
 
   Future<String?> chooseBackupDestination() async {
     final location = await getSaveLocation(
@@ -29,28 +43,26 @@ final class FileSelectorAdapter implements ExportFilePort {
   }
 
   @override
-  Future<String> writeNewFile({
-    required String directory,
-    required String preferredName,
+  Future<String> writeFile({
+    required String destination,
     required Stream<List<int>> bytes,
   }) async {
-    final parent = Directory(directory);
-    if (!await parent.exists()) {
-      throw FileSystemException('导出目录不存在', directory);
-    }
-    final destination = await _availableFile(parent, preferredName);
-    final temporary = File(
-      '${destination.path}.tmp-$pid-${DateTime.now().microsecondsSinceEpoch}',
+    final target = File(destination);
+    final staging = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}'
+      'planner-export-$pid-${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
     IOSink? sink;
     try {
-      sink = temporary.openWrite(mode: FileMode.writeOnly);
+      sink = staging.openWrite(mode: FileMode.writeOnly);
       await sink.addStream(bytes);
       await sink.flush();
       await sink.close();
       sink = null;
-      await temporary.rename(destination.path);
-      return destination.path;
+      await staging.copy(target.path);
+      return target.path;
+    } on FileSystemException {
+      throw const ExportWriteException();
     } catch (_) {
       if (sink != null) {
         try {
@@ -59,25 +71,22 @@ final class FileSelectorAdapter implements ExportFilePort {
           // Preserve the original write error.
         }
       }
-      if (await temporary.exists()) await temporary.delete();
       rethrow;
+    } finally {
+      if (sink != null) {
+        try {
+          await sink.close();
+        } catch (_) {
+          // Cleanup must not replace the original export error.
+        }
+      }
+      if (await staging.exists()) {
+        try {
+          await staging.delete();
+        } catch (_) {
+          // The export result is more important than staging cleanup failure.
+        }
+      }
     }
-  }
-
-  static Future<File> _availableFile(
-    Directory parent,
-    String preferredName,
-  ) async {
-    final separator = Platform.pathSeparator;
-    final dot = preferredName.lastIndexOf('.');
-    final stem = dot > 0 ? preferredName.substring(0, dot) : preferredName;
-    final extension = dot > 0 ? preferredName.substring(dot) : '';
-    var candidate = File('${parent.path}$separator$preferredName');
-    var suffix = 2;
-    while (await candidate.exists()) {
-      candidate = File('${parent.path}$separator$stem ($suffix)$extension');
-      suffix++;
-    }
-    return candidate;
   }
 }

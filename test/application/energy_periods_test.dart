@@ -14,13 +14,8 @@ final _zones = TimeZoneDatabase();
 const _timeZoneId = 'Asia/Shanghai';
 
 /// 2026-10-05 是**周一**；下面所有 UTC 时刻都指向这一个本地日。
-DateTime _local(int hour, int minute, {int day = 5}) => DateTime.utc(
-  2026,
-  10,
-  day,
-  hour - 8,
-  minute,
-);
+DateTime _local(int hour, int minute, {int day = 5}) =>
+    DateTime.utc(2026, 10, day, hour - 8, minute);
 
 final class _Source implements AnalyticsDataSource {
   _Source(this.dataset);
@@ -29,17 +24,18 @@ final class _Source implements AnalyticsDataSource {
   Future<AnalyticsDataset> load(AnalyticsFilter filter) async => dataset;
 }
 
-AnalyticsTaskFact _task(String id, {DateTime? completedAtUtc}) => AnalyticsTaskFact(
-  id: id,
-  title: id,
-  areaId: null,
-  areaName: null,
-  projectId: null,
-  status: completedAtUtc == null ? TaskStatus.open : TaskStatus.completed,
-  estimatedMinutes: 30,
-  isLifeTask: false,
-  completedAtUtc: completedAtUtc,
-);
+AnalyticsTaskFact _task(String id, {DateTime? completedAtUtc}) =>
+    AnalyticsTaskFact(
+      id: id,
+      title: id,
+      areaId: null,
+      areaName: null,
+      projectId: null,
+      status: completedAtUtc == null ? TaskStatus.open : TaskStatus.completed,
+      estimatedMinutes: 30,
+      isLifeTask: false,
+      completedAtUtc: completedAtUtc,
+    );
 
 void main() {
   final filter = AnalyticsFilter(
@@ -138,14 +134,8 @@ void main() {
       ),
     );
 
-    expect(
-      periods.firstWhere((item) => item.label == '高精力').completedTasks,
-      1,
-    );
-    expect(
-      periods.firstWhere((item) => item.label == '低精力').completedTasks,
-      1,
-    );
+    expect(periods.firstWhere((item) => item.label == '高精力').completedTasks, 1);
+    expect(periods.firstWhere((item) => item.label == '低精力').completedTasks, 1);
   });
 
   test('isWeekend 为 null 的区间每天都适用，周末的投入不会被丢掉', () async {
@@ -208,16 +198,15 @@ void main() {
     isWeekend: null,
   );
 
-  AnalyticsDataset withLunch({
-    List<AnalyticsActualFact> actual = const [],
-  }) => AnalyticsDataset(
-    weeklyLifeQuotaMinutes: 600,
-    protectedWindows: const [lunch],
-    actualEntries: actual,
-    // 服务会先按**筛选出的任务**过滤实际投入，因此这些条目必须带有对应任务，否则会被整条
-    // 丢掉——本文件第一版夹具正是漏了这一点，"被占用"因此恒为 0，是用例把错误顶了出来。
-    tasks: [for (final entry in actual) _task(entry.taskId)],
-  );
+  AnalyticsDataset withLunch({List<AnalyticsActualFact> actual = const []}) =>
+      AnalyticsDataset(
+        weeklyLifeQuotaMinutes: 600,
+        protectedWindows: const [lunch],
+        actualEntries: actual,
+        // 服务会先按**筛选出的任务**过滤实际投入，因此这些条目必须带有对应任务，否则会被整条
+        // 丢掉——本文件第一版夹具正是漏了这一点，"被占用"因此恒为 0，是用例把错误顶了出来。
+        tasks: [for (final entry in actual) _task(entry.taskId)],
+      );
 
   Future<RestProtectionMetric?> protection(AnalyticsDataset dataset) async {
     final service = AnalyticsService(
@@ -281,9 +270,7 @@ void main() {
     );
     expect(withoutWindows, isNull);
 
-    final withoutZones = AnalyticsService(
-      source: _Source(withLunch()),
-    );
+    final withoutZones = AnalyticsService(source: _Source(withLunch()));
     final report = await withoutZones.query(filter);
     expect(report.restProtection, isNull);
   });

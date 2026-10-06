@@ -58,11 +58,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FocusPage(
-            service: service,
-            taskId: 'task-1',
-            taskTitle: '写方案',
-          ),
+          body: FocusPage(service: service, taskId: 'task-1', taskTitle: '写方案'),
         ),
       ),
     );
@@ -81,9 +77,7 @@ void main() {
     // **问原因时计时还没停**：取消（下面那条）必须能什么都不做。
     expect(recorded, isEmpty);
 
-    await tester.tap(
-      find.byKey(const Key('pause-reason-interruptedByOthers')),
-    );
+    await tester.tap(find.byKey(const Key('pause-reason-interruptedByOthers')));
     await tester.pumpAndSettle();
 
     expect(recorded, <InterruptionReason?>[

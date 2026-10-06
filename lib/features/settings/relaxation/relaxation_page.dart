@@ -145,9 +145,7 @@ final class _RelaxationPageState extends State<RelaxationPage> {
               key: const Key('relaxation-minutes'),
               controller: _minutes,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '放宽后的每日上限（分钟）',
-              ),
+              decoration: const InputDecoration(labelText: '放宽后的每日上限（分钟）'),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),

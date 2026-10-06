@@ -47,7 +47,9 @@ final class PlanningService implements ProposalCreator {
   final Map<String, ScheduleProposal> _previews = {};
 
   @override
-  Future<ScheduleProposal> createProposal({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProposal> createProposal({
+    ScheduleRuleOverride? override,
+  }) async {
     final rawProblem = await source.load(override: override);
     final inputHash = snapshots.hash(InputSnapshot(problem: rawProblem));
     final problem = _withInputHash(rawProblem, inputHash);

@@ -155,8 +155,9 @@ void main() {
       await seedOverride('2026-10-03', '{}');
       expect(await relaxed(), hasLength(1));
 
-      await (database.delete(database.settings)
-            ..where((row) => row.key.equals('planning.dateOverride.2026-10-03')))
+      await (database.delete(
+            database.settings,
+          )..where((row) => row.key.equals('planning.dateOverride.2026-10-03')))
           .go();
 
       expect(await relaxed(), isEmpty);

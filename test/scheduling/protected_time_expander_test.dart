@@ -150,14 +150,11 @@ void main() {
       timeZoneId: 'America/New_York',
     );
 
-    expect(
-      intervals.map((item) => item.range.startUtc).toList(),
-      [
-        DateTime.utc(2026, 3, 7, 17),
-        DateTime.utc(2026, 3, 8, 16),
-        DateTime.utc(2026, 3, 9, 16),
-      ],
-    );
+    expect(intervals.map((item) => item.range.startUtc).toList(), [
+      DateTime.utc(2026, 3, 7, 17),
+      DateTime.utc(2026, 3, 8, 16),
+      DateTime.utc(2026, 3, 9, 16),
+    ]);
     for (final item in intervals) {
       expect(item.range.durationMinutes, 60);
     }

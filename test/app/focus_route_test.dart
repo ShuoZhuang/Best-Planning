@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/app/router.dart';
+import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
@@ -112,7 +113,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           taskRepository: _Tasks({'task-1': _task()}),
           focusService: focusService,
@@ -166,6 +168,7 @@ void main() {
     final router = createPlannerRouter(
       taskService: buildTasks(const {}),
       settingsService: SettingsService(repository: MemorySettingsRepository()),
+      appearance: AppearanceService(MemorySettingsRepository()),
       scheduleSource: const EmptyScheduleViewSource(),
       moveController: const DisabledWeekMoveController(),
       autoAdjustStore: MemoryAutoAdjustStore(),
@@ -189,6 +192,7 @@ void main() {
     final router = createPlannerRouter(
       taskService: buildTasks({'task-1': _task()}),
       settingsService: SettingsService(repository: MemorySettingsRepository()),
+      appearance: AppearanceService(MemorySettingsRepository()),
       scheduleSource: const EmptyScheduleViewSource(),
       moveController: const DisabledWeekMoveController(),
       autoAdjustStore: MemoryAutoAdjustStore(),

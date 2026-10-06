@@ -36,9 +36,9 @@ void main() {
 
   tearDown(() => database.close());
 
-  Future<AnalyticsReport> report() => AnalyticsService(
-    source: AnalyticsDao(database),
-  ).query(AnalyticsFilter(startUtc: start, endUtc: end));
+  Future<AnalyticsReport> report() =>
+      AnalyticsService(source: AnalyticsDao(database))
+          .query(AnalyticsFilter(startUtc: start, endUtc: end));
 
   test('建议事件写进去之后统计读得出来（此前恒为零）', () async {
     final at = DateTime.utc(2026, 10, 3, 9);
@@ -137,7 +137,12 @@ List<PreferenceEvidence> _strongEvidence() => [
       id: 'e-$index',
       kind: PreferenceEvidenceKind.focusCompletion,
       subjectKey: 'area:study',
-      observedAtUtc: DateTime.utc(2026, 9, index % 14 + 1, index.isEven ? 9 : 19),
+      observedAtUtc: DateTime.utc(
+        2026,
+        9,
+        index % 14 + 1,
+        index.isEven ? 9 : 19,
+      ),
       numericValue: index.isEven ? 0.9 : 0.6,
       metadata: {'timeBucket': index.isEven ? 'morning' : 'evening'},
     ),

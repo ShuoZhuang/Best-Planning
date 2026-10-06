@@ -40,10 +40,10 @@ void main() {
   });
 
   test('原本没有该任务的块 → 即使一次来了两块也是 added', () {
-    final diff = differ.diff(
-      const [],
-      [_block('a', 'task-1', 9), _block('b', 'task-1', 11)],
-    );
+    final diff = differ.diff(const [], [
+      _block('a', 'task-1', 9),
+      _block('b', 'task-1', 11),
+    ]);
 
     // "原本有块"为假，因此不构成拆分，而是首次排入。
     expect(

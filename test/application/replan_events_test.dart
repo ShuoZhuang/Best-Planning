@@ -125,10 +125,9 @@ void main() {
     await build().correctRemainingMinutes('task-1', 30);
 
     expect(changes, hasLength(3));
-    expect(
-      [for (final change in changes) change.kind],
-      everyElement(DomainChangeKind.taskSchedulingChanged),
-    );
+    expect([
+      for (final change in changes) change.kind,
+    ], everyElement(DomainChangeKind.taskSchedulingChanged));
   });
 
   test('失败的修改不记原因（改不动就没有重排）', () async {
@@ -144,8 +143,14 @@ void main() {
     // `DomainChangeKind.taskCreated` 曾在枚举里躺着而**没有任何代码发出它**，于是"新建任务
     // 即自动重算计划"不成立——只有改截止日期／优先级／剩余时长／状态这四类会触发。这三条把
     // 两个录入入口都钉住，否则它会悄悄退回去。
-    test('快速录入记一条"新建任务"，类别是 taskCreated', () async {
-      await build().quickAdd('写方案', 60);
+    test('完整新建记一条"新建任务"，类别是 taskCreated', () async {
+      await build().saveDraft(
+        const TaskDraft(
+          title: '写方案',
+          estimatedMinutes: 60,
+          areaId: 'area-test',
+        ),
+      );
 
       expect(reasons, <String>['新建任务']);
       expect(changes.single.kind, DomainChangeKind.taskCreated);
@@ -153,7 +158,11 @@ void main() {
 
     test('完整草稿保存同样记一条"新建任务"', () async {
       final result = await build().saveDraft(
-        const TaskDraft(title: '写方案', estimatedMinutes: 60),
+        const TaskDraft(
+          title: '写方案',
+          estimatedMinutes: 60,
+          areaId: 'area-test',
+        ),
       );
 
       expect(result.isSuccess, isTrue);
@@ -164,7 +173,7 @@ void main() {
       final service = build();
 
       final result = await service.saveDraft(
-        const TaskDraft(title: '  ', estimatedMinutes: 60),
+        const TaskDraft(title: '  ', estimatedMinutes: 60, areaId: 'area-test'),
       );
 
       expect(result.isSuccess, isFalse);
@@ -218,7 +227,9 @@ void main() {
   });
 
   test('延后量为零或负值时拒绝', () async {
-    tasks.tasks['task-1'] = _task().copyWith(dueAtUtc: DateTime.utc(2026, 10, 20, 9));
+    tasks.tasks['task-1'] = _task().copyWith(
+      dueAtUtc: DateTime.utc(2026, 10, 20, 9),
+    );
 
     await build().deferTask('task-1', by: Duration.zero);
     await build().deferTask('task-1', by: const Duration(days: -1));

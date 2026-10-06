@@ -30,8 +30,7 @@ final class _InterruptionReasonDialog extends StatelessWidget {
             key: Key('pause-reason-${reason.name}'),
             title: Text(reason.label),
             contentPadding: EdgeInsets.zero,
-            onTap: () =>
-                Navigator.of(context).pop(_PauseChoice(reason)),
+            onTap: () => Navigator.of(context).pop(_PauseChoice(reason)),
           ),
       ],
     ),
@@ -43,8 +42,7 @@ final class _InterruptionReasonDialog extends StatelessWidget {
       ),
       TextButton(
         key: const Key('pause-skip'),
-        onPressed: () =>
-            Navigator.of(context).pop(const _PauseChoice(null)),
+        onPressed: () => Navigator.of(context).pop(const _PauseChoice(null)),
         child: const Text('跳过'),
       ),
     ],
@@ -153,11 +151,12 @@ final class _FocusPageState extends State<FocusPage> {
       nowUtc: DateTime.now().toUtc(),
       plannedEndUtc: widget.plannedEndUtc,
     );
-    await _run(() => widget.service.resume(plannedEndUtc: widget.plannedEndUtc));
-    if (!mounted || !beyond) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已超出原计划时段，剩余待办时间将重新排程')),
+    await _run(
+      () => widget.service.resume(plannedEndUtc: widget.plannedEndUtc),
     );
+    if (!mounted || !beyond) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('已超出原计划时段，剩余待办时间将重新排程')));
   }
 
   Future<void> _pause() async {
@@ -186,8 +185,8 @@ final class _FocusPageState extends State<FocusPage> {
       );
       if (!mounted) return;
       setState(
-        () => _backfillStatus =
-            '已补录 ${session.activeMinutes} 分钟（${session.id}）',
+        () =>
+            _backfillStatus = '已补录 ${session.activeMinutes} 分钟（${session.id}）',
       );
     } on FocusTransitionException catch (error) {
       if (mounted) setState(() => _backfillStatus = error.message);

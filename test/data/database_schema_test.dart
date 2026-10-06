@@ -11,7 +11,7 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('创建全部十六张核心表并启用外键', () async {
+  test('创建全部二十张核心表并启用外键', () async {
     // 断言 **SQLite 自己**的表目录，而不是 `database.allTables`：后者是 drift 依据 schema
     // 声明生成的列表，拿它跟字面量比对等于把声明抄一遍——它发现不了"迁移里漏了一句
     // CREATE TABLE"，而那恰好是本用例标题所声称要检查的事（§13.0 的 T3）。
@@ -32,6 +32,10 @@ void main() {
       'preference_evidence',
       'preference_rules',
       'change_log',
+      'academic_terms',
+      'period_templates',
+      'period_template_entries',
+      'timetable_import_batches',
     };
     final rows = await database
         .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")

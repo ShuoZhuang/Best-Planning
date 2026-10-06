@@ -32,8 +32,18 @@ void main() {
   late _Clock clock;
   late TaskService service;
 
-  setUp(() {
+  setUp(() async {
     database = AppDatabase.forTesting(NativeDatabase.memory());
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-test',
+            name: '测试领域',
+            color: 0,
+            sortOrder: 0,
+          ),
+        );
     clock = _Clock(_now);
     service = TaskService(
       repository: DriftTaskRepository(database.taskDao),
@@ -44,14 +54,19 @@ void main() {
 
   tearDown(() => database.close());
 
-  Future<String> newTask() async =>
-      (await service.quickAdd('写方案', 60)).task!.id;
+  Future<String> newTask() async => (await service.saveDraft(
+    const TaskDraft(title: '写方案', estimatedMinutes: 60, areaId: 'area-test'),
+  )).task!.id;
 
   test('写入期望时段并落到数据库的两列上', () async {
     final taskId = await newTask();
 
     expect(
-      await service.setPreferredWindow(taskId, startMinute: 540, endMinute: 720),
+      await service.setPreferredWindow(
+        taskId,
+        startMinute: 540,
+        endMinute: 720,
+      ),
       isTrue,
     );
 
@@ -81,7 +96,10 @@ void main() {
       ),
       isTrue,
     );
-    expect((await service.findById(taskId))!.preferredWindow!.crossesMidnight, isTrue);
+    expect(
+      (await service.findById(taskId))!.preferredWindow!.crossesMidnight,
+      isTrue,
+    );
   });
 
   test('两个参数都为 null 表示清除偏好', () async {
@@ -107,12 +125,20 @@ void main() {
     expect(await service.setPreferredWindow(taskId, startMinute: 540), isFalse);
     // 起点不早于终点。
     expect(
-      await service.setPreferredWindow(taskId, startMinute: 720, endMinute: 720),
+      await service.setPreferredWindow(
+        taskId,
+        startMinute: 720,
+        endMinute: 720,
+      ),
       isFalse,
     );
     // 超出一日范围。
     expect(
-      await service.setPreferredWindow(taskId, startMinute: 540, endMinute: 1500),
+      await service.setPreferredWindow(
+        taskId,
+        startMinute: 540,
+        endMinute: 1500,
+      ),
       isFalse,
     );
 
@@ -128,7 +154,11 @@ void main() {
 
     clock.value = _later;
     expect(
-      await service.setPreferredWindow(taskId, startMinute: 540, endMinute: 720),
+      await service.setPreferredWindow(
+        taskId,
+        startMinute: 540,
+        endMinute: 720,
+      ),
       isTrue,
     );
 
@@ -137,7 +167,11 @@ void main() {
 
   test('任务不存在时返回 false', () async {
     expect(
-      await service.setPreferredWindow('missing', startMinute: 540, endMinute: 720),
+      await service.setPreferredWindow(
+        'missing',
+        startMinute: 540,
+        endMinute: 720,
+      ),
       isFalse,
     );
   });

@@ -104,7 +104,9 @@ void main() {
   });
   // FR-REPLAN-08：撤销入口。两条用例分别钉住"确实撤销时给出已撤销"，以及"无可撤销时
   // 这是正常结局而不是故障"——后者若被当成异常，用户会看到一个错误提示。
-  testWidgets('undo button reports the outcome it actually got', (tester) async {
+  testWidgets('undo button reports the outcome it actually got', (
+    tester,
+  ) async {
     var calls = 0;
     await tester.pumpWidget(
       MaterialApp(

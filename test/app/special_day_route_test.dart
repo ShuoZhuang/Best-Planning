@@ -41,7 +41,9 @@ final class _ImmediateCreator implements ProposalCreator {
   int calls = 0;
 
   @override
-  Future<ScheduleProposal> createProposal({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProposal> createProposal({
+    ScheduleRuleOverride? override,
+  }) async {
     calls++;
     return ScheduleProposal(
       proposalId: 'recovery-proposal',
@@ -73,10 +75,7 @@ void main() {
     );
   });
 
-  Future<void> pumpApp(
-    WidgetTester tester, {
-    bool withRecovery = true,
-  }) async {
+  Future<void> pumpApp(WidgetTester tester, {bool withRecovery = true}) async {
     tester.view.physicalSize = const Size(1200, 1800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -87,7 +86,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           recovery: withRecovery ? recovery : null,
           calendar: withRecovery ? const _NoEvents() : null,

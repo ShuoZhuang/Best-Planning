@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-05-task-area-and-timetable-import-design.md`
 
+> **执行状态（2026-10-06 更新）：任务 1–6 已完成；任务 7 的自动化验证、文档、版本与 Release 构建已完成，只剩真实 Windows 中文 OCR 图片的人工点选烟测。**
+> - 任务 1–3：台账已记录并通过（schema v6 迁移/往返 26 个测试；OCR 契约与通道 9 个测试 + 真实 Windows debug 构建；解析器 3 个测试）。
+> - 任务 4–5：代码与测试均已写完，2026-10-05 复核时 5 个测试文件 **12/12 通过**；但台账最后一条只记到任务 3（21:26），任务 4–5 写于 21:30–21:47 后中断，**未回写台账**。因此这两步的「运行并确认失败」（RED）没有留存证据，勾选时保留为 `[ ]`。
+> - 任务 6：五步向导、日历入口、旋转/裁剪重新识别、校对、学期双向换算、节次、冲突/重复预览、批次撤销均已接通。
+> - 任务 7：无网络与原图隐私门禁、Windows 端到端闭环、使用教程、人工验收清单、`1.0.8+10` / `1.0.8.0` 修复版与 Release EXE 已完成；真实语言包和课表图仍需人工验证。
+> - 已知缺陷（阻断绿灯，详见[执行状态报告](./2026-10-05-execution-status.md)）：`test/data/database_schema_test.dart` 仍断言 19 张表，而 v6 已新增 `timetable_import_batches`（全套 639 通过 / 1 失败）；`flutter analyze` 有 2 条 info 出自本次课表代码。
+>
+> 勾选口径：仅对已完成的实现与验证步骤标 `[x]`；**Commit** 步骤一律保持 `[ ]`（工作树含用户未提交改动，按台账裁定跳过逐任务提交）。
+
 ## Global Constraints
 
 - Requires both earlier plans and schema v5.
@@ -52,21 +61,21 @@
 - Produces enum: `CalendarEventSourceKind.manual`, `timetableImport`
 - Migration: schema v5 → v6
 
-- [ ] **Step 1: Write failing migration and round-trip tests**
+- [x] **Step 1: Write failing migration and round-trip tests**
 
 Assert old events migrate with empty location/notes, `sourceKind == manual`, and null import metadata. Assert a timetable event round-trips all new fields. Assert an import batch references an existing academic term and rejects a missing one.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/drift/app_database/schema_migration_test.dart test/data/repository_round_trip_test.dart`
 
 Expected: FAIL because v6 fields and table do not exist.
 
-- [ ] **Step 3: Implement schema v6 and calendar mapping**
+- [x] **Step 3: Implement schema v6 and calendar mapping**
 
 Create `TimetableImportBatches` with the spec fields and timestamps. Create the batch table before adding `calendar_events.importBatchId`; add safe defaults for new non-null event columns. Extend `CalendarEvent`, `CalendarOccurrence`, copy methods, and Drift repository mapping.
 
-- [ ] **Step 4: Regenerate Drift and fixtures**
+- [x] **Step 4: Regenerate Drift and fixtures**
 
 Run:
 
@@ -78,7 +87,7 @@ dart run drift_dev schema generate drift_schemas/app_database/ test/drift/app_da
 
 Expected: v6 generated code compiles.
 
-- [ ] **Step 5: Run tests and verify pass**
+- [x] **Step 5: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -110,25 +119,25 @@ git commit -m "feat: add timetable import persistence"
 - Method channel: `personal_planner/timetable_ocr`, method `recognize`
 - Error codes: `language_unavailable`, `image_too_large`, `decode_failed`, `recognition_failed`
 
-- [ ] **Step 1: Write failing contract and channel tests**
+- [x] **Step 1: Write failing contract and channel tests**
 
 Mock the method channel and assert request serialization, word-bound deserialization, nullable text angle, and each platform error mapping. Assert unsupported platforms return a typed unavailable result rather than throwing an opaque platform exception.
 
-- [ ] **Step 2: Run Dart tests and verify failure**
+- [x] **Step 2: Run Dart tests and verify failure**
 
 Run: `flutter test test/domain/timetable_ocr_contract_test.dart test/platform/windows_timetable_ocr_test.dart`
 
 Expected: FAIL because the OCR port and adapter do not exist.
 
-- [ ] **Step 3: Implement the Dart port and Windows method-channel client**
+- [x] **Step 3: Implement the Dart port and Windows method-channel client**
 
 Keep platform maps inside `WindowsTimetableOcr`; domain objects contain no Flutter types. Use normalized crop coordinates and `quarterTurns` 0–3 in the request.
 
-- [ ] **Step 4: Implement C++/WinRT recognition**
+- [x] **Step 4: Implement C++/WinRT recognition**
 
 Initialize the channel from `FlutterWindow`. Decode the selected file into `SoftwareBitmap`, apply crop/rotation, select `zh-Hans` through `OcrEngine::IsLanguageSupported`/`TryCreateFromLanguage`, enforce `OcrEngine::MaxImageDimension`, call `RecognizeAsync`, and return lines/words with `Text`, `BoundingRect`, plus `OcrResult::TextAngle`. Link `windowsapp` in CMake. Never return the image bytes or path in an error message.
 
-- [ ] **Step 5: Run tests and a Windows build**
+- [x] **Step 5: Run tests and a Windows build**
 
 Run:
 
@@ -161,21 +170,21 @@ git commit -m "feat: add local Windows timetable OCR"
 - Produces: `WeekSpan(startWeek, endWeek, parity)` where parity is every/odd/even
 - Produces typed review reasons: missingName, missingWeeks, ambiguousWeekday, ambiguousPeriods, invalidRange, unparsedText
 
-- [ ] **Step 1: Create deterministic OCR fixtures and failing parser tests**
+- [x] **Step 1: Create deterministic OCR fixtures and failing parser tests**
 
 Fixtures contain only synthetic text/bounds, not the user’s raw screenshots. Assert parsing for `1–16周`, `1–13周`, `2–6(双周)`, `1–4周`, multi-line names, teacher/location suffixes, and geometry-only period spans. Assert ambiguous cells remain drafts with review reasons rather than being dropped.
 
-- [ ] **Step 2: Run parser tests and verify failure**
+- [x] **Step 2: Run parser tests and verify failure**
 
 Run: `flutter test test/domain/timetable_parser_test.dart`
 
 Expected: FAIL because parser types do not exist.
 
-- [ ] **Step 3: Implement staged parsing**
+- [x] **Step 3: Implement staged parsing**
 
 Implement small pure functions for text normalization, weekday band detection, period-row detection, cell grouping, week-range parsing, and teacher/location extraction. Use word-center coordinates to assign columns/rows; preserve original cell text on every draft for manual correction.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run: `flutter test test/domain/timetable_parser_test.dart`
 
@@ -202,7 +211,7 @@ git commit -m "feat: parse timetable OCR into course drafts"
 - Produces exact duplicate key from normalized name, weekday, periods, week spans, parity, and term
 - No repository write methods are called by `preview`
 
-- [ ] **Step 1: Write failing preview tests**
+- [x] **Step 1: Write failing preview tests**
 
 Assert: 1–16 weekly expands to 16 occurrences; 2–6 even expands to weeks 2, 4, 6; consecutive periods use first start and last end; non-contiguous spans create separate series; fixed-event overlaps become conflicts; exact duplicates default to skip; teacher/location-only differences become possible updates; preview invokes no writes.
 
@@ -212,11 +221,11 @@ Run: `flutter test test/application/timetable_conflict_detector_test.dart test/a
 
 Expected: FAIL because preview services do not exist.
 
-- [ ] **Step 3: Implement deterministic preview**
+- [x] **Step 3: Implement deterministic preview**
 
 Convert each week span to a `RecurrenceRule` using the academic term’s first Monday and the period template. Reuse `RecurrenceExpander` for concrete dates. Query existing calendar occurrences only for the term window. Sort all preview output by course, weekday, start time, then local date for stable UI/tests.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -245,7 +254,7 @@ git commit -m "feat: preview timetable imports and conflicts"
 - Produces: `rollback(batchId, {Set<String> forceEventIds = const {}}) -> Future<RollbackResult>`
 - Emits one `ScheduleInputChange` after a successful transaction
 
-- [ ] **Step 1: Write failing transaction tests**
+- [x] **Step 1: Write failing transaction tests**
 
 Assert a commit creates one batch plus all anchors/rules, marks events locked and `sourceKind=timetableImport`, and rolls back everything on an injected failure. Assert same image hash + term is surfaced as a duplicate batch. Assert rollback deletes untouched imports, protects events whose `updatedAtUtc` changed or that gained exceptions, and succeeds only for explicitly forced protected IDs.
 
@@ -255,11 +264,11 @@ Run: `flutter test test/data/timetable_import_repository_test.dart test/applicat
 
 Expected: FAIL because batch repository operations do not exist.
 
-- [ ] **Step 3: Implement the Drift transaction and service callbacks**
+- [x] **Step 3: Implement the Drift transaction and service callbacks**
 
 Insert batch, recurrence rules, and event anchors in one `database.transaction`. Use one `logicalCourseId` for all time/range series originating from the same reviewed course. Save SHA-256 and base filename only. For rollback, compare current event/exception state with imported state before deletion and mark the batch `rolledBack` in the same transaction.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -296,7 +305,7 @@ git commit -m "feat: commit and undo timetable import batches"
 - Wizard steps: upload, review, term, periods, preview
 - Consumes: `TimetableOcrEngine`, `TimetableParser`, `AcademicCalendarService`, `TimetableImportService`, `WorkspaceService`
 
-- [ ] **Step 1: Write failing wizard tests with fake OCR**
+- [x] **Step 1: Write failing wizard tests with fake OCR**
 
 Assert the calendar action opens the route; image selection starts local recognition; language-unavailable shows manual-entry action; review rows can add/delete/edit courses and area/project; back/next preserves edits; week number and first Monday update each other; period rows validate; final preview shows counts/conflicts/duplicates; commit is disabled while unresolved review reasons remain.
 
@@ -306,15 +315,15 @@ Run: `flutter test test/features/calendar/timetable_import_page_test.dart test/f
 
 Expected: FAIL because the route and wizard do not exist.
 
-- [ ] **Step 3: Implement controller-owned wizard state**
+- [x] **Step 3: Implement controller-owned wizard state**
 
 Keep the selected file path and editable draft in the controller until completion/cancel. Step widgets are presentational and receive immutable state plus callbacks. Default the course area to 学业 and filter optional projects by that area. Allow crop/quarter-turn updates to trigger explicit re-recognition, not silent background replacement.
 
-- [ ] **Step 4: Implement preview actions and commit feedback**
+- [x] **Step 4: Implement preview actions and commit feedback**
 
 Each conflict supports skip course, exclude occurrence, or mark pending; each duplicate supports skip/update/create. Show exact course/series/occurrence counts. After commit, return to calendar, trigger the existing replan preview/auto-adjust policy, and offer “撤销本次导入”.
 
-- [ ] **Step 5: Run tests and verify pass**
+- [x] **Step 5: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -341,7 +350,7 @@ git commit -m "feat: add guided timetable import wizard"
 - End-to-end fixture uses fake OCR; native OCR gets a separate manual Windows smoke check
 - Release artifact must include the updated Windows runner
 
-- [ ] **Step 1: Add failing privacy and end-to-end assertions**
+- [x] **Step 1: Add failing privacy and end-to-end assertions**
 
 Assert no HTTP client/network dependency is introduced; diagnostic output and backup/export facts contain no raw image path or bytes; imported course occurrences block movable-task scheduling; batch rollback restores the pre-import calendar and produces a replan preview.
 
@@ -351,11 +360,11 @@ Run: `flutter test test/architecture/no_network_test.dart test/application/timet
 
 Expected: FAIL until all wiring and privacy filters are complete.
 
-- [ ] **Step 3: Complete assembly, documentation, and version bump**
+- [x] **Step 3: Complete assembly, documentation, and version bump**
 
 Wire production OCR/import repositories in `main.dart`; document the five steps, language-pack fallback, manual correction, conflict choices, and batch undo. Add manual checks for a real Chinese screenshot, missing OCR language, rotated/cropped images, duplicate import, and modified-event rollback. Increment `version` and `msix_version` consistently.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 Run:
 

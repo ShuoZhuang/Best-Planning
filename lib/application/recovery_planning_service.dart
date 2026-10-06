@@ -70,10 +70,7 @@ final class RecoveryPlan {
 }
 
 final class RecoveryPlanningService {
-  const RecoveryPlanningService({
-    required this.planning,
-    required this.zones,
-  });
+  const RecoveryPlanningService({required this.planning, required this.zones});
 
   final ProposalCreator planning;
   final TimeZoneDatabase zones;

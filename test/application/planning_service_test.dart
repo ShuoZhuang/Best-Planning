@@ -38,7 +38,10 @@ void main() {
     // 回调拿到的必须是**已登记进预览**的那一份：组合根据它提供冲突，若给的是另一份，
     // 通知里的冲突就会与实际预览的不一致。
     expect(planning.preview(proposal.proposalId), isNotNull);
-    expect(planning.preview(proposal.proposalId)!.conflicts, proposal.conflicts);
+    expect(
+      planning.preview(proposal.proposalId)!.conflicts,
+      proposal.conflicts,
+    );
 
     // **覆盖场景**（恢复保护／特殊日）才是这条回调存在的理由：通知读的是
     // `latestProposal.conflicts`，因此回调必须给出**已经应用覆盖**的那一份。若实现传的是
@@ -99,6 +102,19 @@ void main() {
       ),
       preferences: original.preferences,
       inputHash: original.inputHash,
+    );
+
+    expect(
+      snapshots.hash(InputSnapshot(problem: changed)),
+      isNot(snapshots.hash(InputSnapshot(problem: original))),
+    );
+  });
+
+  test('changing earliest start changes the input hash', () {
+    final original = _problem(requiredMinutes: 60);
+    final changed = _problem(
+      requiredMinutes: 60,
+      availableFromUtc: DateTime.utc(2026, 10, 5, 9),
     );
 
     expect(
@@ -177,7 +193,10 @@ void main() {
   });
 }
 
-ScheduleProblem _problem({required int requiredMinutes}) {
+ScheduleProblem _problem({
+  required int requiredMinutes,
+  DateTime? availableFromUtc,
+}) {
   final day = DateTime.utc(2026, 10, 5);
   return ScheduleProblem(
     planningWindow: TimeRange(
@@ -192,6 +211,7 @@ ScheduleProblem _problem({required int requiredMinutes}) {
         splitMode: TaskSplitMode.splittable,
         minChunkMinutes: 30,
         maxChunkMinutes: 60,
+        availableFromUtc: availableFromUtc,
       ),
     ],
     fixedIntervals: [

@@ -65,8 +65,7 @@ final class PendingMoveDrafts implements MoveDraftSink {
 
   /// 记录一次拖动。同一个块被反复拖动时**后一次覆盖前一次**（用户的最后一次意图才算数）。
   @override
-  void setRequestedMove(RequestedMove move) =>
-      _byBlock[move.blockId] = move;
+  void setRequestedMove(RequestedMove move) => _byBlock[move.blockId] = move;
 
   /// 取出某个块待处理的移动；没有则返回 `null`。
   RequestedMove? forBlock(String blockId) => _byBlock[blockId];

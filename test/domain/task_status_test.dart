@@ -58,7 +58,10 @@ void main() {
     );
     // 其余情况回落到用户设置的状态。
     expect(task(due: future).statusAt(nowUtc: now), TaskStatus.open);
-    expect(task(status: TaskStatus.inbox).statusAt(nowUtc: now), TaskStatus.inbox);
+    expect(
+      task(status: TaskStatus.inbox).statusAt(nowUtc: now),
+      TaskStatus.inbox,
+    );
   });
 
   test('没有截止时间的任务不会被判为已逾期', () {

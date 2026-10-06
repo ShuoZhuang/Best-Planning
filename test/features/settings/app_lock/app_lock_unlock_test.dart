@@ -39,10 +39,7 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
-        home: AppLockUnlockView(
-          service: service,
-          onUnlocked: () => unlocked++,
-        ),
+        home: AppLockUnlockView(service: service, onUnlocked: () => unlocked++),
       ),
     );
     await tester.pumpAndSettle();
@@ -57,10 +54,7 @@ void main() {
     await pump(tester);
     expect(find.text('应用锁定'), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const Key('app-lock-password')),
-      '正确密码',
-    );
+    await tester.enterText(find.byKey(const Key('app-lock-password')), '正确密码');
     await tester.tap(find.byKey(const Key('app-lock-unlock')));
     await tester.pumpAndSettle();
 
@@ -71,10 +65,7 @@ void main() {
   testWidgets('密码错误时不放行，给出原因并清空输入', (tester) async {
     await pump(tester);
 
-    await tester.enterText(
-      find.byKey(const Key('app-lock-password')),
-      '错误密码',
-    );
+    await tester.enterText(find.byKey(const Key('app-lock-password')), '错误密码');
     await tester.tap(find.byKey(const Key('app-lock-unlock')));
     await tester.pumpAndSettle();
 

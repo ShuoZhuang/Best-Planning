@@ -24,10 +24,14 @@ void main() {
   group('设置层', () {
     late SettingsService settings;
 
-    setUp(() => settings = SettingsService(repository: MemorySettingsRepository()));
+    setUp(
+      () => settings = SettingsService(repository: MemorySettingsRepository()),
+    );
 
     Future<int> limitOn(DateTime date) async =>
-        (await settings.resolveForDate(date)).rules.dailyMovableTaskLimitMinutes;
+        (await settings.resolveForDate(date))
+            .rules
+            .dailyMovableTaskLimitMinutes;
 
     test('放宽只作用于那一天，长期规则与相邻日期都不变', () async {
       final before = await limitOn(day);
@@ -112,7 +116,10 @@ void main() {
       expect(find.text('2026 年 10 月 5 日'), findsOneWidget);
       expect(find.textContaining('当前上限 240 分钟'), findsOneWidget);
       expect(
-        tester.widget<TextField>(find.byKey(const Key('relaxation-minutes'))).controller!.text,
+        tester
+            .widget<TextField>(find.byKey(const Key('relaxation-minutes')))
+            .controller!
+            .text,
         '240',
         reason: '预填当前生效值，用户只需在它基础上加；从空开始会让人先删再输',
       );
@@ -168,7 +175,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byKey(const Key('relaxation-minutes')), '420');
+      await tester.enterText(
+        find.byKey(const Key('relaxation-minutes')),
+        '420',
+      );
       await tester.tap(find.byKey(const Key('relaxation-save')));
       await tester.pumpAndSettle();
 
@@ -188,7 +198,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byKey(const Key('relaxation-minutes')), 'abc');
+      await tester.enterText(
+        find.byKey(const Key('relaxation-minutes')),
+        'abc',
+      );
       await tester.tap(find.byKey(const Key('relaxation-save')));
       await tester.pumpAndSettle();
       expect(find.text('请输入一个整数分钟数'), findsOneWidget);

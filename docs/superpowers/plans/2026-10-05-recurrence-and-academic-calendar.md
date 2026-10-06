@@ -10,6 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-05-task-area-and-timetable-import-design.md`
 
+> **执行状态（2026-10-05 复核）：本计划全部 6 个任务已完成，阶段验证通过（609 个单元/组件测试，`flutter analyze` 无问题，v1–v5 迁移测试 17 个通过）。**
+> 勾选口径：已完成的实现与验证步骤标为 `[x]`；每个任务末尾的 **Commit** 步骤保持 `[ ]`——工作树中当时已存在用户自己的未提交改动，按 `.superpowers/sdd/` 台账的裁定跳过逐任务提交。逐任务证据见 [progress.md](../../../.superpowers/sdd/2026-10-05-recurrence-and-academic-calendar/progress.md)。
+
 ## Global Constraints
 
 - Requires completion of `2026-10-05-task-classification-and-start-constraint.md` and schema v4.
@@ -47,21 +50,21 @@
 - Produces tables: `academic_terms`, `period_templates`, `period_template_entries`
 - Migration: schema v4 → v5
 
-- [ ] **Step 1: Write failing migration tests**
+- [x] **Step 1: Write failing migration tests**
 
 Assert every v1–v4 schema migrates to v5; existing rules have `intervalWeeks == 1`; task fields from v4 survive; a term and a multi-row period template enforce foreign keys and composite uniqueness.
 
-- [ ] **Step 2: Run migration tests and verify failure**
+- [x] **Step 2: Run migration tests and verify failure**
 
 Run: `flutter test test/drift/app_database/schema_migration_test.dart`
 
 Expected: FAIL because v5 does not exist.
 
-- [ ] **Step 3: Implement v5 tables and upgrade**
+- [x] **Step 3: Implement v5 tables and upgrade**
 
 Add `AcademicTerms`, `PeriodTemplates`, and `PeriodTemplateEntries` exactly as the spec defines. Add `intervalWeeks` with default 1. Register all tables and implement `_upgradeToV5` without rewriting existing recurrence rows.
 
-- [ ] **Step 4: Regenerate Drift and schema fixtures**
+- [x] **Step 4: Regenerate Drift and schema fixtures**
 
 Run:
 
@@ -73,7 +76,7 @@ dart run drift_dev schema generate drift_schemas/app_database/ test/drift/app_da
 
 Expected: v5 generated files compile.
 
-- [ ] **Step 5: Run migration tests and verify pass**
+- [x] **Step 5: Run migration tests and verify pass**
 
 Run: `flutter test test/drift/app_database/schema_migration_test.dart`
 
@@ -100,21 +103,21 @@ git commit -m "feat: add academic calendar schema"
 - Week anchor: Monday of `validFromLocalDate`’s local week
 - Inclusion: `weekOffset % intervalWeeks == 0`
 
-- [ ] **Step 1: Write failing recurrence tests**
+- [x] **Step 1: Write failing recurrence tests**
 
 Add tests for every two weeks, odd weeks, even weeks, inclusive valid-until boundaries, multiple weekdays, exceptions on skipped weeks, and America/New_York DST while preserving local clock time. Reject interval 0 and 53.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/domain/recurrence_expander_test.dart test/data/recurrence_exception_test.dart`
 
 Expected: FAIL because rules expand every matching weekday.
 
-- [ ] **Step 3: Implement local-week interval calculation and persistence**
+- [x] **Step 3: Implement local-week interval calculation and persistence**
 
 Normalize `validFromLocalDate` and candidate dates to local Mondays, compute integer day difference divided by seven, and require a non-negative multiple of `intervalWeeks`. Map the new Drift field in every read/write path.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -145,21 +148,21 @@ git commit -m "feat: support interval week recurrence"
 - Produces: `AcademicWeekCalculator.weekNumber(firstWeekMonday:, date:)`
 - Produces: `AcademicCalendarService.saveTerm`, `saveTemplate`, `setDefaultTemplate`
 
-- [ ] **Step 1: Write failing domain and repository tests**
+- [x] **Step 1: Write failing domain and repository tests**
 
 Use the confirmed example `2026-10-05 = week 5` and assert first-week Monday is `2026-09-07`; reverse conversion returns 5. Test Sundays, dates before week 1, leap-year dates, total weeks 1–60, invalid names, duplicate period numbers, inverted times, and atomic template replacement.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/domain/academic_calendar_test.dart test/data/academic_calendar_repository_test.dart test/application/academic_calendar_service_test.dart`
 
 Expected: FAIL because the academic-calendar module does not exist.
 
-- [ ] **Step 3: Implement models, calculator, repository, and service**
+- [x] **Step 3: Implement models, calculator, repository, and service**
 
 Store dates as `YYYY-MM-DD` local-date strings. `firstWeekMonday` subtracts `(weekNumber - 1) * 7` days from the Monday of the reference date’s week. Save a template and its entries in one transaction; setting a default clears the prior default in the same transaction.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -186,21 +189,21 @@ git commit -m "feat: add academic terms and period templates"
 - Produces validation errors under `recurrence`
 - Persists `validUntilLocalDate` and `intervalWeeks`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Assert weekly defaults to interval 1; interval 2 and valid-until persist; end before start is rejected; interval outside 1–52 is rejected; non-recurring events ignore recurrence-only fields; successful saves emit one replan reason.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/application/calendar_replan_events_test.dart test/features/calendar/event_editor_test.dart test/data/calendar_event_deletion_test.dart`
 
 Expected: FAIL because the draft cannot carry bounds or intervals.
 
-- [ ] **Step 3: Implement draft validation and rule construction**
+- [x] **Step 3: Implement draft validation and rule construction**
 
 Construct `RecurrenceRule` with the user-selected local start/end dates and interval. Preserve existing behavior for one-off events and existing series editing.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -228,21 +231,21 @@ git commit -m "feat: add bounded interval recurrence drafts"
 - Produces: `CalendarEventDeletion.replaceFollowingOccurrences({required String anchorId, required DateTime occurrenceStartUtc, required DateTime newStartUtc, required DateTime newEndUtc, required String newRuleId, required String newEventId, required DateTime updatedAtUtc})`
 - Produces: `CalendarEventDeletion.deleteFollowingOccurrences({required String anchorId, required DateTime occurrenceStartUtc, required DateTime updatedAtUtc})`
 
-- [ ] **Step 1: Write failing split-series tests**
+- [x] **Step 1: Write failing split-series tests**
 
 For an occurrence on 2026-10-12, assert replace-following sets the old rule’s end to 2026-10-11 and creates a new anchor/rule starting 2026-10-12. Assert delete-following only truncates the old rule. Assert the selected occurrence appears exactly once and earlier exceptions remain attached only to the old anchor.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/data/calendar_event_deletion_test.dart test/features/calendar/day_view_test.dart`
 
 Expected: FAIL because only single and entire-series operations exist.
 
-- [ ] **Step 3: Implement transactional series split**
+- [x] **Step 3: Implement transactional series split**
 
 Add the two port methods and corresponding `CalendarService` methods. In the Drift repository, load the anchor and rule, validate the split local date, truncate the old rule to the previous local day, and optionally insert the new rule/anchor in one transaction. The UI action sheet exposes 仅本次、本次及以后、整个系列.
 
-- [ ] **Step 4: Run tests and verify pass**
+- [x] **Step 4: Run tests and verify pass**
 
 Run the command from Step 2.
 
@@ -275,21 +278,21 @@ git commit -m "feat: edit recurring events from an occurrence forward"
 - Produces setting key: `settings-academic-calendar`
 - Recurrence shortcuts: 每周, 每两周, 单周, 双周, 自定义
 
-- [ ] **Step 1: Write failing widget and route tests**
+- [x] **Step 1: Write failing widget and route tests**
 
 Assert the event editor can set start/end dates and interval; odd/even shortcuts produce the correct anchor; the settings hub opens the academic-calendar page; editing current week recalculates first-week Monday and editing first-week Monday recalculates the current week; each period row is editable and validation is inline.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `flutter test test/features/calendar/event_editor_test.dart test/features/settings/academic_calendar_page_test.dart test/app/settings_hub_test.dart`
 
 Expected: FAIL because these controls and route do not exist.
 
-- [ ] **Step 3: Implement responsive forms**
+- [x] **Step 3: Implement responsive forms**
 
 Use visible labels, 12px row gaps, 24px section gaps, and 44px minimum controls. The term section shows the bidirectional calculation with the reference date; the period editor supports batch generation then per-row correction. Persist only after all rows validate.
 
-- [ ] **Step 4: Run phase verification**
+- [x] **Step 4: Run phase verification**
 
 Run:
 

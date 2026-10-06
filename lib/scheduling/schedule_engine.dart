@@ -126,12 +126,10 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                 candidate.durationMinutes +
                     math.min(
                       leftover,
-                      _continuationCapacity(
-                        task,
-                        slots,
-                        [...blocks, _temporaryBlock(task.id, candidate)],
-                        notBefore: _restReadyAt(problem, task, candidate),
-                      ),
+                      _continuationCapacity(task, slots, [
+                        ...blocks,
+                        _temporaryBlock(task.id, candidate),
+                      ], notBefore: _restReadyAt(problem, task, candidate)),
                     ),
               ),
             );
@@ -357,12 +355,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         lifeQuotaTargetMinutes: problem.rules.weeklyLifeQuotaMinutes,
         plannedLifeMinutes: plannedLifeMinutes,
         fragmentationPenaltyPermille: _fragmentation(task, candidate),
-        sameTaskAdjacent: _sameTaskOnSameDay(
-          problem,
-          task,
-          candidate,
-          blocks,
-        ),
+        sameTaskAdjacent: _sameTaskOnSameDay(problem, task, candidate, blocks),
         categorySwitch: _neighboursAnotherTask(
           problem,
           task,

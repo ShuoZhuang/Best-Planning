@@ -16,7 +16,12 @@ List<PreferenceEvidence> _strongEvidence() => [
       id: 'e-$index',
       kind: PreferenceEvidenceKind.focusCompletion,
       subjectKey: 'area:study',
-      observedAtUtc: DateTime.utc(2026, 9, index % 14 + 1, index.isEven ? 9 : 19),
+      observedAtUtc: DateTime.utc(
+        2026,
+        9,
+        index % 14 + 1,
+        index.isEven ? 9 : 19,
+      ),
       numericValue: index.isEven ? 0.9 : 0.6,
       metadata: {'timeBucket': index.isEven ? 'morning' : 'evening'},
     ),

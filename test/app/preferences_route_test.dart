@@ -13,7 +13,10 @@ import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 
 void main() {
-  Future<void> pumpApp(WidgetTester tester, {PreferenceService? preferences}) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    PreferenceService? preferences,
+  }) async {
     final settings = MemorySettingsRepository();
     await settings.write(
       OnboardingPage.schemaVersionKey,
@@ -21,7 +24,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           preferences: preferences,
         ),

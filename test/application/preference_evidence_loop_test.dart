@@ -163,9 +163,7 @@ void main() {
 
   test('记录器按任务所属领域归组，并带上实际专注分钟与时段', () async {
     clock.value = DateTime.utc(2026, 9, 5, 10);
-    final recorder = recorderFor(
-      _Workspace(projects: [_project()]),
-    );
+    final recorder = recorderFor(_Workspace(projects: [_project()]));
 
     final written = await recorder.recordCompletedFocus(
       _session(
@@ -285,12 +283,7 @@ void main() {
       await recorder.recordCompletedFocus(
         _session(
           id: 's-$index',
-          startedAtUtc: DateTime.utc(
-            2026,
-            9,
-            index % 14 + 1,
-            morning ? 9 : 19,
-          ),
+          startedAtUtc: DateTime.utc(2026, 9, index % 14 + 1, morning ? 9 : 19),
           minutes: morning ? 50 : 10,
         ),
       );

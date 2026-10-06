@@ -77,7 +77,9 @@ void main() {
       const PreferenceProfile(enabled: true, preferredFocusMinutes: 75),
     );
     await settings.saveUserRules(
-      const UserPlanningRules(common: PlanningRulesPatch(defaultFocusMinutes: 90)),
+      const UserPlanningRules(
+        common: PlanningRulesPatch(defaultFocusMinutes: 90),
+      ),
     );
 
     final resolved = await settings.resolveForDate(DateTime(2026, 10, 5));

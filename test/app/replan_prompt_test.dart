@@ -48,6 +48,19 @@ void main() {
     expect(find.widgetWithText(SnackBarAction, '查看调整'), findsOneWidget);
   });
 
+  testWidgets('左侧关闭按钮隐藏提示并保留待确认提案', (tester) async {
+    final outcome = ValueNotifier<ReplanOutcome?>(null);
+    addTearDown(outcome.dispose);
+    await pumpApp(tester, outcome);
+    outcome.value = const ReplanOutcome.pending('p-close');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭提示'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    expect(outcome.value?.proposalId, 'p-close');
+    expect(outcome.value?.applied, isFalse);
+  });
+
   testWidgets('点"查看调整"跳到该提案的预览页', (tester) async {
     final outcome = ValueNotifier<ReplanOutcome?>(null);
     addTearDown(outcome.dispose);

@@ -50,9 +50,10 @@ final class DriftPreferenceEvidenceRepository
         id: row.id,
         // 未知种类说明这行来自更新的版本；忽略它比抛错好——一条读不懂的证据不该让
         // 整个偏好页打不开。
-        kind: PreferenceEvidenceKind.values
-            .where((value) => value.name == row.kind)
-            .firstOrNull ??
+        kind:
+            PreferenceEvidenceKind.values
+                .where((value) => value.name == row.kind)
+                .firstOrNull ??
             PreferenceEvidenceKind.focusCompletion,
         subjectKey: row.subjectKey,
         observedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
