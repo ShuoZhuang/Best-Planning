@@ -9,7 +9,6 @@ final class TodayPage extends StatefulWidget {
     required this.source,
     required this.day,
     this.toLocal,
-    this.loadAreas,
     super.key,
   });
 
@@ -20,23 +19,16 @@ final class TodayPage extends StatefulWidget {
   /// 测试与纯视图预览可省略，此时保持输入值不变。
   final DateTime Function(DateTime instantUtc)? toLocal;
 
-  /// 图例要显示的领域（名称 + 已解析颜色）。为空时图例只列保护时间。
-  ///
-  /// 由调用方注入而不是在这里读仓储：图例是展示，页面不该认识工作区仓储。
-  final Future<List<ScheduleLegendArea>> Function()? loadAreas;
-
   @override
   State<TodayPage> createState() => _TodayPageState();
 }
 
 final class _TodayPageState extends State<TodayPage> {
   late Stream<List<ScheduleViewItem>> _stream;
-  Future<List<ScheduleLegendArea>>? _legendAreas;
 
   @override
   void initState() {
     super.initState();
-    _legendAreas = widget.loadAreas?.call();
     _subscribe();
   }
 
@@ -66,7 +58,7 @@ final class _TodayPageState extends State<TodayPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _TodayHeader(day: toLocal(widget.day), legendAreas: _legendAreas),
+          _TodayHeader(day: toLocal(widget.day)),
           const SizedBox(height: 20),
           Expanded(
             child: StreamBuilder<List<ScheduleViewItem>>(
@@ -150,10 +142,9 @@ final class _TodayPageState extends State<TodayPage> {
 }
 
 final class _TodayHeader extends StatelessWidget {
-  const _TodayHeader({required this.day, this.legendAreas});
+  const _TodayHeader({required this.day});
 
   final DateTime day;
-  final Future<List<ScheduleLegendArea>>? legendAreas;
 
   static const _weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
 
@@ -174,41 +165,32 @@ final class _TodayHeader extends StatelessWidget {
           ],
         ),
       ),
-      _Legend(areas: legendAreas),
+      const _Legend(),
     ],
   );
 }
 
-/// 图例：**按领域 + 保护时间**列出今天的颜色含义。
+/// 图例：**按类型**列出今天的颜色含义，与卡片取色同一套口径。
 ///
-/// 此前这里写死四项（固定／保护／可移动任务／生活），与卡片实际取色无关；卡片改成按领域
-/// 着色后，写死的图例就成了错误信息。现在领域项来自 `areas.color`，保护时间用类型色。
+/// 曾短暂改成"按领域 + 保护"着色（领域色由 `areas.color` 提供），但整屏卡片各按领域上色后
+/// 观感明显变差，用户要求恢复到原来的按类型着色，图例因此一并回到四项。
+///
+/// 注：第三项的"可移动任务"沿用旧文案，而任务的类型标签其实是"任务"——两者不一致是历史遗留，
+/// 与配色无关，因此这次原样保留，避免借着"恢复配色"顺手改文案。
 final class _Legend extends StatelessWidget {
-  const _Legend({this.areas});
-
-  final Future<List<ScheduleLegendArea>>? areas;
+  const _Legend();
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final protectedColor = ScheduleItemKind.protectedTime.color(scheme);
-    return FutureBuilder<List<ScheduleLegendArea>>(
-      future: areas,
-      builder: (context, snapshot) {
-        return Wrap(
-          spacing: 12,
-          runSpacing: 6,
-          children: [
-            for (final area in snapshot.data ?? const <ScheduleLegendArea>[])
-              _LegendItem(color: Color(area.colorArgb), label: area.name),
-            // 用"保护"而不是"保护时间"：后者是条目的类型标签文案，图例与条目标签同名
-            // 会让界面出现两个同字样的位置，也会让"到底哪个是图例"变得难说清。
-            _LegendItem(color: protectedColor, label: '保护'),
-          ],
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => Wrap(
+    spacing: 12,
+    runSpacing: 6,
+    children: const [
+      _LegendItem(color: PlannerPalette.accent, label: '固定'),
+      _LegendItem(color: PlannerPalette.positive, label: '保护'),
+      _LegendItem(color: PlannerPalette.warning, label: '可移动任务'),
+      _LegendItem(color: Color(0xffb391d3), label: '生活'),
+    ],
+  );
 }
 
 final class _LegendItem extends StatelessWidget {
@@ -296,8 +278,7 @@ final class _TimelineItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 与周/日视图同一个取色入口：有领域用领域色，没有领域（保护时间）按类型着色。
-    final tone = item.color(Theme.of(context).colorScheme);
+    final tone = _toneFor(item.kind);
     return Semantics(
       label:
           '${item.title}，${item.kind.label}，${formatTime(item.range.startUtc)}到${formatTime(item.range.endUtc)}',

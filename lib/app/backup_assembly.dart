@@ -17,7 +17,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// **必须与 `pubspec.yaml` 的 `version` 手工保持一致**：本项目没有 `package_info` 一类依赖，
 /// 运行时读不到真实版本。这是**已知的诚实下限**——清单里记的是这个常量，而不是假装它自动
 /// 跟随构建。日后若加入版本读取依赖，只需改这一处。
-const appVersion = '1.0.15+17';
+const appVersion = '1.0.16+18';
 
 /// 待恢复文件的路径：恢复**不立刻**替换正在使用的数据库，而是写到这里，等下次启动时生效。
 String pendingRestorePath(String databasePath) =>

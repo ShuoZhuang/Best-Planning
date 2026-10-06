@@ -633,7 +633,7 @@ final class _DayItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Card(
-      color: item.color(scheme),
+      color: item.kind.color(scheme),
       child: ListTile(
         key: Key('day-item-${item.id}'),
         leading: Icon(item.kind.icon),

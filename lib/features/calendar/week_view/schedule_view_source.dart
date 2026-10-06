@@ -1,11 +1,9 @@
 import 'package:personal_planner/application/planning_rule_resolver.dart';
-import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
-import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 
@@ -29,7 +27,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     required this.rules,
     required this.zones,
     required this.timeZoneId,
-    required this.areas,
   }) : protectedTimes = ProtectedTimeExpander(zones);
 
   final TaskRepository tasks;
@@ -38,9 +35,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   final PlanningRuleResolver rules;
   final TimeZoneDatabase zones;
   final String timeZoneId;
-
-  /// 领域表：条目按它取色（领域色是用户可改的，因此每次读数据时解析一次）。
-  final WorkspaceRepository areas;
   final ProtectedTimeExpander protectedTimes;
 
   @override
@@ -58,22 +52,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     final items = <ScheduleViewItem>[];
     final window = TimeRange(startUtc: startUtc, endUtc: endUtc);
 
-    // 领域色与领域名：`color == 0` 表示没选过（历史数据一律如此），按排序落到色板，
-    // 因此老库不需要迁移也立刻有区分度。
-    final allAreas = await areas.listAreas();
-    final areaColors = <String, int>{
-      for (final area in allAreas)
-        area.id: resolveAreaColorArgb(
-          storedColor: area.color,
-          sortOrder: area.sortOrder,
-        ),
-    };
-    final areaNames = <String, String>{
-      for (final area in allAreas) area.id: area.name,
-    };
-    int? colorOf(String? areaId) => areaId == null ? null : areaColors[areaId];
-    String? nameOf(String? areaId) => areaId == null ? null : areaNames[areaId];
-
     for (final occurrence in await calendar.occurrencesBetween(
       startUtc,
       endUtc,
@@ -84,8 +62,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           title: occurrence.title,
           kind: ScheduleItemKind.fixed,
           range: occurrence.range,
-          areaColor: colorOf(occurrence.areaId),
-          areaName: nameOf(occurrence.areaId),
           areaId: occurrence.areaId,
         ),
       );
@@ -113,7 +89,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     if (confirmed != null) {
       final openTasks = await tasks.watchOpenTasks().first;
       final titles = {for (final task in openTasks) task.id: task.title};
-      // 任务块的颜色取自**任务所属领域**：用户在日历上看到的色块因此与任务列表里的归属一致。
       final areaIds = {for (final task in openTasks) task.id: task.areaId};
       for (final block in confirmed.blocks) {
         if (!block.range.overlaps(window)) continue;
@@ -124,8 +99,6 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
             kind: ScheduleItemKind.task,
             range: block.range,
             explanation: block.explanationCode,
-            areaColor: colorOf(areaIds[block.taskId]),
-            areaName: nameOf(areaIds[block.taskId]),
             areaId: areaIds[block.taskId],
           ),
         );

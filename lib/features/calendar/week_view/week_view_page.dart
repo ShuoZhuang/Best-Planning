@@ -316,7 +316,7 @@ final class _DraggableScheduleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = Card(
-      color: item.color(Theme.of(context).colorScheme),
+      color: item.kind.color(Theme.of(context).colorScheme),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),

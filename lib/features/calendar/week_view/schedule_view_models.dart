@@ -28,16 +28,6 @@ extension ScheduleItemKindPresentation on ScheduleItemKind {
   };
 }
 
-/// 今日页图例用的领域条目：领域名 + **已解析**的颜色（ARGB）。
-///
-/// 颜色在这里就已经把"没选过颜色"的兜底算完，图例因此不必再知道色板规则。
-final class ScheduleLegendArea {
-  const ScheduleLegendArea({required this.name, required this.colorArgb});
-
-  final String name;
-  final int colorArgb;
-}
-
 /// "调整归属"对话框的领域选项：`id` 用于保存，`name` 用于显示。
 final class ScheduleAreaOption {
   const ScheduleAreaOption({required this.id, required this.name});
@@ -59,8 +49,6 @@ final class ScheduleViewItem {
     required this.kind,
     required this.range,
     this.explanation,
-    this.areaColor,
-    this.areaName,
     this.areaId,
   });
 
@@ -70,27 +58,11 @@ final class ScheduleViewItem {
   final TimeRange range;
   final String? explanation;
 
-  /// 条目所属领域的颜色（ARGB），没有领域时为 null。
-  ///
-  /// 由数据源按 `areas.color` 解析（含"没选过颜色"的兜底），视图不自己推断。
-  final int? areaColor;
-
-  /// 条目所属领域的名字，没有领域时为 null。
-  ///
-  /// 今日页的图例按它生成（"学业／科研／生活…"），因此图例不需要另外注入领域表，
-  /// 也不会出现"图例里有某个领域、今天根本没它的条目"这种对不上的情况。
-  final String? areaName;
-
   /// 条目所属领域的 id（固定日程用于"调整归属"时预选当前值）。
-  final String? areaId;
-
-  /// 实际用于绘制的颜色。
   ///
-  /// **有领域就用领域色**（学业／科研／竞赛／工作／生活各一色，用户可在领域设置里改），
-  /// 没有领域的条目（保护时间）保持按类型着色。今日页、周视图、日视图都走这一个函数，
-  /// 三个界面的分类颜色因此不可能各说各话。
-  Color color(ColorScheme scheme) =>
-      areaColor == null ? kind.color(scheme) : Color(areaColor!);
+  /// **只用于归属，不参与着色**：日历与今日页按 `kind` 着色（见 `ScheduleItemKind.color`），
+  /// 曾经短暂改成按领域上色，观感明显变差，已按用户要求还原。
+  final String? areaId;
 }
 
 abstract interface class ScheduleViewSource {

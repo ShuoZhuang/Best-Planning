@@ -571,7 +571,6 @@ Future<void> main() async {
           rules: ruleResolver,
           zones: zones,
           timeZoneId: timeZoneId,
-          areas: workspaceRepository,
         ),
       ),
     ),

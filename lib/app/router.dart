@@ -18,7 +18,6 @@ import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
-import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
@@ -131,18 +130,6 @@ GoRouter createPlannerRouter({
             source: scheduleSource,
             day: todayStartUtc,
             toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
-            loadAreas: workspaceService == null
-                ? null
-                : () async => [
-                    for (final area in await workspaceService.listAreas())
-                      ScheduleLegendArea(
-                        name: area.name,
-                        colorArgb: resolveAreaColorArgb(
-                          storedColor: area.color,
-                          sortOrder: area.sortOrder,
-                        ),
-                      ),
-                  ],
           ),
         ),
         GoRoute(

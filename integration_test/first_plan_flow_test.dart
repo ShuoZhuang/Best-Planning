@@ -115,7 +115,6 @@ void main() {
       rules: ruleResolver,
       zones: zones,
       timeZoneId: timeZoneId,
-      areas: workspaceRepository,
     );
     await tester.pumpWidget(
       ProviderScope(
