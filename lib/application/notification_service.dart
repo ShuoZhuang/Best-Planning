@@ -104,7 +104,10 @@ final class NotificationService {
     if (capability.canSchedule && preferences.calendarStartEnabled) {
       final source = calendar;
       if (source != null) {
-        for (final occurrence in await source.occurrencesBetween(now, horizon)) {
+        for (final occurrence in await source.occurrencesBetween(
+          now,
+          horizon,
+        )) {
           // 已经开始的事件不再提醒"即将开始"。
           if (!occurrence.range.startUtc.isAfter(now)) continue;
           var scheduledAt = occurrence.range.startUtc.subtract(
@@ -116,7 +119,9 @@ final class NotificationService {
             preferences.quietHours,
           );
           if (scheduledAt.isAfter(horizon)) continue;
-          final id = '$_managedPrefix' 'calendar_start.${occurrence.eventId}';
+          final id =
+              '$_managedPrefix'
+              'calendar_start.${occurrence.eventId}';
           desired[id] = NotificationRequest(
             id: id,
             scheduledAtUtc: scheduledAt,
@@ -151,7 +156,9 @@ final class NotificationService {
             preferences.quietHours,
           );
           if (scheduledAt.isAfter(horizon)) continue;
-          final id = '$_managedPrefix' 'deadline.${task.id}';
+          final id =
+              '$_managedPrefix'
+              'deadline.${task.id}';
           desired[id] = NotificationRequest(
             id: id,
             scheduledAtUtc: scheduledAt,
@@ -187,7 +194,9 @@ final class NotificationService {
             Duration(minutes: preferences.conflictLeadMinutes),
           );
           if (!scheduledAt.isAfter(horizon)) {
-            final id = '$_managedPrefix' 'conflict.pending';
+            final id =
+                '$_managedPrefix'
+                'conflict.pending';
             desired[id] = NotificationRequest(
               id: id,
               scheduledAtUtc: scheduledAt,

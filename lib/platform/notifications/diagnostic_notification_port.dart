@@ -32,10 +32,8 @@ final class DiagnosticNotificationPort implements NotificationPort {
       _breadcrumb('查询待发通知', inner.pendingNotifications);
 
   @override
-  Future<void> scheduleOneShot(NotificationRequest request) => _breadcrumb(
-    '安排通知 ${request.id}',
-    () => inner.scheduleOneShot(request),
-  );
+  Future<void> scheduleOneShot(NotificationRequest request) =>
+      _breadcrumb('安排通知 ${request.id}', () => inner.scheduleOneShot(request));
 
   @override
   Future<void> cancel(String id) =>
@@ -74,8 +72,10 @@ final class DiagnosticNotificationPort implements NotificationPort {
   @override
   void onTapped(void Function(NotificationPayload payload) handler) {
     inner.onTapped((payload) {
-      log.write('通知被点击（应用在运行）：route=${payload.route} '
-          'kind=${payload.kind.name} id=${payload.notificationId}');
+      log.write(
+        '通知被点击（应用在运行）：route=${payload.route} '
+        'kind=${payload.kind.name} id=${payload.notificationId}',
+      );
       handler(payload);
     });
   }
@@ -88,8 +88,10 @@ final class DiagnosticNotificationPort implements NotificationPort {
       // 取决于平台，这一层看不到，不替它下结论。
       log.write('冷启动未拿到通知 payload（可能是普通启动，也可能是点击未被平台交付）');
     } else {
-      log.write('冷启动由通知拉起：route=${payload.route} '
-          'kind=${payload.kind.name} id=${payload.notificationId}');
+      log.write(
+        '冷启动由通知拉起：route=${payload.route} '
+        'kind=${payload.kind.name} id=${payload.notificationId}',
+      );
     }
     return payload;
   }

@@ -51,7 +51,8 @@ void main() {
     expect(
       clsid,
       FlutterWindowsNotificationBackend.activatorGuid,
-      reason: '清单里的 ToastActivatorCLSID 与插件注册的 GUID 必须完全一致，'
+      reason:
+          '清单里的 ToastActivatorCLSID 与插件注册的 GUID 必须完全一致，'
           '否则 Windows 找到的激活器与实际注册的不是同一个，点击依旧不生效',
     );
   });

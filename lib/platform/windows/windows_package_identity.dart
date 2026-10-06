@@ -102,11 +102,10 @@ String? currentApplicationUserModelId({
   try {
     final nativeProbe =
         probe ??
-        DynamicLibrary.open('kernel32.dll')
-            .lookupFunction<
-              _NativeApplicationUserModelIdProbe,
-              ApplicationUserModelIdProbe
-            >('GetCurrentApplicationUserModelId');
+        DynamicLibrary.open('kernel32.dll').lookupFunction<
+          _NativeApplicationUserModelIdProbe,
+          ApplicationUserModelIdProbe
+        >('GetCurrentApplicationUserModelId');
     final length = calloc<Uint32>();
     try {
       final firstResult = nativeProbe(length, nullptr);

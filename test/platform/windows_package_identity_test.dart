@@ -56,12 +56,11 @@ void main() {
   // 的 MSIX**，而签名证书还没有（见 `docs/release/windows-release.md`）。因此这一支仍然是
   // **未验证**，不因为这两条用例而改变。
   test('真实 kernel32 调用可用：非打包进程返回 APPMODEL_ERROR_NO_PACKAGE', () {
-    final probe =
-        DynamicLibrary.open('kernel32.dll')
-            .lookupFunction<
-              Int32 Function(Pointer<Uint32>, Pointer<Utf16>),
-              int Function(Pointer<Uint32>, Pointer<Utf16>)
-            >('GetCurrentPackageFullName');
+    final probe = DynamicLibrary.open('kernel32.dll')
+        .lookupFunction<
+          Int32 Function(Pointer<Uint32>, Pointer<Utf16>),
+          int Function(Pointer<Uint32>, Pointer<Utf16>)
+        >('GetCurrentPackageFullName');
     final length = calloc<Uint32>();
     try {
       final result = probe(length, nullptr);
@@ -70,7 +69,8 @@ void main() {
       expect(
         result,
         appModelErrorNoPackage,
-        reason: '本测试进程未打包，因此必须返回"没有包身份"；'
+        reason:
+            '本测试进程未打包，因此必须返回"没有包身份"；'
             '若这里拿到别的值，说明进程被打包了或绑定读错了',
       );
     } finally {

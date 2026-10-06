@@ -133,7 +133,9 @@ void main() {
           locked: true,
         ),
       ]),
-      tasks: _FakeTasks([task('due-soon', inQuietHours.add(const Duration(hours: 20)))]),
+      tasks: _FakeTasks([
+        task('due-soon', inQuietHours.add(const Duration(hours: 20))),
+      ]),
       pendingConflicts: () async => [
         PlanningConflict(
           code: ConflictCode.insufficientCapacity,

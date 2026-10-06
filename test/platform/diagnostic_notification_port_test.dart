@@ -174,10 +174,7 @@ void main() {
     await expectLater(port.pendingNotifications(), throwsStateError);
 
     final written = File(logPath).readAsLinesSync();
-    expect(
-      written.where((line) => line.contains('原生调用进入：查询待发通知')).length,
-      1,
-    );
+    expect(written.where((line) => line.contains('原生调用进入：查询待发通知')).length, 1);
     expect(
       written.where((line) => line.contains('原生调用失败：查询待发通知')).length,
       1,
