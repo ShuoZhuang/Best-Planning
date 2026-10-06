@@ -185,7 +185,10 @@ $db  = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'personal_planner
 
 ```powershell
 cd G:\best-planing\.worktrees\native-implementation
-# 先手改 pubspec.yaml：version 与 msix_version 都要**升**（MSIX 不接受更低版本）
+# 先按 docs/release/version-policy.md 抬版本，三处一起改：
+#   pubspec.yaml 的 version、同文件的 msix_config.msix_version（前三段一致）、
+#   lib/app/backup_assembly.dart 的 appVersion
+# （test/app/version_consistency_test.dart 会守着一致性；MSIX 不接受更低版本）
 Get-Process personal_planner -ErrorAction SilentlyContinue | Stop-Process -Force   # 安装前必须关闭
 dart run msix:create
 $msix = Get-ChildItem build\windows\x64\runner\Release\personal_planner_*.msix |
