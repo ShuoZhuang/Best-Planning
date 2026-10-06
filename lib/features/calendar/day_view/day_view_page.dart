@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 /// 日视图（FR-CAL-03）。
@@ -22,6 +23,8 @@ final class DayViewPage extends StatelessWidget {
     this.onReplaceOccurrence,
     this.onReplaceFollowing,
     this.onReplaceSeries,
+    this.onSetEventArea,
+    this.loadAreaOptions,
     super.key,
   });
 
@@ -89,6 +92,14 @@ final class DayViewPage extends StatelessWidget {
 
   final VoidCallback? onOpenWeek;
 
+  /// 调整固定日程的**所属领域**（`null` 取消归属）。返回是否改成功。
+  ///
+  /// 领域是整条日程的属性，与"改这一次"不同路，因此单独一个回调而不是塞进改写回调里。
+  final Future<bool> Function(String eventId, String? areaId)? onSetEventArea;
+
+  /// 可选领域清单（供"调整归属"对话框使用）。为空时不显示该入口。
+  final Future<List<ScheduleAreaOption>> Function()? loadAreaOptions;
+
   @override
   Widget build(BuildContext context) => StreamBuilder<List<ScheduleViewItem>>(
     stream: source.watch(dayStartUtc, dayStartUtc.add(const Duration(days: 1))),
@@ -137,6 +148,9 @@ final class DayViewPage extends StatelessWidget {
                     // 只对**固定日程**开放删除与改写：保护时间是算出来的区间，任务块
                     // 属于计划。把条目 id 原样交给日程端口会删 0 行而不报错。
                     final eventId = fixedEventId(item);
+                    // 提升为局部变量：公开字段不会被 Dart 提升为不可空，直接判空过不了类型检查。
+                    final setArea = onSetEventArea;
+                    final loadOptions = loadAreaOptions;
                     return Row(
                       children: [
                         Expanded(
@@ -168,6 +182,23 @@ final class DayViewPage extends StatelessWidget {
                                     onDeleteEvent: onDeleteEvent,
                                     onDeleteOccurrence: onDeleteOccurrence,
                                     onDeleteFollowing: onDeleteFollowing,
+                                  ),
+                          ),
+                        if (setArea != null && loadOptions != null)
+                          IconButton(
+                            key: Key('area-${item.id}'),
+                            tooltip: eventId == null
+                                ? '只有固定日程可以调整归属'
+                                : '调整所属领域',
+                            icon: const Icon(Icons.folder_outlined),
+                            onPressed: eventId == null
+                                ? null
+                                : () => _chooseArea(
+                                    context,
+                                    item,
+                                    eventId: eventId,
+                                    onSetEventArea: setArea,
+                                    loadAreaOptions: loadOptions,
                                   ),
                           ),
                         if (onReplaceOccurrence != null)
@@ -265,6 +296,99 @@ Future<void> _editOccurrence(
 }
 
 enum _OccurrenceScope { single, following, series }
+
+/// 选择领域并保存（`null` 表示取消归属）。
+///
+/// 返回值包一层是为了区分"取消对话框"与"选择不归属领域"——两者都是 `null` 的话，
+/// 取消会被误当成一次真实的清空操作。
+final class _AreaSelection {
+  const _AreaSelection(this.areaId);
+
+  final String? areaId;
+}
+
+Future<void> _chooseArea(
+  BuildContext context,
+  ScheduleViewItem item, {
+  required String eventId,
+  required Future<bool> Function(String eventId, String? areaId) onSetEventArea,
+  required Future<List<ScheduleAreaOption>> Function() loadAreaOptions,
+}) async {
+  final options = await loadAreaOptions();
+  if (!context.mounted) return;
+  final selection = await showDialog<_AreaSelection>(
+    context: context,
+    builder: (dialogContext) => _AreaPickerDialog(
+      title: item.title,
+      options: options,
+      initialAreaId: item.areaId,
+    ),
+  );
+  if (selection == null) return;
+  final saved = await onSetEventArea(eventId, selection.areaId);
+  if (!context.mounted) return;
+  showPlannerMessage(context, message: saved ? '已调整归属' : '暂时无法调整归属，请稍后再试');
+}
+
+/// "调整归属"对话框：一个领域下拉 + 取消归属。
+final class _AreaPickerDialog extends StatefulWidget {
+  const _AreaPickerDialog({
+    required this.title,
+    required this.options,
+    this.initialAreaId,
+  });
+
+  final String title;
+  final List<ScheduleAreaOption> options;
+  final String? initialAreaId;
+
+  @override
+  State<_AreaPickerDialog> createState() => _AreaPickerDialogState();
+}
+
+final class _AreaPickerDialogState extends State<_AreaPickerDialog> {
+  String? _areaId;
+
+  @override
+  void initState() {
+    super.initState();
+    // 预选当前归属，但只在它确实还在选项里时（领域可能已被删除）。
+    final initial = widget.initialAreaId;
+    _areaId = widget.options.any((option) => option.id == initial)
+        ? initial
+        : null;
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    key: const Key('area-picker-dialog'),
+    title: Text('调整「${widget.title}」的归属'),
+    content: DropdownButtonFormField<String>(
+      key: const Key('area-picker'),
+      initialValue: _areaId,
+      isExpanded: true,
+      decoration: const InputDecoration(labelText: '所属领域', hintText: '不归属领域'),
+      items: [
+        const DropdownMenuItem(value: null, child: Text('不归属领域')),
+        for (final option in widget.options)
+          DropdownMenuItem(value: option.id, child: Text(option.name)),
+      ],
+      onChanged: (value) => setState(() => _areaId = value),
+    ),
+    actions: [
+      TextButton(
+        key: const Key('area-picker-cancel'),
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const Key('area-picker-save'),
+        onPressed: () => Navigator.of(context).pop(_AreaSelection(_areaId)),
+        child: const Text('保存'),
+      ),
+    ],
+  );
+}
 
 /// "改这一次"的对话框：两个文本框（本地时刻），保存时把解析结果交回调用方。
 ///

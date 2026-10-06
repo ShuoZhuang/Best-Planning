@@ -151,6 +151,40 @@ void main() {
     expect(controller.hasUnresolvedReviews, isFalse);
     expect(controller.canCommit, isTrue);
   });
+
+  test('解析时若领域还没读出来，预览前会补上默认领域（学业）', () async {
+    // 真实顺序就是这样：进页面就并发 `initialize()`，而它是异步的，用户可能在它完成前
+    // 就上传图片。解析那一刻 `areas` 为空 → 课程归属写成 null，而它**只写那一次**，
+    // 于是导进来的课永远没有领域（用户反馈：导入的课程不属于学业）。
+    final controller = _controller();
+    controller.startManualEntry();
+    final course = controller.draft!.courses.single;
+    expect(course.areaId, isNull, reason: '构造时尚未读领域，模拟"解析早于 initialize 完成"');
+    controller.updateCourse(course.copyWith(name: '大学物理'));
+
+    await controller.initialize();
+    await controller.buildPreview();
+
+    expect(controller.draft!.courses.single.areaId, 'area-study');
+    expect(controller.preview!.series.single.event.areaId, 'area-study');
+  });
+
+  test('补齐默认领域是幂等的：已选过领域的课程不会被改动', () async {
+    final controller = _controller();
+    await controller.initialize();
+    controller.startManualEntry();
+    // 用户在审阅步骤把归属改成别的领域：再算一次预览不该被默认值改回去。
+    controller.updateCourse(
+      controller.draft!.courses.single.copyWith(
+        name: '大学物理',
+        areaId: 'area-lab',
+      ),
+    );
+    await controller.buildPreview();
+
+    expect(controller.draft!.courses.single.areaId, 'area-lab');
+    expect(controller.preview!.series.single.event.areaId, 'area-lab');
+  });
 }
 
 TimetableImportController _controller({
@@ -254,6 +288,15 @@ final class _WorkspaceRepository implements WorkspaceRepository {
       name: '学业',
       color: 0,
       sortOrder: 0,
+      createdAtUtc: DateTime.utc(2026),
+      updatedAtUtc: DateTime.utc(2026),
+    ),
+    // 第二个领域：让"用户把课程改到别的领域"是一个真实存在的选择。
+    PlannerArea(
+      id: 'area-lab',
+      name: '科研',
+      color: 0,
+      sortOrder: 1,
       createdAtUtc: DateTime.utc(2026),
       updatedAtUtc: DateTime.utc(2026),
     ),

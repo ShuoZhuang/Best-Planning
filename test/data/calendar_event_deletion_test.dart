@@ -55,6 +55,111 @@ void main() {
 
   tearDown(() => database.close());
 
+  test('调整归属只改领域，其它字段原样保留', () async {
+    // 这条用**真实仓储**：实现是"读出一行 → 换掉 areaId → 整行写回"，漏带任何一个字段都会
+    // 静默丢数据（位置、备注、导入批次……），而替身证明不了这一点。
+    //
+    // 领域与项目要先建行：`calendar_events.area_id` / `project_id` 有外键约束，
+    // 直接写一个不存在的 id 会被 SQLite 拒绝（这条用例第一版正是这样失败的）。
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 0,
+            sortOrder: 0,
+          ),
+        );
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-lab',
+            name: '科研',
+            color: 0,
+            sortOrder: 1,
+          ),
+        );
+    await database
+        .into(database.projects)
+        .insert(
+          ProjectsCompanion.insert(
+            id: 'project-math',
+            areaId: 'area-study',
+            name: '数学建模',
+          ),
+        );
+    await repository.save(
+      CalendarEvent(
+        id: 'event-1',
+        title: '高等数学',
+        startAtUtc: _start,
+        endAtUtc: _start.add(const Duration(hours: 2)),
+        timeZoneId: 'Asia/Shanghai',
+        areaId: 'area-study',
+        projectId: 'project-math',
+        location: '一教 101',
+        notes: '带教材',
+        sourceKind: CalendarEventSourceKind.timetableImport,
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+    );
+
+    await repository.setEventArea(
+      eventId: 'event-1',
+      areaId: 'area-lab',
+      updatedAtUtc: DateTime.utc(2026, 10, 6),
+    );
+
+    final row = await database.select(database.calendarEvents).getSingle();
+    expect(row.areaId, 'area-lab');
+    expect(row.title, '高等数学');
+    expect(row.timeZoneId, 'Asia/Shanghai');
+    expect(row.projectId, 'project-math');
+    expect(row.location, '一教 101');
+    expect(row.notes, '带教材');
+    expect(
+      row.sourceKind,
+      CalendarEventSourceKind.timetableImport.storageValue,
+    );
+  });
+
+  test('取消归属写成 null，且对已不存在的日程是幂等的', () async {
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 0,
+            sortOrder: 0,
+          ),
+        );
+    await repository.save(_event('event-1', '出门摄影'));
+    await repository.setEventArea(
+      eventId: 'event-1',
+      areaId: 'area-study',
+      updatedAtUtc: DateTime.utc(2026, 10, 6),
+    );
+    await repository.setEventArea(
+      eventId: 'event-1',
+      areaId: null,
+      updatedAtUtc: DateTime.utc(2026, 10, 6),
+    );
+    expect(
+      (await database.select(database.calendarEvents).getSingle()).areaId,
+      isNull,
+    );
+
+    // 行不在了：与删除同一条约定，当作已经处理，不抛异常。
+    await repository.setEventArea(
+      eventId: 'missing',
+      areaId: 'area-lab',
+      updatedAtUtc: DateTime.utc(2026, 10, 6),
+    );
+  });
+
   Future<List<String>> titlesInWindow() async {
     final occurrences = await repository.occurrencesBetween(
       _start,

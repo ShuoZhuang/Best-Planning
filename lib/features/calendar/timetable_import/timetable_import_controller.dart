@@ -504,8 +504,14 @@ final class TimetableImportController extends ChangeNotifier {
   }
 
   Future<void> buildPreview() async {
-    final value = draft;
+    // 先用**现在**读到领域补一次默认归属，再拿它去算预览。
+    //
+    // 解析那一刻领域可能还没读出来（`initialize()` 是异步的，失败时 `areas` 为空），
+    // 于是那时写进课程的默认值是 null，而它只写那一次——不在这里补，导进来的课就永远
+    // 没有领域（用户看到的现象：导入的课程不属于学业）。
+    final value = _withDefaultAreas(draft);
     if (value == null || periodValidationMessage != null) return;
+    draft = value;
     buildingPreview = true;
     errorMessage = null;
     notifyListeners();
@@ -702,6 +708,19 @@ final class TimetableImportController extends ChangeNotifier {
 
   CourseDraft _withDefaultArea(CourseDraft course) =>
       course.areaId == null ? course.copyWith(areaId: defaultAreaId) : course;
+
+  /// 给草稿里所有还没有领域的课程补上默认领域（学业）。
+  ///
+  /// 幂等：已经选过领域的课程原样保留，因此用户在审阅步骤手动改过的归属不会被覆盖。
+  /// `defaultAreaId` 仍为空（一个领域都没有）时原样返回，不编造归属。
+  TimetableDraft? _withDefaultAreas(TimetableDraft? value) {
+    if (value == null || defaultAreaId == null) return value;
+    if (value.courses.every((course) => course.areaId != null)) return value;
+    return TimetableDraft(
+      courses: [for (final course in value.courses) _withDefaultArea(course)],
+      detectedTotalWeeks: value.detectedTotalWeeks,
+    );
+  }
 
   static CourseDraft _validateCourse(CourseDraft course) {
     final reasons = <TimetableReviewReason>{};

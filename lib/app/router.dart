@@ -440,6 +440,19 @@ GoRouter createPlannerRouter({
               zones: zones,
               timeZoneId: timeZoneId,
               onOpenWeek: () => context.go('/calendar'),
+              // 调整固定日程的归属。领域清单从工作区读，页面只交回选中的 id。
+              onSetEventArea: calendarService == null
+                  ? null
+                  : (id, areaId) => calendarService.setEventArea(
+                      eventId: id,
+                      areaId: areaId,
+                    ),
+              loadAreaOptions: workspaceService == null
+                  ? null
+                  : () async => [
+                      for (final area in await workspaceService.listAreas())
+                        ScheduleAreaOption(id: area.id, name: area.name),
+                    ],
               // FR-CAL-01 的删除。页面只交回条目 id；删除端口未装配时不显示该按钮。
               // 删除后**不需要手动刷新**：日程视图由 drift 的 watch 驱动，写入会使它重新发出。
               onDeleteEvent: calendarService?.deleteEvent,

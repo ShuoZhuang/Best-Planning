@@ -86,6 +86,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           range: occurrence.range,
           areaColor: colorOf(occurrence.areaId),
           areaName: nameOf(occurrence.areaId),
+          areaId: occurrence.areaId,
         ),
       );
     }
@@ -125,6 +126,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
             explanation: block.explanationCode,
             areaColor: colorOf(areaIds[block.taskId]),
             areaName: nameOf(areaIds[block.taskId]),
+            areaId: areaIds[block.taskId],
           ),
         );
       }

@@ -38,6 +38,14 @@ final class ScheduleLegendArea {
   final int colorArgb;
 }
 
+/// "调整归属"对话框的领域选项：`id` 用于保存，`name` 用于显示。
+final class ScheduleAreaOption {
+  const ScheduleAreaOption({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
 /// 周视图与日视图里相邻日程条目之间的纵向间距。
 ///
 /// 两处共用同一个值：它们展示的是同一批条目，间距不同会让"同日历的两个视图"看起来像
@@ -53,6 +61,7 @@ final class ScheduleViewItem {
     this.explanation,
     this.areaColor,
     this.areaName,
+    this.areaId,
   });
 
   final String id;
@@ -71,6 +80,9 @@ final class ScheduleViewItem {
   /// 今日页的图例按它生成（"学业／科研／生活…"），因此图例不需要另外注入领域表，
   /// 也不会出现"图例里有某个领域、今天根本没它的条目"这种对不上的情况。
   final String? areaName;
+
+  /// 条目所属领域的 id（固定日程用于"调整归属"时预选当前值）。
+  final String? areaId;
 
   /// 实际用于绘制的颜色。
   ///

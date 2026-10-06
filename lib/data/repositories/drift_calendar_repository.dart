@@ -344,6 +344,45 @@ final class DriftCalendarRepository
   }
 
   @override
+  @override
+  Future<void> setEventArea({
+    required String eventId,
+    required String? areaId,
+    required DateTime updatedAtUtc,
+  }) async {
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(eventId))
+              ..limit(1))
+            .getSingleOrNull();
+    // 与删除同一条幂等约定：行不在了就当已经处理。
+    if (anchor == null) return;
+    await save(
+      domain.CalendarEvent(
+        id: anchor.id,
+        title: anchor.title,
+        startAtUtc: _instant(anchor.startAtUtc),
+        endAtUtc: _instant(anchor.endAtUtc),
+        timeZoneId: anchor.timeZoneId,
+        recurrenceRuleId: anchor.recurrenceRuleId,
+        exceptionOfId: anchor.exceptionOfId,
+        locked: anchor.locked,
+        // 只改归属：其余字段原样带回，避免"改领域"顺带丢掉位置、备注或导入批次。
+        areaId: areaId,
+        projectId: anchor.projectId,
+        location: anchor.location,
+        notes: anchor.notes,
+        sourceKind: domain.CalendarEventSourceKind.fromStorage(
+          anchor.sourceKind,
+        ),
+        importBatchId: anchor.importBatchId,
+        logicalCourseId: anchor.logicalCourseId,
+        updatedAtUtc: updatedAtUtc,
+      ),
+    );
+  }
+
+  @override
   Future<void> deleteFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,

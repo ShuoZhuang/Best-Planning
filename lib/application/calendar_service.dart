@@ -182,6 +182,30 @@ final class CalendarService {
     return true;
   }
 
+  /// 调整固定日程的所属领域（`null` 取消归属）。端口未装配时返回 false。
+  ///
+  /// 领域是整条日程的属性：重复日程已写下的例外行各自带着自己的归属（改写时从锚点复制），
+  /// 这里改锚点，因此"以后新出现的那几次"跟随新归属，历史例外保持原样。
+  Future<bool> setEventArea({
+    required String eventId,
+    required String? areaId,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.setEventArea(
+      eventId: eventId,
+      areaId: areaId,
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程归属调整',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
+    return true;
+  }
+
   /// 改写重复日程里的某一次（FR-CAL-02 的"修改单次实例"）。
   ///
   /// 与 [deleteOccurrence] 同路：判定"是不是重复日程"与例外的时区都在仓储侧（它才摸得到规则

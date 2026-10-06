@@ -58,6 +58,13 @@ final class _Deletion implements CalendarEventDeletion {
   final List<String> calls = [];
 
   @override
+  Future<void> setEventArea({
+    required String eventId,
+    required String? areaId,
+    required DateTime updatedAtUtc,
+  }) async => calls.add('setEventArea:$eventId:${areaId ?? 'none'}');
+
+  @override
   Future<void> deleteEvent(String eventId) async =>
       calls.add('deleteEvent:$eventId');
 

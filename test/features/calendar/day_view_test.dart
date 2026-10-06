@@ -61,6 +61,11 @@ void main() {
       String title,
     )?
     onReplaceOccurrence,
+    Future<bool> Function(String eventId, String? areaId)? onSetEventArea,
+    List<ScheduleAreaOption> areaOptions = const [
+      ScheduleAreaOption(id: 'area-study', name: '学业'),
+      ScheduleAreaOption(id: 'area-lab', name: '科研'),
+    ],
   }) async {
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
@@ -75,6 +80,10 @@ void main() {
             timeZoneId: timeZoneId,
             onDeleteEvent: onDeleteEvent,
             onReplaceOccurrence: onReplaceOccurrence,
+            onSetEventArea: onSetEventArea,
+            loadAreaOptions: onSetEventArea == null
+                ? null
+                : () async => areaOptions,
           ),
         ),
       ),
@@ -259,6 +268,89 @@ void main() {
     // 间距为 0 时两条只剩卡片自身的外边距（4+4），因此这里用 token 值做下界：
     // 少了这个间隔断言就会失败。
     expect(second.top - first.bottom, greaterThanOrEqualTo(scheduleItemGap));
+  });
+
+  testWidgets('可以调整固定日程的所属领域，并把选中的 id 交给端口', (tester) async {
+    final calls = <(String, String?)>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:event-1',
+          title: '出门摄影',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+      ],
+      onSetEventArea: (eventId, areaId) async {
+        calls.add((eventId, areaId));
+        return true;
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('area-fixed:event-1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('area-picker-dialog')), findsOneWidget);
+
+    // 改成"科研"。
+    await tester.tap(find.byKey(const Key('area-picker')).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('科研').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('area-picker-save')));
+    await tester.pumpAndSettle();
+
+    // 交回的是**去掉 `fixed:` 前缀的领域 id**，而不是视图用的条目 id——删除功能当初正是
+    // 把 `fixed:<uuid>` 当成领域 id 交给端口，结果删 0 行还不报错。
+    expect(calls, [('event-1', 'area-lab')]);
+    expect(find.text('已调整归属'), findsOneWidget);
+  });
+
+  testWidgets('取消对话框不会写入任何归属', (tester) async {
+    final calls = <(String, String?)>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:event-1',
+          title: '出门摄影',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+      ],
+      onSetEventArea: (eventId, areaId) async {
+        calls.add((eventId, areaId));
+        return true;
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('area-fixed:event-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('area-picker-cancel')));
+    await tester.pumpAndSettle();
+
+    // "取消"与"选择不归属领域"都是 null，必须区分开：取消不该被当成一次真实的清空。
+    expect(calls, isEmpty);
+  });
+
+  testWidgets('非日程条目不能调整归属（图标保留但点不动）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'block:block-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 9,
+        ),
+      ],
+      onSetEventArea: (eventId, areaId) async => true,
+    );
+
+    final button = tester.widget<IconButton>(
+      find.byKey(const Key('area-block:block-1')),
+    );
+    expect(button.onPressed, isNull);
   });
 
   testWidgets('删除前问清"只删这一次"还是"删除整条"，并把选择交给对应入口', (tester) async {

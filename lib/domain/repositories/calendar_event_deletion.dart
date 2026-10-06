@@ -98,4 +98,17 @@ abstract interface class CalendarEventDeletion {
     required DateTime occurrenceStartUtc,
     required DateTime updatedAtUtc,
   });
+
+  /// 调整一条固定日程的**所属领域**（`null` 表示取消归属）。
+  ///
+  /// 领域是**整条日程**的属性，不是某一次的，因此这里改的是锚点行本身：重复日程的例外行各自
+  /// 带着自己的 `areaId`（见 `replaceOccurrence`，它从锚点复制），已写下的例外不会被追溯修改。
+  ///
+  /// **幂等**：锚点已经不在了就当已经处理（与删除同一条约定），不抛异常——调用方拿到的 id
+  /// 可能来自一次已过期的视图。
+  Future<void> setEventArea({
+    required String eventId,
+    required String? areaId,
+    required DateTime updatedAtUtc,
+  });
 }
