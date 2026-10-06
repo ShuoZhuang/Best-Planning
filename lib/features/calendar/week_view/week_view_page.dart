@@ -227,12 +227,14 @@ final class _DayColumn extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                for (final item in items)
+                for (var index = 0; index < items.length; index++) ...[
+                  if (index > 0) const SizedBox(height: scheduleItemGap),
                   _DraggableScheduleCard(
-                    item: item,
+                    item: items[index],
                     toLocal: toLocal,
                     onTap: onOpenDay == null ? null : () => onOpenDay!(day),
                   ),
+                ],
               ],
             ),
           ),
@@ -314,7 +316,7 @@ final class _DraggableScheduleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = Card(
-      color: item.kind.color(Theme.of(context).colorScheme),
+      color: item.color(Theme.of(context).colorScheme),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),

@@ -1,3 +1,4 @@
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
@@ -38,14 +39,18 @@ final class WorkspaceService {
   Future<List<PlannerProject>> listProjects() => repository.listProjects();
 
   /// 新建领域，排序追加到末尾，因此建立顺序即用户看到的顺序。
+  ///
+  /// 颜色按排序落到默认色板：此前这里写死 `color: 0`，于**每个领域都没有颜色**，
+  /// 日历与今日页也就无法按领域着色（列一直存在，只是从来没被填过）。
   Future<PlannerArea> createArea(String name, {bool isLife = false}) async {
     final existing = await repository.listAreas();
     final now = clock.nowUtc();
+    final sortOrder = existing.isEmpty ? 0 : existing.last.sortOrder + 1;
     final area = PlannerArea(
       id: idGenerator.next(),
       name: name,
-      color: 0,
-      sortOrder: existing.isEmpty ? 0 : existing.last.sortOrder + 1,
+      color: resolveAreaColorArgb(storedColor: 0, sortOrder: sortOrder),
+      sortOrder: sortOrder,
       isLife: isLife,
       createdAtUtc: now,
       updatedAtUtc: now,
@@ -62,6 +67,11 @@ final class WorkspaceService {
   /// 设置或取消生活标记。这是**唯一**能让生活配额与"生活"分类生效的操作。
   Future<void> setAreaLife(PlannerArea area, bool isLife) => repository
       .saveArea(area.copyWith(isLife: isLife, updatedAtUtc: clock.nowUtc()));
+
+  /// 设置领域颜色（ARGB）。日历与今日页按它给条目着色。
+  Future<void> setAreaColor(PlannerArea area, int color) => repository.saveArea(
+    area.copyWith(color: color, updatedAtUtc: clock.nowUtc()),
+  );
 
   /// 新建项目。
   ///
@@ -121,12 +131,14 @@ final class WorkspaceService {
     for (final entry in DefaultAreas.entries) {
       if (existingNames.contains(entry.name.trim().toLowerCase())) continue;
       final now = clock.nowUtc();
+      final areaOrder = order++;
       await repository.saveArea(
         PlannerArea(
           id: idGenerator.next(),
           name: entry.name,
-          color: 0,
-          sortOrder: order++,
+          // 与 createArea 同一条规则：默认领域一建立就有各自可区分的颜色。
+          color: resolveAreaColorArgb(storedColor: 0, sortOrder: areaOrder),
+          sortOrder: areaOrder,
           isLife: entry.isLife,
           createdAtUtc: now,
           updatedAtUtc: now,

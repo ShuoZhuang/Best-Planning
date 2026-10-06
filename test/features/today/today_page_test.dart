@@ -35,6 +35,43 @@ void main() {
   });
   final day = DateTime.utc(2026, 10, 5);
 
+  testWidgets('图例按领域列出颜色，保护时间单独一项', (tester) async {
+    // 图例此前写死"固定／保护／可移动任务／生活"，与卡片实际取色无关；卡片改成按领域
+    // 着色后那就是错误信息。现在领域项来自注入的领域表，保护是唯一按类型着色的类别。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(Stream.value(const [])),
+          day: day,
+          loadAreas: () async => const [
+            ScheduleLegendArea(name: '学业', colorArgb: 0xff4a7bd1),
+            ScheduleLegendArea(name: '科研', colorArgb: 0xff5aa88a),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('学业'), findsOneWidget);
+    expect(find.text('科研'), findsOneWidget);
+    expect(find.text('保护'), findsOneWidget);
+    // 写死的旧分类不该再出现。
+    expect(find.text('可移动任务'), findsNothing);
+    expect(find.text('固定'), findsNothing);
+  });
+
+  testWidgets('没有注入领域表时图例只列保护', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(source: _Source(Stream.value(const [])), day: day),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('保护'), findsOneWidget);
+    expect(find.text('学业'), findsNothing);
+  });
+
   testWidgets('today page renders its UTC window in the selected local zone', (
     tester,
   ) async {
@@ -205,10 +242,14 @@ void main() {
     await tester.pump();
 
     expect(find.text('高等数学'), findsWidgets);
+    // 今日容量按类型给出分组标题。
     expect(find.text('固定日程'), findsOneWidget);
     expect(find.text('保护时间'), findsOneWidget);
-    expect(find.text('可移动任务'), findsOneWidget);
-    expect(find.text('生活'), findsOneWidget);
+    expect(find.text('任务与生活'), findsOneWidget);
+    // 旧图例写死的分类文案不该再出现：图例现在只列领域 + 保护。
+    expect(find.text('可移动任务'), findsNothing);
+    expect(find.text('生活'), findsNothing);
+    expect(find.text('保护'), findsOneWidget);
   });
 
   testWidgets('today page error is recoverable', (tester) async {

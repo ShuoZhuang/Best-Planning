@@ -349,7 +349,13 @@ Future<void> main() async {
   // 数据导出（FR-DATA-06）。服务、数据源与文件适配器此前都已写好并有测试，但生产代码里
   // 从未构造过任何一个，因此"导出"在真实运行中不可达（W3/W6 同类的"没装配"）。
   // 注意目录选择与写文件是平台行为，本机只能经假端口验证，见 §13.0。
-  const exportFiles = FileSelectorAdapter();
+  //
+  // 起始目录取**数据库所在目录**：数据库每次启动都真的写在这里（`preparePlannerDatabase`
+  // 还做过写入探测），所以这是"本应用一定能写"的目录。受限机器上（进程低完整性时
+  // Windows 拒绝写桌面／文档／临时目录）这决定了另存为对话框是否默认落在可保存的位置。
+  final exportFiles = FileSelectorAdapter(
+    initialDirectory: File(databasePath).parent.path,
+  );
   final exportService = ExportService(
     source: DriftExportDataSource(database),
     files: exportFiles,
@@ -565,6 +571,7 @@ Future<void> main() async {
           rules: ruleResolver,
           zones: zones,
           timeZoneId: timeZoneId,
+          areas: workspaceRepository,
         ),
       ),
     ),

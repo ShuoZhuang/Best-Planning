@@ -18,8 +18,10 @@ import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_glass.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -129,6 +131,18 @@ GoRouter createPlannerRouter({
             source: scheduleSource,
             day: todayStartUtc,
             toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
+            loadAreas: workspaceService == null
+                ? null
+                : () async => [
+                    for (final area in await workspaceService.listAreas())
+                      ScheduleLegendArea(
+                        name: area.name,
+                        colorArgb: resolveAreaColorArgb(
+                          storedColor: area.color,
+                          sortOrder: area.sortOrder,
+                        ),
+                      ),
+                  ],
           ),
         ),
         GoRoute(
@@ -329,19 +343,22 @@ GoRouter createPlannerRouter({
             return TimetableImportPage(
               controller: controller,
               onCancel: () => context.go('/calendar'),
-              onCompleted: (batch) {
+              onCompleted: (outcome) {
                 final messenger = ScaffoldMessenger.of(context);
                 context.go('/calendar');
                 messenger.showSnackBar(
-                  SnackBar(
-                    content: Text('课表已导入，共创建 ${batch.createdEventCount} 组重复课程'),
+                  plannerSnackBar(
+                    messenger,
+                    // 摘要里带上识别数与被跳过的原因：只报创建数会让"16 门建了 15 组"
+                    // 看起来像漏了一门。
+                    message: outcome.message,
                     action: SnackBarAction(
                       label: '撤销本次导入',
                       onPressed: () {
                         _undoTimetableImport(
                           messenger.context,
                           importer,
-                          batch.id,
+                          outcome.batch.id,
                         );
                       },
                     ),
@@ -388,6 +405,8 @@ GoRouter createPlannerRouter({
                         initialEndUtc: startUtc.add(const Duration(hours: 1)),
                         timeZoneId: timeZoneId,
                         zones: zones,
+                        // 领域与项目来源：固定日程也能选归属，与任务一致。
+                        workspace: workspaceService,
                         // FR-TASK-04：从任务页跳来时预填标题（`?title=...`）。
                         initialTitle: state.uri.queryParameters['title'] ?? '',
                         onSaved: () => context.go('/calendar'),
@@ -977,8 +996,7 @@ Future<void> _generatePlan(
       );
   if (!context.mounted) return;
   if (outcome.message.isNotEmpty) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(outcome.message)));
+    showPlannerMessage(context, message: outcome.message);
   }
   context.go('/planning/preview/${proposal.proposalId}');
 }
@@ -1346,8 +1364,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       ApplyPlanStatus.staleProposal => '输入已变化，计划已过期，请重新生成',
       ApplyPlanStatus.invalidProposal => '计划未通过校验，未应用',
     };
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+    showPlannerMessage(context, message: message);
     if (result.status == ApplyPlanStatus.applied) {
       context.go('/calendar');
     }
@@ -1389,13 +1406,13 @@ Future<void> _undoTimetableImport(
     }
     final result = await importer.rollback(batchId, forceEventIds: force);
     if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text('已撤销本次导入，删除 ${result.deletedEventCount} 组课程')),
+    showPlannerMessage(
+      context,
+      message: '已撤销本次导入，删除 ${result.deletedEventCount} 组课程',
     );
   } on Object {
     if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(const SnackBar(content: Text('撤销失败：课程可能在确认期间再次发生变化')));
+    showPlannerMessage(context, message: '撤销失败：课程可能在确认期间再次发生变化');
   }
 }
 

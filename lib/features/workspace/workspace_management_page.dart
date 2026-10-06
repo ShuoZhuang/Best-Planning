@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 
 /// 领域与项目的管理界面：新建、改名、标记生活、归档。
@@ -72,8 +74,7 @@ final class _WorkspaceManagementPageState
   }
 
   void _report(String message) {
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+    showPlannerMessage(context, message: message);
   }
 
   Future<void> _createArea() async {
@@ -162,6 +163,10 @@ final class _WorkspaceManagementPageState
             onCancelRename: () => setState(() => _editingKey = null),
             onToggleLife: (value) async {
               await widget.workspace.setAreaLife(area, value);
+              await _reload();
+            },
+            onPickColor: (color) async {
+              await widget.workspace.setAreaColor(area, color);
               await _reload();
             },
           ),
@@ -294,6 +299,7 @@ final class _AreaRow extends StatelessWidget {
     required this.onConfirmRename,
     required this.onCancelRename,
     required this.onToggleLife,
+    required this.onPickColor,
   });
 
   final PlannerArea area;
@@ -303,60 +309,133 @@ final class _AreaRow extends StatelessWidget {
   final VoidCallback onConfirmRename;
   final VoidCallback onCancelRename;
   final ValueChanged<bool> onToggleLife;
+  final ValueChanged<int> onPickColor;
 
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: editing
-                ? TextField(
-                    key: const Key('rename-field'),
-                    controller: editField,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: '名称'),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(area.name, key: Key('area-name-${area.id}')),
-                      if (area.isLife)
-                        Text(
-                          '计入个人生活时间',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                    ],
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: editing
+                    ? TextField(
+                        key: const Key('rename-field'),
+                        controller: editField,
+                        autofocus: true,
+                        decoration: const InputDecoration(labelText: '名称'),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(area.name, key: Key('area-name-${area.id}')),
+                          if (area.isLife)
+                            Text(
+                              '计入个人生活时间',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+              ),
+              if (editing) ...[
+                TextButton(
+                  key: const Key('rename-confirm'),
+                  onPressed: onConfirmRename,
+                  child: const Text('保存'),
+                ),
+                TextButton(
+                  key: const Key('rename-cancel'),
+                  onPressed: onCancelRename,
+                  child: const Text('取消'),
+                ),
+              ] else ...[
+                Switch(
+                  key: Key('area-life-${area.id}'),
+                  value: area.isLife,
+                  onChanged: onToggleLife,
+                ),
+                TextButton(
+                  key: Key('area-rename-${area.id}'),
+                  onPressed: onStartRename,
+                  child: const Text('改名'),
+                ),
+              ],
+            ],
           ),
-          if (editing) ...[
-            TextButton(
-              key: const Key('rename-confirm'),
-              onPressed: onConfirmRename,
-              child: const Text('保存'),
+          if (!editing)
+            _AreaColorPicker(
+              areaId: area.id,
+              selected: resolveAreaColorArgb(
+                storedColor: area.color,
+                sortOrder: area.sortOrder,
+              ),
+              onPick: onPickColor,
             ),
-            TextButton(
-              key: const Key('rename-cancel'),
-              onPressed: onCancelRename,
-              child: const Text('取消'),
-            ),
-          ] else ...[
-            Switch(
-              key: Key('area-life-${area.id}'),
-              value: area.isLife,
-              onChanged: onToggleLife,
-            ),
-            TextButton(
-              key: Key('area-rename-${area.id}'),
-              onPressed: onStartRename,
-              child: const Text('改名'),
-            ),
-          ],
         ],
       ),
     ),
   );
+}
+
+/// 领域颜色选择：一排低饱和色块。
+///
+/// 只给固定色板、不做自由取色：设计口径要求"领域色不得抢过主强调色"，自由取色很容易
+/// 选出比主强调色更抢眼的颜色，把"当前状态／主行动"的视觉层级压掉。
+final class _AreaColorPicker extends StatelessWidget {
+  const _AreaColorPicker({
+    required this.areaId,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final String areaId;
+  final int selected;
+  final ValueChanged<int> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Wrap(
+        spacing: 4,
+        children: [
+          for (var index = 0; index < areaPaletteArgb.length; index++)
+            Tooltip(
+              message: '设为${areaPaletteNames[index]}',
+              child: InkWell(
+                key: Key('area-color-$areaId-${areaPaletteArgb[index]}'),
+                onTap: () => onPick(areaPaletteArgb[index]),
+                customBorder: const CircleBorder(),
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: Color(areaPaletteArgb[index]),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: areaPaletteArgb[index] == selected
+                              ? scheme.onSurface
+                              : scheme.outlineVariant,
+                          width: areaPaletteArgb[index] == selected ? 2 : 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 final class _ProjectRow extends StatelessWidget {
