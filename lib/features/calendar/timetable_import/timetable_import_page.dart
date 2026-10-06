@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 import 'package:personal_planner/features/calendar/timetable_import/period_step.dart';
 import 'package:personal_planner/features/calendar/timetable_import/preview_step.dart';
 import 'package:personal_planner/features/calendar/timetable_import/review_step.dart';
@@ -17,7 +16,7 @@ final class TimetableImportPage extends StatefulWidget {
 
   final TimetableImportController controller;
   final VoidCallback onCancel;
-  final ValueChanged<TimetableImportBatch> onCompleted;
+  final ValueChanged<TimetableImportOutcome> onCompleted;
 
   @override
   State<TimetableImportPage> createState() => _TimetableImportPageState();
@@ -122,9 +121,9 @@ final class _TimetableImportPageState extends State<TimetableImportPage> {
   };
 
   Future<void> _commit(BuildContext context) async {
-    final batch = await widget.controller.commit();
-    if (!mounted || batch == null) return;
-    widget.onCompleted(batch);
+    final outcome = await widget.controller.commit();
+    if (!mounted || outcome == null) return;
+    widget.onCompleted(outcome);
   }
 }
 

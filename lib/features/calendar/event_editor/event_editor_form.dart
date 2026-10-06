@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/workspace.dart';
 
 final class EventEditorForm extends StatefulWidget {
   const EventEditorForm({
@@ -11,6 +13,9 @@ final class EventEditorForm extends StatefulWidget {
     required this.zones,
     this.recurrenceRuleId,
     this.initialTitle = '',
+    this.workspace,
+    this.initialAreaId,
+    this.initialProjectId,
     this.onSaved,
     super.key,
   });
@@ -30,9 +35,20 @@ final class EventEditorForm extends StatefulWidget {
 
   /// 打开表单时预填的标题（FR-TASK-04 的"任务转固定日程"）。
   ///
-  /// 只预填标题：表单**没有"所属领域"控件**（切片 A 未加），因此领域无从预填——与其做一个
-  /// 只有标题像是"转换"的入口，不如把这一点写明，让用户知道创建完还需要自己补领域。
+  /// 只预填标题：领域与项目在表单里**可以自己选**了（见 [workspace]），但调用方目前只传标题，
+  /// 因此从任务转过来时领域不会自动带过来，用户在表单里选一次即可。
   final String initialTitle;
+
+  /// 领域与项目的来源。
+  ///
+  /// 为空时不显示"分类归属"：给一个没有任何可选项的下拉框，比不显示更让人困惑。
+  final WorkspaceService? workspace;
+
+  /// 打开表单时预填的领域（编辑已有日程时用）。
+  final String? initialAreaId;
+
+  /// 打开表单时预填的项目。
+  final String? initialProjectId;
 
   final VoidCallback? onSaved;
 
@@ -54,6 +70,45 @@ final class _EventEditorFormState extends State<EventEditorForm> {
   bool _weekly = false;
   late Set<int> _weekdays;
   String _recurrencePreset = 'weekly';
+  List<PlannerArea> _areas = const [];
+  List<PlannerProject> _projects = const [];
+  String? _areaId;
+  String? _projectId;
+
+  /// 当前领域下可选的项目。
+  ///
+  /// 项目按领域过滤：领域是长期方向，项目是它下面的一段工作，跨领域选项目会让"归属"失去意义。
+  List<PlannerProject> get _visibleProjects => _areaId == null
+      ? const <PlannerProject>[]
+      : _projects
+            .where((project) => project.areaId == _areaId)
+            .toList(growable: false);
+
+  Future<void> _loadWorkspace() async {
+    final workspace = widget.workspace;
+    if (workspace == null) return;
+    final areas = await workspace.listAreas();
+    final projects = await workspace.listProjects();
+    if (!mounted) return;
+    setState(() {
+      _areas = areas;
+      _projects = projects;
+    });
+  }
+
+  void _selectArea(String? areaId) {
+    setState(() {
+      _areaId = areaId;
+      // 换领域后原项目可能不再属于新领域，此时必须清掉——否则会保存出
+      // "项目不属于所选领域"的组合。
+      final belongs =
+          areaId != null &&
+          _projects.any(
+            (project) => project.id == _projectId && project.areaId == areaId,
+          );
+      if (!belongs) _projectId = null;
+    });
+  }
 
   @override
   void initState() {
@@ -72,6 +127,9 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _endTimeController = TextEditingController(text: _time(end));
     _recurrenceEndController = TextEditingController();
     _intervalController = TextEditingController(text: '1');
+    _areaId = widget.initialAreaId;
+    _projectId = widget.initialProjectId;
+    _loadWorkspace();
   }
 
   @override
@@ -119,6 +177,8 @@ final class _EventEditorFormState extends State<EventEditorForm> {
         startAtUtc: startAtUtc,
         endAtUtc: endAtUtc,
         timeZoneId: widget.timeZoneId,
+        areaId: _areaId,
+        projectId: _projectId,
         recurrenceRuleId: widget.recurrenceRuleId,
         editScope: _scope,
         recurrenceWeekdays: _weekly ? _weekdays : const {},
@@ -150,6 +210,52 @@ final class _EventEditorFormState extends State<EventEditorForm> {
           ),
         ),
         const SizedBox(height: 12),
+        // 分类归属：领域必选其一（可留空），项目按所选领域过滤。
+        //
+        // 只在有领域可用时显示：给一个没有任何可选项的下拉框，比不显示更让人困惑。
+        if (_areas.isNotEmpty) ...[
+          DropdownButtonFormField<String>(
+            key: const Key('event-area'),
+            initialValue: _areaId,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: '所属领域',
+              errorText: _errors['areaId'],
+            ),
+            items: [
+              for (final area in _areas)
+                DropdownMenuItem(value: area.id, child: Text(area.name)),
+            ],
+            onChanged: _selectArea,
+          ),
+          const SizedBox(height: 12),
+          KeyedSubtree(
+            key: const Key('event-project'),
+            child: DropdownButtonFormField<String>(
+              // 领域变化时重建：项目列表与"暂不归属项目"的选中状态都随之改变。
+              key: ValueKey<String?>('event-project-$_areaId-$_projectId'),
+              initialValue: _projectId,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: '所属项目（可选）',
+                hintText: '暂不归属项目',
+                errorText: _errors['projectId'],
+              ),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('暂不归属项目')),
+                for (final project in _visibleProjects)
+                  DropdownMenuItem(
+                    value: project.id,
+                    child: Text(project.name),
+                  ),
+              ],
+              onChanged: _areaId == null
+                  ? null
+                  : (value) => setState(() => _projectId = value),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Wrap(
           spacing: 12,
           runSpacing: 12,

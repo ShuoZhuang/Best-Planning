@@ -2,18 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
+import 'package:personal_planner/platform/windows/app_restart.dart';
 
 final class BackupPage extends StatefulWidget {
   const BackupPage({
     required this.backups,
     required this.files,
     this.erasure,
+    this.restart,
     super.key,
   });
 
   final BackupService backups;
   final FileSelectorAdapter files;
   final DataErasureService? erasure;
+
+  /// 重启应用的方式。默认真的重启；测试注入替身，以免用例把测试进程自己退出掉。
+  final Future<void> Function()? restart;
 
   @override
   State<BackupPage> createState() => _BackupPageState();
@@ -83,7 +88,45 @@ final class _BackupPageState extends State<BackupPage> {
     );
     if (confirmed != true) return '已取消恢复。';
     await widget.backups.restore(path);
-    return '恢复完成。';
+    final restarted = await _offerRestart(
+      title: '恢复已完成',
+      message: '恢复会在下次启动时生效。现在重启，还是稍后自己重启？',
+    );
+    return restarted ? '恢复完成，正在重启…' : '恢复完成，重启后生效。';
+  }
+
+  /// 恢复／清除完成后的收尾：问"现在重启还是过会儿"。
+  ///
+  /// 这两件事都**只在下次启动生效**（运行中的 drift 连接仍指向旧文件），所以必须给出重启入口，
+  /// 而不是只留一句"重启后生效"让用户自己去关窗口。返回是否已触发重启。
+  Future<bool> _offerRestart({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return false;
+    final restartNow = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('restore-restart-dialog'),
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            key: const Key('restart-later'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('过会儿再重启'),
+          ),
+          FilledButton(
+            key: const Key('restart-now'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('现在重启'),
+          ),
+        ],
+      ),
+    );
+    if (restartNow != true) return false;
+    await (widget.restart ?? restartApp)();
+    return true;
   }
 
   Future<void> _erase() async {
@@ -97,6 +140,12 @@ final class _BackupPageState extends State<BackupPage> {
       _confirmation.clear();
       // **必须说"重启后生效"**：删除安排在下次启动执行（运行中的数据库连接仍指向那个文件），
       // 说成"已清除"而用户重启前还能看到数据，就是在用一句好听的话掩盖真实行为。
+      // 与恢复同一条收尾：给出"现在重启"的入口，而不是让用户自己去找。
+      final restarted = await _offerRestart(
+        title: '清除已安排',
+        message: '本机应用数据会在下次启动时删除。现在重启，还是稍后自己重启？',
+      );
+      if (restarted) return '正在重启，重启后本机数据即被清除。';
       return '已安排永久清除：本机应用数据将在**下次启动**时删除；'
           '自行导出的外部文件不在清除范围内。';
     });

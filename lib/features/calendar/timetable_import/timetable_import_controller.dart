@@ -38,6 +38,53 @@ enum TimetableWizardStep { upload, review, term, periods, preview }
 
 enum TimetableConflictChoice { keepPending, excludeOccurrence, skipCourse }
 
+/// 一次导入的结果摘要。
+///
+/// **为什么要有它**：完成提示原先只报"共创建 N 组重复课程"。用户在校对步骤跳掉一门后，
+/// 看到 16 门课只建了 15 组，只能把它当成缺陷——因为提示里没有"识别了多少、为什么少了"。
+/// 把识别数与被跳过的原因一起摆出来，这个差值就不再需要用户反推。
+final class TimetableImportOutcome {
+  const TimetableImportOutcome({
+    required this.batch,
+    required this.recognizedCourses,
+    required this.createdSeries,
+    required this.skippedCourses,
+    required this.duplicateCourses,
+    required this.excludedOccurrences,
+  });
+
+  final TimetableImportBatch batch;
+
+  /// 校对步骤里识别到的课程数（跳过的也算在内）。
+  final int recognizedCourses;
+
+  /// 实际写入的重复课程组数。
+  final int createdSeries;
+
+  /// 用户在冲突里选了"跳过该课程"的课程数。
+  final int skippedCourses;
+
+  /// 判定为重复、因而没有新建的课程数（按用户选择跳过或更新）。
+  final int duplicateCourses;
+
+  /// 被单次排除的出现次数。
+  final int excludedOccurrences;
+
+  String get message {
+    final omitted = <String>[
+      if (skippedCourses > 0) '跳过 $skippedCourses 门',
+      if (duplicateCourses > 0) '重复未新建 $duplicateCourses 门',
+    ];
+    final exclusions = excludedOccurrences > 0
+        ? '，另排除 $excludedOccurrences 次'
+        : '';
+    final explanation = omitted.isEmpty
+        ? ''
+        : '（识别 $recognizedCourses 门，${omitted.join('、')}）';
+    return '课表已导入，共创建 $createdSeries 组重复课程$exclusions$explanation';
+  }
+}
+
 final class TimetableImportController extends ChangeNotifier {
   TimetableImportController({
     required this.ocrEngine,
@@ -529,7 +576,7 @@ final class TimetableImportController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<TimetableImportBatch?> commit() async {
+  Future<TimetableImportOutcome?> commit() async {
     final value = preview;
     if (!canCommit || value == null) return null;
     committing = true;
@@ -620,7 +667,27 @@ final class TimetableImportController extends ChangeNotifier {
           series: writes,
         ),
       );
-      return committedBatch;
+      return TimetableImportOutcome(
+        batch: committedBatch!,
+        recognizedCourses: draft?.courses.length ?? value.series.length,
+        createdSeries: writes.length,
+        skippedCourses: <String>{
+          for (final series in value.series)
+            if (skippedCourseIds.contains(series.courseId)) series.courseId,
+        }.length,
+        duplicateCourses: <String>{
+          for (final series in value.series)
+            if (duplicateChoices[series.courseId] ==
+                    TimetableDuplicateResolution.skip ||
+                duplicateChoices[series.courseId] ==
+                    TimetableDuplicateResolution.update)
+              series.courseId,
+        }.length,
+        excludedOccurrences: writes.fold(
+          0,
+          (total, write) => total + write.exclusions.length,
+        ),
+      );
     } on DuplicateTimetableImportException {
       errorMessage = '这张课表已经导入过，本次没有重复写入。';
       return null;

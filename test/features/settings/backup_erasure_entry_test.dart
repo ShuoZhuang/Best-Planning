@@ -29,7 +29,11 @@ void main() {
     );
   });
 
-  Future<void> pump(WidgetTester tester, {required bool withErasure}) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    required bool withErasure,
+    Future<void> Function()? restart,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: BackupPage(
@@ -37,6 +41,7 @@ void main() {
           backups: _backups(database),
           erasure: withErasure ? service : null,
           files: const FileSelectorAdapter(),
+          restart: restart,
         ),
       ),
     );
@@ -81,13 +86,21 @@ void main() {
   });
 
   testWidgets('输入正确短语后真的触发清除，并如实说"下次启动"生效', (tester) async {
-    await pump(tester, withErasure: true);
+    await pump(tester, withErasure: true, restart: () async {});
 
     await tester.enterText(
       find.byKey(const Key('erasure-confirmation')),
       DataErasureService.confirmationPhrase,
     );
     await tester.tap(find.byKey(const Key('erasure-submit')));
+    // 对话框弹出期间 `_busy` 仍为 true，页面上的 `LinearProgressIndicator` 会一直动，
+    // 因此这里**不能**用 pumpAndSettle（等不到静止）：按固定时长推进到对话框出现为止。
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // 清除只在下次启动生效，因此完成后会问一次"现在重启吗"；这里选择稍后。
+    expect(find.byKey(const Key('restore-restart-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('restart-later')));
     await tester.pumpAndSettle();
 
     expect(database.erased, isTrue);
@@ -95,6 +108,37 @@ void main() {
     // 于是"找到一处"既可能指结果、也可能指说明（第一版正是这样失败的：Found 2 widgets）。
     expect(find.textContaining('已安排永久清除'), findsOneWidget);
     expect(find.textContaining('下次启动'), findsNWidgets(2));
+  });
+
+  testWidgets('选"过会儿再重启"不会重启，选"现在重启"立刻重启一次', (tester) async {
+    var restarts = 0;
+    await pump(tester, withErasure: true, restart: () async => restarts++);
+
+    Future<void> erase() async {
+      await tester.enterText(
+        find.byKey(const Key('erasure-confirmation')),
+        DataErasureService.confirmationPhrase,
+      );
+      await tester.tap(find.byKey(const Key('erasure-submit')));
+      // 同上：对话框打开期间进度条一直在动，pumpAndSettle 等不到静止。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    await erase();
+    expect(find.byKey(const Key('restore-restart-dialog')), findsOneWidget);
+    expect(find.byKey(const Key('restart-now')), findsOneWidget);
+    expect(find.byKey(const Key('restart-later')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('restart-later')));
+    await tester.pumpAndSettle();
+    expect(restarts, 0, reason: '选"过会儿再重启"不该重启');
+    expect(find.byKey(const Key('restore-restart-dialog')), findsNothing);
+
+    await erase();
+    await tester.tap(find.byKey(const Key('restart-now')));
+    await tester.pumpAndSettle();
+    expect(restarts, 1, reason: '选"现在重启"必须真的重启，否则用户重启前仍看到旧数据');
   });
 }
 

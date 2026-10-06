@@ -80,8 +80,8 @@ void main() {
     expect(controller.draft!.courses.single.reviewReasons, isEmpty);
     await controller.buildPreview();
     expect(controller.preview!.occurrences, hasLength(2));
-    final batch = await controller.commit();
-    expect(batch, isNotNull);
+    final outcome = await controller.commit();
+    expect(outcome, isNotNull);
     expect(changes.single.label, '导入课表');
 
     final windowStart = zones.localMidnightToUtc(
@@ -134,7 +134,7 @@ void main() {
       }
     }
 
-    await importService.rollback(batch!.id);
+    await importService.rollback(outcome!.batch.id);
     expect(changes.map((change) => change.label), ['导入课表', '撤销课表导入']);
     expect(await calendar.occurrencesBetween(windowStart, windowEnd), isEmpty);
 

@@ -23,6 +23,7 @@ final class EventDraft {
     this.exceptionOfId,
     this.locked = true,
     this.areaId,
+    this.projectId,
     this.editScope = EventEditScope.singleOccurrence,
     this.recurrenceWeekdays = const {},
     this.recurrenceValidUntilLocalDate,
@@ -37,6 +38,10 @@ final class EventDraft {
   final String? exceptionOfId;
   final bool locked;
   final String? areaId;
+
+  /// 所属项目（可选）。`calendar_events.project_id` 一直存在，但此前没有任何写入路径，
+  /// 因此固定日程在界面上无法归属项目。
+  final String? projectId;
   final EventEditScope editScope;
   final Set<int> recurrenceWeekdays;
   final DateTime? recurrenceValidUntilLocalDate;
@@ -301,6 +306,7 @@ final class CalendarService {
       exceptionOfId: draft.exceptionOfId,
       locked: draft.locked,
       areaId: draft.areaId,
+      projectId: draft.projectId,
       updatedAtUtc: now,
     );
     if (recurring) {
