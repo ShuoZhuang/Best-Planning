@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
@@ -20,6 +22,7 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
+import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -29,6 +32,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
@@ -39,6 +43,7 @@ import 'package:personal_planner/data/repositories/drift_settings_repository.dar
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/data/repositories/drift_timetable_import_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/interruption_reason.dart';
@@ -49,7 +54,9 @@ import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
 import 'package:personal_planner/platform/notifications/diagnostic_notification_port.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
+import 'package:personal_planner/platform/ocr/windows_timetable_ocr.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
+import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 import 'package:personal_planner/platform/windows/windows_package_identity.dart';
@@ -64,15 +71,43 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 数据库路径必须在**打开数据库之前**确定：备份要复制这个文件，而用户安排的恢复也要在此
-  // 刻完成替换（见 backup_assembly.dart 对"为什么等到启动"的说明）。
-  final databasePath = await preparePlannerDatabase();
+  final appUserModelId = currentApplicationUserModelId(
+    onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
+  );
+  final packagedSupportPath = packagedAppearanceSupportDirectory(
+    localAppData: Platform.environment['LOCALAPPDATA'],
+    applicationUserModelId: appUserModelId,
+  );
+  // 数据库路径必须在**打开数据库之前**确定。先真实写入探测；默认“文档”目录若被当前应用
+  // 身份视为只读，就迁移到包 LocalState 或便携 EXE 的 user-data 目录。
+  final databasePath = await preparePlannerDatabase(
+    fallbackDirectories: [
+      if (packagedSupportPath != null) Directory(packagedSupportPath),
+      Directory(
+        '${File(Platform.resolvedExecutable).parent.path}'
+        '${Platform.pathSeparator}user-data',
+      ),
+      if (Platform.environment['LOCALAPPDATA'] case final localAppData?)
+        Directory('$localAppData${Platform.pathSeparator}PersonalPlanner'),
+    ],
+  );
+  final appearanceSupportDirectory = File(databasePath).parent;
 
   // 诊断落到数据库旁边。**Release 里没有它就没有任何线索**：`debugPrint` 在打包后的 Windows
   // 应用里抓不到（实测——把包内进程的 stdout 重定向到文件，只有引擎那行输出），因此"提醒
   // 同步失败"这类被 catch 吞掉的错误此前既不产生提醒、也不留下任何可查的痕迹。
   final diagnostics = FileDiagnosticLog('$databasePath.diagnostics.log');
-  diagnostics.write('进程启动');
+  diagnostics.write('进程启动：databasePath=$databasePath');
+  final appearanceModePath = appearanceModePathIn(
+    appearanceSupportDirectory.path,
+  );
+  final appearanceDiagnostics = FileDiagnosticLog(
+    '${File(appearanceModePath).parent.path}'
+    '${Platform.pathSeparator}personal_planner.appearance.diagnostics.log',
+  );
+  appearanceDiagnostics.write(
+    '进程启动：databasePath=$databasePath appearancePath=$appearanceModePath',
+  );
 
   const clock = SystemClock();
   final zones = TimeZoneDatabase();
@@ -88,7 +123,30 @@ Future<void> main() async {
     debugPrint('未能精确匹配本机时区：${resolvedZone.diagnostic}');
   }
 
-  final database = AppDatabase.openDefault();
+  final database = AppDatabase.openDefault(databasePath: databasePath);
+  // 启动阶段就做一次真实事务写入，并在同一事务内删掉探针行。目录探针只能证明普通文件可写，
+  // 这一步才证明 Drift 打开的**确实是解析后的库**、SQLite 也能创建 WAL 并提交事务。
+  final databaseProbeKey =
+      '__startup_write_probe__-$pid-${DateTime.now().microsecondsSinceEpoch}';
+  try {
+    await database.transaction(() async {
+      final instant = DateTime.now().toUtc().microsecondsSinceEpoch;
+      await database.customStatement(
+        'INSERT INTO settings '
+        '(key, json_value, updated_at_utc, created_at_utc) '
+        'VALUES (?, ?, ?, ?)',
+        [databaseProbeKey, 'null', instant, instant],
+      );
+      await database.customStatement('DELETE FROM settings WHERE key = ?', [
+        databaseProbeKey,
+      ]);
+    });
+    diagnostics.write('数据库可写验证通过：$databasePath');
+  } on Object catch (error, stackTrace) {
+    diagnostics.write('数据库可写验证失败：$databasePath\n$error\n$stackTrace');
+    await database.close();
+    rethrow;
+  }
   // 数据备份页所需的服务（W3 的最后一条缺失路由）。它依赖真实的数据库路径，因此在这里装。
   final backups = await buildBackupService(
     database: database,
@@ -167,9 +225,6 @@ Future<void> main() async {
     // 分开，用户看到的"通知无法可靠取消"就没有任何可查的线索。
     onProbeFailure: (error) => debugPrint('包身份探针不可用：$error'),
   );
-  final appUserModelId = currentApplicationUserModelId(
-    onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
-  );
   if (hasPackageIdentity &&
       (appUserModelId == null || appUserModelId.isEmpty)) {
     // **这是一个缺陷状态，不是一个可接受的降级**：有包身份却取不到 AUMID，说明取 AUMID 的
@@ -236,14 +291,26 @@ Future<void> main() async {
 
   unawaited(resyncNotifications());
 
-  // 首次运行建立默认领域。生活标记只存在于领域上，因此没有领域，`is_life` 就无人赋值，
-  // 生活配额与统计的"生活"分类都不会生效——默认领域是这两条链路的前置条件，不是示例数据。
-  // `ensureDefaultAreas` 只在**一个领域都没有**时写入，因此不会覆盖用户自己的整理结果。
+  // 启动时幂等补齐五个默认领域；保留用户已有领域，只追加缺少项。
   final workspaceRepository = DriftWorkspaceRepository(database);
   final workspaceService = WorkspaceService(
     repository: workspaceRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
+  );
+  final academicCalendar = AcademicCalendarService(
+    repository: DriftAcademicCalendarRepository(database),
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  final timetableImport = TimetableImportService(
+    calendarRepository: calendarRepository,
+    zones: zones,
+    importRepository: DriftTimetableImportRepository(
+      database,
+      now: clock.nowUtc,
+    ),
+    onScheduleInputChanged: (change) => onScheduleInputChange(change),
   );
   unawaited(() async {
     try {
@@ -429,6 +496,12 @@ Future<void> main() async {
         // 同一实例既负责安排提醒，也把"用户点击通知"交回来（FR-NOTIFY-04）。
         notifications: notifications,
         settingsRepository: settingsRepository,
+        appearanceFailureReporter: (error, stackTrace, attempt) {
+          final message = '外观设置保存失败（第 $attempt 次）：$error\n$stackTrace';
+          diagnostics.write(message);
+          appearanceDiagnostics.write(message);
+        },
+        appearanceFallback: FileAppearanceModeStore(appearanceModePath),
         planRepository: planRepository,
         correctionLog: DriftTaskCorrectionLog(database),
         // 与启动时的默认领域初始化共用同一实例：任务详情页要用它列出项目，
@@ -481,6 +554,9 @@ Future<void> main() async {
         recovery: recovery,
         calendar: calendarRepository,
         calendarService: calendarService,
+        academicCalendar: academicCalendar,
+        timetableOcr: WindowsTimetableOcr(),
+        timetableImport: timetableImport,
         planApplication: planApplication,
         scheduleSource: RepositoryScheduleViewSource(
           tasks: taskRepository,

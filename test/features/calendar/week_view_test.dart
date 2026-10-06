@@ -8,6 +8,57 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_model
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 
 void main() {
+  testWidgets('课表导入入口调用导航回调', (tester) async {
+    var opened = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WeekViewPage(
+          source: _Source(Stream.value(const [])),
+          weekStart: DateTime.utc(2026, 10, 5),
+          moveController: _MoveController(),
+          onImportTimetable: () => opened = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final action = find.byKey(const Key('import-timetable'));
+    expect(action, findsOneWidget);
+    await tester.tap(action);
+    expect(opened, isTrue);
+  });
+
+  testWidgets('点击日程气泡打开对应一天并在七日历显示具体时间', (tester) async {
+    final start = DateTime.utc(2026, 10, 5);
+    DateTime? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WeekViewPage(
+          source: _Source(
+            Stream.value([
+              ScheduleViewItem(
+                id: 'block:test',
+                title: '周二实验',
+                kind: ScheduleItemKind.task,
+                range: TimeRange(
+                  startUtc: DateTime.utc(2026, 10, 6, 9),
+                  endUtc: DateTime.utc(2026, 10, 6, 10, 30),
+                ),
+              ),
+            ]),
+          ),
+          weekStart: start,
+          moveController: _MoveController(),
+          onOpenDay: (day) => opened = day,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('09:00–10:30'), findsOneWidget);
+    await tester.tap(find.text('周二实验'));
+    await tester.pumpAndSettle();
+    expect(opened, DateTime.utc(2026, 10, 6));
+  });
   testWidgets('week view labels item kinds and supports proposal-based moves', (
     tester,
   ) async {
@@ -103,7 +154,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // 长按拖动：`LongPressDraggable` 需要按下并保持，瞬时 `drag` 不足以触发它。
-    final gesture = await tester.startGesture(tester.getCenter(find.text('写方案')));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('写方案')),
+    );
     await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
     await gesture.moveTo(
       tester.getCenter(find.byKey(const ValueKey('week-day-1'))),
@@ -146,7 +199,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final gesture = await tester.startGesture(tester.getCenter(find.text('写方案')));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('写方案')),
+    );
     await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
     await gesture.moveTo(
       tester.getCenter(find.byKey(const ValueKey('week-day-1'))),
@@ -193,7 +248,9 @@ void main() {
       isNull,
     );
     expect(
-      movableTaskBlockId(item('protected:lunch:1', ScheduleItemKind.protectedTime)),
+      movableTaskBlockId(
+        item('protected:lunch:1', ScheduleItemKind.protectedTime),
+      ),
       isNull,
     );
     // 形状不对的 id 也不能猜：宁可拖不动，也不要钉到一个不存在的位置上。

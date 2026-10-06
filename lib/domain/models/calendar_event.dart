@@ -1,6 +1,21 @@
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 
+enum CalendarEventSourceKind {
+  manual('manual'),
+  timetableImport('timetableImport');
+
+  const CalendarEventSourceKind(this.storageValue);
+
+  final String storageValue;
+
+  static CalendarEventSourceKind fromStorage(String value) =>
+      CalendarEventSourceKind.values.firstWhere(
+        (kind) => kind.storageValue == value,
+        orElse: () => CalendarEventSourceKind.manual,
+      );
+}
+
 final class CalendarEvent {
   CalendarEvent({
     required this.id,
@@ -12,8 +27,16 @@ final class CalendarEvent {
     this.exceptionOfId,
     this.locked = true,
     this.areaId,
+    this.projectId,
+    String location = '',
+    String notes = '',
+    this.sourceKind = CalendarEventSourceKind.manual,
+    this.importBatchId,
+    this.logicalCourseId,
     required this.updatedAtUtc,
-  }) : title = title.trim() {
+  }) : title = title.trim(),
+       location = location.trim(),
+       notes = notes.trim() {
     if (this.title.isEmpty) {
       throw ArgumentError.value(title, 'title', 'Cannot be empty.');
     }
@@ -37,6 +60,12 @@ final class CalendarEvent {
   final EntityId? exceptionOfId;
   final bool locked;
   final EntityId? areaId;
+  final EntityId? projectId;
+  final String location;
+  final String notes;
+  final CalendarEventSourceKind sourceKind;
+  final EntityId? importBatchId;
+  final EntityId? logicalCourseId;
   final DateTime updatedAtUtc;
 
   TimeRange get range => TimeRange(startUtc: startAtUtc, endUtc: endAtUtc);
@@ -51,6 +80,12 @@ final class CalendarEvent {
     Object? exceptionOfId = _unset,
     bool? locked,
     Object? areaId = _unset,
+    Object? projectId = _unset,
+    String? location,
+    String? notes,
+    CalendarEventSourceKind? sourceKind,
+    Object? importBatchId = _unset,
+    Object? logicalCourseId = _unset,
     DateTime? updatedAtUtc,
   }) => CalendarEvent(
     id: id ?? this.id,
@@ -66,6 +101,18 @@ final class CalendarEvent {
         : exceptionOfId as EntityId?,
     locked: locked ?? this.locked,
     areaId: identical(areaId, _unset) ? this.areaId : areaId as EntityId?,
+    projectId: identical(projectId, _unset)
+        ? this.projectId
+        : projectId as EntityId?,
+    location: location ?? this.location,
+    notes: notes ?? this.notes,
+    sourceKind: sourceKind ?? this.sourceKind,
+    importBatchId: identical(importBatchId, _unset)
+        ? this.importBatchId
+        : importBatchId as EntityId?,
+    logicalCourseId: identical(logicalCourseId, _unset)
+        ? this.logicalCourseId
+        : logicalCourseId as EntityId?,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
 }
@@ -76,6 +123,7 @@ final class RecurrenceRule {
     required Set<int> weekdays,
     required this.localStartMinute,
     required this.durationMinutes,
+    this.intervalWeeks = 1,
     required this.validFromLocalDate,
     this.validUntilLocalDate,
     required this.timeZoneId,
@@ -89,6 +137,13 @@ final class RecurrenceRule {
     if (durationMinutes <= 0) {
       throw ArgumentError.value(durationMinutes, 'durationMinutes');
     }
+    if (intervalWeeks < 1 || intervalWeeks > 52) {
+      throw ArgumentError.value(
+        intervalWeeks,
+        'intervalWeeks',
+        'Must be between 1 and 52.',
+      );
+    }
     if (validUntilLocalDate != null &&
         validUntilLocalDate!.isBefore(validFromLocalDate)) {
       throw ArgumentError(
@@ -101,6 +156,7 @@ final class RecurrenceRule {
   final Set<int> weekdays;
   final int localStartMinute;
   final int durationMinutes;
+  final int intervalWeeks;
   final DateTime validFromLocalDate;
   final DateTime? validUntilLocalDate;
   final String timeZoneId;
@@ -113,6 +169,12 @@ final class CalendarOccurrence {
     required this.range,
     required this.locked,
     this.areaId,
+    this.projectId,
+    this.location = '',
+    this.notes = '',
+    this.sourceKind = CalendarEventSourceKind.manual,
+    this.importBatchId,
+    this.logicalCourseId,
   });
 
   final EntityId eventId;
@@ -120,4 +182,10 @@ final class CalendarOccurrence {
   final TimeRange range;
   final bool locked;
   final EntityId? areaId;
+  final EntityId? projectId;
+  final String location;
+  final String notes;
+  final CalendarEventSourceKind sourceKind;
+  final EntityId? importBatchId;
+  final EntityId? logicalCourseId;
 }

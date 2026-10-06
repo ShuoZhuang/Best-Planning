@@ -88,6 +88,24 @@ final class _Deletion implements CalendarEventDeletion {
     required DateTime newEndUtc,
     required DateTime updatedAtUtc,
   }) async => calls.add('replaceSeries:$anchorId');
+
+  @override
+  Future<void> replaceFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required String newRuleId,
+    required String newEventId,
+    required DateTime updatedAtUtc,
+  }) async => calls.add('replaceFollowingOccurrences:$anchorId');
+
+  @override
+  Future<void> deleteFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime updatedAtUtc,
+  }) async => calls.add('deleteFollowingOccurrences:$anchorId');
 }
 
 void main() {
@@ -96,32 +114,36 @@ void main() {
   late List<ScheduleInputChange> changes;
   late List<String> reasons;
 
-  CalendarService build({
-    bool withCallback = true,
-    bool withDeletion = true,
-  }) => CalendarService(
-    repository: calendar,
-    recurringRepository: calendar,
-    deletion: withDeletion ? deletion : null,
-    clock: const _Clock(),
-    idGenerator: _Ids(),
-    zones: TimeZoneDatabase(),
-    onScheduleInputChanged: withCallback
-        ? (change) {
-            changes.add(change);
-            reasons.add(change.label);
-          }
-        : null,
-  );
-
-  EventDraft draft({Set<int> weekdays = const {}, String title = '社团会议'}) =>
-      EventDraft(
-        title: title,
-        startAtUtc: DateTime.utc(2026, 10, 5, 1),
-        endAtUtc: DateTime.utc(2026, 10, 5, 3),
-        timeZoneId: 'Asia/Shanghai',
-        recurrenceWeekdays: weekdays,
+  CalendarService build({bool withCallback = true, bool withDeletion = true}) =>
+      CalendarService(
+        repository: calendar,
+        recurringRepository: calendar,
+        deletion: withDeletion ? deletion : null,
+        clock: const _Clock(),
+        idGenerator: _Ids(),
+        zones: TimeZoneDatabase(),
+        onScheduleInputChanged: withCallback
+            ? (change) {
+                changes.add(change);
+                reasons.add(change.label);
+              }
+            : null,
       );
+
+  EventDraft draft({
+    Set<int> weekdays = const {},
+    String title = '社团会议',
+    int intervalWeeks = 1,
+    DateTime? validUntil,
+  }) => EventDraft(
+    title: title,
+    startAtUtc: DateTime.utc(2026, 10, 5, 1),
+    endAtUtc: DateTime.utc(2026, 10, 5, 3),
+    timeZoneId: 'Asia/Shanghai',
+    recurrenceWeekdays: weekdays,
+    recurrenceIntervalWeeks: intervalWeeks,
+    recurrenceValidUntilLocalDate: validUntil,
+  );
 
   setUp(() {
     calendar = _Calendar();
@@ -141,7 +163,56 @@ void main() {
     await build().save(draft(weekdays: {DateTime.monday}));
 
     expect(calendar.rules, hasLength(1));
+    expect(calendar.rules.single.intervalWeeks, 1);
     expect(reasons, <String>['固定日程创建']);
+  });
+
+  test('隔周间隔和重复结束日期会写入规则，且只记一次创建', () async {
+    final result = await build().save(
+      draft(
+        weekdays: {DateTime.monday},
+        intervalWeeks: 2,
+        validUntil: DateTime(2026, 12, 28),
+      ),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(calendar.rules.single.intervalWeeks, 2);
+    expect(calendar.rules.single.validUntilLocalDate, DateTime(2026, 12, 28));
+    expect(reasons, ['固定日程创建']);
+  });
+
+  test('重复结束日期早于开始日期会被拒绝', () async {
+    final result = await build().save(
+      draft(weekdays: {DateTime.monday}, validUntil: DateTime(2026, 10, 4)),
+    );
+
+    expect(result.fieldErrors['recurrence'], isNotNull);
+    expect(calendar.saved, isEmpty);
+    expect(reasons, isEmpty);
+  });
+
+  test('重复间隔只允许 1 到 52 周', () async {
+    final below = await build().save(
+      draft(weekdays: {DateTime.monday}, intervalWeeks: 0),
+    );
+    final above = await build().save(
+      draft(weekdays: {DateTime.monday}, intervalWeeks: 53),
+    );
+
+    expect(below.fieldErrors['recurrence'], isNotNull);
+    expect(above.fieldErrors['recurrence'], isNotNull);
+    expect(calendar.saved, isEmpty);
+  });
+
+  test('一次性日程忽略只属于重复规则的字段', () async {
+    final result = await build().save(
+      draft(intervalWeeks: 0, validUntil: DateTime(2020, 1, 1)),
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(calendar.saved, hasLength(1));
+    expect(calendar.rules, isEmpty);
   });
 
   test('删除固定日程记一条"固定日程删除"', () async {
@@ -184,6 +255,27 @@ void main() {
 
     expect(changed, isTrue);
     expect(reasons, <String>['固定日程系列改写']);
+  });
+
+  test('本次及以后的改写和删除各走一次系列拆分入口', () async {
+    final service = build();
+
+    await service.replaceFollowingOccurrences(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
+      newStartUtc: DateTime.utc(2026, 10, 12, 6),
+      newEndUtc: DateTime.utc(2026, 10, 12, 8),
+    );
+    await service.deleteFollowingOccurrences(
+      anchorId: 'anchor-2',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 19, 1),
+    );
+
+    expect(deletion.calls, [
+      'replaceFollowingOccurrences:anchor-1',
+      'deleteFollowingOccurrences:anchor-2',
+    ]);
+    expect(reasons, ['固定日程本次及以后改写', '固定日程本次及以后删除']);
   });
 
   test('非法草稿不记原因，也不落库（改不动就没有重排）', () async {

@@ -13,6 +13,7 @@ final class SchedulableTask {
     required this.minChunkMinutes,
     required this.maxChunkMinutes,
     this.dueAtUtc,
+    this.availableFromUtc,
     this.priority = TaskPriority.medium,
     this.energyLevel = TaskEnergyLevel.medium,
     this.isLifeTask = false,
@@ -25,6 +26,7 @@ final class SchedulableTask {
   final int minChunkMinutes;
   final int maxChunkMinutes;
   final DateTime? dueAtUtc;
+  final DateTime? availableFromUtc;
   final TaskPriority priority;
   final TaskEnergyLevel energyLevel;
   final bool isLifeTask;

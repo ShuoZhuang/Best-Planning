@@ -1,0 +1,25 @@
+{
+  "width": 1100,
+  "height": 720,
+  "textAngle": null,
+  "lines": [
+    {"text":"星期一","words":[{"text":"星期一","bounds":{"left":150,"top":20,"width":100,"height":30}}]},
+    {"text":"星期二","words":[{"text":"星期二","bounds":{"left":300,"top":20,"width":100,"height":30}}]},
+    {"text":"星期三","words":[{"text":"星期三","bounds":{"left":450,"top":20,"width":100,"height":30}}]},
+    {"text":"星期四","words":[{"text":"星期四","bounds":{"left":600,"top":20,"width":100,"height":30}}]},
+    {"text":"星期五","words":[{"text":"星期五","bounds":{"left":750,"top":20,"width":100,"height":30}}]},
+    {"text":"星期六","words":[{"text":"星期六","bounds":{"left":900,"top":20,"width":100,"height":30}}]},
+    {"text":"1","words":[{"text":"1","bounds":{"left":30,"top":80,"width":30,"height":30}}]},
+    {"text":"2","words":[{"text":"2","bounds":{"left":30,"top":140,"width":30,"height":30}}]},
+    {"text":"3","words":[{"text":"3","bounds":{"left":30,"top":200,"width":30,"height":30}}]},
+    {"text":"4","words":[{"text":"4","bounds":{"left":30,"top":260,"width":30,"height":30}}]},
+    {"text":"5","words":[{"text":"5","bounds":{"left":30,"top":320,"width":30,"height":30}}]},
+    {"text":"6","words":[{"text":"6","bounds":{"left":30,"top":380,"width":30,"height":30}}]},
+    {"text":"7","words":[{"text":"7","bounds":{"left":30,"top":440,"width":30,"height":30}}]},
+    {"text":"8","words":[{"text":"8","bounds":{"left":30,"top":500,"width":30,"height":30}}]},
+    {"text":"现代电子技术与系统\n刘笛\n1-16周\nD206","words":[{"text":"现代电子技术与系统","bounds":{"left":155,"top":75,"width":90,"height":28}},{"text":"刘笛","bounds":{"left":175,"top":105,"width":45,"height":24}},{"text":"1-16周","bounds":{"left":165,"top":132,"width":65,"height":24}},{"text":"D206","bounds":{"left":175,"top":158,"width":45,"height":24}}]},
+    {"text":"算法与数据结构\n赵敏\n1-13周\nD206","words":[{"text":"算法与数据结构","bounds":{"left":305,"top":195,"width":90,"height":28}},{"text":"赵敏","bounds":{"left":325,"top":225,"width":45,"height":24}},{"text":"1-13周","bounds":{"left":315,"top":252,"width":65,"height":24}},{"text":"D206","bounds":{"left":325,"top":278,"width":45,"height":24}}]},
+    {"text":"最优化方法及\n应用\n王孟\n2-6(双周)\nD206","words":[{"text":"最优化方法及","bounds":{"left":455,"top":315,"width":90,"height":24}},{"text":"应用","bounds":{"left":475,"top":341,"width":45,"height":24}},{"text":"王孟","bounds":{"left":475,"top":367,"width":45,"height":24}},{"text":"2-6(双周)","bounds":{"left":460,"top":393,"width":80,"height":24}},{"text":"D206","bounds":{"left":475,"top":419,"width":45,"height":24}}]},
+    {"text":"毛泽东思想和中国特色社会主义理论体系概论\n易如\n1-4周\nD304","words":[{"text":"毛泽东思想和中国特色社会主义理论体系概论","bounds":{"left":905,"top":435,"width":90,"height":28}},{"text":"易如","bounds":{"left":925,"top":465,"width":45,"height":24}},{"text":"1-4周","bounds":{"left":915,"top":492,"width":65,"height":24}},{"text":"D304","bounds":{"left":925,"top":518,"width":45,"height":24}}]}
+  ]
+}

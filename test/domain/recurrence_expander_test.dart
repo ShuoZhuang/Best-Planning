@@ -81,4 +81,102 @@ void main() {
     expect(occurrences.last.startUtc, replacementStart);
     expect(occurrences.last.durationMinutes, 90);
   });
+
+  test('每两周按有效起点所在的本地周展开，并包含结束日', () {
+    final rule = RecurrenceRule(
+      id: 'rule-fortnight',
+      weekdays: {DateTime.monday, DateTime.wednesday},
+      localStartMinute: 8 * 60,
+      durationMinutes: 45,
+      intervalWeeks: 2,
+      validFromLocalDate: DateTime(2026, 10, 5),
+      validUntilLocalDate: DateTime(2026, 10, 21),
+      timeZoneId: 'Asia/Shanghai',
+    );
+
+    final occurrences = expander.expand(
+      rule,
+      TimeRange(
+        startUtc: DateTime.utc(2026, 10, 4),
+        endUtc: DateTime.utc(2026, 10, 23),
+      ),
+      const [],
+    );
+
+    expect(occurrences.map((item) => item.localDate), [
+      DateTime(2026, 10, 5),
+      DateTime(2026, 10, 7),
+      DateTime(2026, 10, 19),
+      DateTime(2026, 10, 21),
+    ]);
+  });
+
+  test('单双周由不同的有效起点锚定，而不是只贴标签', () {
+    RecurrenceRule rule(DateTime validFrom) => RecurrenceRule(
+      id: 'rule-${validFrom.day}',
+      weekdays: {DateTime.monday},
+      localStartMinute: 9 * 60,
+      durationMinutes: 60,
+      intervalWeeks: 2,
+      validFromLocalDate: validFrom,
+      timeZoneId: 'Asia/Shanghai',
+    );
+    final window = TimeRange(
+      startUtc: DateTime.utc(2026, 9, 6),
+      endUtc: DateTime.utc(2026, 10, 5),
+    );
+
+    final odd = expander.expand(rule(DateTime(2026, 9, 7)), window, const []);
+    final even = expander.expand(rule(DateTime(2026, 9, 14)), window, const []);
+
+    expect(odd.map((item) => item.localDate.day), [7, 21]);
+    expect(even.map((item) => item.localDate.day), [14, 28]);
+  });
+
+  test('隔周规则跨夏令时后仍保持本地九点', () {
+    final rule = RecurrenceRule(
+      id: 'rule-dst-fortnight',
+      weekdays: {DateTime.monday},
+      localStartMinute: 9 * 60,
+      durationMinutes: 60,
+      intervalWeeks: 2,
+      validFromLocalDate: DateTime(2026, 10, 26),
+      validUntilLocalDate: DateTime(2026, 11, 9),
+      timeZoneId: 'America/New_York',
+    );
+
+    final occurrences = expander.expand(
+      rule,
+      TimeRange(
+        startUtc: DateTime.utc(2026, 10, 25),
+        endUtc: DateTime.utc(2026, 11, 11),
+      ),
+      const [],
+    );
+
+    expect(occurrences.map((item) => item.startUtc.hour), [13, 14]);
+    expect(
+      occurrences.map(
+        (item) => zones.toLocal(item.startUtc, 'America/New_York').hour,
+      ),
+      [9, 9],
+    );
+  });
+
+  test('重复间隔只允许 1 到 52 周', () {
+    RecurrenceRule create(int intervalWeeks) => RecurrenceRule(
+      id: 'rule-invalid',
+      weekdays: {DateTime.monday},
+      localStartMinute: 9 * 60,
+      durationMinutes: 60,
+      intervalWeeks: intervalWeeks,
+      validFromLocalDate: DateTime(2026, 10, 5),
+      timeZoneId: 'UTC',
+    );
+
+    expect(() => create(0), throwsArgumentError);
+    expect(() => create(53), throwsArgumentError);
+    expect(create(1).intervalWeeks, 1);
+    expect(create(52).intervalWeeks, 52);
+  });
 }

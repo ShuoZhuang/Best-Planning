@@ -33,6 +33,7 @@ final class InputSnapshotBuilder {
           'id': task.id,
           'requiredMinutes': task.requiredMinutes,
           'dueAtUtc': task.dueAtUtc?.microsecondsSinceEpoch,
+          'availableFromUtc': task.availableFromUtc?.microsecondsSinceEpoch,
           'priority': task.priority.name,
           'energyLevel': task.energyLevel.name,
           'splitMode': task.splitMode.name,

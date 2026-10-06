@@ -37,11 +37,19 @@ final class CandidateGenerator {
     final candidates = <SchedulingCandidate>[];
 
     for (final slot in slots) {
+      final availableFrom = task.availableFromUtc;
+      final earliestStart = availableFrom == null
+          ? slot.startUtc
+          : _laterOf(
+              slot.startUtc,
+              _roundUtcUp(availableFrom, granularityMinutes),
+            );
       for (final duration in durations) {
         if (duration > slot.durationMinutes) continue;
         final latestStart = slot.endUtc.subtract(Duration(minutes: duration));
+        if (earliestStart.isAfter(latestStart)) continue;
         for (
-          var start = slot.startUtc;
+          var start = earliestStart;
           !start.isAfter(latestStart);
           start = start.add(Duration(minutes: granularityMinutes))
         ) {
@@ -98,3 +106,12 @@ final class CandidateGenerator {
 
 int _roundUp(int value, int step) => ((value + step - 1) ~/ step) * step;
 int _roundDown(int value, int step) => (value ~/ step) * step;
+
+DateTime _laterOf(DateTime first, DateTime second) =>
+    first.isAfter(second) ? first : second;
+
+DateTime _roundUtcUp(DateTime value, int stepMinutes) {
+  final step = Duration(minutes: stepMinutes).inMicroseconds;
+  final rounded = ((value.microsecondsSinceEpoch + step - 1) ~/ step) * step;
+  return DateTime.fromMicrosecondsSinceEpoch(rounded, isUtc: true);
+}

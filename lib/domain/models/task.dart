@@ -38,19 +38,22 @@ extension TaskStatusSemantics on TaskStatus {
       this == TaskStatus.cancelled;
 
   /// 是否属于用户设置并可持久化的状态。
-  bool get isStored => this != TaskStatus.scheduled && this != TaskStatus.overdue;
+  bool get isStored =>
+      this != TaskStatus.scheduled && this != TaskStatus.overdue;
 }
 
 final class PlannerTask {
   PlannerTask({
     required this.id,
     this.projectId,
+    this.areaId,
     required String title,
     this.notes = '',
     required this.priority,
     required this.estimatedMinutes,
     required this.remainingMinutes,
     this.dueAtUtc,
+    this.availableFromUtc,
     required this.energyLevel,
     required this.splitMode,
     required this.minChunkMinutes,
@@ -77,18 +80,23 @@ final class PlannerTask {
     _requireUtc(createdAtUtc, 'createdAtUtc');
     _requireUtc(updatedAtUtc, 'updatedAtUtc');
     if (dueAtUtc != null) _requireUtc(dueAtUtc!, 'dueAtUtc');
+    if (availableFromUtc != null) {
+      _requireUtc(availableFromUtc!, 'availableFromUtc');
+    }
   }
 
   static const Object _unset = Object();
 
   final EntityId id;
   final EntityId? projectId;
+  final EntityId? areaId;
   final String title;
   final String notes;
   final TaskPriority priority;
   final int estimatedMinutes;
   final int remainingMinutes;
   final DateTime? dueAtUtc;
+  final DateTime? availableFromUtc;
   final TaskEnergyLevel energyLevel;
   final TaskSplitMode splitMode;
   final int minChunkMinutes;
@@ -131,12 +139,14 @@ final class PlannerTask {
   PlannerTask copyWith({
     EntityId? id,
     Object? projectId = _unset,
+    Object? areaId = _unset,
     String? title,
     String? notes,
     TaskPriority? priority,
     int? estimatedMinutes,
     int? remainingMinutes,
     Object? dueAtUtc = _unset,
+    Object? availableFromUtc = _unset,
     TaskEnergyLevel? energyLevel,
     TaskSplitMode? splitMode,
     int? minChunkMinutes,
@@ -150,6 +160,7 @@ final class PlannerTask {
     projectId: identical(projectId, _unset)
         ? this.projectId
         : projectId as EntityId?,
+    areaId: identical(areaId, _unset) ? this.areaId : areaId as EntityId?,
     title: title ?? this.title,
     notes: notes ?? this.notes,
     priority: priority ?? this.priority,
@@ -158,6 +169,9 @@ final class PlannerTask {
     dueAtUtc: identical(dueAtUtc, _unset)
         ? this.dueAtUtc
         : dueAtUtc as DateTime?,
+    availableFromUtc: identical(availableFromUtc, _unset)
+        ? this.availableFromUtc
+        : availableFromUtc as DateTime?,
     energyLevel: energyLevel ?? this.energyLevel,
     splitMode: splitMode ?? this.splitMode,
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
@@ -180,7 +194,8 @@ void _requireNonNegative(int value, String name) {
   }
 }
 
-void _requirePositive(int value, String name) {  if (value <= 0) throw ArgumentError.value(value, name, 'Must be positive.');
+void _requirePositive(int value, String name) {
+  if (value <= 0) throw ArgumentError.value(value, name, 'Must be positive.');
 }
 
 void _requireUtc(DateTime value, String name) {

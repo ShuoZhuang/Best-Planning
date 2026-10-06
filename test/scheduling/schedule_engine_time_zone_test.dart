@@ -68,10 +68,7 @@ void main() {
           level: EnergyLevel.high,
         ),
       ],
-      sleepRange: LocalTimeRange(
-        startMinute: 20 * 60,
-        endMinute: 8 * 60,
-      ),
+      sleepRange: LocalTimeRange(startMinute: 20 * 60, endMinute: 8 * 60),
       minimumSleepMinutes: 420,
       defaultFocusMinutes: 50,
       breakMinutes: 10,

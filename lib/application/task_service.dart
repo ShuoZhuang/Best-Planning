@@ -7,33 +7,40 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 
 final class TaskDraft {
   const TaskDraft({
     required this.title,
     required this.estimatedMinutes,
+    required this.areaId,
     this.projectId,
     this.notes = '',
     this.priority = TaskPriority.medium,
     this.dueAtUtc,
+    this.availableFromUtc,
     this.energyLevel = TaskEnergyLevel.medium,
     this.splitMode = TaskSplitMode.splittable,
     this.minChunkMinutes = 25,
     this.maxChunkMinutes = 90,
-    this.status = TaskStatus.inbox,
+    this.status = TaskStatus.open,
+    this.preferredWindow,
   });
 
   final String title;
   final int estimatedMinutes;
+  final String areaId;
   final String? projectId;
   final String notes;
   final TaskPriority priority;
   final DateTime? dueAtUtc;
+  final DateTime? availableFromUtc;
   final TaskEnergyLevel energyLevel;
   final TaskSplitMode splitMode;
   final int minChunkMinutes;
   final int maxChunkMinutes;
   final TaskStatus status;
+  final LocalTimeRange? preferredWindow;
 }
 
 final class TaskSaveResult {
@@ -52,12 +59,14 @@ final class TaskSaveResult {
 final class TaskService {
   const TaskService({
     required TaskRepository repository,
+    WorkspaceRepository? workspace,
     required Clock clock,
     required IdGenerator idGenerator,
     TaskCorrectionLog? correctionLog,
     void Function(ScheduleInputChange change)? onScheduleInputChanged,
   }) : this._(
          repository,
+         workspace,
          clock,
          idGenerator,
          correctionLog,
@@ -66,6 +75,7 @@ final class TaskService {
 
   const TaskService._(
     this._repository,
+    this._workspace,
     this._clock,
     this._idGenerator,
     this._correctionLog,
@@ -73,6 +83,7 @@ final class TaskService {
   );
 
   final TaskRepository _repository;
+  final WorkspaceRepository? _workspace;
   final Clock _clock;
   final IdGenerator _idGenerator;
   final TaskCorrectionLog? _correctionLog;
@@ -99,10 +110,79 @@ final class TaskService {
   /// 一个已经完成或被取消的任务——用列表去找会把"任务存在但已结束"误判成"任务不存在"。
   Future<PlannerTask?> findById(String taskId) => _repository.getById(taskId);
 
-  Future<TaskSaveResult> quickAdd(String title, int estimatedMinutes) =>
-      saveDraft(TaskDraft(title: title, estimatedMinutes: estimatedMinutes));
-
   Future<TaskSaveResult> saveDraft(TaskDraft draft) async {
+    final errors = await _validateDraft(draft);
+    if (errors.isNotEmpty) return TaskSaveResult.invalid(errors);
+
+    final now = _clock.nowUtc();
+    final task = PlannerTask(
+      id: _idGenerator.next(),
+      projectId: draft.projectId,
+      areaId: draft.areaId,
+      title: draft.title,
+      notes: draft.notes,
+      priority: draft.priority,
+      estimatedMinutes: draft.estimatedMinutes,
+      remainingMinutes: draft.estimatedMinutes,
+      dueAtUtc: draft.dueAtUtc,
+      availableFromUtc: draft.availableFromUtc,
+      energyLevel: draft.energyLevel,
+      splitMode: draft.splitMode,
+      minChunkMinutes: draft.minChunkMinutes,
+      maxChunkMinutes: draft.maxChunkMinutes,
+      status: draft.status,
+      preferredWindow: draft.preferredWindow,
+      createdAtUtc: now,
+      updatedAtUtc: now,
+    );
+    await _repository.save(task);
+    // FR-REPLAN-01 的"新增事项后"：新建任务会改变可排任务集合，因此是一条重排原因。
+    //
+    // **此前这个类别在生产里没有发出者**（§13.0 的 W9 行登记过）：`DomainChangeKind.taskCreated`
+    // 在枚举里躺着，但没有任何代码发出它，于是"新建任务即自动重算计划"不成立——只有改截止日期／
+    // 优先级／剩余时长／状态这四类会触发。完整新建统一走这个方法。
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '新建任务',
+        kind: DomainChangeKind.taskCreated,
+      ),
+    );
+    return TaskSaveResult.success(task);
+  }
+
+  /// 完整编辑一次保存，避免每个字段产生一份中间重排提案。
+  Future<TaskSaveResult> updateDraft(String taskId, TaskDraft draft) async {
+    final existing = await _repository.getById(taskId);
+    if (existing == null) return TaskSaveResult.invalid({'taskId': '任务不存在'});
+    final errors = await _validateDraft(draft);
+    if (errors.isNotEmpty) return TaskSaveResult.invalid(errors);
+    final updated = existing.copyWith(
+      title: draft.title,
+      notes: draft.notes,
+      projectId: draft.projectId,
+      areaId: draft.areaId,
+      priority: draft.priority,
+      dueAtUtc: draft.dueAtUtc,
+      availableFromUtc: draft.availableFromUtc,
+      energyLevel: draft.energyLevel,
+      splitMode: draft.splitMode,
+      minChunkMinutes: draft.minChunkMinutes,
+      maxChunkMinutes: draft.maxChunkMinutes,
+      preferredWindow: draft.preferredWindow,
+      // 初始预计时长保持不变，继续作为统计中的估算基准。
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    await _repository.save(updated);
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '任务设置变化',
+        kind: DomainChangeKind.taskSchedulingChanged,
+      ),
+    );
+    return TaskSaveResult.success(updated);
+  }
+
+  Future<Map<String, String>> _validateDraft(TaskDraft draft) async {
     final errors = <String, String>{};
     if (draft.title.trim().isEmpty) errors['title'] = '请输入任务标题';
     if (draft.estimatedMinutes <= 0) {
@@ -115,39 +195,38 @@ final class TaskService {
     if (draft.dueAtUtc != null && !draft.dueAtUtc!.isUtc) {
       errors['dueAtUtc'] = '截止时间必须转换为 UTC';
     }
-    if (errors.isNotEmpty) return TaskSaveResult.invalid(errors);
+    if (draft.availableFromUtc != null && !draft.availableFromUtc!.isUtc) {
+      errors['availableFromUtc'] = '最早开始时间必须转换为 UTC';
+    }
+    if (draft.availableFromUtc != null &&
+        draft.dueAtUtc != null &&
+        !draft.availableFromUtc!.isBefore(draft.dueAtUtc!)) {
+      errors['availableFromUtc'] = '最早开始时间必须早于截止时间';
+    }
 
-    final now = _clock.nowUtc();
-    final task = PlannerTask(
-      id: _idGenerator.next(),
-      projectId: draft.projectId,
-      title: draft.title,
-      notes: draft.notes,
-      priority: draft.priority,
-      estimatedMinutes: draft.estimatedMinutes,
-      remainingMinutes: draft.estimatedMinutes,
-      dueAtUtc: draft.dueAtUtc,
-      energyLevel: draft.energyLevel,
-      splitMode: draft.splitMode,
-      minChunkMinutes: draft.minChunkMinutes,
-      maxChunkMinutes: draft.maxChunkMinutes,
-      status: draft.status,
-      createdAtUtc: now,
-      updatedAtUtc: now,
-    );
-    await _repository.save(task);
-    // FR-REPLAN-01 的"新增事项后"：新建任务会改变可排任务集合，因此是一条重排原因。
-    //
-    // **此前这个类别在生产里没有发出者**（§13.0 的 W9 行登记过）：`DomainChangeKind.taskCreated`
-    // 在枚举里躺着，但没有任何代码发出它，于是"新建任务即自动重算计划"不成立——只有改截止日期／
-    // 优先级／剩余时长／状态这四类会触发。`quickAdd` 也走这个方法，因此两个录入入口都覆盖到了。
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '新建任务',
-        kind: DomainChangeKind.taskCreated,
-      ),
-    );
-    return TaskSaveResult.success(task);
+    final workspace = _workspace;
+    final areaSpecified = draft.areaId.trim().isNotEmpty;
+    if (!areaSpecified) errors['areaId'] = '请选择有效领域';
+    if (workspace != null) {
+      final areas = await workspace.listAreas();
+      if (!areas.any((area) => area.id == draft.areaId)) {
+        errors['areaId'] = '请选择有效领域';
+      }
+    }
+
+    final projectId = draft.projectId;
+    if (projectId != null && workspace != null) {
+      final projects = await workspace.listProjects();
+      final project = projects
+          .where((item) => item.id == projectId)
+          .firstOrNull;
+      if (project == null) {
+        errors['projectId'] = '所选项目不存在';
+      } else if (project.areaId != draft.areaId) {
+        errors['projectId'] = '所选项目不属于当前领域';
+      }
+    }
+    return errors;
   }
 
   /// 手动修正剩余时长（FR-TASK-05）。
@@ -166,9 +245,7 @@ final class TaskService {
     int remainingMinutes,
   ) async {
     if (remainingMinutes < 0) {
-      return TaskSaveResult.invalid({
-        'remainingMinutes': '剩余时长不能为负数',
-      });
+      return TaskSaveResult.invalid({'remainingMinutes': '剩余时长不能为负数'});
     }
     final existing = await _repository.getById(taskId);
     if (existing == null) {
@@ -189,7 +266,12 @@ final class TaskService {
         correctedAtUtc: now,
       ),
     );
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '剩余时长修正', kind: DomainChangeKind.taskSchedulingChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '剩余时长修正',
+        kind: DomainChangeKind.taskSchedulingChanged,
+      ),
+    );
     return TaskSaveResult.success(updated);
   }
 
@@ -247,7 +329,12 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '截止日期变化', kind: DomainChangeKind.taskSchedulingChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '截止日期变化',
+        kind: DomainChangeKind.taskSchedulingChanged,
+      ),
+    );
     return TaskSaveResult.success(updated);
   }
 
@@ -267,7 +354,10 @@ final class TaskService {
   /// - **发出的类别是 [DomainChangeKind.taskDeferred]**（不是 `taskSchedulingChanged`）：两者都会
   ///   触发重排，但统计页的"重排原因"把这个标签**直接显示给用户**，用户该看到"延后任务"而不是
   ///   笼统的"截止日期变化"。
-  Future<TaskSaveResult> deferTask(String taskId, {required Duration by}) async {
+  Future<TaskSaveResult> deferTask(
+    String taskId, {
+    required Duration by,
+  }) async {
     if (by <= Duration.zero) {
       return TaskSaveResult.invalid({'by': '延后量必须为正'});
     }
@@ -299,7 +389,10 @@ final class TaskService {
   ///
   /// **与 FR-REPLAN-08 不冲突**：那条禁止的是**系统自行**修改截止日期、预计时长或硬约束；
   /// 优先级由**用户显式**调整，正是 FR-REPLAN-07 要求提供的入口。
-  Future<TaskSaveResult> setPriority(String taskId, TaskPriority priority) async {
+  Future<TaskSaveResult> setPriority(
+    String taskId,
+    TaskPriority priority,
+  ) async {
     final existing = await _repository.getById(taskId);
     if (existing == null) {
       return TaskSaveResult.invalid({'taskId': '任务不存在'});
@@ -309,7 +402,12 @@ final class TaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.save(updated);
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '优先级变化', kind: DomainChangeKind.taskSchedulingChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '优先级变化',
+        kind: DomainChangeKind.taskSchedulingChanged,
+      ),
+    );
     return TaskSaveResult.success(updated);
   }
 
@@ -351,10 +449,7 @@ final class TaskService {
     if (startMinute != null || endMinute != null) {
       if (startMinute == null || endMinute == null) return false;
       try {
-        window = LocalTimeRange(
-          startMinute: startMinute,
-          endMinute: endMinute,
-        );
+        window = LocalTimeRange(startMinute: startMinute, endMinute: endMinute);
       } on ArgumentError {
         return false;
       }
@@ -371,10 +466,7 @@ final class TaskService {
     }
 
     await _repository.save(
-      existing.copyWith(
-        preferredWindow: window,
-        updatedAtUtc: _clock.nowUtc(),
-      ),
+      existing.copyWith(preferredWindow: window, updatedAtUtc: _clock.nowUtc()),
     );
     return true;
   }

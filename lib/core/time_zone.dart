@@ -67,7 +67,8 @@ final class TimeZoneDatabase {
 /// 拒绝合法提案。
 ///
 /// 从本地墙上时间换算出来的 UTC 时刻在返回前统一规范化，从源头消除这个陷阱。
-DateTime _asPlainUtc(DateTime instantUtc) => DateTime.fromMicrosecondsSinceEpoch(
-  instantUtc.microsecondsSinceEpoch,
-  isUtc: true,
-);
+DateTime _asPlainUtc(DateTime instantUtc) =>
+    DateTime.fromMicrosecondsSinceEpoch(
+      instantUtc.microsecondsSinceEpoch,
+      isUtc: true,
+    );

@@ -5,6 +5,7 @@ import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -15,6 +16,7 @@ import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -51,20 +53,31 @@ void main() {
       zones: zones,
     );
     final engine = DeterministicScheduleEngine(zones);
+    final workspaceRepository = DriftWorkspaceRepository(database);
+    final workspaceService = WorkspaceService(
+      repository: workspaceRepository,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+    );
+    await workspaceService.ensureDefaultAreas();
+    final researchArea = (await workspaceService.listAreas()).firstWhere(
+      (area) => area.name == '科研',
+    );
     final taskService = TaskService(
       repository: taskRepository,
+      workspace: workspaceRepository,
       clock: clock,
       idGenerator: UuidIdGenerator(),
     );
 
-    await taskService.quickAdd('科研', 240);
+    await taskService.saveDraft(
+      TaskDraft(title: '科研', estimatedMinutes: 240, areaId: researchArea.id),
+    );
     final before = engine.generate(await source.load());
     expect(before.blocks, isNotEmpty);
 
     // 临时外出到次日凌晨：这是单日例外，不应改写长期作息规则。
-    final today = _dateOnly(
-      zones.toLocal(clock.nowUtc(), timeZoneId),
-    );
+    final today = _dateOnly(zones.toLocal(clock.nowUtc(), timeZoneId));
     await calendarRepository.save(
       CalendarEvent(
         id: 'late-night-out',
@@ -129,9 +142,8 @@ void main() {
     );
 
     // 长期作息规则不被临时事件改写。
-    final resolved = await PlanningRuleResolver(
-      settingsService,
-    ).resolveForWindow(today);
+    final resolved = await PlanningRuleResolver(settingsService)
+        .resolveForWindow(today);
     expect(resolved.sleepRange.startMinute, 23 * 60 + 30);
   });
 }

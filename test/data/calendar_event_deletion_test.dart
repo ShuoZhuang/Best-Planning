@@ -7,7 +7,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 // drift 生成物里也有一个 `CalendarEvent`（表行类），而本文件要的是**领域模型**，因此把它藏掉。
 import 'package:personal_planner/data/database/app_database.dart'
-    hide CalendarEvent;
+    hide CalendarEvent, RecurrenceRule;
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 
@@ -20,6 +20,26 @@ CalendarEvent _event(String id, String title, {int hour = 9}) => CalendarEvent(
   endAtUtc: DateTime.utc(2026, 10, 5, hour + 1),
   timeZoneId: 'UTC',
   updatedAtUtc: DateTime.utc(2026, 10, 1),
+);
+
+CalendarEvent _recurringEvent() => CalendarEvent(
+  id: 'anchor-1',
+  title: '数据结构课',
+  startAtUtc: DateTime.utc(2026, 10, 5, 9),
+  endAtUtc: DateTime.utc(2026, 10, 5, 10),
+  timeZoneId: 'UTC',
+  recurrenceRuleId: 'rule-1',
+  updatedAtUtc: DateTime.utc(2026, 10, 1),
+);
+
+RecurrenceRule _recurringRule() => RecurrenceRule(
+  id: 'rule-1',
+  weekdays: const {DateTime.monday},
+  localStartMinute: 9 * 60,
+  durationMinutes: 60,
+  validFromLocalDate: DateTime(2026, 10, 5),
+  validUntilLocalDate: DateTime(2026, 10, 26),
+  timeZoneId: 'UTC',
 );
 
 void main() {
@@ -60,5 +80,94 @@ void main() {
     // 无关的竞态后报错，因此第二次删除必须安静地成功。
     await expectLater(repository.deleteEvent('event-1'), completes);
     await expectLater(repository.deleteEvent('never-existed'), completes);
+  });
+
+  test('改本次及以后会截断旧规则并从选中日期建立新系列', () async {
+    await repository.saveRecurring(_recurringEvent(), _recurringRule());
+
+    await repository.replaceFollowingOccurrences(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      newStartUtc: DateTime.utc(2026, 10, 12, 14),
+      newEndUtc: DateTime.utc(2026, 10, 12, 15),
+      newRuleId: 'rule-following',
+      newEventId: 'anchor-following',
+      updatedAtUtc: DateTime.utc(2026, 10, 2),
+    );
+
+    final occurrences = await repository.occurrencesBetween(
+      DateTime.utc(2026, 10, 5),
+      DateTime.utc(2026, 10, 27),
+    );
+    expect(occurrences.map((item) => item.range.startUtc), [
+      DateTime.utc(2026, 10, 5, 9),
+      DateTime.utc(2026, 10, 12, 14),
+      DateTime.utc(2026, 10, 19, 14),
+      DateTime.utc(2026, 10, 26, 14),
+    ]);
+    final rules = await database.select(database.recurrenceRules).get();
+    final old = rules.singleWhere((row) => row.id == 'rule-1');
+    final following = rules.singleWhere((row) => row.id == 'rule-following');
+    expect(old.validUntilLocalDate, '2026-10-11');
+    expect(following.validFromLocalDate, '2026-10-12');
+    expect(following.validUntilLocalDate, '2026-10-26');
+  });
+
+  test('删本次及以后只截断旧规则，选中日期不再出现', () async {
+    await repository.saveRecurring(_recurringEvent(), _recurringRule());
+
+    await repository.deleteFollowingOccurrences(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      updatedAtUtc: DateTime.utc(2026, 10, 2),
+    );
+
+    final occurrences = await repository.occurrencesBetween(
+      DateTime.utc(2026, 10, 5),
+      DateTime.utc(2026, 10, 27),
+    );
+    expect(occurrences.map((item) => item.range.startUtc), [
+      DateTime.utc(2026, 10, 5, 9),
+    ]);
+    expect(
+      (await database.select(database.recurrenceRules).getSingle())
+          .validUntilLocalDate,
+      '2026-10-11',
+    );
+  });
+
+  test('拆分系列不会复制选中实例，较早例外仍只属于旧锚点', () async {
+    await repository.saveRecurring(_recurringEvent(), _recurringRule());
+    await repository.replaceOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 5, 9),
+      newStartUtc: DateTime.utc(2026, 10, 5, 11),
+      newEndUtc: DateTime.utc(2026, 10, 5, 12),
+      title: '数据结构课',
+      exceptionId: 'exception-before',
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
+    );
+
+    await repository.replaceFollowingOccurrences(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      newStartUtc: DateTime.utc(2026, 10, 12, 14),
+      newEndUtc: DateTime.utc(2026, 10, 12, 15),
+      newRuleId: 'rule-following',
+      newEventId: 'anchor-following',
+      updatedAtUtc: DateTime.utc(2026, 10, 2),
+    );
+
+    final rows = await database.select(database.calendarEvents).get();
+    expect(
+      rows.singleWhere((row) => row.id == 'exception-before').exceptionOfId,
+      'anchor-1',
+    );
+    final occurrences = await repository.occurrencesBetween(
+      DateTime.utc(2026, 10, 12),
+      DateTime.utc(2026, 10, 13),
+    );
+    expect(occurrences, hasLength(1));
+    expect(occurrences.single.range.startUtc, DateTime.utc(2026, 10, 12, 14));
   });
 }

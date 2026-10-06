@@ -21,12 +21,14 @@ final class DriftTaskRepository implements TaskRepository {
     db.TasksCompanion(
       id: Value(task.id),
       projectId: Value(task.projectId),
+      areaId: Value(task.areaId),
       title: Value(task.title),
       notes: Value(task.notes),
       priority: Value(task.priority.name),
       estimatedMinutes: Value(task.estimatedMinutes),
       remainingMinutes: Value(task.remainingMinutes),
       dueAtUtc: Value(task.dueAtUtc?.microsecondsSinceEpoch),
+      availableFromUtc: Value(task.availableFromUtc?.microsecondsSinceEpoch),
       energyLevel: Value(task.energyLevel.name),
       splitMode: Value(task.splitMode.name),
       minChunkMinutes: Value(task.minChunkMinutes),
@@ -47,6 +49,7 @@ final class DriftTaskRepository implements TaskRepository {
   PlannerTask _toDomain(db.Task row) => PlannerTask(
     id: row.id,
     projectId: row.projectId,
+    areaId: row.areaId,
     title: row.title,
     notes: row.notes,
     priority: TaskPriority.values.byName(row.priority),
@@ -55,6 +58,12 @@ final class DriftTaskRepository implements TaskRepository {
     dueAtUtc: row.dueAtUtc == null
         ? null
         : DateTime.fromMicrosecondsSinceEpoch(row.dueAtUtc!, isUtc: true),
+    availableFromUtc: row.availableFromUtc == null
+        ? null
+        : DateTime.fromMicrosecondsSinceEpoch(
+            row.availableFromUtc!,
+            isUtc: true,
+          ),
     energyLevel: TaskEnergyLevel.values.byName(row.energyLevel),
     splitMode: TaskSplitMode.values.byName(row.splitMode),
     minChunkMinutes: row.minChunkMinutes,

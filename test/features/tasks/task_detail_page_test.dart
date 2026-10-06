@@ -8,8 +8,10 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 
 final _now = DateTime.utc(2026, 10, 5, 2);
@@ -51,6 +53,20 @@ final class _Corrections implements TaskCorrectionLog {
       recorded.add(correction);
 }
 
+final class _Workspace implements WorkspaceRepository {
+  @override
+  Future<List<PlannerArea>> listAreas() async => const [];
+
+  @override
+  Future<List<PlannerProject>> listProjects() async => const [];
+
+  @override
+  Future<void> saveArea(PlannerArea area) async {}
+
+  @override
+  Future<void> saveProject(PlannerProject project) async {}
+}
+
 PlannerTask _task({int remainingMinutes = 90}) => PlannerTask(
   id: 'task-1',
   title: '写方案',
@@ -77,24 +93,26 @@ void main() {
     corrections = _Corrections();
     service = TaskService(
       repository: tasks,
+      workspace: _Workspace(),
       clock: const _Clock(),
       idGenerator: _Ids(),
       correctionLog: corrections,
     );
   });
 
-  Future<void> pumpDetail(WidgetTester tester, String taskId) async {
+  Future<void> pumpDetail(
+    WidgetTester tester,
+    String taskId, {
+    bool dark = false,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: dark ? ThemeData.dark() : null,
         // 真实运行时这一页被塞进外壳的 Scaffold（`Expanded(child: child)`），
         // Chip 与 TextField 都要求 Material 祖先，因此这里同样提供 Scaffold，
         // 否则测的是"脱离外壳时能否构建"，而不是页面本身。
         home: Scaffold(
-          body: TaskDetailPage(
-            service: service,
-            taskId: taskId,
-            nowUtc: _now,
-          ),
+          body: TaskDetailPage(service: service, taskId: taskId, nowUtc: _now),
         ),
       ),
     );
@@ -112,6 +130,18 @@ void main() {
     expect(find.text('修正剩余时长'), findsOneWidget);
     // 截止日期在 nowUtc 之后，不应显示逾期。
     expect(find.text('已逾期'), findsNothing);
+  });
+
+  testWidgets('深色主题下事实标签使用主题前景色而不是黑色', (tester) async {
+    await pumpDetail(tester, 'task-1', dark: true);
+
+    final label = find.text('预计时长');
+    final text = tester.widget<Text>(label);
+    final expected = Theme.of(tester.element(label))
+        .colorScheme
+        .onSurfaceVariant;
+    expect(text.style?.color, expected);
+    expect(text.style?.color, isNot(Colors.black54));
   });
 
   // FR-REPLAN-07：设置截止时间。页面把**本地**日期与"当天第几分钟"交回，换算由注入方完成
@@ -349,11 +379,9 @@ void main() {
     await tester.tap(find.byKey(const Key('defer-confirm')));
     await tester.pumpAndSettle();
 
-    expect(
-      recorded,
-      [const Duration(days: 5, hours: 6)],
-      reason: '自定义的天与小时必须原样交出，不能被四舍五入或只取天数',
-    );
+    expect(recorded, [
+      const Duration(days: 5, hours: 6),
+    ], reason: '自定义的天与小时必须原样交出，不能被四舍五入或只取天数');
   });
 
   testWidgets('延后：自定义填 0 时当场拦下，不调用入口', (tester) async {

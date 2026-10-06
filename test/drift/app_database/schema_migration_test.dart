@@ -31,6 +31,9 @@ import 'package:personal_planner/data/database/app_database.dart';
 
 import 'generated/schema.dart';
 import 'generated/schema_v1.dart' as v1;
+import 'generated/schema_v3.dart' as v3;
+import 'generated/schema_v4.dart' as v4;
+import 'generated/schema_v5.dart' as v5;
 
 /// Fixed so that the backfilled values can be asserted exactly. The codebase
 /// stores instants as microseconds since the Unix epoch, so the migration
@@ -44,6 +47,10 @@ void main() {
 
   setUpAll(() {
     verifier = SchemaVerifier(GeneratedHelper());
+  });
+
+  test('generated schema includes timetable-import version 6', () {
+    expect(GeneratedHelper.versions.last, 6);
   });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
@@ -206,7 +213,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 3);
+    await verifier.migrateAndValidate(db, 6);
 
     // Pre-existing values are preserved and every timestamp column added by the
     // migration holds the migration instant rather than the sentinel.
@@ -253,6 +260,7 @@ void main() {
 
     final rule = await db.select(db.recurrenceRules).getSingle();
     expect(rule.localStartMinute, 540);
+    expect(rule.intervalWeeks, 1);
     expect(rule.createdAtUtc, _migrationInstantUs);
     expect(rule.updatedAtUtc, _migrationInstantUs);
 
@@ -298,4 +306,305 @@ void main() {
     await db.close();
     schema.close();
   });
+
+  test('v3 task with project backfills direct area', () async {
+    final schema = await verifier.schemaAt(3);
+    final old = v3.DatabaseAtV3(schema.newConnection());
+
+    await old
+        .into(old.areas)
+        .insert(
+          v3.AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 17,
+            sortOrder: 0,
+          ),
+        );
+    await old
+        .into(old.projects)
+        .insert(
+          v3.ProjectsCompanion.insert(
+            id: 'project-algorithm',
+            areaId: 'area-study',
+            name: '算法课',
+          ),
+        );
+    await old
+        .into(old.tasks)
+        .insert(_v3Task(id: 'task-project', projectId: 'project-algorithm'));
+    await old.close();
+
+    final db = AppDatabase(
+      schema.newConnection(),
+      now: () => _migrationInstant,
+    );
+    await verifier.migrateAndValidate(db, 4);
+
+    final task = await db.select(db.tasks).getSingle();
+    expect(task.areaId, 'area-study');
+    expect(task.availableFromUtc, isNull);
+
+    await db.close();
+    schema.close();
+  });
+
+  test('v3 projectless task stays unclassified', () async {
+    final schema = await verifier.schemaAt(3);
+    final old = v3.DatabaseAtV3(schema.newConnection());
+
+    await old.into(old.tasks).insert(_v3Task(id: 'task-legacy'));
+    await old.close();
+
+    final db = AppDatabase(
+      schema.newConnection(),
+      now: () => _migrationInstant,
+    );
+    await verifier.migrateAndValidate(db, 4);
+
+    final task = await db.select(db.tasks).getSingle();
+    expect(task.areaId, isNull);
+    expect(task.availableFromUtc, isNull);
+
+    await db.close();
+    schema.close();
+  });
+
+  test(
+    'v4 task fields survive migration and academic tables enforce keys',
+    () async {
+      final schema = await verifier.schemaAt(4);
+      final old = v4.DatabaseAtV4(schema.newConnection());
+
+      await old
+          .into(old.areas)
+          .insert(
+            v4.AreasCompanion.insert(
+              id: 'area-study',
+              name: '学业',
+              color: 17,
+              sortOrder: 0,
+            ),
+          );
+      await old
+          .into(old.tasks)
+          .insert(
+            v4.TasksCompanion.insert(
+              id: 'task-v4',
+              areaId: const Value('area-study'),
+              title: '迁移任务',
+              priority: 'medium',
+              estimatedMinutes: 50,
+              remainingMinutes: 50,
+              availableFromUtc: const Value(123456),
+              energyLevel: 'high',
+              splitMode: 'continuous',
+              minChunkMinutes: 50,
+              maxChunkMinutes: 50,
+              status: 'open',
+              createdAtUtc: 1000,
+              updatedAtUtc: 2000,
+            ),
+          );
+      await old
+          .into(old.recurrenceRules)
+          .insert(
+            v4.RecurrenceRulesCompanion.insert(
+              id: 'rule-v4',
+              weekdaysMask: 2,
+              localStartMinute: 480,
+              durationMinutes: 100,
+              validFromLocalDate: '2026-09-07',
+              timeZoneId: 'Asia/Shanghai',
+            ),
+          );
+      await old.close();
+
+      final db = AppDatabase(
+        schema.newConnection(),
+        now: () => _migrationInstant,
+      );
+      await verifier.migrateAndValidate(db, 5);
+
+      final task = await db.select(db.tasks).getSingle();
+      expect(task.areaId, 'area-study');
+      expect(task.availableFromUtc, 123456);
+      expect(
+        (await db.select(db.recurrenceRules).getSingle()).intervalWeeks,
+        1,
+      );
+
+      await db
+          .into(db.academicTerms)
+          .insert(
+            AcademicTermsCompanion.insert(
+              id: 'term-2026-autumn',
+              name: '2026 秋季学期',
+              firstWeekMondayLocalDate: '2026-09-07',
+              totalWeeks: 16,
+              timeZoneId: 'Asia/Shanghai',
+              createdAtUtc: 3000,
+              updatedAtUtc: 3000,
+            ),
+          );
+      await db
+          .into(db.periodTemplates)
+          .insert(
+            PeriodTemplatesCompanion.insert(
+              id: 'template-main',
+              name: '主校区',
+              createdAtUtc: 4000,
+              updatedAtUtc: 4000,
+            ),
+          );
+      await db.batch((batch) {
+        batch.insertAll(db.periodTemplateEntries, [
+          PeriodTemplateEntriesCompanion.insert(
+            templateId: 'template-main',
+            periodNumber: 1,
+            startMinute: 480,
+            endMinute: 525,
+          ),
+          PeriodTemplateEntriesCompanion.insert(
+            templateId: 'template-main',
+            periodNumber: 2,
+            startMinute: 535,
+            endMinute: 580,
+          ),
+        ]);
+      });
+      expect(await db.select(db.periodTemplateEntries).get(), hasLength(2));
+
+      await expectLater(
+        db
+            .into(db.periodTemplateEntries)
+            .insert(
+              PeriodTemplateEntriesCompanion.insert(
+                templateId: 'template-main',
+                periodNumber: 1,
+                startMinute: 600,
+                endMinute: 645,
+              ),
+            ),
+        throwsA(isA<Exception>()),
+      );
+      await expectLater(
+        db
+            .into(db.periodTemplateEntries)
+            .insert(
+              PeriodTemplateEntriesCompanion.insert(
+                templateId: 'missing-template',
+                periodNumber: 3,
+                startMinute: 650,
+                endMinute: 695,
+              ),
+            ),
+        throwsA(isA<Exception>()),
+      );
+
+      await db.close();
+      schema.close();
+    },
+  );
+
+  test(
+    'v5 events gain safe defaults and import batches enforce term keys',
+    () async {
+      final schema = await verifier.schemaAt(5);
+      final old = v5.DatabaseAtV5(schema.newConnection());
+
+      await old
+          .into(old.calendarEvents)
+          .insert(
+            v5.CalendarEventsCompanion.insert(
+              id: 'legacy-event',
+              title: '旧日程',
+              startAtUtc: 1000,
+              endAtUtc: 2000,
+              timeZoneId: 'Asia/Shanghai',
+              updatedAtUtc: 3000,
+            ),
+          );
+      await old.close();
+
+      final db = AppDatabase(
+        schema.newConnection(),
+        now: () => _migrationInstant,
+      );
+      await verifier.migrateAndValidate(db, 6);
+
+      final event = await db.select(db.calendarEvents).getSingle();
+      expect(event.projectId, isNull);
+      expect(event.location, isEmpty);
+      expect(event.notes, isEmpty);
+      expect(event.sourceKind, 'manual');
+      expect(event.importBatchId, isNull);
+      expect(event.logicalCourseId, isNull);
+
+      await db
+          .into(db.academicTerms)
+          .insert(
+            AcademicTermsCompanion.insert(
+              id: 'term-2026-autumn',
+              name: '2026 秋季学期',
+              firstWeekMondayLocalDate: '2026-09-07',
+              totalWeeks: 16,
+              timeZoneId: 'Asia/Shanghai',
+              createdAtUtc: 4000,
+              updatedAtUtc: 4000,
+            ),
+          );
+      await db
+          .into(db.timetableImportBatches)
+          .insert(
+            TimetableImportBatchesCompanion.insert(
+              id: 'batch-1',
+              termId: 'term-2026-autumn',
+              sourceImageHash: 'sha256:test',
+              sourceFileName: 'schedule.png',
+              status: 'committed',
+              createdEventCount: 1,
+              createdAtUtc: 5000,
+              updatedAtUtc: 5000,
+            ),
+          );
+      await expectLater(
+        db
+            .into(db.timetableImportBatches)
+            .insert(
+              TimetableImportBatchesCompanion.insert(
+                id: 'batch-invalid',
+                termId: 'missing-term',
+                sourceImageHash: 'sha256:missing',
+                sourceFileName: 'missing.png',
+                status: 'committed',
+                createdEventCount: 0,
+                createdAtUtc: 6000,
+                updatedAtUtc: 6000,
+              ),
+            ),
+        throwsA(isA<Exception>()),
+      );
+
+      await db.close();
+      schema.close();
+    },
+  );
 }
+
+v3.TasksCompanion _v3Task({required String id, String? projectId}) =>
+    v3.TasksCompanion.insert(
+      id: id,
+      projectId: Value(projectId),
+      title: '算法作业',
+      priority: 'medium',
+      estimatedMinutes: 50,
+      remainingMinutes: 50,
+      energyLevel: 'high',
+      splitMode: 'continuous',
+      minChunkMinutes: 50,
+      maxChunkMinutes: 50,
+      status: 'open',
+      createdAtUtc: 1000,
+      updatedAtUtc: 2000,
+    );

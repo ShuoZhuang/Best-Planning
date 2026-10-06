@@ -6,14 +6,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:drift/native.dart';
 import 'package:personal_planner/app/planner_app.dart';
+import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/core/clock.dart';
+import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
+import 'package:personal_planner/features/settings/academic_calendar/academic_calendar_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -50,22 +56,29 @@ final class _NoFacts implements ExportDataSource {
 final class _NoFiles implements ExportFilePort {
   const _NoFiles();
   @override
-  Future<String?> chooseDirectory() async => null;
+  Future<String?> chooseSaveLocation({
+    required String suggestedName,
+    required String extension,
+  }) async => null;
   @override
-  Future<String> writeNewFile({
-    required String directory,
-    required String preferredName,
+  Future<String> writeFile({
+    required String destination,
     required Stream<List<int>> bytes,
   }) async => '';
 }
 
 void main() {
-  Future<void> pumpApp(WidgetTester tester) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    MemorySettingsRepository? settings,
+  }) async {
     tester.view.physicalSize = const Size(1200, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final settings = MemorySettingsRepository();
-    await settings.write(
+    final repository = settings ?? MemorySettingsRepository();
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+    await repository.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
     );
@@ -73,7 +86,7 @@ void main() {
       ProviderScope(
         child: PlannerApp(
           timeZoneId: 'Asia/Shanghai',
-          settingsRepository: settings,
+          settingsRepository: repository,
           // 四个子页都装配，入口页才应列出四条。
           preferences: PreferenceService(
             analyzer: const _NoAnalyzer(),
@@ -87,6 +100,11 @@ void main() {
             source: const _NoFacts(),
             files: const _NoFiles(),
             clock: const _FixedClock(),
+          ),
+          academicCalendar: AcademicCalendarService(
+            repository: DriftAcademicCalendarRepository(database),
+            clock: const _FixedClock(),
+            idGenerator: UuidIdGenerator(),
           ),
         ),
       ),
@@ -119,6 +137,29 @@ void main() {
     expect(find.text('导出'), findsNothing);
   });
 
+  testWidgets('设置卡片之间保留 12 像素间距且点击高度足够', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(title: '甲', subtitle: '说明甲', onOpen: () {}),
+            SettingsHubEntry(title: '乙', subtitle: '说明乙', onOpen: () {}),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final cards = find.byType(Card);
+    expect(cards, findsNWidgets(2));
+    final first = tester.getRect(cards.at(0));
+    final second = tester.getRect(cards.at(1));
+    expect(second.top - first.bottom, 12);
+    for (final tile in tester.widgetList<ListTile>(find.byType(ListTile))) {
+      expect(tile.minTileHeight ?? 0, greaterThanOrEqualTo(44));
+    }
+  });
+
   testWidgets('设置入口页列出已装配的子页，并能进入规划规则', (tester) async {
     await pumpApp(tester);
 
@@ -130,6 +171,8 @@ void main() {
     expect(find.byKey(const Key('settings-preferences')), findsOneWidget);
     expect(find.byKey(const Key('settings-app-lock')), findsOneWidget);
     expect(find.byKey(const Key('settings-export')), findsOneWidget);
+    expect(find.byKey(const Key('settings-appearance')), findsOneWidget);
+    expect(find.byKey(const Key('settings-academic-calendar')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('settings-rules')));
     await tester.pumpAndSettle();
@@ -140,6 +183,66 @@ void main() {
     await tester.tap(find.byKey(const Key('shell-back-button')));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsHubPage), findsOneWidget);
+  });
+
+  testWidgets('设置入口可以进入学期与节次模板页', (tester) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-academic-calendar')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AcademicCalendarPage), findsOneWidget);
+    expect(find.byKey(const Key('shell-back-button')), findsOneWidget);
+  });
+
+  testWidgets('外观页提供四档材质，切换后立即生效并保存', (tester) async {
+    final settings = MemorySettingsRepository();
+    await pumpApp(tester, settings: settings);
+
+    expect(find.byKey(const Key('app-material-restrained')), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('设置'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-appearance')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('无玻璃效果'), findsOneWidget);
+    expect(find.text('克制版'), findsOneWidget);
+    expect(find.text('激进版'), findsOneWidget);
+    expect(find.text('极致版'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('glass-mode-aggressive')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('app-material-aggressive')), findsOneWidget);
+    expect(await settings.read('appearance.glass-mode'), 'aggressive');
+
+    await tester.tap(find.byKey(const Key('glass-mode-liquid')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('app-material-liquid')), findsOneWidget);
+    expect(await settings.read('appearance.glass-mode'), 'liquid');
+  });
+
+  testWidgets('启动时恢复已经保存的无玻璃模式', (tester) async {
+    final settings = MemorySettingsRepository();
+    await settings.write('appearance.glass-mode', 'off');
+
+    await pumpApp(tester, settings: settings);
+
+    expect(find.byKey(const Key('app-material-off')), findsOneWidget);
+    expect(
+      find.byKey(const Key('glass-chrome-off-fill')),
+      findsNWidgets(2),
+      reason: '关闭玻璃后，顶栏与侧边导航都必须恢复为实体深色表面',
+    );
   });
 
   testWidgets('一级页面不显示返回按钮，子页面统一显示', (tester) async {

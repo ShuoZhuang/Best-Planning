@@ -65,8 +65,7 @@ void main() {
           ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
     expect(researchBlocks.length, greaterThan(1));
     for (var index = 1; index < researchBlocks.length; index++) {
-      final gap = researchBlocks[index]
-          .startUtc
+      final gap = researchBlocks[index].startUtc
           .difference(researchBlocks[index - 1].endUtc)
           .inMinutes;
       expect(gap, greaterThanOrEqualTo(problem.rules.breakMinutes));
@@ -402,7 +401,10 @@ void main() {
         engine.generate(problem).blocks.single.startUtc;
 
     // 不提供已确认块时，两个候选同分，按开始时间决胜 → 最早位置。
-    expect(placement(build(withExisting: false)), day.add(const Duration(hours: 9)));
+    expect(
+      placement(build(withExisting: false)),
+      day.add(const Duration(hours: 9)),
+    );
     // 提供之后，占用已确认块的位置不计移动代价，因此原样复现 → 10:00。
     expect(
       placement(build(withExisting: true)),
@@ -472,13 +474,9 @@ void main() {
   // 要真正判别，需要一个**在两种解释下自由时段不同且容量紧张**的场景——那要新造 fixture，
   // 属"先界定场景再写"，已登记为 T4 的剩余部分。
   test('golden week 换到非 UTC 时区后，不变量仍然成立', () {
-    final fixture =
-        jsonDecode(
-              File(
-                'test/fixtures/scheduling/golden_week.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, Object?>;
+    final fixture = jsonDecode(
+      File('test/fixtures/scheduling/golden_week.json').readAsStringSync(),
+    ) as Map<String, Object?>;
     // 只改时区：规则里的睡眠与精力是**本地钟点**（20:00–08:00 等），因此在纽约它们对应的
     // UTC 区间与在 UTC 下相差 4 小时。若引擎把本地钟点当 UTC 用，下面的睡眠断言会失败。
     final problem = _problemFromFixture({

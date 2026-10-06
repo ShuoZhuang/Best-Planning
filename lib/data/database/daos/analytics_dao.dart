@@ -40,7 +40,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
       ),
       leftOuterJoin(
         database.areas,
-        database.areas.id.equalsExp(database.projects.areaId),
+        database.areas.id.equalsExp(database.tasks.areaId),
       ),
     ]);
     if (filter.areaIds.isNotEmpty) {
@@ -331,9 +331,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
     final dates = <DateTime>[];
     for (final row in rows) {
       final suffix = row.key.substring(prefix.length);
-      final match = RegExp(
-        r'^(\d{4})-(\d{2})-(\d{2})$',
-      ).firstMatch(suffix);
+      final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(suffix);
       if (match == null) continue;
       final year = int.tryParse(match.group(1)!);
       final month = int.tryParse(match.group(2)!);

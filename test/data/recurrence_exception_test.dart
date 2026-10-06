@@ -29,11 +29,12 @@ CalendarEvent _anchorEvent() => CalendarEvent(
   updatedAtUtc: DateTime.utc(2026, 10, 1),
 );
 
-RecurrenceRule _weeklyRule() => RecurrenceRule(
+RecurrenceRule _weeklyRule({int intervalWeeks = 1}) => RecurrenceRule(
   id: 'rule-1',
   weekdays: const {1},
   localStartMinute: 9 * 60,
   durationMinutes: 60,
+  intervalWeeks: intervalWeeks,
   validFromLocalDate: DateTime(2026, 10, 5),
   timeZoneId: 'UTC',
 );
@@ -113,6 +114,28 @@ void main() {
     ]);
   });
 
+  test('隔周间隔会持久化，跳过周上的例外不会凭空生成一次', () async {
+    await repository.saveRecurring(
+      _anchorEvent(),
+      _weeklyRule(intervalWeeks: 2),
+    );
+    await repository.save(_replacement());
+
+    final storedRule = await database
+        .select(database.recurrenceRules)
+        .getSingle();
+    expect(storedRule.intervalWeeks, 2);
+
+    final occurrences = await repository.occurrencesBetween(
+      DateTime.utc(2026, 10, 5),
+      DateTime.utc(2026, 10, 26),
+    );
+    expect(occurrences.map((item) => item.range.startUtc), [
+      DateTime.utc(2026, 10, 5, 9),
+      DateTime.utc(2026, 10, 19, 9),
+    ]);
+  });
+
   test('删除某一次会隐藏那一次，其余各次保留；重复删除不堆积例外行', () async {
     await repository.saveRecurring(_anchorEvent(), _weeklyRule());
     expect(await startsOverTwoWeeks(), hasLength(2));
@@ -127,7 +150,9 @@ void main() {
     );
 
     // 那一次消失，10-05 仍在——只断言"少了一条"无法区分"删对了哪一条"。
-    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 5, 9)]);
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 5, 9),
+    ]);
 
     // 再删一次（过期视图会这样）：结果不变，且**不新增例外行**。
     await repository.deleteOccurrence(
@@ -137,10 +162,10 @@ void main() {
       exceptionId: 'exception-delete-2',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
-    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 5, 9)]);
-    final exceptions = await database
-        .select(database.calendarEvents)
-        .get();
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 5, 9),
+    ]);
+    final exceptions = await database.select(database.calendarEvents).get();
     final exceptionRows = exceptions
         .where((row) => row.exceptionOfId == 'anchor-1')
         .toList();
@@ -269,7 +294,9 @@ void main() {
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
 
-    expect(await startsOverTwoWeeks(), <DateTime>[DateTime.utc(2026, 10, 12, 16)]);
+    expect(await startsOverTwoWeeks(), <DateTime>[
+      DateTime.utc(2026, 10, 12, 16),
+    ]);
     final rows = await database.select(database.calendarEvents).get();
     // 单次日程若被写成"系列的一次"，它从此必须依赖规则才可见——那会把一条独立日程绑死。
     expect(rows.where((row) => row.exceptionOfId != null), isEmpty);

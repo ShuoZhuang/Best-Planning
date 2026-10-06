@@ -65,7 +65,8 @@ final class RecurrenceExpander {
     final occurrences = <RecurrenceOccurrence>[];
 
     while (!cursor.isAfter(effectiveEnd)) {
-      if (rule.weekdays.contains(cursor.weekday)) {
+      if (rule.weekdays.contains(cursor.weekday) &&
+          _matchesIntervalWeek(rule, cursor)) {
         final exception = exceptionsByDate[_dateKey(cursor)];
         if (exception?.deleted == true) {
           cursor = cursor.add(const Duration(days: 1));
@@ -102,10 +103,22 @@ final class RecurrenceExpander {
       endUtc: startUtc.add(Duration(minutes: rule.durationMinutes)),
     );
   }
+
+  bool _matchesIntervalWeek(RecurrenceRule rule, DateTime candidateDate) {
+    final anchorMonday = _weekMonday(rule.validFromLocalDate);
+    final candidateMonday = _weekMonday(candidateDate);
+    final weekOffset = candidateMonday.difference(anchorMonday).inDays ~/ 7;
+    return weekOffset >= 0 && weekOffset % rule.intervalWeeks == 0;
+  }
 }
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+DateTime _weekMonday(DateTime value) {
+  final date = _dateOnly(value);
+  return date.subtract(Duration(days: date.weekday - DateTime.monday));
+}
 
 String _dateKey(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-'

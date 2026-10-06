@@ -44,12 +44,14 @@ class Projects extends Table {
 class Tasks extends Table {
   TextColumn get id => text()();
   TextColumn get projectId => text().nullable().references(Projects, #id)();
+  TextColumn get areaId => text().nullable().references(Areas, #id)();
   TextColumn get title => text()();
   TextColumn get notes => text().withDefault(const Constant(''))();
   TextColumn get priority => text()();
   IntColumn get estimatedMinutes => integer()();
   IntColumn get remainingMinutes => integer()();
   IntColumn get dueAtUtc => integer().nullable()();
+  IntColumn get availableFromUtc => integer().nullable()();
   TextColumn get energyLevel => text()();
   TextColumn get splitMode => text()();
   IntColumn get minChunkMinutes => integer()();
@@ -98,6 +100,9 @@ class RecurrenceRules extends Table {
   IntColumn get weekdaysMask => integer()();
   IntColumn get localStartMinute => integer()();
   IntColumn get durationMinutes => integer()();
+  IntColumn get intervalWeeks => integer().customConstraint(
+    'NOT NULL DEFAULT 1 CHECK (interval_weeks BETWEEN 1 AND 52)',
+  )();
   TextColumn get validFromLocalDate => text()();
   TextColumn get validUntilLocalDate => text().nullable()();
   TextColumn get timeZoneId => text()();
@@ -107,6 +112,78 @@ class RecurrenceRules extends Table {
       integer().withDefault(const Constant(unsetTimestamp))();
   @override
   Set<Column<Object>> get primaryKey => {id};
+}
+
+/// A locally anchored teaching term. The first week always starts on the
+/// configured local Monday; the date is stored as YYYY-MM-DD rather than an
+/// instant so daylight-saving changes cannot shift academic week boundaries.
+class AcademicTerms extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get firstWeekMondayLocalDate => text()();
+  IntColumn get totalWeeks => integer().customConstraint(
+    'NOT NULL CHECK (total_weeks BETWEEN 1 AND 60)',
+  )();
+  TextColumn get timeZoneId => text()();
+  IntColumn get createdAtUtc => integer()();
+  IntColumn get updatedAtUtc => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// Named collections of school-period clock times. Users can keep more than
+/// one template (for example, separate campuses), while [isDefault] selects
+/// the one prefilled in timetable import.
+class PeriodTemplates extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+  IntColumn get createdAtUtc => integer()();
+  IntColumn get updatedAtUtc => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// One editable period within a template. The composite primary key prevents
+/// duplicate period numbers, and the database-level checks protect imports
+/// even if a future caller bypasses the application service validation.
+class PeriodTemplateEntries extends Table {
+  TextColumn get templateId =>
+      text().references(PeriodTemplates, #id, onDelete: KeyAction.cascade)();
+  IntColumn get periodNumber => integer()();
+  IntColumn get startMinute => integer()();
+  IntColumn get endMinute => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {templateId, periodNumber};
+
+  @override
+  List<String> get customConstraints => [
+    'CHECK (period_number > 0)',
+    'CHECK (start_minute >= 0 AND start_minute < end_minute AND end_minute <= 1440)',
+  ];
+}
+
+class TimetableImportBatches extends Table {
+  TextColumn get id => text()();
+  TextColumn get termId => text().references(AcademicTerms, #id)();
+  TextColumn get sourceImageHash => text()();
+  TextColumn get sourceFileName => text()();
+  TextColumn get status => text()();
+  IntColumn get createdEventCount => integer()();
+  IntColumn get createdAtUtc => integer()();
+  IntColumn get updatedAtUtc => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+
+  @override
+  List<String> get customConstraints => [
+    "CHECK (status IN ('draft', 'committed', 'rolledBack'))",
+    'CHECK (created_event_count >= 0)',
+  ];
 }
 
 class CalendarEvents extends Table {
@@ -121,6 +198,13 @@ class CalendarEvents extends Table {
       text().nullable().references(CalendarEvents, #id)();
   BoolColumn get locked => boolean().withDefault(const Constant(true))();
   TextColumn get areaId => text().nullable().references(Areas, #id)();
+  TextColumn get projectId => text().nullable().references(Projects, #id)();
+  TextColumn get location => text().withDefault(const Constant(''))();
+  TextColumn get notes => text().withDefault(const Constant(''))();
+  TextColumn get sourceKind => text().withDefault(const Constant('manual'))();
+  TextColumn get importBatchId =>
+      text().nullable().references(TimetableImportBatches, #id)();
+  TextColumn get logicalCourseId => text().nullable()();
   IntColumn get createdAtUtc =>
       integer().withDefault(const Constant(unsetTimestamp))();
   IntColumn get updatedAtUtc => integer()();

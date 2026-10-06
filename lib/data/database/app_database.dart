@@ -16,6 +16,10 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     TaskTags,
     CalendarEvents,
     RecurrenceRules,
+    AcademicTerms,
+    PeriodTemplates,
+    PeriodTemplateEntries,
+    TimetableImportBatches,
     EnergyWindows,
     Settings,
     PlanVersions,
@@ -29,9 +33,22 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
   daos: [TaskDao],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase.openDefault({DateTime Function()? now})
-    : now = now ?? _systemNowUtc,
-      super(driftDatabase(name: 'personal_planner'));
+  AppDatabase.openDefault({
+    String? databasePath,
+    Future<String?> Function()? tempDirectoryPath,
+    DateTime Function()? now,
+  }) : now = now ?? _systemNowUtc,
+       super(
+         driftDatabase(
+           name: 'personal_planner',
+           native: DriftNativeOptions(
+             databasePath: databasePath == null
+                 ? null
+                 : () async => databasePath,
+             tempDirectoryPath: tempDirectoryPath,
+           ),
+         ),
+       );
 
   AppDatabase.forTesting(super.e, {DateTime Function()? now})
     : now = now ?? _systemNowUtc;
@@ -47,17 +64,26 @@ class AppDatabase extends _$AppDatabase {
   final DateTime Function() now;
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) => migrator.createAll(),
     onUpgrade: (migrator, from, to) async {
-      if (from < 2) {
+      if (from < 2 && to >= 2) {
         await _upgradeToV2(migrator);
       }
-      if (from < 3) {
+      if (from < 3 && to >= 3) {
         await migrator.createTable(taskCorrections);
+      }
+      if (from < 4 && to >= 4) {
+        await _upgradeToV4(migrator);
+      }
+      if (from < 5 && to >= 5) {
+        await _upgradeToV5(migrator);
+      }
+      if (from < 6 && to >= 6) {
+        await _upgradeToV6(migrator);
       }
     },
     beforeOpen: (details) async {
@@ -118,11 +144,17 @@ class AppDatabase extends _$AppDatabase {
     final added = <TableInfo, List<GeneratedColumn<Object>>>{
       areas: [areas.createdAtUtc, areas.updatedAtUtc],
       projects: [projects.createdAtUtc, projects.updatedAtUtc],
-      recurrenceRules: [recurrenceRules.createdAtUtc, recurrenceRules.updatedAtUtc],
+      recurrenceRules: [
+        recurrenceRules.createdAtUtc,
+        recurrenceRules.updatedAtUtc,
+      ],
       energyWindows: [energyWindows.createdAtUtc, energyWindows.updatedAtUtc],
       calendarEvents: [calendarEvents.createdAtUtc],
       settings: [settings.createdAtUtc],
-      scheduleBlocks: [scheduleBlocks.createdAtUtc, scheduleBlocks.updatedAtUtc],
+      scheduleBlocks: [
+        scheduleBlocks.createdAtUtc,
+        scheduleBlocks.updatedAtUtc,
+      ],
       timeEntries: [timeEntries.createdAtUtc, timeEntries.updatedAtUtc],
     };
 
@@ -135,5 +167,47 @@ class AppDatabase extends _$AppDatabase {
         );
       }
     }
+  }
+
+  /// Adds task-level classification and the hard earliest-start constraint.
+  ///
+  /// Legacy tasks attached to a project inherit that project's area. Tasks
+  /// without a project deliberately remain unclassified until the user edits
+  /// them, because guessing a default area would corrupt existing data.
+  Future<void> _upgradeToV4(Migrator migrator) async {
+    await migrator.addColumn(tasks, tasks.areaId);
+    await migrator.addColumn(tasks, tasks.availableFromUtc);
+    await customStatement('''
+      UPDATE tasks
+      SET area_id = (
+        SELECT projects.area_id
+        FROM projects
+        WHERE projects.id = tasks.project_id
+      )
+      WHERE project_id IS NOT NULL AND area_id IS NULL
+    ''');
+  }
+
+  /// Adds academic-calendar configuration and interval-week recurrence.
+  ///
+  /// The new recurrence column has a database default of one, so existing
+  /// weekly series keep producing the exact same occurrences after migration.
+  Future<void> _upgradeToV5(Migrator migrator) async {
+    await migrator.addColumn(recurrenceRules, recurrenceRules.intervalWeeks);
+    await migrator.createTable(academicTerms);
+    await migrator.createTable(periodTemplates);
+    await migrator.createTable(periodTemplateEntries);
+  }
+
+  /// Adds the audit batch before event references, then gives legacy events
+  /// safe manual-source defaults without guessing course metadata.
+  Future<void> _upgradeToV6(Migrator migrator) async {
+    await migrator.createTable(timetableImportBatches);
+    await migrator.addColumn(calendarEvents, calendarEvents.projectId);
+    await migrator.addColumn(calendarEvents, calendarEvents.location);
+    await migrator.addColumn(calendarEvents, calendarEvents.notes);
+    await migrator.addColumn(calendarEvents, calendarEvents.sourceKind);
+    await migrator.addColumn(calendarEvents, calendarEvents.importBatchId);
+    await migrator.addColumn(calendarEvents, calendarEvents.logicalCourseId);
   }
 }

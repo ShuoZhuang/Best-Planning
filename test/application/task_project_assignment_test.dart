@@ -41,6 +41,7 @@ void main() {
     clock = _Clock(_now);
     tasks = TaskService(
       repository: DriftTaskRepository(database.taskDao),
+      workspace: DriftWorkspaceRepository(database),
       clock: clock,
       idGenerator: _Ids(),
     );
@@ -53,19 +54,21 @@ void main() {
 
   tearDown(() => database.close());
 
-  Future<String> newTask(String title) async {
-    final created = await tasks.quickAdd(title, 60);
+  Future<String> newTask(String title, {String? areaId}) async {
+    final resolvedAreaId = areaId ?? (await workspace.createArea('学业')).id;
+    final created = await tasks.saveDraft(
+      TaskDraft(title: title, estimatedMinutes: 60, areaId: resolvedAreaId),
+    );
     return created.task!.id;
   }
 
-  test('归属到生活领域下的项目后，生活标记立即对该任务生效', () async {
+  test('任务直接领域已决定生活属性，选择同领域项目不会改变它', () async {
     final life = await workspace.createArea('生活', isLife: true);
     final project = await workspace.createProject(name: '健身', areaId: life.id);
-    final taskId = await newTask('跑步');
+    final taskId = await newTask('跑步', areaId: life.id);
 
     final lookup = DriftLifeAreaLookup(database);
-    // 未归属：没有任何任务算作生活任务——这正是此前的常态。
-    expect(await lookup.lifeTaskIds(), isEmpty);
+    expect(await lookup.lifeTaskIds(), {taskId});
 
     expect(await tasks.assignProject(taskId, project.id), isTrue);
 
@@ -73,10 +76,10 @@ void main() {
     expect((await tasks.findById(taskId))!.projectId, project.id);
   });
 
-  test('取消归属同样立即生效', () async {
+  test('取消项目归属不会清除任务的直接领域', () async {
     final life = await workspace.createArea('生活', isLife: true);
     final project = await workspace.createProject(name: '健身', areaId: life.id);
-    final taskId = await newTask('跑步');
+    final taskId = await newTask('跑步', areaId: life.id);
     await tasks.assignProject(taskId, project.id);
 
     final lookup = DriftLifeAreaLookup(database);
@@ -84,7 +87,7 @@ void main() {
 
     expect(await tasks.assignProject(taskId, null), isTrue);
     expect((await tasks.findById(taskId))!.projectId, isNull);
-    expect(await lookup.lifeTaskIds(), isEmpty);
+    expect(await lookup.lifeTaskIds(), {taskId});
   });
 
   test('归属未变化时不写入，避免"最近修改"被无谓推进', () async {
@@ -92,7 +95,7 @@ void main() {
       name: '项目甲',
       areaId: (await workspace.createArea('工作')).id,
     );
-    final taskId = await newTask('写方案');
+    final taskId = await newTask('写方案', areaId: project.areaId);
     await tasks.assignProject(taskId, project.id);
     final afterFirst = (await tasks.findById(taskId))!.updatedAtUtc;
 

@@ -26,7 +26,8 @@ final class WorkspaceManagementPage extends StatefulWidget {
       _WorkspaceManagementPageState();
 }
 
-final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage> {
+final class _WorkspaceManagementPageState
+    extends State<WorkspaceManagementPage> {
   final _newAreaName = TextEditingController();
   final _newProjectName = TextEditingController();
   final _editField = TextEditingController();
@@ -71,9 +72,8 @@ final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage>
   }
 
   void _report(String message) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _createArea() async {
@@ -136,10 +136,7 @@ final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage>
       children: [
         Text('领域与项目', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
-        const Text(
-          '生活标记在领域上：任务的领域与生活标记都经"任务 → 项目 → 领域"推导，'
-          '因此不归属项目的任务两者都不适用。',
-        ),
+        const Text('领域是任务的长期归属；项目是领域下可选的阶段性工作。你可以指定哪些领域计入个人生活时间。'),
         const SizedBox(height: 8),
         if (lifeAreas.isEmpty)
           Card(
@@ -147,7 +144,7 @@ final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage>
             color: Theme.of(context).colorScheme.errorContainer,
             child: const ListTile(
               leading: Icon(Icons.warning_amber),
-              title: Text('尚无领域被标记为生活'),
+              title: Text('尚无领域计入个人生活时间'),
               subtitle: Text('生活娱乐配额与统计的「生活」分类因此不会生效。'),
             ),
           ),
@@ -188,10 +185,9 @@ final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage>
                 SwitchListTile(
                   key: const Key('new-area-is-life'),
                   value: _newAreaIsLife,
-                  onChanged: (value) =>
-                      setState(() => _newAreaIsLife = value),
-                  title: const Text('标记为生活领域'),
-                  subtitle: const Text('生活配额与统计的「生活」口径以该标记为准'),
+                  onChanged: (value) => setState(() => _newAreaIsLife = value),
+                  title: const Text('计入个人生活时间'),
+                  subtitle: const Text('启用后，该领域会纳入生活配额与个人生活统计'),
                   contentPadding: EdgeInsets.zero,
                 ),
                 FilledButton(
@@ -281,10 +277,11 @@ final class _WorkspaceManagementPageState extends State<WorkspaceManagementPage>
     );
   }
 
-  String _areaNameOf(String areaId) => _areas
-      .where((area) => area.id == areaId)
-      .map((area) => area.name)
-      .firstOrNull ??
+  String _areaNameOf(String areaId) =>
+      _areas
+          .where((area) => area.id == areaId)
+          .map((area) => area.name)
+          .firstOrNull ??
       areaId;
 }
 
@@ -327,7 +324,7 @@ final class _AreaRow extends StatelessWidget {
                       Text(area.name, key: Key('area-name-${area.id}')),
                       if (area.isLife)
                         Text(
-                          '生活领域',
+                          '计入个人生活时间',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                     ],
@@ -400,7 +397,10 @@ final class _ProjectRow extends StatelessWidget {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(project.name, key: Key('project-name-${project.id}')),
+                      Text(
+                        project.name,
+                        key: Key('project-name-${project.id}'),
+                      ),
                       Text(
                         project.isArchived ? '$areaName · 已归档' : areaName,
                         style: Theme.of(context).textTheme.bodySmall,

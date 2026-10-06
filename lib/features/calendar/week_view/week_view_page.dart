@@ -9,6 +9,8 @@ final class WeekViewPage extends StatefulWidget {
     this.onProposalCreated,
     this.onOpenDay,
     this.onCreateEvent,
+    this.onImportTimetable,
+    this.toLocal,
     super.key,
   });
 
@@ -22,6 +24,8 @@ final class WeekViewPage extends StatefulWidget {
   /// 与周视图互为切换，因此不占用导航项；为空时不显示切换按钮。
   final ValueChanged<DateTime>? onOpenDay;
   final VoidCallback? onCreateEvent;
+  final VoidCallback? onImportTimetable;
+  final DateTime Function(DateTime instantUtc)? toLocal;
 
   @override
   State<WeekViewPage> createState() => _WeekViewPageState();
@@ -66,6 +70,13 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                   onPressed: () => widget.onOpenDay!(widget.weekStart),
                   icon: const Icon(Icons.calendar_today_outlined),
                   label: const Text('查看当日'),
+                ),
+              if (widget.onImportTimetable != null)
+                TextButton.icon(
+                  key: const Key('import-timetable'),
+                  onPressed: widget.onImportTimetable,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('导入课表'),
                 ),
               if (widget.onCreateEvent != null)
                 FilledButton.icon(
@@ -120,12 +131,17 @@ final class _WeekViewPageState extends State<WeekViewPage> {
             _DayColumn(
               key: ValueKey('week-day-$index'),
               day: widget.weekStart.add(Duration(days: index)),
+              localDay: (widget.toLocal ?? (date) => date)(
+                widget.weekStart.add(Duration(days: index)),
+              ),
+              toLocal: widget.toLocal,
+              onOpenDay: widget.onOpenDay,
               items: items.where((item) {
-                final date = item.range.startUtc;
                 final day = widget.weekStart.add(Duration(days: index));
-                return date.year == day.year &&
-                    date.month == day.month &&
-                    date.day == day.day;
+                return item.range.startUtc.isBefore(
+                      day.add(const Duration(days: 1)),
+                    ) &&
+                    item.range.endUtc.isAfter(day);
               }).toList(),
               onMove: (item) async {
                 final day = widget.weekStart.add(Duration(days: index));
@@ -152,14 +168,20 @@ final class _WeekViewPageState extends State<WeekViewPage> {
 final class _DayColumn extends StatelessWidget {
   const _DayColumn({
     required this.day,
+    required this.localDay,
     required this.items,
     required this.onMove,
+    this.toLocal,
+    this.onOpenDay,
     super.key,
   });
 
   final DateTime day;
+  final DateTime localDay;
   final List<ScheduleViewItem> items;
   final ValueChanged<ScheduleViewItem> onMove;
+  final ValueChanged<DateTime>? onOpenDay;
+  final DateTime Function(DateTime)? toLocal;
 
   @override
   Widget build(BuildContext context) {
@@ -179,16 +201,41 @@ final class _DayColumn extends StatelessWidget {
             color: Theme.of(context).colorScheme.outlineVariant,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '${day.month}月${day.day}日',
-              style: Theme.of(context).textTheme.titleSmall,
+        child: Material(
+          type: MaterialType.transparency,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                InkWell(
+                  onTap: onOpenDay == null ? null : () => onOpenDay!(day),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${localDay.month}月${localDay.day}日',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                        if (onOpenDay != null)
+                          const Icon(Icons.chevron_right_rounded, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                for (final item in items)
+                  _DraggableScheduleCard(
+                    item: item,
+                    toLocal: toLocal,
+                    onTap: onOpenDay == null ? null : () => onOpenDay!(day),
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
-            for (final item in items) _DraggableScheduleCard(item: item),
-          ],
+          ),
         ),
       ),
     );
@@ -224,7 +271,9 @@ final class _MoveConfirmDialogState extends State<_MoveConfirmDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text('把「${widget.title}」移到 ${widget.day.month} 月 ${widget.day.day} 日'),
+    title: Text(
+      '把「${widget.title}」移到 ${widget.day.month} 月 ${widget.day.day} 日',
+    ),
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,31 +306,43 @@ final class _MoveConfirmDialogState extends State<_MoveConfirmDialog> {
 }
 
 final class _DraggableScheduleCard extends StatelessWidget {
-  const _DraggableScheduleCard({required this.item});
+  const _DraggableScheduleCard({required this.item, this.toLocal, this.onTap});
   final ScheduleViewItem item;
+  final DateTime Function(DateTime)? toLocal;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final card = Card(
       color: item.kind.color(Theme.of(context).colorScheme),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(item.kind.icon, size: 16),
-                const SizedBox(width: 4),
-                Text(
-                  item.kind.label,
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(item.title),
-          ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(item.kind.icon, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    item.kind.label,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_time((toLocal ?? (date) => date)(item.range.startUtc))}–'
+                '${_time((toLocal ?? (date) => date)(item.range.endUtc))}',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(item.title),
+            ],
+          ),
         ),
       ),
     );
@@ -296,3 +357,7 @@ final class _DraggableScheduleCard extends StatelessWidget {
     );
   }
 }
+
+String _time(DateTime date) =>
+    '${date.hour.toString().padLeft(2, '0')}:'
+    '${date.minute.toString().padLeft(2, '0')}';

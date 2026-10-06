@@ -8,8 +8,7 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 
-
-enum EventEditScope { singleOccurrence, entireSeries }
+enum EventEditScope { singleOccurrence, followingOccurrences, entireSeries }
 
 final class EventDraft {
   const EventDraft({
@@ -26,6 +25,8 @@ final class EventDraft {
     this.areaId,
     this.editScope = EventEditScope.singleOccurrence,
     this.recurrenceWeekdays = const {},
+    this.recurrenceValidUntilLocalDate,
+    this.recurrenceIntervalWeeks = 1,
   });
 
   final String title;
@@ -38,6 +39,8 @@ final class EventDraft {
   final String? areaId;
   final EventEditScope editScope;
   final Set<int> recurrenceWeekdays;
+  final DateTime? recurrenceValidUntilLocalDate;
+  final int recurrenceIntervalWeeks;
 }
 
 final class EventSaveResult {
@@ -119,7 +122,58 @@ final class CalendarService {
       newEndUtc: newEndUtc,
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程系列改写', kind: DomainChangeKind.fixedEventChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程系列改写',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
+    return true;
+  }
+
+  Future<bool> replaceFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.replaceFollowingOccurrences(
+      anchorId: anchorId,
+      occurrenceStartUtc: occurrenceStartUtc,
+      newStartUtc: newStartUtc,
+      newEndUtc: newEndUtc,
+      newRuleId: _idGenerator.next(),
+      newEventId: _idGenerator.next(),
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程本次及以后改写',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
+    return true;
+  }
+
+  Future<bool> deleteFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+  }) async {
+    final deletion = _deletion;
+    if (deletion == null) return false;
+    await deletion.deleteFollowingOccurrences(
+      anchorId: anchorId,
+      occurrenceStartUtc: occurrenceStartUtc,
+      updatedAtUtc: _clock.nowUtc(),
+    );
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程本次及以后删除',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
     return true;
   }
 
@@ -145,7 +199,12 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程单次改写', kind: DomainChangeKind.fixedEventChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程单次改写',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
     return true;
   }
 
@@ -168,7 +227,12 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程单次删除', kind: DomainChangeKind.fixedEventChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程单次删除',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
     return true;
   }
 
@@ -180,7 +244,12 @@ final class CalendarService {
     final deletion = _deletion;
     if (deletion == null) return false;
     await deletion.deleteEvent(eventId);
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程删除', kind: DomainChangeKind.fixedEventChanged));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程删除',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
     return true;
   }
 
@@ -198,6 +267,24 @@ final class CalendarService {
     }
     if (draft.recurrenceWeekdays.isNotEmpty && _recurringRepository == null) {
       errors['recurrence'] = '当前日历存储不支持重复日程';
+    }
+    if (draft.recurrenceWeekdays.isNotEmpty &&
+        draft.startAtUtc.isUtc &&
+        draft.timeZoneId.trim().isNotEmpty) {
+      final localStart = _zones.toLocal(draft.startAtUtc, draft.timeZoneId);
+      final firstLocalDate = DateTime(
+        localStart.year,
+        localStart.month,
+        localStart.day,
+      );
+      final validUntil = draft.recurrenceValidUntilLocalDate;
+      if (draft.recurrenceIntervalWeeks < 1 ||
+          draft.recurrenceIntervalWeeks > 52) {
+        errors['recurrence'] = '重复间隔必须在 1 到 52 周之间';
+      } else if (validUntil != null &&
+          _dateOnly(validUntil).isBefore(firstLocalDate)) {
+        errors['recurrence'] = '重复结束日期不能早于开始日期';
+      }
     }
     if (errors.isNotEmpty) return EventSaveResult.invalid(errors);
 
@@ -223,18 +310,30 @@ final class CalendarService {
         weekdays: draft.recurrenceWeekdays,
         localStartMinute: localStart.hour * 60 + localStart.minute,
         durationMinutes: draft.endAtUtc.difference(draft.startAtUtc).inMinutes,
+        intervalWeeks: draft.recurrenceIntervalWeeks,
         validFromLocalDate: DateTime(
           localStart.year,
           localStart.month,
           localStart.day,
         ),
+        validUntilLocalDate: draft.recurrenceValidUntilLocalDate == null
+            ? null
+            : _dateOnly(draft.recurrenceValidUntilLocalDate!),
         timeZoneId: draft.timeZoneId,
       );
       await _recurringRepository!.saveRecurring(event, rule);
     } else {
       await _repository.save(event);
     }
-    _onScheduleInputChanged?.call(const ScheduleInputChange(label: '固定日程创建', kind: DomainChangeKind.fixedEventCreated));
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '固定日程创建',
+        kind: DomainChangeKind.fixedEventCreated,
+      ),
+    );
     return EventSaveResult.success(event);
   }
 }
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);

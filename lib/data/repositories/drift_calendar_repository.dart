@@ -53,6 +53,14 @@ final class DriftCalendarRepository
           ),
           locked: row.locked,
           areaId: row.areaId,
+          projectId: row.projectId,
+          location: row.location,
+          notes: row.notes,
+          sourceKind: domain.CalendarEventSourceKind.fromStorage(
+            row.sourceKind,
+          ),
+          importBatchId: row.importBatchId,
+          logicalCourseId: row.logicalCourseId,
         ),
     ];
 
@@ -105,6 +113,7 @@ final class DriftCalendarRepository
         weekdays: _weekdays(stored.weekdaysMask),
         localStartMinute: stored.localStartMinute,
         durationMinutes: stored.durationMinutes,
+        intervalWeeks: stored.intervalWeeks,
         validFromLocalDate: DateTime.parse(stored.validFromLocalDate),
         validUntilLocalDate: stored.validUntilLocalDate == null
             ? null
@@ -123,6 +132,14 @@ final class DriftCalendarRepository
             range: occurrence.range,
             locked: event.locked,
             areaId: event.areaId,
+            projectId: event.projectId,
+            location: event.location,
+            notes: event.notes,
+            sourceKind: domain.CalendarEventSourceKind.fromStorage(
+              event.sourceKind,
+            ),
+            importBatchId: event.importBatchId,
+            logicalCourseId: event.logicalCourseId,
           ),
         );
       }
@@ -151,10 +168,11 @@ final class DriftCalendarRepository
     if (!newEndUtc.isAfter(newStartUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
-    final anchor = await (_database.select(_database.calendarEvents)
-          ..where((row) => row.id.equals(anchorId))
-          ..limit(1))
-        .getSingleOrNull();
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(anchorId))
+              ..limit(1))
+            .getSingleOrNull();
     if (anchor == null) return;
 
     final ruleId = anchor.recurrenceRuleId;
@@ -168,6 +186,12 @@ final class DriftCalendarRepository
       exceptionOfId: anchor.exceptionOfId,
       locked: anchor.locked,
       areaId: anchor.areaId,
+      projectId: anchor.projectId,
+      location: anchor.location,
+      notes: anchor.notes,
+      sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
+      importBatchId: anchor.importBatchId,
+      logicalCourseId: anchor.logicalCourseId,
       updatedAtUtc: updatedAtUtc,
     );
 
@@ -177,10 +201,11 @@ final class DriftCalendarRepository
       return;
     }
 
-    final stored = await (_database.select(_database.recurrenceRules)
-          ..where((row) => row.id.equals(ruleId))
-          ..limit(1))
-        .getSingleOrNull();
+    final stored =
+        await (_database.select(_database.recurrenceRules)
+              ..where((row) => row.id.equals(ruleId))
+              ..limit(1))
+            .getSingleOrNull();
     if (stored == null) {
       // 规则行缺失（正常路径由 `saveRecurring` 的事务保证）：只改锚点，不凭空造规则。
       await save(updatedEvent);
@@ -195,6 +220,7 @@ final class DriftCalendarRepository
       weekdays: _weekdays(stored.weekdaysMask),
       localStartMinute: localStart.hour * 60 + localStart.minute,
       durationMinutes: newEndUtc.difference(newStartUtc).inMinutes,
+      intervalWeeks: stored.intervalWeeks,
       validFromLocalDate: DateTime.parse(stored.validFromLocalDate),
       validUntilLocalDate: stored.validUntilLocalDate == null
           ? null
@@ -202,6 +228,183 @@ final class DriftCalendarRepository
       timeZoneId: stored.timeZoneId,
     );
     await saveRecurring(updatedEvent, rule);
+  }
+
+  @override
+  Future<void> replaceFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required String newRuleId,
+    required String newEventId,
+    required DateTime updatedAtUtc,
+  }) async {
+    if (!newEndUtc.isAfter(newStartUtc)) {
+      throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
+    }
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(anchorId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (anchor == null) return;
+    final ruleId = anchor.recurrenceRuleId;
+    if (ruleId == null) {
+      await replaceSeries(
+        anchorId: anchorId,
+        newStartUtc: newStartUtc,
+        newEndUtc: newEndUtc,
+        updatedAtUtc: updatedAtUtc,
+      );
+      return;
+    }
+    final stored =
+        await (_database.select(_database.recurrenceRules)
+              ..where((row) => row.id.equals(ruleId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (stored == null) return;
+    final splitDate = _validatedSplitDate(stored, occurrenceStartUtc);
+    final originalFrom = DateTime.parse(stored.validFromLocalDate);
+    final originalUntil = stored.validUntilLocalDate == null
+        ? null
+        : DateTime.parse(stored.validUntilLocalDate!);
+    final newLocalStart = _zones.toLocal(newStartUtc, stored.timeZoneId);
+    final newRule = domain.RecurrenceRule(
+      id: newRuleId,
+      weekdays: _weekdays(stored.weekdaysMask),
+      localStartMinute: newLocalStart.hour * 60 + newLocalStart.minute,
+      durationMinutes: newEndUtc.difference(newStartUtc).inMinutes,
+      intervalWeeks: stored.intervalWeeks,
+      validFromLocalDate: splitDate,
+      validUntilLocalDate: originalUntil,
+      timeZoneId: stored.timeZoneId,
+    );
+    final newEvent = domain.CalendarEvent(
+      id: newEventId,
+      title: anchor.title,
+      startAtUtc: newStartUtc,
+      endAtUtc: newEndUtc,
+      timeZoneId: anchor.timeZoneId,
+      recurrenceRuleId: newRuleId,
+      locked: anchor.locked,
+      areaId: anchor.areaId,
+      projectId: anchor.projectId,
+      location: anchor.location,
+      notes: anchor.notes,
+      sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
+      importBatchId: anchor.importBatchId,
+      logicalCourseId: anchor.logicalCourseId,
+      updatedAtUtc: updatedAtUtc,
+    );
+    final exceptions = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+    final followingExceptionIds = <String>[
+      for (final row in exceptions)
+        if (!_dateOnly(
+          _zones.toLocal(_instant(row.startAtUtc), stored.timeZoneId),
+        ).isBefore(splitDate))
+          row.id,
+    ];
+
+    await _database.transaction(() async {
+      await _saveRecurringRows(newEvent, newRule);
+      for (final id in followingExceptionIds) {
+        await (_database.update(
+          _database.calendarEvents,
+        )..where((row) => row.id.equals(id))).write(
+          db.CalendarEventsCompanion(
+            exceptionOfId: Value(newEventId),
+            updatedAtUtc: Value(updatedAtUtc.microsecondsSinceEpoch),
+          ),
+        );
+      }
+      if (splitDate == originalFrom) {
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.id.equals(anchorId))).go();
+        await (_database.delete(
+          _database.recurrenceRules,
+        )..where((row) => row.id.equals(ruleId))).go();
+      } else {
+        await (_database.update(
+          _database.recurrenceRules,
+        )..where((row) => row.id.equals(ruleId))).write(
+          db.RecurrenceRulesCompanion(
+            validUntilLocalDate: Value(
+              _date(splitDate.subtract(const Duration(days: 1))),
+            ),
+            updatedAtUtc: Value(updatedAtUtc.microsecondsSinceEpoch),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Future<void> deleteFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime updatedAtUtc,
+  }) async {
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(anchorId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (anchor == null) return;
+    final ruleId = anchor.recurrenceRuleId;
+    if (ruleId == null) {
+      await deleteEvent(anchorId);
+      return;
+    }
+    final stored =
+        await (_database.select(_database.recurrenceRules)
+              ..where((row) => row.id.equals(ruleId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (stored == null) return;
+    final splitDate = _validatedSplitDate(stored, occurrenceStartUtc);
+    final originalFrom = DateTime.parse(stored.validFromLocalDate);
+    final exceptions = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+    final followingExceptionIds = <String>[
+      for (final row in exceptions)
+        if (!_dateOnly(
+          _zones.toLocal(_instant(row.startAtUtc), stored.timeZoneId),
+        ).isBefore(splitDate))
+          row.id,
+    ];
+
+    await _database.transaction(() async {
+      for (final id in followingExceptionIds) {
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.id.equals(id))).go();
+      }
+      if (splitDate == originalFrom) {
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.id.equals(anchorId))).go();
+        await (_database.delete(
+          _database.recurrenceRules,
+        )..where((row) => row.id.equals(ruleId))).go();
+      } else {
+        await (_database.update(
+          _database.recurrenceRules,
+        )..where((row) => row.id.equals(ruleId))).write(
+          db.RecurrenceRulesCompanion(
+            validUntilLocalDate: Value(
+              _date(splitDate.subtract(const Duration(days: 1))),
+            ),
+            updatedAtUtc: Value(updatedAtUtc.microsecondsSinceEpoch),
+          ),
+        );
+      }
+    });
   }
 
   /// 改写重复日程里的某一次（FR-CAL-02），见端口的文档说明。
@@ -218,10 +421,11 @@ final class DriftCalendarRepository
     if (!newEndUtc.isAfter(newStartUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
-    final anchor = await (_database.select(_database.calendarEvents)
-          ..where((row) => row.id.equals(anchorId))
-          ..limit(1))
-        .getSingleOrNull();
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(anchorId))
+              ..limit(1))
+            .getSingleOrNull();
     // 锚点已经不在了：与删除同样按幂等处理。
     if (anchor == null) return;
 
@@ -239,16 +443,25 @@ final class DriftCalendarRepository
           exceptionOfId: anchor.exceptionOfId,
           locked: anchor.locked,
           areaId: anchor.areaId,
+          projectId: anchor.projectId,
+          location: anchor.location,
+          notes: anchor.notes,
+          sourceKind: domain.CalendarEventSourceKind.fromStorage(
+            anchor.sourceKind,
+          ),
+          importBatchId: anchor.importBatchId,
+          logicalCourseId: anchor.logicalCourseId,
           updatedAtUtc: updatedAtUtc,
         ),
       );
       return;
     }
 
-    final rule = await (_database.select(_database.recurrenceRules)
-          ..where((row) => row.id.equals(ruleId))
-          ..limit(1))
-        .getSingleOrNull();
+    final rule =
+        await (_database.select(_database.recurrenceRules)
+              ..where((row) => row.id.equals(ruleId))
+              ..limit(1))
+            .getSingleOrNull();
     if (rule == null) return;
 
     // 同一天已有例外就**复用那一行的 id**：再写一条会让展开器按遍历顺序二选一，结果不确定。
@@ -276,6 +489,16 @@ final class DriftCalendarRepository
         // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
         timeZoneId: rule.timeZoneId,
         exceptionOfId: anchorId,
+        locked: anchor.locked,
+        areaId: anchor.areaId,
+        projectId: anchor.projectId,
+        location: anchor.location,
+        notes: anchor.notes,
+        sourceKind: domain.CalendarEventSourceKind.fromStorage(
+          anchor.sourceKind,
+        ),
+        importBatchId: anchor.importBatchId,
+        logicalCourseId: anchor.logicalCourseId,
         updatedAtUtc: updatedAtUtc,
       ),
     );
@@ -290,10 +513,11 @@ final class DriftCalendarRepository
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {
-    final anchor = await (_database.select(_database.calendarEvents)
-          ..where((row) => row.id.equals(anchorId))
-          ..limit(1))
-        .getSingleOrNull();
+    final anchor =
+        await (_database.select(_database.calendarEvents)
+              ..where((row) => row.id.equals(anchorId))
+              ..limit(1))
+            .getSingleOrNull();
     // 锚点已经不在了：这次删除的目的已经达到（幂等）。
     if (anchor == null) return;
 
@@ -306,10 +530,11 @@ final class DriftCalendarRepository
       return;
     }
 
-    final rule = await (_database.select(_database.recurrenceRules)
-          ..where((row) => row.id.equals(ruleId))
-          ..limit(1))
-        .getSingleOrNull();
+    final rule =
+        await (_database.select(_database.recurrenceRules)
+              ..where((row) => row.id.equals(ruleId))
+              ..limit(1))
+            .getSingleOrNull();
     // 规则行缺失（正常路径由 `saveRecurring` 的事务保证）：退化为删除锚点，而不是留下例外。
     if (rule == null) {
       await deleteEvent(anchorId);
@@ -374,16 +599,39 @@ final class DriftCalendarRepository
     if (event.recurrenceRuleId != rule.id) {
       throw ArgumentError('Event and recurrence rule ids must match.');
     }
+    return _database.transaction(() => _saveRecurringRows(event, rule));
+  }
+
+  Future<void> _saveRecurringRows(
+    domain.CalendarEvent event,
+    domain.RecurrenceRule rule,
+  ) async {
     final modifiedAt = event.updatedAtUtc.microsecondsSinceEpoch;
-    return _database.transaction(() async {
-      await _database
-          .into(_database.recurrenceRules)
-          .insert(
-            db.RecurrenceRulesCompanion(
-              id: Value(rule.id),
+    await _database
+        .into(_database.recurrenceRules)
+        .insert(
+          db.RecurrenceRulesCompanion(
+            id: Value(rule.id),
+            weekdaysMask: Value(_weekdaysMask(rule.weekdays)),
+            localStartMinute: Value(rule.localStartMinute),
+            durationMinutes: Value(rule.durationMinutes),
+            intervalWeeks: Value(rule.intervalWeeks),
+            validFromLocalDate: Value(_date(rule.validFromLocalDate)),
+            validUntilLocalDate: Value(
+              rule.validUntilLocalDate == null
+                  ? null
+                  : _date(rule.validUntilLocalDate!),
+            ),
+            timeZoneId: Value(rule.timeZoneId),
+            createdAtUtc: Value(modifiedAt),
+            updatedAtUtc: Value(modifiedAt),
+          ),
+          onConflict: DoUpdate(
+            (old) => db.RecurrenceRulesCompanion(
               weekdaysMask: Value(_weekdaysMask(rule.weekdays)),
               localStartMinute: Value(rule.localStartMinute),
               durationMinutes: Value(rule.durationMinutes),
+              intervalWeeks: Value(rule.intervalWeeks),
               validFromLocalDate: Value(_date(rule.validFromLocalDate)),
               validUntilLocalDate: Value(
                 rule.validUntilLocalDate == null
@@ -391,27 +639,47 @@ final class DriftCalendarRepository
                     : _date(rule.validUntilLocalDate!),
               ),
               timeZoneId: Value(rule.timeZoneId),
-              createdAtUtc: Value(modifiedAt),
               updatedAtUtc: Value(modifiedAt),
             ),
-            onConflict: DoUpdate(
-              (old) => db.RecurrenceRulesCompanion(
-                weekdaysMask: Value(_weekdaysMask(rule.weekdays)),
-                localStartMinute: Value(rule.localStartMinute),
-                durationMinutes: Value(rule.durationMinutes),
-                validFromLocalDate: Value(_date(rule.validFromLocalDate)),
-                validUntilLocalDate: Value(
-                  rule.validUntilLocalDate == null
-                      ? null
-                      : _date(rule.validUntilLocalDate!),
-                ),
-                timeZoneId: Value(rule.timeZoneId),
-                updatedAtUtc: Value(modifiedAt),
-              ),
-            ),
-          );
-      await save(event);
-    });
+          ),
+        );
+    await save(event);
+  }
+
+  DateTime _validatedSplitDate(
+    db.RecurrenceRule rule,
+    DateTime occurrenceStartUtc,
+  ) {
+    if (!occurrenceStartUtc.isUtc) {
+      throw ArgumentError.value(
+        occurrenceStartUtc,
+        'occurrenceStartUtc',
+        'Must be UTC.',
+      );
+    }
+    final splitDate = _dateOnly(
+      _zones.toLocal(occurrenceStartUtc, rule.timeZoneId),
+    );
+    final first = DateTime.parse(rule.validFromLocalDate);
+    final last = rule.validUntilLocalDate == null
+        ? null
+        : DateTime.parse(rule.validUntilLocalDate!);
+    final weekOffset =
+        _weekMonday(splitDate).difference(_weekMonday(first)).inDays ~/ 7;
+    final valid =
+        !splitDate.isBefore(first) &&
+        (last == null || !splitDate.isAfter(last)) &&
+        _weekdays(rule.weekdaysMask).contains(splitDate.weekday) &&
+        weekOffset >= 0 &&
+        weekOffset % rule.intervalWeeks == 0;
+    if (!valid) {
+      throw ArgumentError.value(
+        occurrenceStartUtc,
+        'occurrenceStartUtc',
+        'The selected instant is not an occurrence of this series.',
+      );
+    }
+    return splitDate;
   }
 
   @override
@@ -430,6 +698,12 @@ final class DriftCalendarRepository
             exceptionOfId: Value(event.exceptionOfId),
             locked: Value(event.locked),
             areaId: Value(event.areaId),
+            projectId: Value(event.projectId),
+            location: Value(event.location),
+            notes: Value(event.notes),
+            sourceKind: Value(event.sourceKind.storageValue),
+            importBatchId: Value(event.importBatchId),
+            logicalCourseId: Value(event.logicalCourseId),
             createdAtUtc: Value(modifiedAt),
             updatedAtUtc: Value(modifiedAt),
           ),
@@ -446,6 +720,12 @@ final class DriftCalendarRepository
               exceptionOfId: Value(event.exceptionOfId),
               locked: Value(event.locked),
               areaId: Value(event.areaId),
+              projectId: Value(event.projectId),
+              location: Value(event.location),
+              notes: Value(event.notes),
+              sourceKind: Value(event.sourceKind.storageValue),
+              importBatchId: Value(event.importBatchId),
+              logicalCourseId: Value(event.logicalCourseId),
               updatedAtUtc: Value(modifiedAt),
             ),
           ),
@@ -468,3 +748,11 @@ String _date(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-'
     '${value.month.toString().padLeft(2, '0')}-'
     '${value.day.toString().padLeft(2, '0')}';
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+DateTime _weekMonday(DateTime value) {
+  final date = _dateOnly(value);
+  return date.subtract(Duration(days: date.weekday - DateTime.monday));
+}

@@ -42,14 +42,20 @@ final class SettingsHubPage extends StatelessWidget {
             const SizedBox(height: 4),
             const Text('排程规则、学习偏好与数据安全都在这里。'),
             const SizedBox(height: 16),
-            for (final entry in entries)
-              Card(
-                child: ListTile(
-                  key: entry.key,
-                  title: Text(entry.title),
-                  subtitle: Text(entry.subtitle),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: entry.onOpen,
+            for (final (index, entry) in entries.indexed)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == entries.length - 1 ? 0 : 12,
+                ),
+                child: Card(
+                  child: ListTile(
+                    key: entry.key,
+                    minTileHeight: 64,
+                    title: Text(entry.title),
+                    subtitle: Text(entry.subtitle),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: entry.onOpen,
+                  ),
                 ),
               ),
           ],

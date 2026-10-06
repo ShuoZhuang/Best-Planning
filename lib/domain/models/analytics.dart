@@ -211,18 +211,14 @@ final class RestProtectionMetric {
   /// 放宽天数单独成句、为 0 时整句不出现：它是用户**自己**改变硬约束的记录，不说就少一层
   /// 解释；但每行都拖一句"其中 0 天"只会让这一行更难读。
   String get summaryLabel {
-    final relaxed = relaxedDays == 0
-        ? ''
-        : '，其中 $relaxedDays 天临时放宽过每日上限';
+    final relaxed = relaxedDays == 0 ? '' : '，其中 $relaxedDays 天临时放宽过每日上限';
     return '休息保护：睡眠与保护时段共 $protectedMinutes 分钟，'
         '其中被专注占用 $overlappedMinutes 分钟$relaxed';
   }
 
   /// 保护时段中**未被占用**的比例。没有保护时段时不可用（而不是 0）。
-  RatioMetric get preservedRate => RatioMetric(
-    numerator: preservedMinutes,
-    denominator: protectedMinutes,
-  );
+  RatioMetric get preservedRate =>
+      RatioMetric(numerator: preservedMinutes, denominator: protectedMinutes);
 }
 
 final class AnalyticsReport {

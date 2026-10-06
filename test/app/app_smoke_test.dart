@@ -74,6 +74,7 @@ void main() {
     final theme = Theme.of(context);
     expect(theme.brightness, Brightness.dark);
     expect(theme.colorScheme.primary, const Color(0xff2f86ff));
-    expect(theme.scaffoldBackgroundColor, const Color(0xff0c1522));
+    expect(theme.scaffoldBackgroundColor, Colors.transparent);
+    expect(find.byKey(const Key('app-material-restrained')), findsOneWidget);
   });
 }

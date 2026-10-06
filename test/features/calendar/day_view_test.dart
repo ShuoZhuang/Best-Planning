@@ -20,7 +20,10 @@ final class _Items implements ScheduleViewSource {
   final List<ScheduleViewItem> items;
 
   @override
-  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) async* {
+  Stream<List<ScheduleViewItem>> watch(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async* {
     final window = TimeRange(startUtc: startUtc, endUtc: endUtc);
     yield items.where((item) => item.range.overlaps(window)).toList();
   }
@@ -233,11 +236,10 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence:
-                (id, startUtc, newStart, newEnd, title) async {
-                  replaced.add((id, startUtc, newStart, newEnd));
-                  return true;
-                },
+            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
+              replaced.add((id, startUtc, newStart, newEnd));
+              return true;
+            },
           ),
         ),
       ),
@@ -249,10 +251,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法值交给下游。
-    await tester.enterText(
-      find.byKey(const Key('occurrence-start')),
-      '不是时间',
-    );
+    await tester.enterText(find.byKey(const Key('occurrence-start')), '不是时间');
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
     expect(find.textContaining('时间格式应为'), findsOneWidget);
@@ -350,6 +349,69 @@ void main() {
     expect(single, isEmpty);
   });
 
+  testWidgets('选择“本次及以后”只调用系列拆分入口', (tester) async {
+    final single = <String>[];
+    final following = <String>[];
+    final series = <String>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'anchor-1',
+                title: '数据结构课',
+                kind: ScheduleItemKind.fixed,
+                startHourUtc: 9,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
+              single.add(id);
+              return true;
+            },
+            onReplaceFollowing: (id, startUtc, newStart, newEnd) async {
+              following.add(id);
+              return true;
+            },
+            onReplaceSeries: (id, newStart, newEnd) async {
+              series.add(id);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-anchor-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('仅本次'), findsOneWidget);
+    expect(find.text('本次及以后'), findsOneWidget);
+    expect(find.text('整个系列'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('occurrence-scope-following')));
+    await tester.enterText(
+      find.byKey(const Key('occurrence-start')),
+      '2026-10-05 14:00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('occurrence-end')),
+      '2026-10-05 15:00',
+    );
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(following, ['anchor-1']);
+    expect(single, isEmpty);
+    expect(series, isEmpty);
+  });
+
   testWidgets('未注入系列编辑入口时不显示该勾选框', (tester) async {
     await pump(
       tester,
@@ -408,7 +470,8 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', 
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
           settingsRepository: settings,
           scheduleSource: _Items(const []),
         ),

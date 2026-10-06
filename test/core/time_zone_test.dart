@@ -30,7 +30,11 @@ void main() {
 
     final range = TimeRange(
       startUtc: lunchStart,
-      endUtc: zones.localDateTimeToUtc(DateTime(2026, 10, 5), 13 * 60, 'Asia/Shanghai'),
+      endUtc: zones.localDateTimeToUtc(
+        DateTime(2026, 10, 5),
+        13 * 60,
+        'Asia/Shanghai',
+      ),
     );
     expect(
       range,

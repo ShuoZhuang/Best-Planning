@@ -26,14 +26,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    Future<void> tapAndExpect(String label, DateTime start, DateTime end) async {
+    Future<void> tapAndExpect(
+      String label,
+      DateTime start,
+      DateTime end,
+    ) async {
       await tester.tap(find.text(label));
       await tester.pumpAndSettle();
-      expect(
-        query.filters.last.startUtc,
-        start,
-        reason: '「$label」的窗口起点不对',
-      );
+      expect(query.filters.last.startUtc, start, reason: '「$label」的窗口起点不对');
       expect(query.filters.last.endUtc, end, reason: '「$label」的窗口终点不对');
     }
 

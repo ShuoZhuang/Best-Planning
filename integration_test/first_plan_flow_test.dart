@@ -8,6 +8,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
@@ -18,6 +19,7 @@ import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
@@ -71,12 +73,25 @@ void main() {
     );
 
     // 快速录入：只提供标题与预计时长。
-    final taskService = TaskService(
-      repository: taskRepository,
+    final workspaceRepository = DriftWorkspaceRepository(database);
+    final workspaceService = WorkspaceService(
+      repository: workspaceRepository,
       clock: clock,
       idGenerator: UuidIdGenerator(),
     );
-    await taskService.quickAdd('完成课程论文', 180);
+    await workspaceService.ensureDefaultAreas();
+    final studyArea = (await workspaceService.listAreas()).firstWhere(
+      (area) => area.name == '学业',
+    );
+    final taskService = TaskService(
+      repository: taskRepository,
+      workspace: workspaceRepository,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+    );
+    await taskService.saveDraft(
+      TaskDraft(title: '完成课程论文', estimatedMinutes: 180, areaId: studyArea.id),
+    );
     final openTasks = await taskRepository.watchOpenTasks().first;
     expect(openTasks, hasLength(1));
     expect(openTasks.single.title, '完成课程论文');

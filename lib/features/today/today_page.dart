@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 final class TodayPage extends StatefulWidget {
@@ -40,6 +42,14 @@ final class _TodayPageState extends State<TodayPage> {
   void _retry() => setState(_subscribe);
 
   @override
+  void didUpdateWidget(covariant TodayPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.day != widget.day || oldWidget.source != widget.source) {
+      _subscribe();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final toLocal = widget.toLocal ?? (value) => value;
     String formatTime(DateTime value) => _time(toLocal(value));
@@ -61,7 +71,28 @@ final class _TodayPageState extends State<TodayPage> {
                   return const _LoadingState();
                 }
                 final items = [
-                  ...snapshot.data!,
+                  for (final item in snapshot.data!)
+                    if (item.range.startUtc.isBefore(
+                          widget.day.add(const Duration(days: 1)),
+                        ) &&
+                        item.range.endUtc.isAfter(widget.day))
+                      ScheduleViewItem(
+                        id: item.id,
+                        title: item.title,
+                        kind: item.kind,
+                        explanation: item.explanation,
+                        range: TimeRange(
+                          startUtc: item.range.startUtc.isBefore(widget.day)
+                              ? widget.day
+                              : item.range.startUtc,
+                          endUtc:
+                              item.range.endUtc.isAfter(
+                                widget.day.add(const Duration(days: 1)),
+                              )
+                              ? widget.day.add(const Duration(days: 1))
+                              : item.range.endUtc,
+                        ),
+                      ),
                 ]..sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
                 return LayoutBuilder(
                   builder: (context, constraints) {
@@ -184,32 +215,45 @@ final class _TimelinePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _Panel(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _PanelHeading(
-          title: '今日时间线',
-          subtitle: '固定安排、保护时间与可移动事项',
-          icon: Icons.view_timeline_outlined,
-        ),
-        const Divider(),
-        if (items.isEmpty)
-          const _EmptyTimeline()
-        else
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-            child: Column(
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  _TimelineItem(
-                    item: items[index],
-                    isLast: index == items.length - 1,
-                    formatTime: formatTime,
-                  ),
-              ],
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final timeline = items.isEmpty
+            ? const _EmptyTimeline()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                child: Column(
+                  children: [
+                    for (var index = 0; index < items.length; index++)
+                      _TimelineItem(
+                        item: items[index],
+                        isLast: index == items.length - 1,
+                        formatTime: formatTime,
+                      ),
+                  ],
+                ),
+              );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _PanelHeading(
+              title: '今日时间线',
+              subtitle: '固定安排、保护时间与可移动事项',
+              icon: Icons.view_timeline_outlined,
             ),
-          ),
-      ],
+            const Divider(),
+            if (constraints.hasBoundedHeight)
+              Expanded(
+                child: SingleChildScrollView(
+                  key: const Key('today-timeline-scroll'),
+                  child: timeline,
+                ),
+              )
+            else
+              timeline,
+          ],
+        );
+      },
     ),
   );
 }
@@ -637,14 +681,7 @@ final class _Panel extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: PlannerPalette.surface,
-      border: Border.all(color: PlannerPalette.outline),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) => PlannerGlassSurface(child: child);
 }
 
 final class _PanelHeading extends StatelessWidget {

@@ -75,7 +75,8 @@ void main() {
     var inDependencies = false;
     for (final line in lines) {
       if (RegExp(r'^\S').hasMatch(line)) {
-        inDependencies = line.startsWith('dependencies:') ||
+        inDependencies =
+            line.startsWith('dependencies:') ||
             line.startsWith('dev_dependencies:');
         continue;
       }
@@ -100,7 +101,8 @@ void main() {
     expect(
       offending,
       isEmpty,
-      reason: '出现网络／分析类依赖：$offending。本应用承诺不上传任何数据；'
+      reason:
+          '出现网络／分析类依赖：$offending。本应用承诺不上传任何数据；'
           '若确有需要（例如将来做云同步），必须先更新需求 §14.4 与手工清单 9.7，'
           '而不是悄悄加一个包。',
     );
@@ -142,7 +144,8 @@ void main() {
     expect(
       hits,
       isEmpty,
-      reason: 'lib/ 里出现网络调用：$hits。本应用不上传任何数据；'
+      reason:
+          'lib/ 里出现网络调用：$hits。本应用不上传任何数据；'
           '若这是有意的，请先更新需求 §14.4 与手工清单 9.7。',
     );
   });

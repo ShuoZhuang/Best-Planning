@@ -920,6 +920,18 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       'REFERENCES projects (id)',
     ),
   );
+  static const VerificationMeta _areaIdMeta = const VerificationMeta('areaId');
+  @override
+  late final GeneratedColumn<String> areaId = GeneratedColumn<String>(
+    'area_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES areas (id)',
+    ),
+  );
   static const VerificationMeta _titleMeta = const VerificationMeta('title');
   @override
   late final GeneratedColumn<String> title = GeneratedColumn<String>(
@@ -978,6 +990,17 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
   @override
   late final GeneratedColumn<int> dueAtUtc = GeneratedColumn<int>(
     'due_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _availableFromUtcMeta = const VerificationMeta(
+    'availableFromUtc',
+  );
+  @override
+  late final GeneratedColumn<int> availableFromUtc = GeneratedColumn<int>(
+    'available_from_utc',
     aliasedName,
     true,
     type: DriftSqlType.int,
@@ -1082,12 +1105,14 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
   List<GeneratedColumn> get $columns => [
     id,
     projectId,
+    areaId,
     title,
     notes,
     priority,
     estimatedMinutes,
     remainingMinutes,
     dueAtUtc,
+    availableFromUtc,
     energyLevel,
     splitMode,
     minChunkMinutes,
@@ -1119,6 +1144,12 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       context.handle(
         _projectIdMeta,
         projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
+      );
+    }
+    if (data.containsKey('area_id')) {
+      context.handle(
+        _areaIdMeta,
+        areaId.isAcceptableOrUnknown(data['area_id']!, _areaIdMeta),
       );
     }
     if (data.containsKey('title')) {
@@ -1169,6 +1200,15 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       context.handle(
         _dueAtUtcMeta,
         dueAtUtc.isAcceptableOrUnknown(data['due_at_utc']!, _dueAtUtcMeta),
+      );
+    }
+    if (data.containsKey('available_from_utc')) {
+      context.handle(
+        _availableFromUtcMeta,
+        availableFromUtc.isAcceptableOrUnknown(
+          data['available_from_utc']!,
+          _availableFromUtcMeta,
+        ),
       );
     }
     if (data.containsKey('energy_level')) {
@@ -1277,6 +1317,10 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
         DriftSqlType.string,
         data['${effectivePrefix}project_id'],
       ),
+      areaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}area_id'],
+      ),
       title: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}title'],
@@ -1300,6 +1344,10 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
       dueAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}due_at_utc'],
+      ),
+      availableFromUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}available_from_utc'],
       ),
       energyLevel: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -1349,12 +1397,14 @@ class $TasksTable extends Tasks with TableInfo<$TasksTable, Task> {
 class Task extends DataClass implements Insertable<Task> {
   final String id;
   final String? projectId;
+  final String? areaId;
   final String title;
   final String notes;
   final String priority;
   final int estimatedMinutes;
   final int remainingMinutes;
   final int? dueAtUtc;
+  final int? availableFromUtc;
   final String energyLevel;
   final String splitMode;
   final int minChunkMinutes;
@@ -1370,12 +1420,14 @@ class Task extends DataClass implements Insertable<Task> {
   const Task({
     required this.id,
     this.projectId,
+    this.areaId,
     required this.title,
     required this.notes,
     required this.priority,
     required this.estimatedMinutes,
     required this.remainingMinutes,
     this.dueAtUtc,
+    this.availableFromUtc,
     required this.energyLevel,
     required this.splitMode,
     required this.minChunkMinutes,
@@ -1393,6 +1445,9 @@ class Task extends DataClass implements Insertable<Task> {
     if (!nullToAbsent || projectId != null) {
       map['project_id'] = Variable<String>(projectId);
     }
+    if (!nullToAbsent || areaId != null) {
+      map['area_id'] = Variable<String>(areaId);
+    }
     map['title'] = Variable<String>(title);
     map['notes'] = Variable<String>(notes);
     map['priority'] = Variable<String>(priority);
@@ -1400,6 +1455,9 @@ class Task extends DataClass implements Insertable<Task> {
     map['remaining_minutes'] = Variable<int>(remainingMinutes);
     if (!nullToAbsent || dueAtUtc != null) {
       map['due_at_utc'] = Variable<int>(dueAtUtc);
+    }
+    if (!nullToAbsent || availableFromUtc != null) {
+      map['available_from_utc'] = Variable<int>(availableFromUtc);
     }
     map['energy_level'] = Variable<String>(energyLevel);
     map['split_mode'] = Variable<String>(splitMode);
@@ -1423,6 +1481,9 @@ class Task extends DataClass implements Insertable<Task> {
       projectId: projectId == null && nullToAbsent
           ? const Value.absent()
           : Value(projectId),
+      areaId: areaId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(areaId),
       title: Value(title),
       notes: Value(notes),
       priority: Value(priority),
@@ -1431,6 +1492,9 @@ class Task extends DataClass implements Insertable<Task> {
       dueAtUtc: dueAtUtc == null && nullToAbsent
           ? const Value.absent()
           : Value(dueAtUtc),
+      availableFromUtc: availableFromUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(availableFromUtc),
       energyLevel: Value(energyLevel),
       splitMode: Value(splitMode),
       minChunkMinutes: Value(minChunkMinutes),
@@ -1455,12 +1519,14 @@ class Task extends DataClass implements Insertable<Task> {
     return Task(
       id: serializer.fromJson<String>(json['id']),
       projectId: serializer.fromJson<String?>(json['projectId']),
+      areaId: serializer.fromJson<String?>(json['areaId']),
       title: serializer.fromJson<String>(json['title']),
       notes: serializer.fromJson<String>(json['notes']),
       priority: serializer.fromJson<String>(json['priority']),
       estimatedMinutes: serializer.fromJson<int>(json['estimatedMinutes']),
       remainingMinutes: serializer.fromJson<int>(json['remainingMinutes']),
       dueAtUtc: serializer.fromJson<int?>(json['dueAtUtc']),
+      availableFromUtc: serializer.fromJson<int?>(json['availableFromUtc']),
       energyLevel: serializer.fromJson<String>(json['energyLevel']),
       splitMode: serializer.fromJson<String>(json['splitMode']),
       minChunkMinutes: serializer.fromJson<int>(json['minChunkMinutes']),
@@ -1480,12 +1546,14 @@ class Task extends DataClass implements Insertable<Task> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'projectId': serializer.toJson<String?>(projectId),
+      'areaId': serializer.toJson<String?>(areaId),
       'title': serializer.toJson<String>(title),
       'notes': serializer.toJson<String>(notes),
       'priority': serializer.toJson<String>(priority),
       'estimatedMinutes': serializer.toJson<int>(estimatedMinutes),
       'remainingMinutes': serializer.toJson<int>(remainingMinutes),
       'dueAtUtc': serializer.toJson<int?>(dueAtUtc),
+      'availableFromUtc': serializer.toJson<int?>(availableFromUtc),
       'energyLevel': serializer.toJson<String>(energyLevel),
       'splitMode': serializer.toJson<String>(splitMode),
       'minChunkMinutes': serializer.toJson<int>(minChunkMinutes),
@@ -1501,12 +1569,14 @@ class Task extends DataClass implements Insertable<Task> {
   Task copyWith({
     String? id,
     Value<String?> projectId = const Value.absent(),
+    Value<String?> areaId = const Value.absent(),
     String? title,
     String? notes,
     String? priority,
     int? estimatedMinutes,
     int? remainingMinutes,
     Value<int?> dueAtUtc = const Value.absent(),
+    Value<int?> availableFromUtc = const Value.absent(),
     String? energyLevel,
     String? splitMode,
     int? minChunkMinutes,
@@ -1519,12 +1589,16 @@ class Task extends DataClass implements Insertable<Task> {
   }) => Task(
     id: id ?? this.id,
     projectId: projectId.present ? projectId.value : this.projectId,
+    areaId: areaId.present ? areaId.value : this.areaId,
     title: title ?? this.title,
     notes: notes ?? this.notes,
     priority: priority ?? this.priority,
     estimatedMinutes: estimatedMinutes ?? this.estimatedMinutes,
     remainingMinutes: remainingMinutes ?? this.remainingMinutes,
     dueAtUtc: dueAtUtc.present ? dueAtUtc.value : this.dueAtUtc,
+    availableFromUtc: availableFromUtc.present
+        ? availableFromUtc.value
+        : this.availableFromUtc,
     energyLevel: energyLevel ?? this.energyLevel,
     splitMode: splitMode ?? this.splitMode,
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
@@ -1543,6 +1617,7 @@ class Task extends DataClass implements Insertable<Task> {
     return Task(
       id: data.id.present ? data.id.value : this.id,
       projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      areaId: data.areaId.present ? data.areaId.value : this.areaId,
       title: data.title.present ? data.title.value : this.title,
       notes: data.notes.present ? data.notes.value : this.notes,
       priority: data.priority.present ? data.priority.value : this.priority,
@@ -1553,6 +1628,9 @@ class Task extends DataClass implements Insertable<Task> {
           ? data.remainingMinutes.value
           : this.remainingMinutes,
       dueAtUtc: data.dueAtUtc.present ? data.dueAtUtc.value : this.dueAtUtc,
+      availableFromUtc: data.availableFromUtc.present
+          ? data.availableFromUtc.value
+          : this.availableFromUtc,
       energyLevel: data.energyLevel.present
           ? data.energyLevel.value
           : this.energyLevel,
@@ -1584,12 +1662,14 @@ class Task extends DataClass implements Insertable<Task> {
     return (StringBuffer('Task(')
           ..write('id: $id, ')
           ..write('projectId: $projectId, ')
+          ..write('areaId: $areaId, ')
           ..write('title: $title, ')
           ..write('notes: $notes, ')
           ..write('priority: $priority, ')
           ..write('estimatedMinutes: $estimatedMinutes, ')
           ..write('remainingMinutes: $remainingMinutes, ')
           ..write('dueAtUtc: $dueAtUtc, ')
+          ..write('availableFromUtc: $availableFromUtc, ')
           ..write('energyLevel: $energyLevel, ')
           ..write('splitMode: $splitMode, ')
           ..write('minChunkMinutes: $minChunkMinutes, ')
@@ -1607,12 +1687,14 @@ class Task extends DataClass implements Insertable<Task> {
   int get hashCode => Object.hash(
     id,
     projectId,
+    areaId,
     title,
     notes,
     priority,
     estimatedMinutes,
     remainingMinutes,
     dueAtUtc,
+    availableFromUtc,
     energyLevel,
     splitMode,
     minChunkMinutes,
@@ -1629,12 +1711,14 @@ class Task extends DataClass implements Insertable<Task> {
       (other is Task &&
           other.id == this.id &&
           other.projectId == this.projectId &&
+          other.areaId == this.areaId &&
           other.title == this.title &&
           other.notes == this.notes &&
           other.priority == this.priority &&
           other.estimatedMinutes == this.estimatedMinutes &&
           other.remainingMinutes == this.remainingMinutes &&
           other.dueAtUtc == this.dueAtUtc &&
+          other.availableFromUtc == this.availableFromUtc &&
           other.energyLevel == this.energyLevel &&
           other.splitMode == this.splitMode &&
           other.minChunkMinutes == this.minChunkMinutes &&
@@ -1649,12 +1733,14 @@ class Task extends DataClass implements Insertable<Task> {
 class TasksCompanion extends UpdateCompanion<Task> {
   final Value<String> id;
   final Value<String?> projectId;
+  final Value<String?> areaId;
   final Value<String> title;
   final Value<String> notes;
   final Value<String> priority;
   final Value<int> estimatedMinutes;
   final Value<int> remainingMinutes;
   final Value<int?> dueAtUtc;
+  final Value<int?> availableFromUtc;
   final Value<String> energyLevel;
   final Value<String> splitMode;
   final Value<int> minChunkMinutes;
@@ -1668,12 +1754,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
   const TasksCompanion({
     this.id = const Value.absent(),
     this.projectId = const Value.absent(),
+    this.areaId = const Value.absent(),
     this.title = const Value.absent(),
     this.notes = const Value.absent(),
     this.priority = const Value.absent(),
     this.estimatedMinutes = const Value.absent(),
     this.remainingMinutes = const Value.absent(),
     this.dueAtUtc = const Value.absent(),
+    this.availableFromUtc = const Value.absent(),
     this.energyLevel = const Value.absent(),
     this.splitMode = const Value.absent(),
     this.minChunkMinutes = const Value.absent(),
@@ -1688,12 +1776,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
   TasksCompanion.insert({
     required String id,
     this.projectId = const Value.absent(),
+    this.areaId = const Value.absent(),
     required String title,
     this.notes = const Value.absent(),
     required String priority,
     required int estimatedMinutes,
     required int remainingMinutes,
     this.dueAtUtc = const Value.absent(),
+    this.availableFromUtc = const Value.absent(),
     required String energyLevel,
     required String splitMode,
     required int minChunkMinutes,
@@ -1719,12 +1809,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
   static Insertable<Task> custom({
     Expression<String>? id,
     Expression<String>? projectId,
+    Expression<String>? areaId,
     Expression<String>? title,
     Expression<String>? notes,
     Expression<String>? priority,
     Expression<int>? estimatedMinutes,
     Expression<int>? remainingMinutes,
     Expression<int>? dueAtUtc,
+    Expression<int>? availableFromUtc,
     Expression<String>? energyLevel,
     Expression<String>? splitMode,
     Expression<int>? minChunkMinutes,
@@ -1739,12 +1831,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (projectId != null) 'project_id': projectId,
+      if (areaId != null) 'area_id': areaId,
       if (title != null) 'title': title,
       if (notes != null) 'notes': notes,
       if (priority != null) 'priority': priority,
       if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
       if (remainingMinutes != null) 'remaining_minutes': remainingMinutes,
       if (dueAtUtc != null) 'due_at_utc': dueAtUtc,
+      if (availableFromUtc != null) 'available_from_utc': availableFromUtc,
       if (energyLevel != null) 'energy_level': energyLevel,
       if (splitMode != null) 'split_mode': splitMode,
       if (minChunkMinutes != null) 'min_chunk_minutes': minChunkMinutes,
@@ -1763,12 +1857,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
   TasksCompanion copyWith({
     Value<String>? id,
     Value<String?>? projectId,
+    Value<String?>? areaId,
     Value<String>? title,
     Value<String>? notes,
     Value<String>? priority,
     Value<int>? estimatedMinutes,
     Value<int>? remainingMinutes,
     Value<int?>? dueAtUtc,
+    Value<int?>? availableFromUtc,
     Value<String>? energyLevel,
     Value<String>? splitMode,
     Value<int>? minChunkMinutes,
@@ -1783,12 +1879,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
     return TasksCompanion(
       id: id ?? this.id,
       projectId: projectId ?? this.projectId,
+      areaId: areaId ?? this.areaId,
       title: title ?? this.title,
       notes: notes ?? this.notes,
       priority: priority ?? this.priority,
       estimatedMinutes: estimatedMinutes ?? this.estimatedMinutes,
       remainingMinutes: remainingMinutes ?? this.remainingMinutes,
       dueAtUtc: dueAtUtc ?? this.dueAtUtc,
+      availableFromUtc: availableFromUtc ?? this.availableFromUtc,
       energyLevel: energyLevel ?? this.energyLevel,
       splitMode: splitMode ?? this.splitMode,
       minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
@@ -1811,6 +1909,9 @@ class TasksCompanion extends UpdateCompanion<Task> {
     if (projectId.present) {
       map['project_id'] = Variable<String>(projectId.value);
     }
+    if (areaId.present) {
+      map['area_id'] = Variable<String>(areaId.value);
+    }
     if (title.present) {
       map['title'] = Variable<String>(title.value);
     }
@@ -1828,6 +1929,9 @@ class TasksCompanion extends UpdateCompanion<Task> {
     }
     if (dueAtUtc.present) {
       map['due_at_utc'] = Variable<int>(dueAtUtc.value);
+    }
+    if (availableFromUtc.present) {
+      map['available_from_utc'] = Variable<int>(availableFromUtc.value);
     }
     if (energyLevel.present) {
       map['energy_level'] = Variable<String>(energyLevel.value);
@@ -1867,12 +1971,14 @@ class TasksCompanion extends UpdateCompanion<Task> {
     return (StringBuffer('TasksCompanion(')
           ..write('id: $id, ')
           ..write('projectId: $projectId, ')
+          ..write('areaId: $areaId, ')
           ..write('title: $title, ')
           ..write('notes: $notes, ')
           ..write('priority: $priority, ')
           ..write('estimatedMinutes: $estimatedMinutes, ')
           ..write('remainingMinutes: $remainingMinutes, ')
           ..write('dueAtUtc: $dueAtUtc, ')
+          ..write('availableFromUtc: $availableFromUtc, ')
           ..write('energyLevel: $energyLevel, ')
           ..write('splitMode: $splitMode, ')
           ..write('minChunkMinutes: $minChunkMinutes, ')
@@ -2519,6 +2625,20 @@ class $RecurrenceRulesTable extends RecurrenceRules
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _intervalWeeksMeta = const VerificationMeta(
+    'intervalWeeks',
+  );
+  @override
+  late final GeneratedColumn<int> intervalWeeks = GeneratedColumn<int>(
+    'interval_weeks',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints:
+        'NOT NULL DEFAULT 1 CHECK (interval_weeks BETWEEN 1 AND 52)',
+    defaultValue: const CustomExpression('1'),
+  );
   static const VerificationMeta _validFromLocalDateMeta =
       const VerificationMeta('validFromLocalDate');
   @override
@@ -2582,6 +2702,7 @@ class $RecurrenceRulesTable extends RecurrenceRules
     weekdaysMask,
     localStartMinute,
     durationMinutes,
+    intervalWeeks,
     validFromLocalDate,
     validUntilLocalDate,
     timeZoneId,
@@ -2637,6 +2758,15 @@ class $RecurrenceRulesTable extends RecurrenceRules
       );
     } else if (isInserting) {
       context.missing(_durationMinutesMeta);
+    }
+    if (data.containsKey('interval_weeks')) {
+      context.handle(
+        _intervalWeeksMeta,
+        intervalWeeks.isAcceptableOrUnknown(
+          data['interval_weeks']!,
+          _intervalWeeksMeta,
+        ),
+      );
     }
     if (data.containsKey('valid_from_local_date')) {
       context.handle(
@@ -2712,6 +2842,10 @@ class $RecurrenceRulesTable extends RecurrenceRules
         DriftSqlType.int,
         data['${effectivePrefix}duration_minutes'],
       )!,
+      intervalWeeks: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}interval_weeks'],
+      )!,
       validFromLocalDate: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}valid_from_local_date'],
@@ -2746,6 +2880,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
   final int weekdaysMask;
   final int localStartMinute;
   final int durationMinutes;
+  final int intervalWeeks;
   final String validFromLocalDate;
   final String? validUntilLocalDate;
   final String timeZoneId;
@@ -2756,6 +2891,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     required this.weekdaysMask,
     required this.localStartMinute,
     required this.durationMinutes,
+    required this.intervalWeeks,
     required this.validFromLocalDate,
     this.validUntilLocalDate,
     required this.timeZoneId,
@@ -2769,6 +2905,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     map['weekdays_mask'] = Variable<int>(weekdaysMask);
     map['local_start_minute'] = Variable<int>(localStartMinute);
     map['duration_minutes'] = Variable<int>(durationMinutes);
+    map['interval_weeks'] = Variable<int>(intervalWeeks);
     map['valid_from_local_date'] = Variable<String>(validFromLocalDate);
     if (!nullToAbsent || validUntilLocalDate != null) {
       map['valid_until_local_date'] = Variable<String>(validUntilLocalDate);
@@ -2785,6 +2922,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       weekdaysMask: Value(weekdaysMask),
       localStartMinute: Value(localStartMinute),
       durationMinutes: Value(durationMinutes),
+      intervalWeeks: Value(intervalWeeks),
       validFromLocalDate: Value(validFromLocalDate),
       validUntilLocalDate: validUntilLocalDate == null && nullToAbsent
           ? const Value.absent()
@@ -2805,6 +2943,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       weekdaysMask: serializer.fromJson<int>(json['weekdaysMask']),
       localStartMinute: serializer.fromJson<int>(json['localStartMinute']),
       durationMinutes: serializer.fromJson<int>(json['durationMinutes']),
+      intervalWeeks: serializer.fromJson<int>(json['intervalWeeks']),
       validFromLocalDate: serializer.fromJson<String>(
         json['validFromLocalDate'],
       ),
@@ -2824,6 +2963,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       'weekdaysMask': serializer.toJson<int>(weekdaysMask),
       'localStartMinute': serializer.toJson<int>(localStartMinute),
       'durationMinutes': serializer.toJson<int>(durationMinutes),
+      'intervalWeeks': serializer.toJson<int>(intervalWeeks),
       'validFromLocalDate': serializer.toJson<String>(validFromLocalDate),
       'validUntilLocalDate': serializer.toJson<String?>(validUntilLocalDate),
       'timeZoneId': serializer.toJson<String>(timeZoneId),
@@ -2837,6 +2977,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     int? weekdaysMask,
     int? localStartMinute,
     int? durationMinutes,
+    int? intervalWeeks,
     String? validFromLocalDate,
     Value<String?> validUntilLocalDate = const Value.absent(),
     String? timeZoneId,
@@ -2847,6 +2988,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     weekdaysMask: weekdaysMask ?? this.weekdaysMask,
     localStartMinute: localStartMinute ?? this.localStartMinute,
     durationMinutes: durationMinutes ?? this.durationMinutes,
+    intervalWeeks: intervalWeeks ?? this.intervalWeeks,
     validFromLocalDate: validFromLocalDate ?? this.validFromLocalDate,
     validUntilLocalDate: validUntilLocalDate.present
         ? validUntilLocalDate.value
@@ -2867,6 +3009,9 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
       durationMinutes: data.durationMinutes.present
           ? data.durationMinutes.value
           : this.durationMinutes,
+      intervalWeeks: data.intervalWeeks.present
+          ? data.intervalWeeks.value
+          : this.intervalWeeks,
       validFromLocalDate: data.validFromLocalDate.present
           ? data.validFromLocalDate.value
           : this.validFromLocalDate,
@@ -2892,6 +3037,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
           ..write('weekdaysMask: $weekdaysMask, ')
           ..write('localStartMinute: $localStartMinute, ')
           ..write('durationMinutes: $durationMinutes, ')
+          ..write('intervalWeeks: $intervalWeeks, ')
           ..write('validFromLocalDate: $validFromLocalDate, ')
           ..write('validUntilLocalDate: $validUntilLocalDate, ')
           ..write('timeZoneId: $timeZoneId, ')
@@ -2907,6 +3053,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
     weekdaysMask,
     localStartMinute,
     durationMinutes,
+    intervalWeeks,
     validFromLocalDate,
     validUntilLocalDate,
     timeZoneId,
@@ -2921,6 +3068,7 @@ class RecurrenceRule extends DataClass implements Insertable<RecurrenceRule> {
           other.weekdaysMask == this.weekdaysMask &&
           other.localStartMinute == this.localStartMinute &&
           other.durationMinutes == this.durationMinutes &&
+          other.intervalWeeks == this.intervalWeeks &&
           other.validFromLocalDate == this.validFromLocalDate &&
           other.validUntilLocalDate == this.validUntilLocalDate &&
           other.timeZoneId == this.timeZoneId &&
@@ -2933,6 +3081,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
   final Value<int> weekdaysMask;
   final Value<int> localStartMinute;
   final Value<int> durationMinutes;
+  final Value<int> intervalWeeks;
   final Value<String> validFromLocalDate;
   final Value<String?> validUntilLocalDate;
   final Value<String> timeZoneId;
@@ -2944,6 +3093,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     this.weekdaysMask = const Value.absent(),
     this.localStartMinute = const Value.absent(),
     this.durationMinutes = const Value.absent(),
+    this.intervalWeeks = const Value.absent(),
     this.validFromLocalDate = const Value.absent(),
     this.validUntilLocalDate = const Value.absent(),
     this.timeZoneId = const Value.absent(),
@@ -2956,6 +3106,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     required int weekdaysMask,
     required int localStartMinute,
     required int durationMinutes,
+    this.intervalWeeks = const Value.absent(),
     required String validFromLocalDate,
     this.validUntilLocalDate = const Value.absent(),
     required String timeZoneId,
@@ -2973,6 +3124,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     Expression<int>? weekdaysMask,
     Expression<int>? localStartMinute,
     Expression<int>? durationMinutes,
+    Expression<int>? intervalWeeks,
     Expression<String>? validFromLocalDate,
     Expression<String>? validUntilLocalDate,
     Expression<String>? timeZoneId,
@@ -2985,6 +3137,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
       if (weekdaysMask != null) 'weekdays_mask': weekdaysMask,
       if (localStartMinute != null) 'local_start_minute': localStartMinute,
       if (durationMinutes != null) 'duration_minutes': durationMinutes,
+      if (intervalWeeks != null) 'interval_weeks': intervalWeeks,
       if (validFromLocalDate != null)
         'valid_from_local_date': validFromLocalDate,
       if (validUntilLocalDate != null)
@@ -3001,6 +3154,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     Value<int>? weekdaysMask,
     Value<int>? localStartMinute,
     Value<int>? durationMinutes,
+    Value<int>? intervalWeeks,
     Value<String>? validFromLocalDate,
     Value<String?>? validUntilLocalDate,
     Value<String>? timeZoneId,
@@ -3013,6 +3167,7 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
       weekdaysMask: weekdaysMask ?? this.weekdaysMask,
       localStartMinute: localStartMinute ?? this.localStartMinute,
       durationMinutes: durationMinutes ?? this.durationMinutes,
+      intervalWeeks: intervalWeeks ?? this.intervalWeeks,
       validFromLocalDate: validFromLocalDate ?? this.validFromLocalDate,
       validUntilLocalDate: validUntilLocalDate ?? this.validUntilLocalDate,
       timeZoneId: timeZoneId ?? this.timeZoneId,
@@ -3036,6 +3191,9 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
     }
     if (durationMinutes.present) {
       map['duration_minutes'] = Variable<int>(durationMinutes.value);
+    }
+    if (intervalWeeks.present) {
+      map['interval_weeks'] = Variable<int>(intervalWeeks.value);
     }
     if (validFromLocalDate.present) {
       map['valid_from_local_date'] = Variable<String>(validFromLocalDate.value);
@@ -3067,9 +3225,1046 @@ class RecurrenceRulesCompanion extends UpdateCompanion<RecurrenceRule> {
           ..write('weekdaysMask: $weekdaysMask, ')
           ..write('localStartMinute: $localStartMinute, ')
           ..write('durationMinutes: $durationMinutes, ')
+          ..write('intervalWeeks: $intervalWeeks, ')
           ..write('validFromLocalDate: $validFromLocalDate, ')
           ..write('validUntilLocalDate: $validUntilLocalDate, ')
           ..write('timeZoneId: $timeZoneId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $AcademicTermsTable extends AcademicTerms
+    with TableInfo<$AcademicTermsTable, AcademicTerm> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AcademicTermsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _firstWeekMondayLocalDateMeta =
+      const VerificationMeta('firstWeekMondayLocalDate');
+  @override
+  late final GeneratedColumn<String> firstWeekMondayLocalDate =
+      GeneratedColumn<String>(
+        'first_week_monday_local_date',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _totalWeeksMeta = const VerificationMeta(
+    'totalWeeks',
+  );
+  @override
+  late final GeneratedColumn<int> totalWeeks = GeneratedColumn<int>(
+    'total_weeks',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL CHECK (total_weeks BETWEEN 1 AND 60)',
+  );
+  static const VerificationMeta _timeZoneIdMeta = const VerificationMeta(
+    'timeZoneId',
+  );
+  @override
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    firstWeekMondayLocalDate,
+    totalWeeks,
+    timeZoneId,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'academic_terms';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AcademicTerm> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('first_week_monday_local_date')) {
+      context.handle(
+        _firstWeekMondayLocalDateMeta,
+        firstWeekMondayLocalDate.isAcceptableOrUnknown(
+          data['first_week_monday_local_date']!,
+          _firstWeekMondayLocalDateMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_firstWeekMondayLocalDateMeta);
+    }
+    if (data.containsKey('total_weeks')) {
+      context.handle(
+        _totalWeeksMeta,
+        totalWeeks.isAcceptableOrUnknown(data['total_weeks']!, _totalWeeksMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_totalWeeksMeta);
+    }
+    if (data.containsKey('time_zone_id')) {
+      context.handle(
+        _timeZoneIdMeta,
+        timeZoneId.isAcceptableOrUnknown(
+          data['time_zone_id']!,
+          _timeZoneIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_timeZoneIdMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AcademicTerm map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AcademicTerm(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      firstWeekMondayLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}first_week_monday_local_date'],
+      )!,
+      totalWeeks: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}total_weeks'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $AcademicTermsTable createAlias(String alias) {
+    return $AcademicTermsTable(attachedDatabase, alias);
+  }
+}
+
+class AcademicTerm extends DataClass implements Insertable<AcademicTerm> {
+  final String id;
+  final String name;
+  final String firstWeekMondayLocalDate;
+  final int totalWeeks;
+  final String timeZoneId;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const AcademicTerm({
+    required this.id,
+    required this.name,
+    required this.firstWeekMondayLocalDate,
+    required this.totalWeeks,
+    required this.timeZoneId,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['first_week_monday_local_date'] = Variable<String>(
+      firstWeekMondayLocalDate,
+    );
+    map['total_weeks'] = Variable<int>(totalWeeks);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  AcademicTermsCompanion toCompanion(bool nullToAbsent) {
+    return AcademicTermsCompanion(
+      id: Value(id),
+      name: Value(name),
+      firstWeekMondayLocalDate: Value(firstWeekMondayLocalDate),
+      totalWeeks: Value(totalWeeks),
+      timeZoneId: Value(timeZoneId),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory AcademicTerm.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AcademicTerm(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      firstWeekMondayLocalDate: serializer.fromJson<String>(
+        json['firstWeekMondayLocalDate'],
+      ),
+      totalWeeks: serializer.fromJson<int>(json['totalWeeks']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'firstWeekMondayLocalDate': serializer.toJson<String>(
+        firstWeekMondayLocalDate,
+      ),
+      'totalWeeks': serializer.toJson<int>(totalWeeks),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  AcademicTerm copyWith({
+    String? id,
+    String? name,
+    String? firstWeekMondayLocalDate,
+    int? totalWeeks,
+    String? timeZoneId,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => AcademicTerm(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    firstWeekMondayLocalDate:
+        firstWeekMondayLocalDate ?? this.firstWeekMondayLocalDate,
+    totalWeeks: totalWeeks ?? this.totalWeeks,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  AcademicTerm copyWithCompanion(AcademicTermsCompanion data) {
+    return AcademicTerm(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      firstWeekMondayLocalDate: data.firstWeekMondayLocalDate.present
+          ? data.firstWeekMondayLocalDate.value
+          : this.firstWeekMondayLocalDate,
+      totalWeeks: data.totalWeeks.present
+          ? data.totalWeeks.value
+          : this.totalWeeks,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AcademicTerm(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('firstWeekMondayLocalDate: $firstWeekMondayLocalDate, ')
+          ..write('totalWeeks: $totalWeeks, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    firstWeekMondayLocalDate,
+    totalWeeks,
+    timeZoneId,
+    createdAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AcademicTerm &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.firstWeekMondayLocalDate == this.firstWeekMondayLocalDate &&
+          other.totalWeeks == this.totalWeeks &&
+          other.timeZoneId == this.timeZoneId &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class AcademicTermsCompanion extends UpdateCompanion<AcademicTerm> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> firstWeekMondayLocalDate;
+  final Value<int> totalWeeks;
+  final Value<String> timeZoneId;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const AcademicTermsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.firstWeekMondayLocalDate = const Value.absent(),
+    this.totalWeeks = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AcademicTermsCompanion.insert({
+    required String id,
+    required String name,
+    required String firstWeekMondayLocalDate,
+    required int totalWeeks,
+    required String timeZoneId,
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       firstWeekMondayLocalDate = Value(firstWeekMondayLocalDate),
+       totalWeeks = Value(totalWeeks),
+       timeZoneId = Value(timeZoneId),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<AcademicTerm> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? firstWeekMondayLocalDate,
+    Expression<int>? totalWeeks,
+    Expression<String>? timeZoneId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (firstWeekMondayLocalDate != null)
+        'first_week_monday_local_date': firstWeekMondayLocalDate,
+      if (totalWeeks != null) 'total_weeks': totalWeeks,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AcademicTermsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? firstWeekMondayLocalDate,
+    Value<int>? totalWeeks,
+    Value<String>? timeZoneId,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return AcademicTermsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      firstWeekMondayLocalDate:
+          firstWeekMondayLocalDate ?? this.firstWeekMondayLocalDate,
+      totalWeeks: totalWeeks ?? this.totalWeeks,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (firstWeekMondayLocalDate.present) {
+      map['first_week_monday_local_date'] = Variable<String>(
+        firstWeekMondayLocalDate.value,
+      );
+    }
+    if (totalWeeks.present) {
+      map['total_weeks'] = Variable<int>(totalWeeks.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AcademicTermsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('firstWeekMondayLocalDate: $firstWeekMondayLocalDate, ')
+          ..write('totalWeeks: $totalWeeks, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TimetableImportBatchesTable extends TimetableImportBatches
+    with TableInfo<$TimetableImportBatchesTable, TimetableImportBatche> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimetableImportBatchesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _termIdMeta = const VerificationMeta('termId');
+  @override
+  late final GeneratedColumn<String> termId = GeneratedColumn<String>(
+    'term_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES academic_terms (id)',
+    ),
+  );
+  static const VerificationMeta _sourceImageHashMeta = const VerificationMeta(
+    'sourceImageHash',
+  );
+  @override
+  late final GeneratedColumn<String> sourceImageHash = GeneratedColumn<String>(
+    'source_image_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceFileNameMeta = const VerificationMeta(
+    'sourceFileName',
+  );
+  @override
+  late final GeneratedColumn<String> sourceFileName = GeneratedColumn<String>(
+    'source_file_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdEventCountMeta = const VerificationMeta(
+    'createdEventCount',
+  );
+  @override
+  late final GeneratedColumn<int> createdEventCount = GeneratedColumn<int>(
+    'created_event_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    termId,
+    sourceImageHash,
+    sourceFileName,
+    status,
+    createdEventCount,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'timetable_import_batches';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TimetableImportBatche> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('term_id')) {
+      context.handle(
+        _termIdMeta,
+        termId.isAcceptableOrUnknown(data['term_id']!, _termIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_termIdMeta);
+    }
+    if (data.containsKey('source_image_hash')) {
+      context.handle(
+        _sourceImageHashMeta,
+        sourceImageHash.isAcceptableOrUnknown(
+          data['source_image_hash']!,
+          _sourceImageHashMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceImageHashMeta);
+    }
+    if (data.containsKey('source_file_name')) {
+      context.handle(
+        _sourceFileNameMeta,
+        sourceFileName.isAcceptableOrUnknown(
+          data['source_file_name']!,
+          _sourceFileNameMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceFileNameMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('created_event_count')) {
+      context.handle(
+        _createdEventCountMeta,
+        createdEventCount.isAcceptableOrUnknown(
+          data['created_event_count']!,
+          _createdEventCountMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdEventCountMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TimetableImportBatche map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TimetableImportBatche(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      termId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}term_id'],
+      )!,
+      sourceImageHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_image_hash'],
+      )!,
+      sourceFileName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_file_name'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdEventCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_event_count'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $TimetableImportBatchesTable createAlias(String alias) {
+    return $TimetableImportBatchesTable(attachedDatabase, alias);
+  }
+}
+
+class TimetableImportBatche extends DataClass
+    implements Insertable<TimetableImportBatche> {
+  final String id;
+  final String termId;
+  final String sourceImageHash;
+  final String sourceFileName;
+  final String status;
+  final int createdEventCount;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const TimetableImportBatche({
+    required this.id,
+    required this.termId,
+    required this.sourceImageHash,
+    required this.sourceFileName,
+    required this.status,
+    required this.createdEventCount,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['term_id'] = Variable<String>(termId);
+    map['source_image_hash'] = Variable<String>(sourceImageHash);
+    map['source_file_name'] = Variable<String>(sourceFileName);
+    map['status'] = Variable<String>(status);
+    map['created_event_count'] = Variable<int>(createdEventCount);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  TimetableImportBatchesCompanion toCompanion(bool nullToAbsent) {
+    return TimetableImportBatchesCompanion(
+      id: Value(id),
+      termId: Value(termId),
+      sourceImageHash: Value(sourceImageHash),
+      sourceFileName: Value(sourceFileName),
+      status: Value(status),
+      createdEventCount: Value(createdEventCount),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory TimetableImportBatche.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TimetableImportBatche(
+      id: serializer.fromJson<String>(json['id']),
+      termId: serializer.fromJson<String>(json['termId']),
+      sourceImageHash: serializer.fromJson<String>(json['sourceImageHash']),
+      sourceFileName: serializer.fromJson<String>(json['sourceFileName']),
+      status: serializer.fromJson<String>(json['status']),
+      createdEventCount: serializer.fromJson<int>(json['createdEventCount']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'termId': serializer.toJson<String>(termId),
+      'sourceImageHash': serializer.toJson<String>(sourceImageHash),
+      'sourceFileName': serializer.toJson<String>(sourceFileName),
+      'status': serializer.toJson<String>(status),
+      'createdEventCount': serializer.toJson<int>(createdEventCount),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  TimetableImportBatche copyWith({
+    String? id,
+    String? termId,
+    String? sourceImageHash,
+    String? sourceFileName,
+    String? status,
+    int? createdEventCount,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => TimetableImportBatche(
+    id: id ?? this.id,
+    termId: termId ?? this.termId,
+    sourceImageHash: sourceImageHash ?? this.sourceImageHash,
+    sourceFileName: sourceFileName ?? this.sourceFileName,
+    status: status ?? this.status,
+    createdEventCount: createdEventCount ?? this.createdEventCount,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  TimetableImportBatche copyWithCompanion(
+    TimetableImportBatchesCompanion data,
+  ) {
+    return TimetableImportBatche(
+      id: data.id.present ? data.id.value : this.id,
+      termId: data.termId.present ? data.termId.value : this.termId,
+      sourceImageHash: data.sourceImageHash.present
+          ? data.sourceImageHash.value
+          : this.sourceImageHash,
+      sourceFileName: data.sourceFileName.present
+          ? data.sourceFileName.value
+          : this.sourceFileName,
+      status: data.status.present ? data.status.value : this.status,
+      createdEventCount: data.createdEventCount.present
+          ? data.createdEventCount.value
+          : this.createdEventCount,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimetableImportBatche(')
+          ..write('id: $id, ')
+          ..write('termId: $termId, ')
+          ..write('sourceImageHash: $sourceImageHash, ')
+          ..write('sourceFileName: $sourceFileName, ')
+          ..write('status: $status, ')
+          ..write('createdEventCount: $createdEventCount, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    termId,
+    sourceImageHash,
+    sourceFileName,
+    status,
+    createdEventCount,
+    createdAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TimetableImportBatche &&
+          other.id == this.id &&
+          other.termId == this.termId &&
+          other.sourceImageHash == this.sourceImageHash &&
+          other.sourceFileName == this.sourceFileName &&
+          other.status == this.status &&
+          other.createdEventCount == this.createdEventCount &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class TimetableImportBatchesCompanion
+    extends UpdateCompanion<TimetableImportBatche> {
+  final Value<String> id;
+  final Value<String> termId;
+  final Value<String> sourceImageHash;
+  final Value<String> sourceFileName;
+  final Value<String> status;
+  final Value<int> createdEventCount;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const TimetableImportBatchesCompanion({
+    this.id = const Value.absent(),
+    this.termId = const Value.absent(),
+    this.sourceImageHash = const Value.absent(),
+    this.sourceFileName = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdEventCount = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TimetableImportBatchesCompanion.insert({
+    required String id,
+    required String termId,
+    required String sourceImageHash,
+    required String sourceFileName,
+    required String status,
+    required int createdEventCount,
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       termId = Value(termId),
+       sourceImageHash = Value(sourceImageHash),
+       sourceFileName = Value(sourceFileName),
+       status = Value(status),
+       createdEventCount = Value(createdEventCount),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<TimetableImportBatche> custom({
+    Expression<String>? id,
+    Expression<String>? termId,
+    Expression<String>? sourceImageHash,
+    Expression<String>? sourceFileName,
+    Expression<String>? status,
+    Expression<int>? createdEventCount,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (termId != null) 'term_id': termId,
+      if (sourceImageHash != null) 'source_image_hash': sourceImageHash,
+      if (sourceFileName != null) 'source_file_name': sourceFileName,
+      if (status != null) 'status': status,
+      if (createdEventCount != null) 'created_event_count': createdEventCount,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TimetableImportBatchesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? termId,
+    Value<String>? sourceImageHash,
+    Value<String>? sourceFileName,
+    Value<String>? status,
+    Value<int>? createdEventCount,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return TimetableImportBatchesCompanion(
+      id: id ?? this.id,
+      termId: termId ?? this.termId,
+      sourceImageHash: sourceImageHash ?? this.sourceImageHash,
+      sourceFileName: sourceFileName ?? this.sourceFileName,
+      status: status ?? this.status,
+      createdEventCount: createdEventCount ?? this.createdEventCount,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (termId.present) {
+      map['term_id'] = Variable<String>(termId.value);
+    }
+    if (sourceImageHash.present) {
+      map['source_image_hash'] = Variable<String>(sourceImageHash.value);
+    }
+    if (sourceFileName.present) {
+      map['source_file_name'] = Variable<String>(sourceFileName.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdEventCount.present) {
+      map['created_event_count'] = Variable<int>(createdEventCount.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimetableImportBatchesCompanion(')
+          ..write('id: $id, ')
+          ..write('termId: $termId, ')
+          ..write('sourceImageHash: $sourceImageHash, ')
+          ..write('sourceFileName: $sourceFileName, ')
+          ..write('status: $status, ')
+          ..write('createdEventCount: $createdEventCount, ')
           ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
           ..write('rowid: $rowid')
@@ -3188,6 +4383,79 @@ class $CalendarEventsTable extends CalendarEvents
       'REFERENCES areas (id)',
     ),
   );
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
+  );
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES projects (id)',
+    ),
+  );
+  static const VerificationMeta _locationMeta = const VerificationMeta(
+    'location',
+  );
+  @override
+  late final GeneratedColumn<String> location = GeneratedColumn<String>(
+    'location',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _sourceKindMeta = const VerificationMeta(
+    'sourceKind',
+  );
+  @override
+  late final GeneratedColumn<String> sourceKind = GeneratedColumn<String>(
+    'source_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('manual'),
+  );
+  static const VerificationMeta _importBatchIdMeta = const VerificationMeta(
+    'importBatchId',
+  );
+  @override
+  late final GeneratedColumn<String> importBatchId = GeneratedColumn<String>(
+    'import_batch_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES timetable_import_batches (id)',
+    ),
+  );
+  static const VerificationMeta _logicalCourseIdMeta = const VerificationMeta(
+    'logicalCourseId',
+  );
+  @override
+  late final GeneratedColumn<String> logicalCourseId = GeneratedColumn<String>(
+    'logical_course_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
     'createdAtUtc',
   );
@@ -3222,6 +4490,12 @@ class $CalendarEventsTable extends CalendarEvents
     exceptionOfId,
     locked,
     areaId,
+    projectId,
+    location,
+    notes,
+    sourceKind,
+    importBatchId,
+    logicalCourseId,
     createdAtUtc,
     updatedAtUtc,
   ];
@@ -3310,6 +4584,48 @@ class $CalendarEventsTable extends CalendarEvents
         areaId.isAcceptableOrUnknown(data['area_id']!, _areaIdMeta),
       );
     }
+    if (data.containsKey('project_id')) {
+      context.handle(
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
+      );
+    }
+    if (data.containsKey('location')) {
+      context.handle(
+        _locationMeta,
+        location.isAcceptableOrUnknown(data['location']!, _locationMeta),
+      );
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('source_kind')) {
+      context.handle(
+        _sourceKindMeta,
+        sourceKind.isAcceptableOrUnknown(data['source_kind']!, _sourceKindMeta),
+      );
+    }
+    if (data.containsKey('import_batch_id')) {
+      context.handle(
+        _importBatchIdMeta,
+        importBatchId.isAcceptableOrUnknown(
+          data['import_batch_id']!,
+          _importBatchIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('logical_course_id')) {
+      context.handle(
+        _logicalCourseIdMeta,
+        logicalCourseId.isAcceptableOrUnknown(
+          data['logical_course_id']!,
+          _logicalCourseIdMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at_utc')) {
       context.handle(
         _createdAtUtcMeta,
@@ -3375,6 +4691,30 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.string,
         data['${effectivePrefix}area_id'],
       ),
+      projectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}project_id'],
+      ),
+      location: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}location'],
+      )!,
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      )!,
+      sourceKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_kind'],
+      )!,
+      importBatchId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_batch_id'],
+      ),
+      logicalCourseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}logical_course_id'],
+      ),
       createdAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}created_at_utc'],
@@ -3402,6 +4742,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
   final String? exceptionOfId;
   final bool locked;
   final String? areaId;
+  final String? projectId;
+  final String location;
+  final String notes;
+  final String sourceKind;
+  final String? importBatchId;
+  final String? logicalCourseId;
   final int createdAtUtc;
   final int updatedAtUtc;
   const CalendarEvent({
@@ -3414,6 +4760,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     this.exceptionOfId,
     required this.locked,
     this.areaId,
+    this.projectId,
+    required this.location,
+    required this.notes,
+    required this.sourceKind,
+    this.importBatchId,
+    this.logicalCourseId,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -3434,6 +4786,18 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     map['locked'] = Variable<bool>(locked);
     if (!nullToAbsent || areaId != null) {
       map['area_id'] = Variable<String>(areaId);
+    }
+    if (!nullToAbsent || projectId != null) {
+      map['project_id'] = Variable<String>(projectId);
+    }
+    map['location'] = Variable<String>(location);
+    map['notes'] = Variable<String>(notes);
+    map['source_kind'] = Variable<String>(sourceKind);
+    if (!nullToAbsent || importBatchId != null) {
+      map['import_batch_id'] = Variable<String>(importBatchId);
+    }
+    if (!nullToAbsent || logicalCourseId != null) {
+      map['logical_course_id'] = Variable<String>(logicalCourseId);
     }
     map['created_at_utc'] = Variable<int>(createdAtUtc);
     map['updated_at_utc'] = Variable<int>(updatedAtUtc);
@@ -3457,6 +4821,18 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       areaId: areaId == null && nullToAbsent
           ? const Value.absent()
           : Value(areaId),
+      projectId: projectId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(projectId),
+      location: Value(location),
+      notes: Value(notes),
+      sourceKind: Value(sourceKind),
+      importBatchId: importBatchId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importBatchId),
+      logicalCourseId: logicalCourseId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(logicalCourseId),
       createdAtUtc: Value(createdAtUtc),
       updatedAtUtc: Value(updatedAtUtc),
     );
@@ -3477,6 +4853,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       exceptionOfId: serializer.fromJson<String?>(json['exceptionOfId']),
       locked: serializer.fromJson<bool>(json['locked']),
       areaId: serializer.fromJson<String?>(json['areaId']),
+      projectId: serializer.fromJson<String?>(json['projectId']),
+      location: serializer.fromJson<String>(json['location']),
+      notes: serializer.fromJson<String>(json['notes']),
+      sourceKind: serializer.fromJson<String>(json['sourceKind']),
+      importBatchId: serializer.fromJson<String?>(json['importBatchId']),
+      logicalCourseId: serializer.fromJson<String?>(json['logicalCourseId']),
       createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
       updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
     );
@@ -3494,6 +4876,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       'exceptionOfId': serializer.toJson<String?>(exceptionOfId),
       'locked': serializer.toJson<bool>(locked),
       'areaId': serializer.toJson<String?>(areaId),
+      'projectId': serializer.toJson<String?>(projectId),
+      'location': serializer.toJson<String>(location),
+      'notes': serializer.toJson<String>(notes),
+      'sourceKind': serializer.toJson<String>(sourceKind),
+      'importBatchId': serializer.toJson<String?>(importBatchId),
+      'logicalCourseId': serializer.toJson<String?>(logicalCourseId),
       'createdAtUtc': serializer.toJson<int>(createdAtUtc),
       'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
     };
@@ -3509,6 +4897,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     Value<String?> exceptionOfId = const Value.absent(),
     bool? locked,
     Value<String?> areaId = const Value.absent(),
+    Value<String?> projectId = const Value.absent(),
+    String? location,
+    String? notes,
+    String? sourceKind,
+    Value<String?> importBatchId = const Value.absent(),
+    Value<String?> logicalCourseId = const Value.absent(),
     int? createdAtUtc,
     int? updatedAtUtc,
   }) => CalendarEvent(
@@ -3525,6 +4919,16 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
         : this.exceptionOfId,
     locked: locked ?? this.locked,
     areaId: areaId.present ? areaId.value : this.areaId,
+    projectId: projectId.present ? projectId.value : this.projectId,
+    location: location ?? this.location,
+    notes: notes ?? this.notes,
+    sourceKind: sourceKind ?? this.sourceKind,
+    importBatchId: importBatchId.present
+        ? importBatchId.value
+        : this.importBatchId,
+    logicalCourseId: logicalCourseId.present
+        ? logicalCourseId.value
+        : this.logicalCourseId,
     createdAtUtc: createdAtUtc ?? this.createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
   );
@@ -3547,6 +4951,18 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           : this.exceptionOfId,
       locked: data.locked.present ? data.locked.value : this.locked,
       areaId: data.areaId.present ? data.areaId.value : this.areaId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      location: data.location.present ? data.location.value : this.location,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      sourceKind: data.sourceKind.present
+          ? data.sourceKind.value
+          : this.sourceKind,
+      importBatchId: data.importBatchId.present
+          ? data.importBatchId.value
+          : this.importBatchId,
+      logicalCourseId: data.logicalCourseId.present
+          ? data.logicalCourseId.value
+          : this.logicalCourseId,
       createdAtUtc: data.createdAtUtc.present
           ? data.createdAtUtc.value
           : this.createdAtUtc,
@@ -3568,6 +4984,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           ..write('exceptionOfId: $exceptionOfId, ')
           ..write('locked: $locked, ')
           ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('location: $location, ')
+          ..write('notes: $notes, ')
+          ..write('sourceKind: $sourceKind, ')
+          ..write('importBatchId: $importBatchId, ')
+          ..write('logicalCourseId: $logicalCourseId, ')
           ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc')
           ..write(')'))
@@ -3585,6 +5007,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     exceptionOfId,
     locked,
     areaId,
+    projectId,
+    location,
+    notes,
+    sourceKind,
+    importBatchId,
+    logicalCourseId,
     createdAtUtc,
     updatedAtUtc,
   );
@@ -3601,6 +5029,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           other.exceptionOfId == this.exceptionOfId &&
           other.locked == this.locked &&
           other.areaId == this.areaId &&
+          other.projectId == this.projectId &&
+          other.location == this.location &&
+          other.notes == this.notes &&
+          other.sourceKind == this.sourceKind &&
+          other.importBatchId == this.importBatchId &&
+          other.logicalCourseId == this.logicalCourseId &&
           other.createdAtUtc == this.createdAtUtc &&
           other.updatedAtUtc == this.updatedAtUtc);
 }
@@ -3615,6 +5049,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
   final Value<String?> exceptionOfId;
   final Value<bool> locked;
   final Value<String?> areaId;
+  final Value<String?> projectId;
+  final Value<String> location;
+  final Value<String> notes;
+  final Value<String> sourceKind;
+  final Value<String?> importBatchId;
+  final Value<String?> logicalCourseId;
   final Value<int> createdAtUtc;
   final Value<int> updatedAtUtc;
   final Value<int> rowid;
@@ -3628,6 +5068,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.exceptionOfId = const Value.absent(),
     this.locked = const Value.absent(),
     this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.location = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.sourceKind = const Value.absent(),
+    this.importBatchId = const Value.absent(),
+    this.logicalCourseId = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
     this.updatedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -3642,6 +5088,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.exceptionOfId = const Value.absent(),
     this.locked = const Value.absent(),
     this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.location = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.sourceKind = const Value.absent(),
+    this.importBatchId = const Value.absent(),
+    this.logicalCourseId = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
     required int updatedAtUtc,
     this.rowid = const Value.absent(),
@@ -3661,6 +5113,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Expression<String>? exceptionOfId,
     Expression<bool>? locked,
     Expression<String>? areaId,
+    Expression<String>? projectId,
+    Expression<String>? location,
+    Expression<String>? notes,
+    Expression<String>? sourceKind,
+    Expression<String>? importBatchId,
+    Expression<String>? logicalCourseId,
     Expression<int>? createdAtUtc,
     Expression<int>? updatedAtUtc,
     Expression<int>? rowid,
@@ -3675,6 +5133,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       if (exceptionOfId != null) 'exception_of_id': exceptionOfId,
       if (locked != null) 'locked': locked,
       if (areaId != null) 'area_id': areaId,
+      if (projectId != null) 'project_id': projectId,
+      if (location != null) 'location': location,
+      if (notes != null) 'notes': notes,
+      if (sourceKind != null) 'source_kind': sourceKind,
+      if (importBatchId != null) 'import_batch_id': importBatchId,
+      if (logicalCourseId != null) 'logical_course_id': logicalCourseId,
       if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
       if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
       if (rowid != null) 'rowid': rowid,
@@ -3691,6 +5155,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Value<String?>? exceptionOfId,
     Value<bool>? locked,
     Value<String?>? areaId,
+    Value<String?>? projectId,
+    Value<String>? location,
+    Value<String>? notes,
+    Value<String>? sourceKind,
+    Value<String?>? importBatchId,
+    Value<String?>? logicalCourseId,
     Value<int>? createdAtUtc,
     Value<int>? updatedAtUtc,
     Value<int>? rowid,
@@ -3705,6 +5175,12 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       exceptionOfId: exceptionOfId ?? this.exceptionOfId,
       locked: locked ?? this.locked,
       areaId: areaId ?? this.areaId,
+      projectId: projectId ?? this.projectId,
+      location: location ?? this.location,
+      notes: notes ?? this.notes,
+      sourceKind: sourceKind ?? this.sourceKind,
+      importBatchId: importBatchId ?? this.importBatchId,
+      logicalCourseId: logicalCourseId ?? this.logicalCourseId,
       createdAtUtc: createdAtUtc ?? this.createdAtUtc,
       updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
       rowid: rowid ?? this.rowid,
@@ -3741,6 +5217,24 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     if (areaId.present) {
       map['area_id'] = Variable<String>(areaId.value);
     }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (location.present) {
+      map['location'] = Variable<String>(location.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (sourceKind.present) {
+      map['source_kind'] = Variable<String>(sourceKind.value);
+    }
+    if (importBatchId.present) {
+      map['import_batch_id'] = Variable<String>(importBatchId.value);
+    }
+    if (logicalCourseId.present) {
+      map['logical_course_id'] = Variable<String>(logicalCourseId.value);
+    }
     if (createdAtUtc.present) {
       map['created_at_utc'] = Variable<int>(createdAtUtc.value);
     }
@@ -3765,8 +5259,724 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
           ..write('exceptionOfId: $exceptionOfId, ')
           ..write('locked: $locked, ')
           ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('location: $location, ')
+          ..write('notes: $notes, ')
+          ..write('sourceKind: $sourceKind, ')
+          ..write('importBatchId: $importBatchId, ')
+          ..write('logicalCourseId: $logicalCourseId, ')
           ..write('createdAtUtc: $createdAtUtc, ')
           ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PeriodTemplatesTable extends PeriodTemplates
+    with TableInfo<$PeriodTemplatesTable, PeriodTemplate> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PeriodTemplatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    isDefault,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'period_templates';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PeriodTemplate> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PeriodTemplate map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PeriodTemplate(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $PeriodTemplatesTable createAlias(String alias) {
+    return $PeriodTemplatesTable(attachedDatabase, alias);
+  }
+}
+
+class PeriodTemplate extends DataClass implements Insertable<PeriodTemplate> {
+  final String id;
+  final String name;
+  final bool isDefault;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const PeriodTemplate({
+    required this.id,
+    required this.name,
+    required this.isDefault,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['is_default'] = Variable<bool>(isDefault);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  PeriodTemplatesCompanion toCompanion(bool nullToAbsent) {
+    return PeriodTemplatesCompanion(
+      id: Value(id),
+      name: Value(name),
+      isDefault: Value(isDefault),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory PeriodTemplate.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PeriodTemplate(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  PeriodTemplate copyWith({
+    String? id,
+    String? name,
+    bool? isDefault,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => PeriodTemplate(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    isDefault: isDefault ?? this.isDefault,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  PeriodTemplate copyWithCompanion(PeriodTemplatesCompanion data) {
+    return PeriodTemplate(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeriodTemplate(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, isDefault, createdAtUtc, updatedAtUtc);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PeriodTemplate &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.isDefault == this.isDefault &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class PeriodTemplatesCompanion extends UpdateCompanion<PeriodTemplate> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<bool> isDefault;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const PeriodTemplatesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PeriodTemplatesCompanion.insert({
+    required String id,
+    required String name,
+    this.isDefault = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<PeriodTemplate> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<bool>? isDefault,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (isDefault != null) 'is_default': isDefault,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PeriodTemplatesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<bool>? isDefault,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PeriodTemplatesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      isDefault: isDefault ?? this.isDefault,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeriodTemplatesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PeriodTemplateEntriesTable extends PeriodTemplateEntries
+    with TableInfo<$PeriodTemplateEntriesTable, PeriodTemplateEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PeriodTemplateEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _templateIdMeta = const VerificationMeta(
+    'templateId',
+  );
+  @override
+  late final GeneratedColumn<String> templateId = GeneratedColumn<String>(
+    'template_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES period_templates (id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _periodNumberMeta = const VerificationMeta(
+    'periodNumber',
+  );
+  @override
+  late final GeneratedColumn<int> periodNumber = GeneratedColumn<int>(
+    'period_number',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startMinuteMeta = const VerificationMeta(
+    'startMinute',
+  );
+  @override
+  late final GeneratedColumn<int> startMinute = GeneratedColumn<int>(
+    'start_minute',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _endMinuteMeta = const VerificationMeta(
+    'endMinute',
+  );
+  @override
+  late final GeneratedColumn<int> endMinute = GeneratedColumn<int>(
+    'end_minute',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    templateId,
+    periodNumber,
+    startMinute,
+    endMinute,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'period_template_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PeriodTemplateEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('template_id')) {
+      context.handle(
+        _templateIdMeta,
+        templateId.isAcceptableOrUnknown(data['template_id']!, _templateIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_templateIdMeta);
+    }
+    if (data.containsKey('period_number')) {
+      context.handle(
+        _periodNumberMeta,
+        periodNumber.isAcceptableOrUnknown(
+          data['period_number']!,
+          _periodNumberMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_periodNumberMeta);
+    }
+    if (data.containsKey('start_minute')) {
+      context.handle(
+        _startMinuteMeta,
+        startMinute.isAcceptableOrUnknown(
+          data['start_minute']!,
+          _startMinuteMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_startMinuteMeta);
+    }
+    if (data.containsKey('end_minute')) {
+      context.handle(
+        _endMinuteMeta,
+        endMinute.isAcceptableOrUnknown(data['end_minute']!, _endMinuteMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_endMinuteMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {templateId, periodNumber};
+  @override
+  PeriodTemplateEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PeriodTemplateEntry(
+      templateId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}template_id'],
+      )!,
+      periodNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}period_number'],
+      )!,
+      startMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_minute'],
+      )!,
+      endMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_minute'],
+      )!,
+    );
+  }
+
+  @override
+  $PeriodTemplateEntriesTable createAlias(String alias) {
+    return $PeriodTemplateEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class PeriodTemplateEntry extends DataClass
+    implements Insertable<PeriodTemplateEntry> {
+  final String templateId;
+  final int periodNumber;
+  final int startMinute;
+  final int endMinute;
+  const PeriodTemplateEntry({
+    required this.templateId,
+    required this.periodNumber,
+    required this.startMinute,
+    required this.endMinute,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['template_id'] = Variable<String>(templateId);
+    map['period_number'] = Variable<int>(periodNumber);
+    map['start_minute'] = Variable<int>(startMinute);
+    map['end_minute'] = Variable<int>(endMinute);
+    return map;
+  }
+
+  PeriodTemplateEntriesCompanion toCompanion(bool nullToAbsent) {
+    return PeriodTemplateEntriesCompanion(
+      templateId: Value(templateId),
+      periodNumber: Value(periodNumber),
+      startMinute: Value(startMinute),
+      endMinute: Value(endMinute),
+    );
+  }
+
+  factory PeriodTemplateEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PeriodTemplateEntry(
+      templateId: serializer.fromJson<String>(json['templateId']),
+      periodNumber: serializer.fromJson<int>(json['periodNumber']),
+      startMinute: serializer.fromJson<int>(json['startMinute']),
+      endMinute: serializer.fromJson<int>(json['endMinute']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'templateId': serializer.toJson<String>(templateId),
+      'periodNumber': serializer.toJson<int>(periodNumber),
+      'startMinute': serializer.toJson<int>(startMinute),
+      'endMinute': serializer.toJson<int>(endMinute),
+    };
+  }
+
+  PeriodTemplateEntry copyWith({
+    String? templateId,
+    int? periodNumber,
+    int? startMinute,
+    int? endMinute,
+  }) => PeriodTemplateEntry(
+    templateId: templateId ?? this.templateId,
+    periodNumber: periodNumber ?? this.periodNumber,
+    startMinute: startMinute ?? this.startMinute,
+    endMinute: endMinute ?? this.endMinute,
+  );
+  PeriodTemplateEntry copyWithCompanion(PeriodTemplateEntriesCompanion data) {
+    return PeriodTemplateEntry(
+      templateId: data.templateId.present
+          ? data.templateId.value
+          : this.templateId,
+      periodNumber: data.periodNumber.present
+          ? data.periodNumber.value
+          : this.periodNumber,
+      startMinute: data.startMinute.present
+          ? data.startMinute.value
+          : this.startMinute,
+      endMinute: data.endMinute.present ? data.endMinute.value : this.endMinute,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeriodTemplateEntry(')
+          ..write('templateId: $templateId, ')
+          ..write('periodNumber: $periodNumber, ')
+          ..write('startMinute: $startMinute, ')
+          ..write('endMinute: $endMinute')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(templateId, periodNumber, startMinute, endMinute);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PeriodTemplateEntry &&
+          other.templateId == this.templateId &&
+          other.periodNumber == this.periodNumber &&
+          other.startMinute == this.startMinute &&
+          other.endMinute == this.endMinute);
+}
+
+class PeriodTemplateEntriesCompanion
+    extends UpdateCompanion<PeriodTemplateEntry> {
+  final Value<String> templateId;
+  final Value<int> periodNumber;
+  final Value<int> startMinute;
+  final Value<int> endMinute;
+  final Value<int> rowid;
+  const PeriodTemplateEntriesCompanion({
+    this.templateId = const Value.absent(),
+    this.periodNumber = const Value.absent(),
+    this.startMinute = const Value.absent(),
+    this.endMinute = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PeriodTemplateEntriesCompanion.insert({
+    required String templateId,
+    required int periodNumber,
+    required int startMinute,
+    required int endMinute,
+    this.rowid = const Value.absent(),
+  }) : templateId = Value(templateId),
+       periodNumber = Value(periodNumber),
+       startMinute = Value(startMinute),
+       endMinute = Value(endMinute);
+  static Insertable<PeriodTemplateEntry> custom({
+    Expression<String>? templateId,
+    Expression<int>? periodNumber,
+    Expression<int>? startMinute,
+    Expression<int>? endMinute,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (templateId != null) 'template_id': templateId,
+      if (periodNumber != null) 'period_number': periodNumber,
+      if (startMinute != null) 'start_minute': startMinute,
+      if (endMinute != null) 'end_minute': endMinute,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PeriodTemplateEntriesCompanion copyWith({
+    Value<String>? templateId,
+    Value<int>? periodNumber,
+    Value<int>? startMinute,
+    Value<int>? endMinute,
+    Value<int>? rowid,
+  }) {
+    return PeriodTemplateEntriesCompanion(
+      templateId: templateId ?? this.templateId,
+      periodNumber: periodNumber ?? this.periodNumber,
+      startMinute: startMinute ?? this.startMinute,
+      endMinute: endMinute ?? this.endMinute,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (templateId.present) {
+      map['template_id'] = Variable<String>(templateId.value);
+    }
+    if (periodNumber.present) {
+      map['period_number'] = Variable<int>(periodNumber.value);
+    }
+    if (startMinute.present) {
+      map['start_minute'] = Variable<int>(startMinute.value);
+    }
+    if (endMinute.present) {
+      map['end_minute'] = Variable<int>(endMinute.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PeriodTemplateEntriesCompanion(')
+          ..write('templateId: $templateId, ')
+          ..write('periodNumber: $periodNumber, ')
+          ..write('startMinute: $startMinute, ')
+          ..write('endMinute: $endMinute, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -8033,7 +10243,15 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $RecurrenceRulesTable recurrenceRules = $RecurrenceRulesTable(
     this,
   );
+  late final $AcademicTermsTable academicTerms = $AcademicTermsTable(this);
+  late final $TimetableImportBatchesTable timetableImportBatches =
+      $TimetableImportBatchesTable(this);
   late final $CalendarEventsTable calendarEvents = $CalendarEventsTable(this);
+  late final $PeriodTemplatesTable periodTemplates = $PeriodTemplatesTable(
+    this,
+  );
+  late final $PeriodTemplateEntriesTable periodTemplateEntries =
+      $PeriodTemplateEntriesTable(this);
   late final $EnergyWindowsTable energyWindows = $EnergyWindowsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
   late final $PlanVersionsTable planVersions = $PlanVersionsTable(this);
@@ -8060,7 +10278,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     tags,
     taskTags,
     recurrenceRules,
+    academicTerms,
+    timetableImportBatches,
     calendarEvents,
+    periodTemplates,
+    periodTemplateEntries,
     energyWindows,
     settings,
     planVersions,
@@ -8071,6 +10293,16 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     preferenceRules,
     changeLog,
   ];
+  @override
+  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'period_templates',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('period_template_entries', kind: UpdateKind.delete)],
+    ),
+  ]);
 }
 
 typedef $$AreasTableCreateCompanionBuilder = AreasCompanion Function({
@@ -8112,6 +10344,25 @@ final class $$AreasTableReferences
     ).filter((f) => f.areaId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_projectsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$TasksTable, List<Task>> _tasksRefsTable(
+    _$AppDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.tasks,
+    aliasName: 'areas__id__tasks__area_id',
+  );
+
+  $$TasksTableProcessedTableManager get tasksRefs {
+    final manager = $$TasksTableTableManager(
+      $_db,
+      $_db.tasks,
+    ).filter((f) => f.areaId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_tasksRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -8195,6 +10446,31 @@ class $$AreasTableFilterComposer extends Composer<_$AppDatabase, $AreasTable> {
           }) => $$ProjectsTableFilterComposer(
             $db: $db,
             $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> tasksRefs(
+    Expression<bool> Function($$TasksTableFilterComposer f) f,
+  ) {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.areaId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableFilterComposer(
+            $db: $db,
+            $table: $db.tasks,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -8334,6 +10610,31 @@ class $$AreasTableAnnotationComposer
     return f(composer);
   }
 
+  Expression<T> tasksRefs<T extends Object>(
+    Expression<T> Function($$TasksTableAnnotationComposer a) f,
+  ) {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.areaId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
   Expression<T> calendarEventsRefs<T extends Object>(
     Expression<T> Function($$CalendarEventsTableAnnotationComposer a) f,
   ) {
@@ -8373,7 +10674,11 @@ class $$AreasTableTableManager
           $$AreasTableUpdateCompanionBuilder,
           (Area, $$AreasTableReferences),
           Area,
-          PrefetchHooks Function({bool projectsRefs, bool calendarEventsRefs})
+          PrefetchHooks Function({
+            bool projectsRefs,
+            bool tasksRefs,
+            bool calendarEventsRefs,
+          })
         > {
   $$AreasTableTableManager(_$AppDatabase db, $AreasTable table)
     : super(
@@ -8435,11 +10740,16 @@ class $$AreasTableTableManager
               )
               .toList(),
           prefetchHooksCallback:
-              ({projectsRefs = false, calendarEventsRefs = false}) {
+              ({
+                projectsRefs = false,
+                tasksRefs = false,
+                calendarEventsRefs = false,
+              }) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
                     if (projectsRefs) db.projects,
+                    if (tasksRefs) db.tasks,
                     if (calendarEventsRefs) db.calendarEvents,
                   ],
                   addJoins: null,
@@ -8456,6 +10766,19 @@ class $$AreasTableTableManager
                                 table,
                                 p0,
                               ).projectsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.areaId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (tasksRefs)
+                        await $_getPrefetchedData<Area, $AreasTable, Task>(
+                          currentTable: table,
+                          referencedTable: $$AreasTableReferences
+                              ._tasksRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$AreasTableReferences(db, table, p0).tasksRefs,
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.areaId == item.id,
@@ -8503,7 +10826,11 @@ typedef $$AreasTableProcessedTableManager =
       $$AreasTableUpdateCompanionBuilder,
       (Area, $$AreasTableReferences),
       Area,
-      PrefetchHooks Function({bool projectsRefs, bool calendarEventsRefs})
+      PrefetchHooks Function({
+        bool projectsRefs,
+        bool tasksRefs,
+        bool calendarEventsRefs,
+      })
     >;
 typedef $$ProjectsTableCreateCompanionBuilder = ProjectsCompanion Function({
   required String id,
@@ -8559,6 +10886,24 @@ final class $$ProjectsTableReferences
     ).filter((f) => f.projectId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_tasksRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$CalendarEventsTable, List<CalendarEvent>>
+  _calendarEventsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.calendarEvents,
+    aliasName: 'projects__id__calendar_events__project_id',
+  );
+
+  $$CalendarEventsTableProcessedTableManager get calendarEventsRefs {
+    final manager = $$CalendarEventsTableTableManager(
+      $_db,
+      $_db.calendarEvents,
+    ).filter((f) => f.projectId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_calendarEventsRefsTable($_db));
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -8638,6 +10983,31 @@ class $$ProjectsTableFilterComposer
           }) => $$TasksTableFilterComposer(
             $db: $db,
             $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> calendarEventsRefs(
+    Expression<bool> Function($$CalendarEventsTableFilterComposer f) f,
+  ) {
+    final $$CalendarEventsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.calendarEvents,
+      getReferencedColumn: (t) => t.projectId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CalendarEventsTableFilterComposer(
+            $db: $db,
+            $table: $db.calendarEvents,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -8783,6 +11153,31 @@ class $$ProjectsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> calendarEventsRefs<T extends Object>(
+    Expression<T> Function($$CalendarEventsTableAnnotationComposer a) f,
+  ) {
+    final $$CalendarEventsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.calendarEvents,
+      getReferencedColumn: (t) => t.projectId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CalendarEventsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.calendarEvents,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$ProjectsTableTableManager
@@ -8798,7 +11193,11 @@ class $$ProjectsTableTableManager
           $$ProjectsTableUpdateCompanionBuilder,
           (Project, $$ProjectsTableReferences),
           Project,
-          PrefetchHooks Function({bool areaId, bool tasksRefs})
+          PrefetchHooks Function({
+            bool areaId,
+            bool tasksRefs,
+            bool calendarEventsRefs,
+          })
         > {
   $$ProjectsTableTableManager(_$AppDatabase db, $ProjectsTable table)
     : super(
@@ -8855,58 +11254,96 @@ class $$ProjectsTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({areaId = false, tasksRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [if (tasksRefs) db.tasks],
-              addJoins:
-                  <
-                    T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic
-                    >
-                  >(state) {
-                    if (areaId) {
-                      state = state.withJoin(
-                        currentTable: table,
-                        currentColumn: table.areaId,
-                        referencedTable: $$ProjectsTableReferences._areaIdTable(
-                          db,
-                        ),
-                        referencedColumn: $$ProjectsTableReferences
-                            ._areaIdTable(db)
-                            .id,
-                      ) as T;
-                    }
+          prefetchHooksCallback:
+              ({
+                areaId = false,
+                tasksRefs = false,
+                calendarEventsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (tasksRefs) db.tasks,
+                    if (calendarEventsRefs) db.calendarEvents,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (areaId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.areaId,
+                            referencedTable: $$ProjectsTableReferences
+                                ._areaIdTable(db),
+                            referencedColumn: $$ProjectsTableReferences
+                                ._areaIdTable(db)
+                                .id,
+                          ) as T;
+                        }
 
-                    return state;
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (tasksRefs)
+                        await $_getPrefetchedData<
+                          Project,
+                          $ProjectsTable,
+                          Task
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProjectsTableReferences
+                              ._tasksRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProjectsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).tasksRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.projectId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (calendarEventsRefs)
+                        await $_getPrefetchedData<
+                          Project,
+                          $ProjectsTable,
+                          CalendarEvent
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProjectsTableReferences
+                              ._calendarEventsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProjectsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).calendarEventsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.projectId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
                   },
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (tasksRefs)
-                    await $_getPrefetchedData<Project, $ProjectsTable, Task>(
-                      currentTable: table,
-                      referencedTable: $$ProjectsTableReferences
-                          ._tasksRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$ProjectsTableReferences(db, table, p0).tasksRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where((e) => e.projectId == item.id),
-                      typedResults: items,
-                    ),
-                ];
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -8923,17 +11360,23 @@ typedef $$ProjectsTableProcessedTableManager =
       $$ProjectsTableUpdateCompanionBuilder,
       (Project, $$ProjectsTableReferences),
       Project,
-      PrefetchHooks Function({bool areaId, bool tasksRefs})
+      PrefetchHooks Function({
+        bool areaId,
+        bool tasksRefs,
+        bool calendarEventsRefs,
+      })
     >;
 typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
   required String id,
   Value<String?> projectId,
+  Value<String?> areaId,
   required String title,
   Value<String> notes,
   required String priority,
   required int estimatedMinutes,
   required int remainingMinutes,
   Value<int?> dueAtUtc,
+  Value<int?> availableFromUtc,
   required String energyLevel,
   required String splitMode,
   required int minChunkMinutes,
@@ -8948,12 +11391,14 @@ typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
 typedef $$TasksTableUpdateCompanionBuilder = TasksCompanion Function({
   Value<String> id,
   Value<String?> projectId,
+  Value<String?> areaId,
   Value<String> title,
   Value<String> notes,
   Value<String> priority,
   Value<int> estimatedMinutes,
   Value<int> remainingMinutes,
   Value<int?> dueAtUtc,
+  Value<int?> availableFromUtc,
   Value<String> energyLevel,
   Value<String> splitMode,
   Value<int> minChunkMinutes,
@@ -8981,6 +11426,23 @@ final class $$TasksTableReferences
       $_db.projects,
     ).filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_projectIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $AreasTable _areaIdTable(_$AppDatabase db) =>
+      db.areas.createAlias('tasks__area_id__areas__id');
+
+  $$AreasTableProcessedTableManager? get areaId {
+    final $_column = $_itemColumn<String>('area_id');
+    if ($_column == null) return null;
+    final manager = $$AreasTableTableManager(
+      $_db,
+      $_db.areas,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_areaIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
@@ -9106,6 +11568,11 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get availableFromUtc => $composableBuilder(
+    column: $table.availableFromUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get energyLevel => $composableBuilder(
     column: $table.energyLevel,
     builder: (column) => ColumnFilters(column),
@@ -9165,6 +11632,29 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
           }) => $$ProjectsTableFilterComposer(
             $db: $db,
             $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$AreasTableFilterComposer get areaId {
+    final $$AreasTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableFilterComposer(
+            $db: $db,
+            $table: $db.areas,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9319,6 +11809,11 @@ class $$TasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get availableFromUtc => $composableBuilder(
+    column: $table.availableFromUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get energyLevel => $composableBuilder(
     column: $table.energyLevel,
     builder: (column) => ColumnOrderings(column),
@@ -9386,6 +11881,29 @@ class $$TasksTableOrderingComposer
     );
     return composer;
   }
+
+  $$AreasTableOrderingComposer get areaId {
+    final $$AreasTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableOrderingComposer(
+            $db: $db,
+            $table: $db.areas,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$TasksTableAnnotationComposer
@@ -9421,6 +11939,11 @@ class $$TasksTableAnnotationComposer
 
   GeneratedColumn<int> get dueAtUtc =>
       $composableBuilder(column: $table.dueAtUtc, builder: (column) => column);
+
+  GeneratedColumn<int> get availableFromUtc => $composableBuilder(
+    column: $table.availableFromUtc,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get energyLevel => $composableBuilder(
     column: $table.energyLevel,
@@ -9477,6 +12000,29 @@ class $$TasksTableAnnotationComposer
           }) => $$ProjectsTableAnnotationComposer(
             $db: $db,
             $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$AreasTableAnnotationComposer get areaId {
+    final $$AreasTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableAnnotationComposer(
+            $db: $db,
+            $table: $db.areas,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -9602,6 +12148,7 @@ class $$TasksTableTableManager
           Task,
           PrefetchHooks Function({
             bool projectId,
+            bool areaId,
             bool taskTagsRefs,
             bool scheduleBlocksRefs,
             bool timeEntriesRefs,
@@ -9623,12 +12170,14 @@ class $$TasksTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String?> projectId = const Value.absent(),
+                Value<String?> areaId = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<String> priority = const Value.absent(),
                 Value<int> estimatedMinutes = const Value.absent(),
                 Value<int> remainingMinutes = const Value.absent(),
                 Value<int?> dueAtUtc = const Value.absent(),
+                Value<int?> availableFromUtc = const Value.absent(),
                 Value<String> energyLevel = const Value.absent(),
                 Value<String> splitMode = const Value.absent(),
                 Value<int> minChunkMinutes = const Value.absent(),
@@ -9642,12 +12191,14 @@ class $$TasksTableTableManager
               }) => TasksCompanion(
                 id: id,
                 projectId: projectId,
+                areaId: areaId,
                 title: title,
                 notes: notes,
                 priority: priority,
                 estimatedMinutes: estimatedMinutes,
                 remainingMinutes: remainingMinutes,
                 dueAtUtc: dueAtUtc,
+                availableFromUtc: availableFromUtc,
                 energyLevel: energyLevel,
                 splitMode: splitMode,
                 minChunkMinutes: minChunkMinutes,
@@ -9663,12 +12214,14 @@ class $$TasksTableTableManager
               ({
                 required String id,
                 Value<String?> projectId = const Value.absent(),
+                Value<String?> areaId = const Value.absent(),
                 required String title,
                 Value<String> notes = const Value.absent(),
                 required String priority,
                 required int estimatedMinutes,
                 required int remainingMinutes,
                 Value<int?> dueAtUtc = const Value.absent(),
+                Value<int?> availableFromUtc = const Value.absent(),
                 required String energyLevel,
                 required String splitMode,
                 required int minChunkMinutes,
@@ -9682,12 +12235,14 @@ class $$TasksTableTableManager
               }) => TasksCompanion.insert(
                 id: id,
                 projectId: projectId,
+                areaId: areaId,
                 title: title,
                 notes: notes,
                 priority: priority,
                 estimatedMinutes: estimatedMinutes,
                 remainingMinutes: remainingMinutes,
                 dueAtUtc: dueAtUtc,
+                availableFromUtc: availableFromUtc,
                 energyLevel: energyLevel,
                 splitMode: splitMode,
                 minChunkMinutes: minChunkMinutes,
@@ -9710,6 +12265,7 @@ class $$TasksTableTableManager
           prefetchHooksCallback:
               ({
                 projectId = false,
+                areaId = false,
                 taskTagsRefs = false,
                 scheduleBlocksRefs = false,
                 timeEntriesRefs = false,
@@ -9747,6 +12303,17 @@ class $$TasksTableTableManager
                                 ._projectIdTable(db),
                             referencedColumn: $$TasksTableReferences
                                 ._projectIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+                        if (areaId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.areaId,
+                            referencedTable: $$TasksTableReferences
+                                ._areaIdTable(db),
+                            referencedColumn: $$TasksTableReferences
+                                ._areaIdTable(db)
                                 .id,
                           ) as T;
                         }
@@ -9853,6 +12420,7 @@ typedef $$TasksTableProcessedTableManager =
       Task,
       PrefetchHooks Function({
         bool projectId,
+        bool areaId,
         bool taskTagsRefs,
         bool scheduleBlocksRefs,
         bool timeEntriesRefs,
@@ -10504,6 +13072,7 @@ typedef $$RecurrenceRulesTableCreateCompanionBuilder =
       required int weekdaysMask,
       required int localStartMinute,
       required int durationMinutes,
+      Value<int> intervalWeeks,
       required String validFromLocalDate,
       Value<String?> validUntilLocalDate,
       required String timeZoneId,
@@ -10517,6 +13086,7 @@ typedef $$RecurrenceRulesTableUpdateCompanionBuilder =
       Value<int> weekdaysMask,
       Value<int> localStartMinute,
       Value<int> durationMinutes,
+      Value<int> intervalWeeks,
       Value<String> validFromLocalDate,
       Value<String?> validUntilLocalDate,
       Value<String> timeZoneId,
@@ -10579,6 +13149,11 @@ class $$RecurrenceRulesTableFilterComposer
 
   ColumnFilters<int> get durationMinutes => $composableBuilder(
     column: $table.durationMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get intervalWeeks => $composableBuilder(
+    column: $table.intervalWeeks,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10662,6 +13237,11 @@ class $$RecurrenceRulesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get intervalWeeks => $composableBuilder(
+    column: $table.intervalWeeks,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get validFromLocalDate => $composableBuilder(
     column: $table.validFromLocalDate,
     builder: (column) => ColumnOrderings(column),
@@ -10712,6 +13292,11 @@ class $$RecurrenceRulesTableAnnotationComposer
 
   GeneratedColumn<int> get durationMinutes => $composableBuilder(
     column: $table.durationMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get intervalWeeks => $composableBuilder(
+    column: $table.intervalWeeks,
     builder: (column) => column,
   );
 
@@ -10800,6 +13385,7 @@ class $$RecurrenceRulesTableTableManager
                 Value<int> weekdaysMask = const Value.absent(),
                 Value<int> localStartMinute = const Value.absent(),
                 Value<int> durationMinutes = const Value.absent(),
+                Value<int> intervalWeeks = const Value.absent(),
                 Value<String> validFromLocalDate = const Value.absent(),
                 Value<String?> validUntilLocalDate = const Value.absent(),
                 Value<String> timeZoneId = const Value.absent(),
@@ -10811,6 +13397,7 @@ class $$RecurrenceRulesTableTableManager
                 weekdaysMask: weekdaysMask,
                 localStartMinute: localStartMinute,
                 durationMinutes: durationMinutes,
+                intervalWeeks: intervalWeeks,
                 validFromLocalDate: validFromLocalDate,
                 validUntilLocalDate: validUntilLocalDate,
                 timeZoneId: timeZoneId,
@@ -10824,6 +13411,7 @@ class $$RecurrenceRulesTableTableManager
                 required int weekdaysMask,
                 required int localStartMinute,
                 required int durationMinutes,
+                Value<int> intervalWeeks = const Value.absent(),
                 required String validFromLocalDate,
                 Value<String?> validUntilLocalDate = const Value.absent(),
                 required String timeZoneId,
@@ -10835,6 +13423,7 @@ class $$RecurrenceRulesTableTableManager
                 weekdaysMask: weekdaysMask,
                 localStartMinute: localStartMinute,
                 durationMinutes: durationMinutes,
+                intervalWeeks: intervalWeeks,
                 validFromLocalDate: validFromLocalDate,
                 validUntilLocalDate: validUntilLocalDate,
                 timeZoneId: timeZoneId,
@@ -10902,6 +13491,871 @@ typedef $$RecurrenceRulesTableProcessedTableManager =
       RecurrenceRule,
       PrefetchHooks Function({bool calendarEventsRefs})
     >;
+typedef $$AcademicTermsTableCreateCompanionBuilder =
+    AcademicTermsCompanion Function({
+      required String id,
+      required String name,
+      required String firstWeekMondayLocalDate,
+      required int totalWeeks,
+      required String timeZoneId,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$AcademicTermsTableUpdateCompanionBuilder =
+    AcademicTermsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> firstWeekMondayLocalDate,
+      Value<int> totalWeeks,
+      Value<String> timeZoneId,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$AcademicTermsTableReferences
+    extends BaseReferences<_$AppDatabase, $AcademicTermsTable, AcademicTerm> {
+  $$AcademicTermsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<
+    $TimetableImportBatchesTable,
+    List<TimetableImportBatche>
+  >
+  _timetableImportBatchesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.timetableImportBatches,
+        aliasName: 'academic_terms__id__timetable_import_batches__term_id',
+      );
+
+  $$TimetableImportBatchesTableProcessedTableManager
+  get timetableImportBatchesRefs {
+    final manager = $$TimetableImportBatchesTableTableManager(
+      $_db,
+      $_db.timetableImportBatches,
+    ).filter((f) => f.termId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _timetableImportBatchesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$AcademicTermsTableFilterComposer
+    extends Composer<_$AppDatabase, $AcademicTermsTable> {
+  $$AcademicTermsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get firstWeekMondayLocalDate => $composableBuilder(
+    column: $table.firstWeekMondayLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get totalWeeks => $composableBuilder(
+    column: $table.totalWeeks,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> timetableImportBatchesRefs(
+    Expression<bool> Function($$TimetableImportBatchesTableFilterComposer f) f,
+  ) {
+    final $$TimetableImportBatchesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.timetableImportBatches,
+          getReferencedColumn: (t) => t.termId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$TimetableImportBatchesTableFilterComposer(
+                $db: $db,
+                $table: $db.timetableImportBatches,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$AcademicTermsTableOrderingComposer
+    extends Composer<_$AppDatabase, $AcademicTermsTable> {
+  $$AcademicTermsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get firstWeekMondayLocalDate => $composableBuilder(
+    column: $table.firstWeekMondayLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get totalWeeks => $composableBuilder(
+    column: $table.totalWeeks,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AcademicTermsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AcademicTermsTable> {
+  $$AcademicTermsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get firstWeekMondayLocalDate => $composableBuilder(
+    column: $table.firstWeekMondayLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get totalWeeks => $composableBuilder(
+    column: $table.totalWeeks,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  Expression<T> timetableImportBatchesRefs<T extends Object>(
+    Expression<T> Function($$TimetableImportBatchesTableAnnotationComposer a) f,
+  ) {
+    final $$TimetableImportBatchesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.timetableImportBatches,
+          getReferencedColumn: (t) => t.termId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$TimetableImportBatchesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.timetableImportBatches,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$AcademicTermsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $AcademicTermsTable,
+          AcademicTerm,
+          $$AcademicTermsTableFilterComposer,
+          $$AcademicTermsTableOrderingComposer,
+          $$AcademicTermsTableAnnotationComposer,
+          $$AcademicTermsTableCreateCompanionBuilder,
+          $$AcademicTermsTableUpdateCompanionBuilder,
+          (AcademicTerm, $$AcademicTermsTableReferences),
+          AcademicTerm,
+          PrefetchHooks Function({bool timetableImportBatchesRefs})
+        > {
+  $$AcademicTermsTableTableManager(_$AppDatabase db, $AcademicTermsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AcademicTermsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AcademicTermsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AcademicTermsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> firstWeekMondayLocalDate = const Value.absent(),
+                Value<int> totalWeeks = const Value.absent(),
+                Value<String> timeZoneId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AcademicTermsCompanion(
+                id: id,
+                name: name,
+                firstWeekMondayLocalDate: firstWeekMondayLocalDate,
+                totalWeeks: totalWeeks,
+                timeZoneId: timeZoneId,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String firstWeekMondayLocalDate,
+                required int totalWeeks,
+                required String timeZoneId,
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => AcademicTermsCompanion.insert(
+                id: id,
+                name: name,
+                firstWeekMondayLocalDate: firstWeekMondayLocalDate,
+                totalWeeks: totalWeeks,
+                timeZoneId: timeZoneId,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$AcademicTermsTable, AcademicTerm>(table),
+                  $$AcademicTermsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({timetableImportBatchesRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (timetableImportBatchesRefs) db.timetableImportBatches,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (timetableImportBatchesRefs)
+                    await $_getPrefetchedData<
+                      AcademicTerm,
+                      $AcademicTermsTable,
+                      TimetableImportBatche
+                    >(
+                      currentTable: table,
+                      referencedTable: $$AcademicTermsTableReferences
+                          ._timetableImportBatchesRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$AcademicTermsTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).timetableImportBatchesRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.termId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$AcademicTermsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $AcademicTermsTable,
+      AcademicTerm,
+      $$AcademicTermsTableFilterComposer,
+      $$AcademicTermsTableOrderingComposer,
+      $$AcademicTermsTableAnnotationComposer,
+      $$AcademicTermsTableCreateCompanionBuilder,
+      $$AcademicTermsTableUpdateCompanionBuilder,
+      (AcademicTerm, $$AcademicTermsTableReferences),
+      AcademicTerm,
+      PrefetchHooks Function({bool timetableImportBatchesRefs})
+    >;
+typedef $$TimetableImportBatchesTableCreateCompanionBuilder =
+    TimetableImportBatchesCompanion Function({
+      required String id,
+      required String termId,
+      required String sourceImageHash,
+      required String sourceFileName,
+      required String status,
+      required int createdEventCount,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$TimetableImportBatchesTableUpdateCompanionBuilder =
+    TimetableImportBatchesCompanion Function({
+      Value<String> id,
+      Value<String> termId,
+      Value<String> sourceImageHash,
+      Value<String> sourceFileName,
+      Value<String> status,
+      Value<int> createdEventCount,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$TimetableImportBatchesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $TimetableImportBatchesTable,
+          TimetableImportBatche
+        > {
+  $$TimetableImportBatchesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $AcademicTermsTable _termIdTable(_$AppDatabase db) => db.academicTerms
+      .createAlias('timetable_import_batches__term_id__academic_terms__id');
+
+  $$AcademicTermsTableProcessedTableManager get termId {
+    final $_column = $_itemColumn<String>('term_id')!;
+
+    final manager = $$AcademicTermsTableTableManager(
+      $_db,
+      $_db.academicTerms,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_termIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$CalendarEventsTable, List<CalendarEvent>>
+  _calendarEventsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.calendarEvents,
+    aliasName: 'timetable_import_batches__id__calendar_events__import_batch_id',
+  );
+
+  $$CalendarEventsTableProcessedTableManager get calendarEventsRefs {
+    final manager = $$CalendarEventsTableTableManager(
+      $_db,
+      $_db.calendarEvents,
+    ).filter((f) => f.importBatchId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_calendarEventsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$TimetableImportBatchesTableFilterComposer
+    extends Composer<_$AppDatabase, $TimetableImportBatchesTable> {
+  $$TimetableImportBatchesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceImageHash => $composableBuilder(
+    column: $table.sourceImageHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdEventCount => $composableBuilder(
+    column: $table.createdEventCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$AcademicTermsTableFilterComposer get termId {
+    final $$AcademicTermsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.termId,
+      referencedTable: $db.academicTerms,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AcademicTermsTableFilterComposer(
+            $db: $db,
+            $table: $db.academicTerms,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> calendarEventsRefs(
+    Expression<bool> Function($$CalendarEventsTableFilterComposer f) f,
+  ) {
+    final $$CalendarEventsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.calendarEvents,
+      getReferencedColumn: (t) => t.importBatchId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CalendarEventsTableFilterComposer(
+            $db: $db,
+            $table: $db.calendarEvents,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TimetableImportBatchesTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimetableImportBatchesTable> {
+  $$TimetableImportBatchesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceImageHash => $composableBuilder(
+    column: $table.sourceImageHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdEventCount => $composableBuilder(
+    column: $table.createdEventCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$AcademicTermsTableOrderingComposer get termId {
+    final $$AcademicTermsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.termId,
+      referencedTable: $db.academicTerms,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AcademicTermsTableOrderingComposer(
+            $db: $db,
+            $table: $db.academicTerms,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TimetableImportBatchesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimetableImportBatchesTable> {
+  $$TimetableImportBatchesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceImageHash => $composableBuilder(
+    column: $table.sourceImageHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceFileName => $composableBuilder(
+    column: $table.sourceFileName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get createdEventCount => $composableBuilder(
+    column: $table.createdEventCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  $$AcademicTermsTableAnnotationComposer get termId {
+    final $$AcademicTermsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.termId,
+      referencedTable: $db.academicTerms,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AcademicTermsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.academicTerms,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> calendarEventsRefs<T extends Object>(
+    Expression<T> Function($$CalendarEventsTableAnnotationComposer a) f,
+  ) {
+    final $$CalendarEventsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.calendarEvents,
+      getReferencedColumn: (t) => t.importBatchId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CalendarEventsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.calendarEvents,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TimetableImportBatchesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TimetableImportBatchesTable,
+          TimetableImportBatche,
+          $$TimetableImportBatchesTableFilterComposer,
+          $$TimetableImportBatchesTableOrderingComposer,
+          $$TimetableImportBatchesTableAnnotationComposer,
+          $$TimetableImportBatchesTableCreateCompanionBuilder,
+          $$TimetableImportBatchesTableUpdateCompanionBuilder,
+          (TimetableImportBatche, $$TimetableImportBatchesTableReferences),
+          TimetableImportBatche,
+          PrefetchHooks Function({bool termId, bool calendarEventsRefs})
+        > {
+  $$TimetableImportBatchesTableTableManager(
+    _$AppDatabase db,
+    $TimetableImportBatchesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimetableImportBatchesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$TimetableImportBatchesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TimetableImportBatchesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> termId = const Value.absent(),
+                Value<String> sourceImageHash = const Value.absent(),
+                Value<String> sourceFileName = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> createdEventCount = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimetableImportBatchesCompanion(
+                id: id,
+                termId: termId,
+                sourceImageHash: sourceImageHash,
+                sourceFileName: sourceFileName,
+                status: status,
+                createdEventCount: createdEventCount,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String termId,
+                required String sourceImageHash,
+                required String sourceFileName,
+                required String status,
+                required int createdEventCount,
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => TimetableImportBatchesCompanion.insert(
+                id: id,
+                termId: termId,
+                sourceImageHash: sourceImageHash,
+                sourceFileName: sourceFileName,
+                status: status,
+                createdEventCount: createdEventCount,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $TimetableImportBatchesTable,
+                    TimetableImportBatche
+                  >(table),
+                  $$TimetableImportBatchesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({termId = false, calendarEventsRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (calendarEventsRefs) db.calendarEvents,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (termId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.termId,
+                            referencedTable:
+                                $$TimetableImportBatchesTableReferences
+                                    ._termIdTable(db),
+                            referencedColumn:
+                                $$TimetableImportBatchesTableReferences
+                                    ._termIdTable(db)
+                                    .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (calendarEventsRefs)
+                        await $_getPrefetchedData<
+                          TimetableImportBatche,
+                          $TimetableImportBatchesTable,
+                          CalendarEvent
+                        >(
+                          currentTable: table,
+                          referencedTable:
+                              $$TimetableImportBatchesTableReferences
+                                  ._calendarEventsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TimetableImportBatchesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).calendarEventsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.importBatchId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$TimetableImportBatchesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TimetableImportBatchesTable,
+      TimetableImportBatche,
+      $$TimetableImportBatchesTableFilterComposer,
+      $$TimetableImportBatchesTableOrderingComposer,
+      $$TimetableImportBatchesTableAnnotationComposer,
+      $$TimetableImportBatchesTableCreateCompanionBuilder,
+      $$TimetableImportBatchesTableUpdateCompanionBuilder,
+      (TimetableImportBatche, $$TimetableImportBatchesTableReferences),
+      TimetableImportBatche,
+      PrefetchHooks Function({bool termId, bool calendarEventsRefs})
+    >;
 typedef $$CalendarEventsTableCreateCompanionBuilder =
     CalendarEventsCompanion Function({
       required String id,
@@ -10913,6 +14367,12 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<String?> exceptionOfId,
       Value<bool> locked,
       Value<String?> areaId,
+      Value<String?> projectId,
+      Value<String> location,
+      Value<String> notes,
+      Value<String> sourceKind,
+      Value<String?> importBatchId,
+      Value<String?> logicalCourseId,
       Value<int> createdAtUtc,
       required int updatedAtUtc,
       Value<int> rowid,
@@ -10928,6 +14388,12 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<String?> exceptionOfId,
       Value<bool> locked,
       Value<String?> areaId,
+      Value<String?> projectId,
+      Value<String> location,
+      Value<String> notes,
+      Value<String> sourceKind,
+      Value<String?> importBatchId,
+      Value<String?> logicalCourseId,
       Value<int> createdAtUtc,
       Value<int> updatedAtUtc,
       Value<int> rowid,
@@ -10993,6 +14459,42 @@ final class $$CalendarEventsTableReferences
       manager.$state.copyWith(prefetchedData: [item]),
     );
   }
+
+  static $ProjectsTable _projectIdTable(_$AppDatabase db) =>
+      db.projects.createAlias('calendar_events__project_id__projects__id');
+
+  $$ProjectsTableProcessedTableManager? get projectId {
+    final $_column = $_itemColumn<String>('project_id');
+    if ($_column == null) return null;
+    final manager = $$ProjectsTableTableManager(
+      $_db,
+      $_db.projects,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_projectIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $TimetableImportBatchesTable _importBatchIdTable(_$AppDatabase db) =>
+      db.timetableImportBatches.createAlias(
+        'calendar_events__import_batch_id__timetable_import_batches__id',
+      );
+
+  $$TimetableImportBatchesTableProcessedTableManager? get importBatchId {
+    final $_column = $_itemColumn<String>('import_batch_id');
+    if ($_column == null) return null;
+    final manager = $$TimetableImportBatchesTableTableManager(
+      $_db,
+      $_db.timetableImportBatches,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_importBatchIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
 }
 
 class $$CalendarEventsTableFilterComposer
@@ -11031,6 +14533,26 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<bool> get locked => $composableBuilder(
     column: $table.locked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get location => $composableBuilder(
+    column: $table.location,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get logicalCourseId => $composableBuilder(
+    column: $table.logicalCourseId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11112,6 +14634,53 @@ class $$CalendarEventsTableFilterComposer
     );
     return composer;
   }
+
+  $$ProjectsTableFilterComposer get projectId {
+    final $$ProjectsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableFilterComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TimetableImportBatchesTableFilterComposer get importBatchId {
+    final $$TimetableImportBatchesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.importBatchId,
+          referencedTable: $db.timetableImportBatches,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$TimetableImportBatchesTableFilterComposer(
+                $db: $db,
+                $table: $db.timetableImportBatches,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
 }
 
 class $$CalendarEventsTableOrderingComposer
@@ -11150,6 +14719,26 @@ class $$CalendarEventsTableOrderingComposer
 
   ColumnOrderings<bool> get locked => $composableBuilder(
     column: $table.locked,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get location => $composableBuilder(
+    column: $table.location,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get logicalCourseId => $composableBuilder(
+    column: $table.logicalCourseId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -11231,6 +14820,53 @@ class $$CalendarEventsTableOrderingComposer
     );
     return composer;
   }
+
+  $$ProjectsTableOrderingComposer get projectId {
+    final $$ProjectsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableOrderingComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TimetableImportBatchesTableOrderingComposer get importBatchId {
+    final $$TimetableImportBatchesTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.importBatchId,
+          referencedTable: $db.timetableImportBatches,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$TimetableImportBatchesTableOrderingComposer(
+                $db: $db,
+                $table: $db.timetableImportBatches,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
 }
 
 class $$CalendarEventsTableAnnotationComposer
@@ -11263,6 +14899,22 @@ class $$CalendarEventsTableAnnotationComposer
 
   GeneratedColumn<bool> get locked =>
       $composableBuilder(column: $table.locked, builder: (column) => column);
+
+  GeneratedColumn<String> get location =>
+      $composableBuilder(column: $table.location, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get logicalCourseId => $composableBuilder(
+    column: $table.logicalCourseId,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get createdAtUtc => $composableBuilder(
     column: $table.createdAtUtc,
@@ -11342,6 +14994,53 @@ class $$CalendarEventsTableAnnotationComposer
     );
     return composer;
   }
+
+  $$ProjectsTableAnnotationComposer get projectId {
+    final $$ProjectsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TimetableImportBatchesTableAnnotationComposer get importBatchId {
+    final $$TimetableImportBatchesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.importBatchId,
+          referencedTable: $db.timetableImportBatches,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$TimetableImportBatchesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.timetableImportBatches,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
 }
 
 class $$CalendarEventsTableTableManager
@@ -11361,6 +15060,8 @@ class $$CalendarEventsTableTableManager
             bool recurrenceRuleId,
             bool exceptionOfId,
             bool areaId,
+            bool projectId,
+            bool importBatchId,
           })
         > {
   $$CalendarEventsTableTableManager(
@@ -11387,6 +15088,12 @@ class $$CalendarEventsTableTableManager
                 Value<String?> exceptionOfId = const Value.absent(),
                 Value<bool> locked = const Value.absent(),
                 Value<String?> areaId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
+                Value<String> location = const Value.absent(),
+                Value<String> notes = const Value.absent(),
+                Value<String> sourceKind = const Value.absent(),
+                Value<String?> importBatchId = const Value.absent(),
+                Value<String?> logicalCourseId = const Value.absent(),
                 Value<int> createdAtUtc = const Value.absent(),
                 Value<int> updatedAtUtc = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -11400,6 +15107,12 @@ class $$CalendarEventsTableTableManager
                 exceptionOfId: exceptionOfId,
                 locked: locked,
                 areaId: areaId,
+                projectId: projectId,
+                location: location,
+                notes: notes,
+                sourceKind: sourceKind,
+                importBatchId: importBatchId,
+                logicalCourseId: logicalCourseId,
                 createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
@@ -11415,6 +15128,12 @@ class $$CalendarEventsTableTableManager
                 Value<String?> exceptionOfId = const Value.absent(),
                 Value<bool> locked = const Value.absent(),
                 Value<String?> areaId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
+                Value<String> location = const Value.absent(),
+                Value<String> notes = const Value.absent(),
+                Value<String> sourceKind = const Value.absent(),
+                Value<String?> importBatchId = const Value.absent(),
+                Value<String?> logicalCourseId = const Value.absent(),
                 Value<int> createdAtUtc = const Value.absent(),
                 required int updatedAtUtc,
                 Value<int> rowid = const Value.absent(),
@@ -11428,6 +15147,12 @@ class $$CalendarEventsTableTableManager
                 exceptionOfId: exceptionOfId,
                 locked: locked,
                 areaId: areaId,
+                projectId: projectId,
+                location: location,
+                notes: notes,
+                sourceKind: sourceKind,
+                importBatchId: importBatchId,
+                logicalCourseId: logicalCourseId,
                 createdAtUtc: createdAtUtc,
                 updatedAtUtc: updatedAtUtc,
                 rowid: rowid,
@@ -11445,6 +15170,8 @@ class $$CalendarEventsTableTableManager
                 recurrenceRuleId = false,
                 exceptionOfId = false,
                 areaId = false,
+                projectId = false,
+                importBatchId = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -11498,6 +15225,28 @@ class $$CalendarEventsTableTableManager
                                 .id,
                           ) as T;
                         }
+                        if (projectId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.projectId,
+                            referencedTable: $$CalendarEventsTableReferences
+                                ._projectIdTable(db),
+                            referencedColumn: $$CalendarEventsTableReferences
+                                ._projectIdTable(db)
+                                .id,
+                          ) as T;
+                        }
+                        if (importBatchId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.importBatchId,
+                            referencedTable: $$CalendarEventsTableReferences
+                                ._importBatchIdTable(db),
+                            referencedColumn: $$CalendarEventsTableReferences
+                                ._importBatchIdTable(db)
+                                .id,
+                          ) as T;
+                        }
 
                         return state;
                       },
@@ -11526,7 +15275,656 @@ typedef $$CalendarEventsTableProcessedTableManager =
         bool recurrenceRuleId,
         bool exceptionOfId,
         bool areaId,
+        bool projectId,
+        bool importBatchId,
       })
+    >;
+typedef $$PeriodTemplatesTableCreateCompanionBuilder =
+    PeriodTemplatesCompanion Function({
+      required String id,
+      required String name,
+      Value<bool> isDefault,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$PeriodTemplatesTableUpdateCompanionBuilder =
+    PeriodTemplatesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<bool> isDefault,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$PeriodTemplatesTableReferences
+    extends
+        BaseReferences<_$AppDatabase, $PeriodTemplatesTable, PeriodTemplate> {
+  $$PeriodTemplatesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<
+    $PeriodTemplateEntriesTable,
+    List<PeriodTemplateEntry>
+  >
+  _periodTemplateEntriesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.periodTemplateEntries,
+        aliasName: 'period_templates__id__period_template_entries__template_id',
+      );
+
+  $$PeriodTemplateEntriesTableProcessedTableManager
+  get periodTemplateEntriesRefs {
+    final manager = $$PeriodTemplateEntriesTableTableManager(
+      $_db,
+      $_db.periodTemplateEntries,
+    ).filter((f) => f.templateId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _periodTemplateEntriesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$PeriodTemplatesTableFilterComposer
+    extends Composer<_$AppDatabase, $PeriodTemplatesTable> {
+  $$PeriodTemplatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> periodTemplateEntriesRefs(
+    Expression<bool> Function($$PeriodTemplateEntriesTableFilterComposer f) f,
+  ) {
+    final $$PeriodTemplateEntriesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.periodTemplateEntries,
+          getReferencedColumn: (t) => t.templateId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$PeriodTemplateEntriesTableFilterComposer(
+                $db: $db,
+                $table: $db.periodTemplateEntries,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$PeriodTemplatesTableOrderingComposer
+    extends Composer<_$AppDatabase, $PeriodTemplatesTable> {
+  $$PeriodTemplatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PeriodTemplatesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PeriodTemplatesTable> {
+  $$PeriodTemplatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  Expression<T> periodTemplateEntriesRefs<T extends Object>(
+    Expression<T> Function($$PeriodTemplateEntriesTableAnnotationComposer a) f,
+  ) {
+    final $$PeriodTemplateEntriesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.periodTemplateEntries,
+          getReferencedColumn: (t) => t.templateId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$PeriodTemplateEntriesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.periodTemplateEntries,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$PeriodTemplatesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PeriodTemplatesTable,
+          PeriodTemplate,
+          $$PeriodTemplatesTableFilterComposer,
+          $$PeriodTemplatesTableOrderingComposer,
+          $$PeriodTemplatesTableAnnotationComposer,
+          $$PeriodTemplatesTableCreateCompanionBuilder,
+          $$PeriodTemplatesTableUpdateCompanionBuilder,
+          (PeriodTemplate, $$PeriodTemplatesTableReferences),
+          PeriodTemplate,
+          PrefetchHooks Function({bool periodTemplateEntriesRefs})
+        > {
+  $$PeriodTemplatesTableTableManager(
+    _$AppDatabase db,
+    $PeriodTemplatesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PeriodTemplatesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PeriodTemplatesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PeriodTemplatesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PeriodTemplatesCompanion(
+                id: id,
+                name: name,
+                isDefault: isDefault,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<bool> isDefault = const Value.absent(),
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => PeriodTemplatesCompanion.insert(
+                id: id,
+                name: name,
+                isDefault: isDefault,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$PeriodTemplatesTable, PeriodTemplate>(table),
+                  $$PeriodTemplatesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({periodTemplateEntriesRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (periodTemplateEntriesRefs) db.periodTemplateEntries,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (periodTemplateEntriesRefs)
+                    await $_getPrefetchedData<
+                      PeriodTemplate,
+                      $PeriodTemplatesTable,
+                      PeriodTemplateEntry
+                    >(
+                      currentTable: table,
+                      referencedTable: $$PeriodTemplatesTableReferences
+                          ._periodTemplateEntriesRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$PeriodTemplatesTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).periodTemplateEntriesRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.templateId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$PeriodTemplatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PeriodTemplatesTable,
+      PeriodTemplate,
+      $$PeriodTemplatesTableFilterComposer,
+      $$PeriodTemplatesTableOrderingComposer,
+      $$PeriodTemplatesTableAnnotationComposer,
+      $$PeriodTemplatesTableCreateCompanionBuilder,
+      $$PeriodTemplatesTableUpdateCompanionBuilder,
+      (PeriodTemplate, $$PeriodTemplatesTableReferences),
+      PeriodTemplate,
+      PrefetchHooks Function({bool periodTemplateEntriesRefs})
+    >;
+typedef $$PeriodTemplateEntriesTableCreateCompanionBuilder =
+    PeriodTemplateEntriesCompanion Function({
+      required String templateId,
+      required int periodNumber,
+      required int startMinute,
+      required int endMinute,
+      Value<int> rowid,
+    });
+typedef $$PeriodTemplateEntriesTableUpdateCompanionBuilder =
+    PeriodTemplateEntriesCompanion Function({
+      Value<String> templateId,
+      Value<int> periodNumber,
+      Value<int> startMinute,
+      Value<int> endMinute,
+      Value<int> rowid,
+    });
+
+final class $$PeriodTemplateEntriesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $PeriodTemplateEntriesTable,
+          PeriodTemplateEntry
+        > {
+  $$PeriodTemplateEntriesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $PeriodTemplatesTable _templateIdTable(_$AppDatabase db) =>
+      db.periodTemplates.createAlias(
+        'period_template_entries__template_id__period_templates__id',
+      );
+
+  $$PeriodTemplatesTableProcessedTableManager get templateId {
+    final $_column = $_itemColumn<String>('template_id')!;
+
+    final manager = $$PeriodTemplatesTableTableManager(
+      $_db,
+      $_db.periodTemplates,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_templateIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$PeriodTemplateEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $PeriodTemplateEntriesTable> {
+  $$PeriodTemplateEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get periodNumber => $composableBuilder(
+    column: $table.periodNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get endMinute => $composableBuilder(
+    column: $table.endMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$PeriodTemplatesTableFilterComposer get templateId {
+    final $$PeriodTemplatesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.templateId,
+      referencedTable: $db.periodTemplates,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PeriodTemplatesTableFilterComposer(
+            $db: $db,
+            $table: $db.periodTemplates,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PeriodTemplateEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $PeriodTemplateEntriesTable> {
+  $$PeriodTemplateEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get periodNumber => $composableBuilder(
+    column: $table.periodNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get endMinute => $composableBuilder(
+    column: $table.endMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$PeriodTemplatesTableOrderingComposer get templateId {
+    final $$PeriodTemplatesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.templateId,
+      referencedTable: $db.periodTemplates,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PeriodTemplatesTableOrderingComposer(
+            $db: $db,
+            $table: $db.periodTemplates,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PeriodTemplateEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PeriodTemplateEntriesTable> {
+  $$PeriodTemplateEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get periodNumber => $composableBuilder(
+    column: $table.periodNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get startMinute => $composableBuilder(
+    column: $table.startMinute,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get endMinute =>
+      $composableBuilder(column: $table.endMinute, builder: (column) => column);
+
+  $$PeriodTemplatesTableAnnotationComposer get templateId {
+    final $$PeriodTemplatesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.templateId,
+      referencedTable: $db.periodTemplates,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PeriodTemplatesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.periodTemplates,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PeriodTemplateEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PeriodTemplateEntriesTable,
+          PeriodTemplateEntry,
+          $$PeriodTemplateEntriesTableFilterComposer,
+          $$PeriodTemplateEntriesTableOrderingComposer,
+          $$PeriodTemplateEntriesTableAnnotationComposer,
+          $$PeriodTemplateEntriesTableCreateCompanionBuilder,
+          $$PeriodTemplateEntriesTableUpdateCompanionBuilder,
+          (PeriodTemplateEntry, $$PeriodTemplateEntriesTableReferences),
+          PeriodTemplateEntry,
+          PrefetchHooks Function({bool templateId})
+        > {
+  $$PeriodTemplateEntriesTableTableManager(
+    _$AppDatabase db,
+    $PeriodTemplateEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PeriodTemplateEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$PeriodTemplateEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$PeriodTemplateEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> templateId = const Value.absent(),
+                Value<int> periodNumber = const Value.absent(),
+                Value<int> startMinute = const Value.absent(),
+                Value<int> endMinute = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PeriodTemplateEntriesCompanion(
+                templateId: templateId,
+                periodNumber: periodNumber,
+                startMinute: startMinute,
+                endMinute: endMinute,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String templateId,
+                required int periodNumber,
+                required int startMinute,
+                required int endMinute,
+                Value<int> rowid = const Value.absent(),
+              }) => PeriodTemplateEntriesCompanion.insert(
+                templateId: templateId,
+                periodNumber: periodNumber,
+                startMinute: startMinute,
+                endMinute: endMinute,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$PeriodTemplateEntriesTable, PeriodTemplateEntry>(
+                    table,
+                  ),
+                  $$PeriodTemplateEntriesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({templateId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (templateId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.templateId,
+                        referencedTable: $$PeriodTemplateEntriesTableReferences
+                            ._templateIdTable(db),
+                        referencedColumn: $$PeriodTemplateEntriesTableReferences
+                            ._templateIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$PeriodTemplateEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PeriodTemplateEntriesTable,
+      PeriodTemplateEntry,
+      $$PeriodTemplateEntriesTableFilterComposer,
+      $$PeriodTemplateEntriesTableOrderingComposer,
+      $$PeriodTemplateEntriesTableAnnotationComposer,
+      $$PeriodTemplateEntriesTableCreateCompanionBuilder,
+      $$PeriodTemplateEntriesTableUpdateCompanionBuilder,
+      (PeriodTemplateEntry, $$PeriodTemplateEntriesTableReferences),
+      PeriodTemplateEntry,
+      PrefetchHooks Function({bool templateId})
     >;
 typedef $$EnergyWindowsTableCreateCompanionBuilder =
     EnergyWindowsCompanion Function({
@@ -14334,8 +18732,19 @@ class $AppDatabaseManager {
       $$TaskTagsTableTableManager(_db, _db.taskTags);
   $$RecurrenceRulesTableTableManager get recurrenceRules =>
       $$RecurrenceRulesTableTableManager(_db, _db.recurrenceRules);
+  $$AcademicTermsTableTableManager get academicTerms =>
+      $$AcademicTermsTableTableManager(_db, _db.academicTerms);
+  $$TimetableImportBatchesTableTableManager get timetableImportBatches =>
+      $$TimetableImportBatchesTableTableManager(
+        _db,
+        _db.timetableImportBatches,
+      );
   $$CalendarEventsTableTableManager get calendarEvents =>
       $$CalendarEventsTableTableManager(_db, _db.calendarEvents);
+  $$PeriodTemplatesTableTableManager get periodTemplates =>
+      $$PeriodTemplatesTableTableManager(_db, _db.periodTemplates);
+  $$PeriodTemplateEntriesTableTableManager get periodTemplateEntries =>
+      $$PeriodTemplateEntriesTableTableManager(_db, _db.periodTemplateEntries);
   $$EnergyWindowsTableTableManager get energyWindows =>
       $$EnergyWindowsTableTableManager(_db, _db.energyWindows);
   $$SettingsTableTableManager get settings =>

@@ -131,9 +131,8 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   /// 外部注入的 `feedbackMessages` 优先（测试与显式装配用），否则用本页按对照窗口算出的结果。
-  List<FeedbackMessage> get _messages => widget.feedbackMessages.isNotEmpty
-      ? widget.feedbackMessages
-      : _feedback;
+  List<FeedbackMessage> get _messages =>
+      widget.feedbackMessages.isNotEmpty ? widget.feedbackMessages : _feedback;
 
   void _selectToday() {
     final today = _todayLocalDate();
@@ -275,10 +274,7 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                   _Overview(report: report),
                   if (_messages.isNotEmpty) ...[
                     const SizedBox(height: 20),
-                    FeedbackCards(
-                      messages: _messages,
-                      filter: report.filter,
-                    ),
+                    FeedbackCards(messages: _messages, filter: report.filter),
                   ],
                   const SizedBox(height: 20),
                   _ChartGrid(report: report),

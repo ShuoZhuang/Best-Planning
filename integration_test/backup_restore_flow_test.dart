@@ -77,11 +77,7 @@ void main() {
 
     // 快照取自 checkpoint 之后的主库：schema 版本与数据都必须在。
     // 若快照取自未并回 WAL 的主库文件，这里会是 0。
-    expect(
-      manifest.schemaVersion,
-      1,
-      reason: '快照必须在 WAL 并回主库之后生成',
-    );
+    expect(manifest.schemaVersion, 1, reason: '快照必须在 WAL 并回主库之后生成');
 
     // 关闭第二个连接，避免 Windows 文件占用影响后续恢复。
     keeper.close();

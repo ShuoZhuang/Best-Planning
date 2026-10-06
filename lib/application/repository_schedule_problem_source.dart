@@ -95,6 +95,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           minChunkMinutes: task.minChunkMinutes,
           maxChunkMinutes: task.maxChunkMinutes,
           dueAtUtc: task.dueAtUtc,
+          availableFromUtc: task.availableFromUtc,
           priority: task.priority,
           energyLevel: task.energyLevel,
           // 生活配额因子此前恒为 0，因为这里从未设置该字段。

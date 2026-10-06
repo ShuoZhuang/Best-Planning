@@ -72,4 +72,70 @@ void main() {
     expect(candidates, hasLength((180 - 120) ~/ 5 + 1));
     expect(candidates.every((item) => item.durationMinutes == 120), isTrue);
   });
+
+  test('available-from at 10:03 rounds upward to the 10:05 grid', () {
+    const generator = CandidateGenerator();
+    final day = DateTime.utc(2026, 10, 5);
+    final task = SchedulableTask(
+      id: 'bounded',
+      requiredMinutes: 30,
+      splitMode: TaskSplitMode.splittable,
+      minChunkMinutes: 30,
+      maxChunkMinutes: 30,
+      availableFromUtc: day.add(const Duration(hours: 10, minutes: 3)),
+    );
+
+    final candidates = generator.generate(task, [
+      AvailabilitySlot(
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 9)),
+          endUtc: day.add(const Duration(hours: 11)),
+        ),
+        localDate: DateTime(2026, 10, 5),
+      ),
+    ]);
+
+    expect(
+      candidates.first.startUtc,
+      day.add(const Duration(hours: 10, minutes: 5)),
+    );
+    expect(
+      candidates.every(
+        (candidate) => !candidate.startUtc.isBefore(task.availableFromUtc!),
+      ),
+      isTrue,
+    );
+  });
+
+  test('available-from excludes earlier slots for continuous tasks too', () {
+    const generator = CandidateGenerator();
+    final day = DateTime.utc(2026, 10, 5);
+    final task = SchedulableTask(
+      id: 'continuous-bounded',
+      requiredMinutes: 60,
+      splitMode: TaskSplitMode.continuous,
+      minChunkMinutes: 60,
+      maxChunkMinutes: 60,
+      availableFromUtc: day.add(const Duration(hours: 14)),
+    );
+    final candidates = generator.generate(task, [
+      AvailabilitySlot(
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 9)),
+          endUtc: day.add(const Duration(hours: 11)),
+        ),
+        localDate: DateTime(2026, 10, 5),
+      ),
+      AvailabilitySlot(
+        range: TimeRange(
+          startUtc: day.add(const Duration(hours: 14)),
+          endUtc: day.add(const Duration(hours: 16)),
+        ),
+        localDate: DateTime(2026, 10, 5),
+      ),
+    ]);
+
+    expect(candidates, isNotEmpty);
+    expect(candidates.every((item) => item.startUtc.hour >= 14), isTrue);
+  });
 }

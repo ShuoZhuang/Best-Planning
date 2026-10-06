@@ -19,15 +19,22 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('任务保存再读取不会丢失领域字段', () async {
+  test('task area and earliest start round trip', () async {
+    await database.customInsert('''
+      INSERT INTO areas
+        (id, name, color, sort_order, is_life, created_at_utc, updated_at_utc)
+      VALUES ('area-research', '科研', 17, 0, 0, 1, 1)
+    ''');
     final task = PlannerTask(
       id: 'task-1',
+      areaId: 'area-research',
       title: '准备科研汇报',
       notes: '整理实验结果',
       priority: TaskPriority.high,
       estimatedMinutes: 47,
       remainingMinutes: 32,
       dueAtUtc: DateTime.utc(2026, 10, 8, 12),
+      availableFromUtc: DateTime.utc(2026, 10, 6, 3, 15),
       energyLevel: TaskEnergyLevel.high,
       splitMode: TaskSplitMode.splittable,
       minChunkMinutes: 25,
@@ -42,12 +49,14 @@ void main() {
 
     expect(loaded, isNotNull);
     expect(loaded!.id, task.id);
+    expect(loaded.areaId, task.areaId);
     expect(loaded.title, task.title);
     expect(loaded.notes, task.notes);
     expect(loaded.priority, task.priority);
     expect(loaded.estimatedMinutes, task.estimatedMinutes);
     expect(loaded.remainingMinutes, task.remainingMinutes);
     expect(loaded.dueAtUtc, task.dueAtUtc);
+    expect(loaded.availableFromUtc, task.availableFromUtc);
     expect(loaded.energyLevel, task.energyLevel);
     expect(loaded.splitMode, task.splitMode);
     expect(loaded.minChunkMinutes, task.minChunkMinutes);
@@ -113,6 +122,63 @@ void main() {
       DateTime.utc(2026, 10, 12, 1),
       DateTime.utc(2026, 10, 19, 1),
     ]);
+  });
+
+  test('课表日程完整往返导入元数据', () async {
+    await database.customInsert('''
+      INSERT INTO areas
+        (id, name, color, sort_order, is_life, created_at_utc, updated_at_utc)
+      VALUES ('area-study', '学业', 17, 0, 0, 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO projects
+        (id, area_id, name, created_at_utc, updated_at_utc)
+      VALUES ('project-algorithm', 'area-study', '算法课', 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO academic_terms
+        (id, name, first_week_monday_local_date, total_weeks, time_zone_id,
+         created_at_utc, updated_at_utc)
+      VALUES ('term-autumn', '2026 秋季学期', '2026-09-07', 16,
+              'Asia/Shanghai', 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO timetable_import_batches
+        (id, term_id, source_image_hash, source_file_name, status,
+         created_event_count, created_at_utc, updated_at_utc)
+      VALUES ('batch-1', 'term-autumn', 'sha256:test', 'schedule.png',
+              'committed', 1, 1, 1)
+    ''');
+    final calendarRepository = DriftCalendarRepository(database);
+    final event = CalendarEvent(
+      id: 'course-event',
+      title: '算法与数据结构',
+      startAtUtc: DateTime.utc(2026, 10, 6, 1, 55),
+      endAtUtc: DateTime.utc(2026, 10, 6, 3, 35),
+      timeZoneId: 'Asia/Shanghai',
+      locked: true,
+      areaId: 'area-study',
+      projectId: 'project-algorithm',
+      location: 'D206',
+      notes: '赵敏',
+      sourceKind: CalendarEventSourceKind.timetableImport,
+      importBatchId: 'batch-1',
+      logicalCourseId: 'course-algorithm',
+      updatedAtUtc: DateTime.utc(2026, 10, 5),
+    );
+
+    await calendarRepository.save(event);
+    final occurrence = (await calendarRepository.occurrencesBetween(
+      DateTime.utc(2026, 10, 6),
+      DateTime.utc(2026, 10, 7),
+    )).single;
+
+    expect(occurrence.projectId, event.projectId);
+    expect(occurrence.location, event.location);
+    expect(occurrence.notes, event.notes);
+    expect(occurrence.sourceKind, CalendarEventSourceKind.timetableImport);
+    expect(occurrence.importBatchId, event.importBatchId);
+    expect(occurrence.logicalCourseId, event.logicalCourseId);
   });
 
   test('计划 repository 返回最新的已确认版本', () async {

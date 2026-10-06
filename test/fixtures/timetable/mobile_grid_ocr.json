@@ -1,0 +1,24 @@
+{
+  "width": 700,
+  "height": 900,
+  "textAngle": 0,
+  "lines": [
+    {"text":"周一","words":[{"text":"周一","bounds":{"left":100,"top":30,"width":60,"height":28}}]},
+    {"text":"周二","words":[{"text":"周二","bounds":{"left":190,"top":30,"width":60,"height":28}}]},
+    {"text":"周三","words":[{"text":"周三","bounds":{"left":280,"top":30,"width":60,"height":28}}]},
+    {"text":"周四","words":[{"text":"周四","bounds":{"left":370,"top":30,"width":60,"height":28}}]},
+    {"text":"周五","words":[{"text":"周五","bounds":{"left":460,"top":30,"width":60,"height":28}}]},
+    {"text":"周六","words":[{"text":"周六","bounds":{"left":550,"top":30,"width":60,"height":28}}]},
+    {"text":"1","words":[{"text":"1","bounds":{"left":35,"top":90,"width":22,"height":25}}]},
+    {"text":"2","words":[{"text":"2","bounds":{"left":35,"top":145,"width":22,"height":25}}]},
+    {"text":"3","words":[{"text":"3","bounds":{"left":35,"top":200,"width":22,"height":25}}]},
+    {"text":"4","words":[{"text":"4","bounds":{"left":35,"top":255,"width":22,"height":25}}]},
+    {"text":"5","words":[{"text":"5","bounds":{"left":35,"top":310,"width":22,"height":25}}]},
+    {"text":"6","words":[{"text":"6","bounds":{"left":35,"top":365,"width":22,"height":25}}]},
+    {"text":"7","words":[{"text":"7","bounds":{"left":35,"top":420,"width":22,"height":25}}]},
+    {"text":"8","words":[{"text":"8","bounds":{"left":35,"top":475,"width":22,"height":25}}]},
+    {"text":"复变函数与积分变换\n徐旭颖\n1-16周\nC201","words":[{"text":"复变函数与积分变换","bounds":{"left":100,"top":415,"width":60,"height":25}},{"text":"徐旭颖","bounds":{"left":110,"top":442,"width":45,"height":22}},{"text":"1-16周","bounds":{"left":105,"top":466,"width":52,"height":22}},{"text":"C201","bounds":{"left":112,"top":490,"width":40,"height":22}}]},
+    {"text":"创业基础\n沈峰\n2-6(双周)\nA304","words":[{"text":"创业基础","bounds":{"left":280,"top":305,"width":60,"height":25}},{"text":"沈峰","bounds":{"left":292,"top":332,"width":36,"height":22}},{"text":"2-6(双周)","bounds":{"left":282,"top":356,"width":56,"height":22}},{"text":"A304","bounds":{"left":290,"top":380,"width":40,"height":22}}]},
+    {"text":"待确认课程\n李老师\nB101","words":[{"text":"待确认课程","bounds":{"left":460,"top":195,"width":60,"height":25}},{"text":"李老师","bounds":{"left":468,"top":222,"width":45,"height":22}},{"text":"B101","bounds":{"left":470,"top":246,"width":40,"height":22}}]}
+  ]
+}

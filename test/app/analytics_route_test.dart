@@ -30,7 +30,11 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        child: PlannerApp(timeZoneId: 'Asia/Shanghai', settingsRepository: settings, analytics: analytics),
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
+          settingsRepository: settings,
+          analytics: analytics,
+        ),
       ),
     );
     await tester.pumpAndSettle();

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/application/appearance_service.dart';
+import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
@@ -14,13 +16,16 @@ import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
@@ -29,9 +34,13 @@ import 'package:personal_planner/features/calendar/event_editor/event_editor_for
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_page.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
+import 'package:personal_planner/features/settings/academic_calendar/academic_calendar_page.dart';
+import 'package:personal_planner/features/settings/appearance/appearance_page.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/features/settings/data/backup_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
@@ -41,6 +50,7 @@ import 'package:personal_planner/features/settings/preferences/preferences_page.
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
+import 'package:personal_planner/features/tasks/task_editor_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/features/workspace/workspace_management_page.dart';
@@ -57,6 +67,7 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 GoRouter createPlannerRouter({
   required TaskService taskService,
   required SettingsService settingsService,
+  required AppearanceService appearance,
   required ScheduleViewSource scheduleSource,
   required WeekMoveController moveController,
   required AutoAdjustStore autoAdjustStore,
@@ -87,6 +98,10 @@ GoRouter createPlannerRouter({
   RecoveryPlanningService? recovery,
   CalendarRepository? calendar,
   CalendarService? calendarService,
+  AcademicCalendarService? academicCalendar,
+  TimetableOcrEngine? timetableOcr,
+  TimetableImportService? timetableImport,
+  TimetableImagePicker? timetableImagePicker,
   DateTime? nowUtc,
 }) => GoRouter(
   initialLocation: '/today',
@@ -141,9 +156,39 @@ GoRouter createPlannerRouter({
         GoRoute(
           // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
           // 此前该路由不存在，点击提醒无处可去。
+          path: '/tasks/new',
+          builder: (context, state) => TaskEditorPage(
+            service: taskService,
+            settings: settingsService,
+            workspace: workspaceService,
+            zones: zones,
+            timeZoneId: timeZoneId,
+            nowUtc: nowUtc ?? todayStartUtc,
+            onSaved: (task) => context.go('/tasks/${task.id}'),
+            onCancel: () => context.go('/tasks'),
+          ),
+        ),
+        GoRoute(
+          path: '/tasks/:taskId/edit',
+          builder: (context, state) => TaskEditorPage(
+            taskId: state.pathParameters['taskId'],
+            service: taskService,
+            settings: settingsService,
+            workspace: workspaceService,
+            zones: zones,
+            timeZoneId: timeZoneId,
+            nowUtc: nowUtc ?? todayStartUtc,
+            onSaved: (task) => context.go('/tasks/${task.id}'),
+            onCancel: () =>
+                context.go('/tasks/${state.pathParameters['taskId']}'),
+          ),
+        ),
+        GoRoute(
           path: '/tasks/:taskId',
           builder: (context, state) => TaskDetailPage(
             service: taskService,
+            onEdit: () =>
+                context.go('/tasks/${state.pathParameters['taskId']}/edit'),
             workspace: workspaceService,
             // FR-TASK-02 的标签入口。为空时该区不显示，其余部分照常可用。
             tags: tagService,
@@ -233,6 +278,7 @@ GoRouter createPlannerRouter({
           path: '/calendar',
           builder: (context, state) => WeekViewPage(
             source: scheduleSource,
+            toLocal: (instant) => zones.toLocal(instant, timeZoneId),
             weekStart: todayStartUtc,
             moveController: moveController,
             onProposalCreated: (proposalId) =>
@@ -244,7 +290,66 @@ GoRouter createPlannerRouter({
             onCreateEvent: calendarService == null
                 ? null
                 : () => context.go('/calendar/new'),
+            onImportTimetable:
+                timetableOcr == null ||
+                    timetableImport == null ||
+                    academicCalendar == null ||
+                    workspaceService == null
+                ? null
+                : () => context.go('/calendar/import'),
           ),
+        ),
+        GoRoute(
+          path: '/calendar/import',
+          builder: (context, state) {
+            final ocr = timetableOcr;
+            final importer = timetableImport;
+            final academics = academicCalendar;
+            final workspace = workspaceService;
+            if (ocr == null ||
+                importer == null ||
+                academics == null ||
+                workspace == null) {
+              return const _UnavailablePage(
+                title: '导入课表',
+                message: '课表导入服务未完整装配，暂时无法使用。',
+              );
+            }
+            final controller = TimetableImportController(
+              ocrEngine: ocr,
+              academicCalendar: academics,
+              importService: importer,
+              workspace: workspace,
+              timeZoneId: timeZoneId,
+              referenceDate: zones.toLocal(nowUtc ?? todayStartUtc, timeZoneId),
+              imagePicker:
+                  timetableImagePicker ??
+                  const FileSelectorTimetableImagePicker(),
+            );
+            return TimetableImportPage(
+              controller: controller,
+              onCancel: () => context.go('/calendar'),
+              onCompleted: (batch) {
+                final messenger = ScaffoldMessenger.of(context);
+                context.go('/calendar');
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('课表已导入，共创建 ${batch.createdEventCount} 组重复课程'),
+                    action: SnackBarAction(
+                      label: '撤销本次导入',
+                      onPressed: () {
+                        _undoTimetableImport(
+                          messenger.context,
+                          importer,
+                          batch.id,
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
         GoRoute(
           path: '/calendar/new',
@@ -328,6 +433,13 @@ GoRouter createPlannerRouter({
                       occurrenceStartUtc: startUtc,
                       title: title,
                     ),
+              onDeleteFollowing: calendarService == null
+                  ? null
+                  : (id, startUtc) =>
+                        calendarService.deleteFollowingOccurrences(
+                          anchorId: id,
+                          occurrenceStartUtc: startUtc,
+                        ),
               // FR-CAL-02 的"改这一次"。页面交回**本地**时刻，UTC 换算在这里做（路由持有
               // `zones` 与时区标识），与截止时间、事件编辑器两处的分工一致。
               onReplaceOccurrence: calendarService == null
@@ -351,6 +463,27 @@ GoRouter createPlannerRouter({
                             timeZoneId,
                           ),
                           title: title,
+                        ),
+              onReplaceFollowing: calendarService == null
+                  ? null
+                  : (id, startUtc, newStart, newEnd) =>
+                        calendarService.replaceFollowingOccurrences(
+                          anchorId: id,
+                          occurrenceStartUtc: startUtc,
+                          newStartUtc: zones.localDateTimeToUtc(
+                            DateTime(
+                              newStart.year,
+                              newStart.month,
+                              newStart.day,
+                            ),
+                            newStart.hour * 60 + newStart.minute,
+                            timeZoneId,
+                          ),
+                          newEndUtc: zones.localDateTimeToUtc(
+                            DateTime(newEnd.year, newEnd.month, newEnd.day),
+                            newEnd.hour * 60 + newEnd.minute,
+                            timeZoneId,
+                          ),
                         ),
               // FR-CAL-02 的"改整个系列"：改锚点与规则本身（所有各次一起变）。
               onReplaceSeries: calendarService == null
@@ -394,6 +527,12 @@ GoRouter createPlannerRouter({
           builder: (context, state) => SettingsHubPage(
             entries: [
               SettingsHubEntry(
+                key: const Key('settings-appearance'),
+                title: '外观与材质',
+                subtitle: '在无玻璃、克制、激进和极致液态玻璃之间切换',
+                onOpen: () => context.go('/settings/appearance'),
+              ),
+              SettingsHubEntry(
                 key: const Key('settings-rules'),
                 title: '规划规则与默认值',
                 // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
@@ -403,6 +542,13 @@ GoRouter createPlannerRouter({
                 subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
                 onOpen: () => context.go('/settings/rules'),
               ),
+              if (academicCalendar != null)
+                SettingsHubEntry(
+                  key: const Key('settings-academic-calendar'),
+                  title: '学期与节次模板',
+                  subtitle: '校准当前周数，设置每一节课的开始与结束时间',
+                  onOpen: () => context.go('/settings/academic-calendar'),
+                ),
               if (preferences != null)
                 SettingsHubEntry(
                   key: const Key('settings-preferences'),
@@ -439,6 +585,27 @@ GoRouter createPlannerRouter({
               ),
             ],
           ),
+        ),
+        GoRoute(
+          path: '/settings/appearance',
+          builder: (context, state) => AppearancePage(service: appearance),
+        ),
+        GoRoute(
+          path: '/settings/academic-calendar',
+          builder: (context, state) {
+            final service = academicCalendar;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '学期与节次模板',
+                message: '学期服务未装配，暂无法保存学期与节次模板。',
+              );
+            }
+            return AcademicCalendarPage(
+              service: service,
+              referenceDate: zones.toLocal(todayStartUtc, timeZoneId),
+              timeZoneId: timeZoneId,
+            );
+          },
         ),
         GoRoute(
           // FR-REPLAN-07 的"临时放宽每日上限"处理入口。此前**这条入口完全不存在**：
@@ -539,7 +706,7 @@ GoRouter createPlannerRouter({
               );
             }
             // 目录选择与写入用的是同一个端口实例，这里直接复用服务里那一份。
-            return ExportPage(service: service, files: service.files);
+            return ExportPage(service: service);
           },
         ),
         GoRoute(
@@ -875,6 +1042,8 @@ final class _PlannerShell extends StatelessWidget {
     final specialDay = onSpecialDay;
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        flexibleSpace: const PlannerGlassChrome(child: SizedBox.expand()),
         automaticallyImplyLeading: false,
         leading: _showsBackButton
             ? IconButton(
@@ -919,51 +1088,53 @@ final class _PlannerShell extends StatelessWidget {
       ),
       body: Row(
         children: [
-          NavigationRail(
-            extended: true,
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) {
-              context.go(switch (index) {
-                1 => '/tasks',
-                2 => '/workspace',
-                3 => '/calendar',
-                4 => '/analytics',
-                5 => '/settings',
-                _ => '/today',
-              });
-            },
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.today_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.today),
-                label: Text('今日'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.checklist_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.checklist),
-                label: Text('任务'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.account_tree_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.account_tree),
-                label: Text('领域'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.calendar_view_week_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
-                label: Text('日历'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.insights_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.insights),
-                label: Text('统计'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.tune_outlined),
-                selectedIcon: _SelectedNavIcon(Icons.tune),
-                label: Text('设置'),
-              ),
-            ],
+          PlannerGlassChrome(
+            child: NavigationRail(
+              extended: true,
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) {
+                context.go(switch (index) {
+                  1 => '/tasks',
+                  2 => '/workspace',
+                  3 => '/calendar',
+                  4 => '/analytics',
+                  5 => '/settings',
+                  _ => '/today',
+                });
+              },
+              destinations: const [
+                NavigationRailDestination(
+                  icon: Icon(Icons.today_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.today),
+                  label: Text('今日'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.checklist_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.checklist),
+                  label: Text('任务'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.account_tree_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.account_tree),
+                  label: Text('领域'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.calendar_view_week_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
+                  label: Text('日历'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.insights_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.insights),
+                  label: Text('统计'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.tune_outlined),
+                  selectedIcon: _SelectedNavIcon(Icons.tune),
+                  label: Text('设置'),
+                ),
+              ],
+            ),
           ),
           const VerticalDivider(width: 1),
           Expanded(child: child),
@@ -1180,6 +1351,51 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     if (result.status == ApplyPlanStatus.applied) {
       context.go('/calendar');
     }
+  }
+}
+
+Future<void> _undoTimetableImport(
+  BuildContext context,
+  TimetableImportService importer,
+  String batchId,
+) async {
+  try {
+    final preview = await importer.inspectRollback(batchId);
+    if (!context.mounted) return;
+    var force = const <String>{};
+    if (preview.protectedEventIds.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('有课程在导入后被修改过'),
+          content: Text(
+            '共 ${preview.protectedEventIds.length} 组课程有手动修改或新增例外。'
+            '继续撤销会一并删除这些修改。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('仍然撤销'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      force = preview.protectedEventIds;
+    }
+    final result = await importer.rollback(batchId, forceEventIds: force);
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text('已撤销本次导入，删除 ${result.deletedEventCount} 组课程')),
+    );
+  } on Object {
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(const SnackBar(content: Text('撤销失败：课程可能在确认期间再次发生变化')));
   }
 }
 

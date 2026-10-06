@@ -39,10 +39,7 @@ void main() {
       at(const Duration(hours: 5, minutes: 45)).timeZoneId,
       'Asia/Kathmandu',
     );
-    expect(
-      at(const Duration(hours: 6, minutes: 30)).timeZoneId,
-      'Asia/Yangon',
-    );
+    expect(at(const Duration(hours: 6, minutes: 30)).timeZoneId, 'Asia/Yangon');
     expect(
       at(const Duration(hours: -3, minutes: -30)).timeZoneId,
       'America/St_Johns',
@@ -51,18 +48,17 @@ void main() {
 
   test('夏令时状态计入偏移匹配', () {
     expect(at(Duration.zero, when: winter).timeZoneId, 'Europe/London');
-    expect(at(const Duration(hours: 1), when: summer).timeZoneId, 'Europe/London');
+    expect(
+      at(const Duration(hours: 1), when: summer).timeZoneId,
+      'Europe/London',
+    );
   });
 
   test('候选表覆盖每个整点偏移（冬夏两季都精确匹配）', () {
     for (final when in [winter, summer]) {
       for (var hours = -11; hours <= 14; hours++) {
         final resolution = at(Duration(hours: hours), when: when);
-        expect(
-          resolution.exact,
-          isTrue,
-          reason: '偏移 $hours 小时在 $when 未能精确匹配',
-        );
+        expect(resolution.exact, isTrue, reason: '偏移 $hours 小时在 $when 未能精确匹配');
       }
     }
   });
@@ -95,7 +91,10 @@ void main() {
     expect(preferred.exact, isTrue);
     expect(preferred.diagnostic, '用户显式指定');
     // 空白指定视为未指定。
-    expect(at(const Duration(hours: 8), preferred: '   ').timeZoneId, 'Asia/Shanghai');
+    expect(
+      at(const Duration(hours: 8), preferred: '   ').timeZoneId,
+      'Asia/Shanghai',
+    );
   });
 
   test('非 UTC 的参照时刻被拒绝', () {

@@ -7,6 +7,32 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_model
 import 'package:personal_planner/features/today/today_page.dart';
 
 void main() {
+  testWidgets('今日时间线和容量排除明天的任务', (tester) async {
+    final today = DateTime.utc(2026, 10, 5);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              _item('today', '今天完成', ScheduleItemKind.task, today, 9),
+              _item(
+                'tomorrow',
+                '明天完成',
+                ScheduleItemKind.task,
+                today.add(const Duration(days: 1)),
+                9,
+              ),
+            ]),
+          ),
+          day: today,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('今天完成'), findsWidgets);
+    expect(find.text('明天完成'), findsNothing);
+    expect(find.textContaining('共安排 1 小时'), findsOneWidget);
+  });
   final day = DateTime.utc(2026, 10, 5);
 
   testWidgets('today page renders its UTC window in the selected local zone', (
@@ -66,6 +92,39 @@ void main() {
     expect(find.text('当前安排'), findsOneWidget);
     expect(find.text('今日容量'), findsOneWidget);
     expect(find.text('共安排 3 小时'), findsOneWidget);
+  });
+
+  testWidgets('wide today page scrolls a long timeline in a short window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              for (var hour = 8; hour <= 16; hour += 2)
+                _item(
+                  'task-$hour',
+                  '任务 $hour',
+                  ScheduleItemKind.task,
+                  day,
+                  hour,
+                ),
+            ]),
+          ),
+          day: day,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('today-wide-layout')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('today-timeline-scroll')), findsOneWidget);
   });
 
   testWidgets('compact today page keeps the planning summary below timeline', (

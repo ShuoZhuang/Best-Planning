@@ -132,6 +132,46 @@ void main() {
     expect(repository.rules.single.localStartMinute, 9 * 60);
     expect(repository.rules.single.durationMinutes, 90);
   });
+
+  testWidgets('周期控件可选择每两周和结束日期', (tester) async {
+    final repository = _MemoryCalendarRepository();
+    final service = CalendarService(
+      repository: repository,
+      recurringRepository: repository,
+      clock: _Clock(),
+      idGenerator: _Ids(),
+      zones: TimeZoneDatabase(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EventEditorForm(
+            service: service,
+            initialStartUtc: DateTime.utc(2026, 10, 5, 1),
+            initialEndUtc: DateTime.utc(2026, 10, 5, 2),
+            timeZoneId: 'Asia/Shanghai',
+            zones: TimeZoneDatabase(),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byKey(const Key('event-title')), '单双周课程');
+    await tester.tap(find.byKey(const Key('event-weekly')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('event-recurrence-preset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('每两周').last);
+    await tester.enterText(
+      find.byKey(const Key('event-recurrence-end-date')),
+      '2026-12-28',
+    );
+    await tester.tap(find.text('保存日程'));
+    await tester.pumpAndSettle();
+
+    expect(repository.rules.single.intervalWeeks, 2);
+    expect(repository.rules.single.validUntilLocalDate, DateTime(2026, 12, 28));
+  });
 }
 
 final class _MemoryCalendarRepository

@@ -46,11 +46,14 @@ final class _EventEditorFormState extends State<EventEditorForm> {
   late final TextEditingController _startTimeController;
   late final TextEditingController _endDateController;
   late final TextEditingController _endTimeController;
+  late final TextEditingController _recurrenceEndController;
+  late final TextEditingController _intervalController;
   Map<String, String> _errors = const {};
   String? _status;
   EventEditScope _scope = EventEditScope.singleOccurrence;
   bool _weekly = false;
   late Set<int> _weekdays;
+  String _recurrencePreset = 'weekly';
 
   @override
   void initState() {
@@ -67,6 +70,8 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _startTimeController = TextEditingController(text: _time(start));
     _endDateController = TextEditingController(text: _date(end));
     _endTimeController = TextEditingController(text: _time(end));
+    _recurrenceEndController = TextEditingController();
+    _intervalController = TextEditingController(text: '1');
   }
 
   @override
@@ -76,6 +81,8 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _startTimeController.dispose();
     _endDateController.dispose();
     _endTimeController.dispose();
+    _recurrenceEndController.dispose();
+    _intervalController.dispose();
     super.dispose();
   }
 
@@ -95,6 +102,17 @@ final class _EventEditorFormState extends State<EventEditorForm> {
       });
       return;
     }
+    final recurrenceEndInput = _recurrenceEndController.text.trim();
+    final recurrenceEnd = recurrenceEndInput.isEmpty
+        ? null
+        : _parseDate(recurrenceEndInput);
+    if (_weekly && recurrenceEndInput.isNotEmpty && recurrenceEnd == null) {
+      setState(() {
+        _errors = const {'recurrence': '请按 YYYY-MM-DD 填写重复结束日期'};
+        _status = null;
+      });
+      return;
+    }
     final result = await widget.service.save(
       EventDraft(
         title: _titleController.text,
@@ -104,6 +122,9 @@ final class _EventEditorFormState extends State<EventEditorForm> {
         recurrenceRuleId: widget.recurrenceRuleId,
         editScope: _scope,
         recurrenceWeekdays: _weekly ? _weekdays : const {},
+        recurrenceIntervalWeeks:
+            int.tryParse(_intervalController.text.trim()) ?? 0,
+        recurrenceValidUntilLocalDate: recurrenceEnd,
       ),
     );
     if (!mounted) return;
@@ -187,6 +208,52 @@ final class _EventEditorFormState extends State<EventEditorForm> {
           onChanged: (value) => setState(() => _weekly = value),
         ),
         if (_weekly) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const Key('event-recurrence-preset'),
+            initialValue: _recurrencePreset,
+            decoration: const InputDecoration(labelText: '重复方式'),
+            items: const [
+              DropdownMenuItem(value: 'weekly', child: Text('每周')),
+              DropdownMenuItem(value: 'biweekly', child: Text('每两周')),
+              DropdownMenuItem(value: 'odd', child: Text('单周')),
+              DropdownMenuItem(value: 'even', child: Text('双周')),
+              DropdownMenuItem(value: 'custom', child: Text('自定义')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _recurrencePreset = value;
+                if (value == 'weekly') _intervalController.text = '1';
+                if (value == 'biweekly' || value == 'odd' || value == 'even') {
+                  _intervalController.text = '2';
+                }
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _timeField(
+                key: const Key('event-recurrence-end-date'),
+                controller: _recurrenceEndController,
+                label: '重复结束日期（可选）',
+                hint: 'YYYY-MM-DD',
+                width: 240,
+              ),
+              if (_recurrencePreset == 'custom')
+                _timeField(
+                  key: const Key('event-recurrence-interval'),
+                  controller: _intervalController,
+                  label: '每隔几周',
+                  hint: '1–52',
+                  width: 160,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -223,6 +290,10 @@ final class _EventEditorFormState extends State<EventEditorForm> {
               ButtonSegment(
                 value: EventEditScope.singleOccurrence,
                 label: Text('仅本次'),
+              ),
+              ButtonSegment(
+                value: EventEditScope.followingOccurrences,
+                label: Text('本次及以后'),
               ),
               ButtonSegment(
                 value: EventEditScope.entireSeries,
@@ -288,6 +359,23 @@ final class _EventEditorFormState extends State<EventEditorForm> {
       hour * 60 + minute,
       widget.timeZoneId,
     );
+  }
+
+  DateTime? _parseDate(String raw) {
+    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
+        .firstMatch(raw.trim());
+    if (match == null) return null;
+    final date = DateTime(
+      int.parse(match.group(1)!),
+      int.parse(match.group(2)!),
+      int.parse(match.group(3)!),
+    );
+    return _date(date) ==
+            '${match.group(1)!.padLeft(4, '0')}-'
+                '${match.group(2)!.padLeft(2, '0')}-'
+                '${match.group(3)!.padLeft(2, '0')}'
+        ? date
+        : null;
   }
 }
 

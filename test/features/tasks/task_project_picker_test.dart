@@ -77,6 +77,7 @@ PlannerArea _area(String id, String name, {bool isLife = false}) => PlannerArea(
 
 PlannerTask _task() => PlannerTask(
   id: 'task-1',
+  areaId: 'area-life',
   title: '跑步',
   priority: TaskPriority.medium,
   estimatedMinutes: 60,
@@ -107,23 +108,25 @@ void main() {
 
   setUp(() {
     tasks = _Tasks({'task-1': _task()});
+    final workspaceRepository = _Workspace(
+      areas: [_area('area-life', '生活', isLife: true)],
+      projects: [
+        _project('project-life', '健身'),
+        _project(
+          'project-old',
+          '已归档项目',
+          archivedAtUtc: DateTime.utc(2026, 10, 2),
+        ),
+      ],
+    );
     workspace = WorkspaceService(
-      repository: _Workspace(
-        areas: [_area('area-life', '生活', isLife: true)],
-        projects: [
-          _project('project-life', '健身'),
-          _project(
-            'project-old',
-            '已归档项目',
-            archivedAtUtc: DateTime.utc(2026, 10, 2),
-          ),
-        ],
-      ),
+      repository: workspaceRepository,
       clock: const _Clock(),
       idGenerator: _Ids(),
     );
     service = TaskService(
       repository: tasks,
+      workspace: workspaceRepository,
       clock: const _Clock(),
       idGenerator: _Ids(),
     );
@@ -148,6 +151,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> openProjectPicker(WidgetTester tester) async {
+    final picker = find.byType(DropdownButton<String?>);
+    await tester.ensureVisible(picker);
+    await tester.pumpAndSettle();
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('把任务归属到项目后立即写入，并说明由此生效的后果', (tester) async {
     await pump(tester);
 
@@ -155,8 +166,7 @@ void main() {
     // 未归属时列表里只有"不归属项目"。
     expect(find.text('健身'), findsNothing);
 
-    await tester.tap(find.byType(DropdownButton<String?>));
-    await tester.pumpAndSettle();
+    await openProjectPicker(tester);
     await tester.tap(find.text('健身').last);
     await tester.pumpAndSettle();
 
@@ -168,8 +178,7 @@ void main() {
     tasks.tasks['task-1'] = _task().copyWith(projectId: 'project-life');
     await pump(tester);
 
-    await tester.tap(find.byType(DropdownButton<String?>));
-    await tester.pumpAndSettle();
+    await openProjectPicker(tester);
     await tester.tap(find.text('不归属项目').last);
     await tester.pumpAndSettle();
 
@@ -194,10 +203,7 @@ void main() {
     // 空列表必须说明原因，否则会被当成功能失效。
     expect(find.textContaining('尚无项目'), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const Key('new-project-name')),
-      '读书',
-    );
+    await tester.enterText(find.byKey(const Key('new-project-name')), '读书');
     // 这一页会随功能增长而变长（本轮就新增了优先级控件），因此点击前先滚动到可见位置，
     // 而不是假设它在默认视口内——否则排布一变，点击会**静默失效**，表现为"功能坏了"。
     await tester.ensureVisible(find.text('新建并归属'));
@@ -228,8 +234,7 @@ void main() {
   testWidgets('已归档项目不出现在可选项中', (tester) async {
     await pump(tester);
 
-    await tester.tap(find.byType(DropdownButton<String?>));
-    await tester.pumpAndSettle();
+    await openProjectPicker(tester);
 
     // 归档表示"不再往里放新任务"，因此可选列表里没有它。
     expect(find.text('健身'), findsOneWidget);

@@ -21,7 +21,12 @@ void main() {
   final start = DateTime.utc(2026, 10, 1);
   final end = DateTime.utc(2026, 10, 8);
 
-  Future<void> seedTask(String id, int estimateMinutes) => database
+  Future<void> seedTask(
+    String id,
+    int estimateMinutes, {
+    String? areaId,
+    String? projectId,
+  }) => database
       .into(database.tasks)
       .insert(
         TasksCompanion.insert(
@@ -37,6 +42,8 @@ void main() {
           status: 'open',
           createdAtUtc: 1,
           updatedAtUtc: 1,
+          areaId: Value(areaId),
+          projectId: Value(projectId),
           // 截止落在窗口内，任务才会进入完成率的分母，从而让服务层的筛选结果可观测。
           dueAtUtc: Value(DateTime.utc(2026, 10, 3).microsecondsSinceEpoch),
         ),
@@ -124,8 +131,7 @@ void main() {
     );
     // 两个标签的交集只有 task-1；若实现是"满足任意一个"，这里会得到 2。
     expect(
-      (await service
-              .query(filterWith({'论文', '深度工作'})))
+      (await service.query(filterWith({'论文', '深度工作'})))
           .completionRate
           .denominator,
       1,
@@ -137,5 +143,53 @@ void main() {
           .denominator,
       0,
     );
+  });
+
+  test('无项目任务按直接领域进入统计，冲突项目不能覆盖直接领域', () async {
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-life',
+            name: '生活',
+            color: 0,
+            sortOrder: 0,
+            isLife: const Value(true),
+          ),
+        );
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-work',
+            name: '工作',
+            color: 0,
+            sortOrder: 1,
+          ),
+        );
+    await database
+        .into(database.projects)
+        .insert(
+          ProjectsCompanion.insert(
+            id: 'project-work',
+            areaId: 'area-work',
+            name: '实习',
+          ),
+        );
+    await seedTask('task-direct', 30, areaId: 'area-life');
+    await seedTask(
+      'task-conflict',
+      30,
+      areaId: 'area-life',
+      projectId: 'project-work',
+    );
+
+    final dataset = await dao.load(filterWith(const {}));
+    final byId = {for (final task in dataset.tasks) task.id: task};
+    for (final id in ['task-direct', 'task-conflict']) {
+      expect(byId[id]!.areaId, 'area-life');
+      expect(byId[id]!.areaName, '生活');
+      expect(byId[id]!.isLifeTask, isTrue);
+    }
   });
 }

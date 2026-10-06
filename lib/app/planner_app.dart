@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/application/appearance_service.dart';
+import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
@@ -15,6 +17,7 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
@@ -23,15 +26,20 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
+import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
@@ -41,6 +49,8 @@ final class PlannerApp extends StatefulWidget {
   const PlannerApp({
     this.taskRepository,
     this.settingsRepository,
+    this.appearanceFailureReporter,
+    this.appearanceFallback,
     this.scheduleSource,
     this.planningService,
     this.planApplication,
@@ -71,6 +81,10 @@ final class PlannerApp extends StatefulWidget {
     this.recovery,
     this.calendar,
     this.calendarService,
+    this.academicCalendar,
+    this.timetableOcr,
+    this.timetableImport,
+    this.timetableImagePicker,
     this.autoAdjustStore,
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
@@ -86,6 +100,8 @@ final class PlannerApp extends StatefulWidget {
 
   final TaskRepository? taskRepository;
   final SettingsRepository? settingsRepository;
+  final AppearanceSaveFailureReporter? appearanceFailureReporter;
+  final AppearanceModeStore? appearanceFallback;
 
   /// 今日页与周视图的数据源；为空时退化为空列表（测试用）。
   final ScheduleViewSource? scheduleSource;
@@ -163,6 +179,14 @@ final class PlannerApp extends StatefulWidget {
   /// 日历却没有真实的新建入口。
   final CalendarService? calendarService;
 
+  /// 学期周数与节次模板服务。为空时设置入口不会显示该项。
+  final AcademicCalendarService? academicCalendar;
+
+  /// 本地课表识别与批次导入。四个相关依赖齐全时，日历才显示导入入口。
+  final TimetableOcrEngine? timetableOcr;
+  final TimetableImportService? timetableImport;
+  final TimetableImagePicker? timetableImagePicker;
+
   /// "信任自动调整"的内存开关。为空时自建一个默认关闭的实例。
   ///
   /// 由组合根注入而不是每次自建：该值来自持久设置，此前只有打开设置页时才会被灌进来，
@@ -185,6 +209,8 @@ final class PlannerApp extends StatefulWidget {
 final class _PlannerAppState extends State<PlannerApp> {
   late final TaskRepository _repository;
   late final SettingsRepository _settingsRepository;
+  late final AppearanceService _appearance;
+  late final Future<void> _appearanceReady;
   late final GoRouter _router;
   late final Future<bool> _onboardingRequired;
   bool _onboardingCompleted = false;
@@ -215,7 +241,19 @@ final class _PlannerAppState extends State<PlannerApp> {
     if (messenger == null) return;
     messenger.showSnackBar(
       SnackBar(
-        content: Text(outcome.message.isEmpty ? '计划已更新' : outcome.message),
+        content: Row(
+          children: [
+            IconButton(
+              tooltip: '关闭提示',
+              onPressed: messenger.hideCurrentSnackBar,
+              icon: const Icon(Icons.close_rounded),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(outcome.message.isEmpty ? '计划已更新' : outcome.message),
+            ),
+          ],
+        ),
         action: outcome.applied
             ? null
             : SnackBarAction(
@@ -247,12 +285,20 @@ final class _PlannerAppState extends State<PlannerApp> {
     _repository = widget.taskRepository ?? _MemoryTaskRepository();
     _settingsRepository =
         widget.settingsRepository ?? MemorySettingsRepository();
-    _onboardingRequired = _settingsRepository
-        .read(OnboardingPage.schemaVersionKey)
-        .then((value) {
-          final stored = value == null ? null : int.tryParse(value);
-          return stored == null || stored < OnboardingPage.currentSchemaVersion;
-        });
+    _appearance = AppearanceService(
+      _settingsRepository,
+      onSaveFailure: widget.appearanceFailureReporter,
+      fallback: widget.appearanceFallback,
+    )..addListener(_onAppearanceChanged);
+    _appearanceReady = _appearance.load();
+    _onboardingRequired = () async {
+      await _appearanceReady;
+      final value = await _settingsRepository.read(
+        OnboardingPage.schemaVersionKey,
+      );
+      final stored = value == null ? null : int.tryParse(value);
+      return stored == null || stored < OnboardingPage.currentSchemaVersion;
+    }();
     final zones = widget.zones ?? TimeZoneDatabase();
     final clock = const SystemClock();
     final todayStartUtc = zones.localMidnightToUtc(
@@ -262,12 +308,15 @@ final class _PlannerAppState extends State<PlannerApp> {
     _router = createPlannerRouter(
       taskService: TaskService(
         repository: _repository,
+        workspace:
+            widget.workspaceService?.repository ?? _MemoryWorkspaceRepository(),
         clock: clock,
         idGenerator: UuidIdGenerator(),
         correctionLog: widget.correctionLog,
         onScheduleInputChanged: widget.onScheduleInputChanged,
       ),
       settingsService: SettingsService(repository: _settingsRepository),
+      appearance: _appearance,
       scheduleSource: widget.scheduleSource ?? const EmptyScheduleViewSource(),
       // FR-CAL-05：拖动**可移动任务块**。此前这里恒为 `DisabledWeekMoveController`，
       // 于是周视图上的拖动在真实运行中永远没有反应——"拖动被禁用"不是一句说明，而是这行
@@ -307,6 +356,10 @@ final class _PlannerAppState extends State<PlannerApp> {
       recovery: widget.recovery,
       calendar: widget.calendar,
       calendarService: widget.calendarService,
+      academicCalendar: widget.academicCalendar,
+      timetableOcr: widget.timetableOcr,
+      timetableImport: widget.timetableImport,
+      timetableImagePicker: widget.timetableImagePicker,
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
@@ -335,10 +388,16 @@ final class _PlannerAppState extends State<PlannerApp> {
     _router.go(payload.route);
   }
 
+  void _onAppearanceChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     final listener = _replanListener;
     if (listener != null) widget.replanOutcome?.removeListener(listener);
+    _appearance.removeListener(_onAppearanceChanged);
+    _appearance.dispose();
     _router.dispose();
     if (_repository case final _MemoryTaskRepository memory) {
       memory.dispose();
@@ -346,10 +405,22 @@ final class _PlannerAppState extends State<PlannerApp> {
     super.dispose();
   }
 
-  ThemeData get _theme => PlannerTheme.dark();
+  ThemeData get _theme => PlannerTheme.dark(glassMode: _appearance.mode);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => FutureBuilder<void>(
+    future: _appearanceReady,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return _shell(
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+        );
+      }
+      return _buildReady(context);
+    },
+  );
+
+  Widget _buildReady(BuildContext context) {
     // 应用锁先于一切：锁定状态下连首次引导都不显示，否则"锁"只挡得住主界面，
     // 却把设置与引导暴露在外。
     final locked = _locked;
@@ -394,6 +465,8 @@ final class _PlannerAppState extends State<PlannerApp> {
           scaffoldMessengerKey: _messengerKey,
           routerConfig: _router,
           theme: _theme,
+          builder: (context, child) =>
+              PlannerBackdrop(child: child ?? const SizedBox.shrink()),
         );
       },
     );
@@ -405,6 +478,8 @@ final class _PlannerAppState extends State<PlannerApp> {
     debugShowCheckedModeBanner: false,
     scaffoldMessengerKey: _messengerKey,
     theme: _theme,
+    builder: (context, child) =>
+        PlannerBackdrop(child: child ?? const SizedBox.shrink()),
     home: home,
   );
 }
@@ -442,4 +517,48 @@ final class _MemoryTaskRepository implements TaskRepository {
       _tasks.where((task) => !task.status.isClosed);
 
   Future<void> dispose() => _changes.close();
+}
+
+final class _MemoryWorkspaceRepository implements WorkspaceRepository {
+  _MemoryWorkspaceRepository()
+    : _areas = [
+        PlannerArea(
+          id: 'area-study',
+          name: '学业',
+          color: 0,
+          sortOrder: 0,
+          createdAtUtc: DateTime.utc(2026),
+          updatedAtUtc: DateTime.utc(2026),
+        ),
+      ];
+
+  final List<PlannerArea> _areas;
+  final List<PlannerProject> _projects = [];
+
+  @override
+  Future<List<PlannerArea>> listAreas() async => List.unmodifiable(_areas);
+
+  @override
+  Future<List<PlannerProject>> listProjects() async =>
+      List.unmodifiable(_projects);
+
+  @override
+  Future<void> saveArea(PlannerArea area) async {
+    final index = _areas.indexWhere((item) => item.id == area.id);
+    if (index < 0) {
+      _areas.add(area);
+    } else {
+      _areas[index] = area;
+    }
+  }
+
+  @override
+  Future<void> saveProject(PlannerProject project) async {
+    final index = _projects.indexWhere((item) => item.id == project.id);
+    if (index < 0) {
+      _projects.add(project);
+    } else {
+      _projects[index] = project;
+    }
+  }
 }

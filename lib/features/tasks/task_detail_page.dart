@@ -18,6 +18,7 @@ import 'package:personal_planner/domain/models/workspace.dart';
 /// 来自 `PlannerTask.statusAt`，修正的校验来自 `TaskService.correctRemainingMinutes`。
 final class TaskDetailPage extends StatefulWidget {
   const TaskDetailPage({
+    this.onEdit,
     required this.service,
     required this.taskId,
     required this.nowUtc,
@@ -32,6 +33,7 @@ final class TaskDetailPage extends StatefulWidget {
   });
 
   final TaskService service;
+  final VoidCallback? onEdit;
   final String taskId;
   final DateTime nowUtc;
 
@@ -203,7 +205,10 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
       _saving = true;
       _message = null;
     });
-    final assigned = await widget.service.assignProject(widget.taskId, projectId);
+    final assigned = await widget.service.assignProject(
+      widget.taskId,
+      projectId,
+    );
     if (!mounted) return;
     setState(() {
       _saving = false;
@@ -211,9 +216,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
         _message = '任务不存在，归属未变更';
         return;
       }
-      _message = projectId == null
-          ? '已取消项目归属'
-          : '已归属到该项目，领域与生活标记随之生效';
+      _message = projectId == null ? '已取消项目归属' : '已归属到该项目，领域与生活标记随之生效';
     });
     if (assigned) await _load();
   }
@@ -329,11 +332,10 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
     if (by == null) return;
     final ok = await widget.onDeferTask!(by);
     if (!mounted) return;
-    setState(
-      () => _message = ok ? '已延后' : '延后失败：任务可能已不存在，或它没有截止时间',
-    );
+    setState(() => _message = ok ? '已延后' : '延后失败：任务可能已不存在，或它没有截止时间');
     await _load();
   }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -350,6 +352,19 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(task.title, style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          Text(
+            task.splitMode == TaskSplitMode.continuous
+                ? '安排方式：必须连续'
+                : '安排方式：可拆分 · 每段 ${task.minChunkMinutes}–${task.maxChunkMinutes} 分钟',
+          ),
+          if (widget.onEdit != null)
+            TextButton.icon(
+              key: const Key('edit-task'),
+              onPressed: widget.onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('编辑任务设置'),
+            ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -383,9 +398,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                   TaskStatus.cancelled,
                 );
                 if (!mounted) return;
-                setState(
-                  () => _message = changed ? '已取消该事项' : '取消失败，任务可能已不存在',
-                );
+                setState(() => _message = changed ? '已取消该事项' : '取消失败，任务可能已不存在');
                 await _load();
               },
               icon: const Icon(Icons.cancel_outlined),
@@ -510,9 +523,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                   final ok = await widget.onRecomputeFromFocus!();
                   if (!mounted) return;
                   setState(
-                    () => _message = ok
-                        ? '已按专注记录重算剩余时长'
-                        : '重算失败，任务可能已不存在',
+                    () => _message = ok ? '已按专注记录重算剩余时长' : '重算失败，任务可能已不存在',
                   );
                   await _load();
                 },
@@ -556,9 +567,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
             const Divider(height: 40),
             Text('归属项目', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
-            const Text(
-              '任务的领域与生活标记都经"项目 → 领域"推导；不归属项目时两者都不适用。',
-            ),
+            const Text('任务的领域与生活标记都经"项目 → 领域"推导；不归属项目时两者都不适用。'),
             const SizedBox(height: 12),
             if (_projects.isEmpty)
               Padding(
@@ -656,9 +665,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                     key: Key('tag-chip-${tag.name}'),
                     label: Text(tag.name),
                     selected: _taskTagNames.contains(tag.name),
-                    onSelected: _tagSaving
-                        ? null
-                        : (_) => _toggleTag(tag.name),
+                    onSelected: _tagSaving ? null : (_) => _toggleTag(tag.name),
                   ),
               ],
             ),
@@ -768,7 +775,12 @@ final class _Fact extends StatelessWidget {
       children: [
         SizedBox(
           width: 96,
-          child: Text(label, style: const TextStyle(color: Colors.black54)),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
         Expanded(child: Text(value)),
       ],

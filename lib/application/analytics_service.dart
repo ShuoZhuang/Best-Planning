@@ -14,11 +14,7 @@ abstract interface class AnalyticsQuery {
 }
 
 final class AnalyticsService implements AnalyticsQuery {
-  const AnalyticsService({
-    required this.source,
-    this.zones,
-    this.timeZoneId,
-  });
+  const AnalyticsService({required this.source, this.zones, this.timeZoneId});
 
   final AnalyticsDataSource source;
 
@@ -123,10 +119,7 @@ final class AnalyticsService implements AnalyticsQuery {
         .fold<int>(0, (sum, entry) => sum + entry.value);
     final rangeMinutes = filter.endUtc.difference(filter.startUtc).inMinutes;
     final target =
-        (dataset.weeklyLifeQuotaMinutes *
-                rangeMinutes /
-                (7 * 24 * 60))
-            .round();
+        (dataset.weeklyLifeQuotaMinutes * rangeMinutes / (7 * 24 * 60)).round();
 
     final events = dataset.events
         .where((event) => _inside(event.observedAtUtc, filter))
@@ -563,8 +556,10 @@ RestProtectionMetric? _restProtection({
       final crossesMidnight = window.endMinute <= window.startMinute;
       final rawStart = boundaryUtc(day, window.startMinute);
       final rawEnd = crossesMidnight
-          ? boundaryUtc(DateTime.utc(day.year, day.month, day.day + 1),
-              window.endMinute)
+          ? boundaryUtc(
+              DateTime.utc(day.year, day.month, day.day + 1),
+              window.endMinute,
+            )
           : boundaryUtc(day, window.endMinute);
       final start = rawStart.isBefore(filter.startUtc)
           ? filter.startUtc
@@ -584,11 +579,14 @@ RestProtectionMetric? _restProtection({
     localStart.month,
     localStart.day,
   );
-  final lastLocalDay = DateTime.utc(localEnd.year, localEnd.month, localEnd.day);
+  final lastLocalDay = DateTime.utc(
+    localEnd.year,
+    localEnd.month,
+    localEnd.day,
+  );
   final relaxedDays = relaxedLocalDates
       .where(
-        (date) =>
-            !date.isBefore(firstLocalDay) && !date.isAfter(lastLocalDay),
+        (date) => !date.isBefore(firstLocalDay) && !date.isAfter(lastLocalDay),
       )
       .length;
 

@@ -38,6 +38,7 @@ void main() {
     required int minutes,
     TaskSplitMode splitMode = TaskSplitMode.splittable,
     DateTime? dueAtUtc,
+    DateTime? availableFromUtc,
   }) => PlannerTask(
     id: id,
     title: id,
@@ -45,6 +46,7 @@ void main() {
     estimatedMinutes: minutes,
     remainingMinutes: minutes,
     dueAtUtc: dueAtUtc,
+    availableFromUtc: availableFromUtc,
     energyLevel: TaskEnergyLevel.high,
     splitMode: splitMode,
     minChunkMinutes: splitMode == TaskSplitMode.continuous ? minutes : 30,
@@ -90,6 +92,15 @@ void main() {
     expect(problem.planningWindow.endUtc, DateTime.utc(2026, 10, 11, 16));
     expect(problem.timeZoneId, zoneId);
     expect(problem.inputHash, isNotEmpty);
+  });
+
+  test('把任务最早开始时间映射进排程输入', () async {
+    final available = DateTime.utc(2026, 10, 6, 3, 15);
+    final problem = await source(
+      tasks: [task(id: 'bounded', minutes: 60, availableFromUtc: available)],
+    ).load();
+
+    expect(problem.tasks.single.availableFromUtc, available);
   });
 
   test('把开放任务的剩余时长与固定日程映射进排程输入', () async {
@@ -177,7 +188,10 @@ void main() {
 
     final proposal = DeterministicScheduleEngine(zones).generate(problem);
 
-    expect(proposal.algorithmVersion, DeterministicScheduleEngine.algorithmVersion);
+    expect(
+      proposal.algorithmVersion,
+      DeterministicScheduleEngine.algorithmVersion,
+    );
     expect(proposal.metrics.scheduledMinutes, 300);
     expect(proposal.blocks, isNotEmpty);
     // 固定日程与保护时间不得被占用。
@@ -263,9 +277,8 @@ final class _FakeCalendar implements CalendarRepository {
     DateTime endUtc,
   ) async => occurrences
       .where(
-        (item) => item.range.overlaps(
-          TimeRange(startUtc: startUtc, endUtc: endUtc),
-        ),
+        (item) =>
+            item.range.overlaps(TimeRange(startUtc: startUtc, endUtc: endUtc)),
       )
       .toList();
   @override

@@ -87,13 +87,14 @@ PlannerArea _area(
   updatedAtUtc: _created,
 );
 
-PlannerProject _project(String id, String areaId, String name) => PlannerProject(
-  id: id,
-  areaId: areaId,
-  name: name,
-  createdAtUtc: _created,
-  updatedAtUtc: _created,
-);
+PlannerProject _project(String id, String areaId, String name) =>
+    PlannerProject(
+      id: id,
+      areaId: areaId,
+      name: name,
+      createdAtUtc: _created,
+      updatedAtUtc: _created,
+    );
 
 void main() {
   late WorkspaceService service;
@@ -112,7 +113,10 @@ void main() {
     );
   });
 
-  Future<void> pump(WidgetTester tester, {WorkspaceService? withService}) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    WorkspaceService? withService,
+  }) async {
     // 页面比默认的 800x600 测试视口高得多。`ListView` 只给已经布局的子项建立 element，
     // 因此视口外的控件连"找到"都做不到（`ensureVisible` 会报 Bad state: No element），
     // 更不用说点击。这里给一个足够高的视口，让整页都在布局范围内；`tapKey` 仍然保留
@@ -187,6 +191,7 @@ void main() {
             createdAtUtc: 1,
             updatedAtUtc: 1,
             projectId: Value(project.id),
+            areaId: Value(area.id),
           ),
         );
     final lookup = DriftLifeAreaLookup(database);
@@ -218,6 +223,9 @@ void main() {
 
   testWidgets('新建领域可以同时标记为生活', (tester) async {
     await pump(tester);
+
+    expect(find.text('计入个人生活时间'), findsWidgets);
+    expect(find.text('标记为生活领域'), findsNothing);
 
     await tester.enterText(find.byKey(const Key('new-area-name')), '健身');
     await tapKey(tester, 'new-area-is-life');

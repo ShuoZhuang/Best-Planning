@@ -77,4 +77,25 @@ abstract interface class CalendarEventDeletion {
     required DateTime newEndUtc,
     required DateTime updatedAtUtc,
   });
+
+  /// Replaces the selected occurrence and every later occurrence by splitting
+  /// the rule at the selected local date. The selected occurrence belongs only
+  /// to the newly-created series.
+  Future<void> replaceFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime newStartUtc,
+    required DateTime newEndUtc,
+    required String newRuleId,
+    required String newEventId,
+    required DateTime updatedAtUtc,
+  });
+
+  /// Deletes the selected occurrence and everything after it by truncating the
+  /// old rule to the previous local calendar day.
+  Future<void> deleteFollowingOccurrences({
+    required String anchorId,
+    required DateTime occurrenceStartUtc,
+    required DateTime updatedAtUtc,
+  });
 }

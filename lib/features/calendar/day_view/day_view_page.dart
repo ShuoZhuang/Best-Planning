@@ -18,7 +18,9 @@ final class DayViewPage extends StatelessWidget {
     this.onOpenWeek,
     this.onDeleteEvent,
     this.onDeleteOccurrence,
+    this.onDeleteFollowing,
     this.onReplaceOccurrence,
+    this.onReplaceFollowing,
     this.onReplaceSeries,
     super.key,
   });
@@ -49,6 +51,9 @@ final class DayViewPage extends StatelessWidget {
   )?
   onDeleteOccurrence;
 
+  final Future<bool> Function(String eventId, DateTime occurrenceStartUtc)?
+  onDeleteFollowing;
+
   /// **改写**某一次（FR-CAL-02 的"修改单次实例"）。为空时不显示该按钮。
   ///
   /// 交回的是**本地时刻**：与 `onDeleteOccurrence` 同理，页面不做时区换算，换算由注入方
@@ -62,6 +67,14 @@ final class DayViewPage extends StatelessWidget {
     String title,
   )?
   onReplaceOccurrence;
+
+  final Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+  )?
+  onReplaceFollowing;
 
   /// 改写**整个系列**（FR-CAL-02 的"整个系列"编辑）。为空时对话框里不出现该选项。
   ///
@@ -78,10 +91,7 @@ final class DayViewPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => StreamBuilder<List<ScheduleViewItem>>(
-    stream: source.watch(
-      dayStartUtc,
-      dayStartUtc.add(const Duration(days: 1)),
-    ),
+    stream: source.watch(dayStartUtc, dayStartUtc.add(const Duration(days: 1))),
     builder: (context, snapshot) {
       final localDay = zones.toLocal(dayStartUtc, timeZoneId);
       final items = [...?snapshot.data]
@@ -145,6 +155,7 @@ final class DayViewPage extends StatelessWidget {
                                 item,
                                 onDeleteEvent: onDeleteEvent,
                                 onDeleteOccurrence: onDeleteOccurrence,
+                                onDeleteFollowing: onDeleteFollowing,
                               ),
                             ),
                           if (onReplaceOccurrence != null)
@@ -152,15 +163,15 @@ final class DayViewPage extends StatelessWidget {
                               key: Key('edit-${item.id}'),
                               tooltip: '改这一次',
                               icon: const Icon(Icons.edit_outlined),
-                              onPressed: () =>
-                                  _editOccurrence(
-                                    context,
-                                    item,
-                                    onReplaceOccurrence: onReplaceOccurrence,
-                                    onReplaceSeries: onReplaceSeries,
-                                    zones: zones,
-                                    timeZoneId: timeZoneId,
-                                  ),
+                              onPressed: () => _editOccurrence(
+                                context,
+                                item,
+                                onReplaceOccurrence: onReplaceOccurrence,
+                                onReplaceFollowing: onReplaceFollowing,
+                                onReplaceSeries: onReplaceSeries,
+                                zones: zones,
+                                timeZoneId: timeZoneId,
+                              ),
                             ),
                         ],
                       ),
@@ -191,6 +202,13 @@ Future<void> _editOccurrence(
   onReplaceOccurrence,
   required Future<bool> Function(
     String eventId,
+    DateTime occurrenceStartUtc,
+    DateTime newStartUtc,
+    DateTime newEndUtc,
+  )?
+  onReplaceFollowing,
+  required Future<bool> Function(
+    String eventId,
     DateTime newStartUtc,
     DateTime newEndUtc,
   )?
@@ -198,7 +216,7 @@ Future<void> _editOccurrence(
   required TimeZoneDatabase zones,
   required String timeZoneId,
 }) async {
-  final result = await showDialog<(DateTime, DateTime, bool)>(
+  final result = await showDialog<(DateTime, DateTime, _OccurrenceScope)>(
     context: context,
     // 控制器由对话框**自己**持有并释放。在 `showDialog` 返回后立刻 dispose 会在退出动画
     // 期间触发 "A TextEditingController was used after being disposed"——本文件第一版正是
@@ -207,13 +225,18 @@ Future<void> _editOccurrence(
       title: item.title,
       initialStart: _formatLocal(item.range.startUtc, zones, timeZoneId),
       initialEnd: _formatLocal(item.range.endUtc, zones, timeZoneId),
+      allowsFollowing: onReplaceFollowing != null,
       allowsWholeSeries: onReplaceSeries != null,
     ),
   );
   if (result == null) return;
-  final (start, end, wholeSeries) = result;
-  if (wholeSeries) {
+  final (start, end, scope) = result;
+  if (scope == _OccurrenceScope.series) {
     await onReplaceSeries!(item.id, start, end);
+    return;
+  }
+  if (scope == _OccurrenceScope.following) {
+    await onReplaceFollowing!(item.id, item.range.startUtc, start, end);
     return;
   }
   await onReplaceOccurrence!(
@@ -225,6 +248,8 @@ Future<void> _editOccurrence(
   );
 }
 
+enum _OccurrenceScope { single, following, series }
+
 /// "改这一次"的对话框：两个文本框（本地时刻），保存时把解析结果交回调用方。
 ///
 /// 用文本框而不是日期/时间选择器：**格式与事件编辑器一致**（`YYYY-MM-DD HH:mm`），用户在两个
@@ -234,12 +259,14 @@ final class _OccurrenceEditDialog extends StatefulWidget {
     required this.title,
     required this.initialStart,
     required this.initialEnd,
+    this.allowsFollowing = false,
     this.allowsWholeSeries = false,
   });
 
   final String title;
   final String initialStart;
   final String initialEnd;
+  final bool allowsFollowing;
 
   /// 是否允许选"改整个系列"。未注入对应回调时为 false——**不给一个选了也不生效的勾选框**。
   final bool allowsWholeSeries;
@@ -252,7 +279,7 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
   late final TextEditingController _start;
   late final TextEditingController _end;
   String? _error;
-  bool _wholeSeries = false;
+  _OccurrenceScope _scope = _OccurrenceScope.single;
 
   @override
   void initState() {
@@ -281,7 +308,7 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
       setState(() => _error = '结束时间必须晚于开始时间');
       return;
     }
-    Navigator.of(context).pop((start, end, _wholeSeries));
+    Navigator.of(context).pop((start, end, _scope));
   }
 
   @override
@@ -311,17 +338,37 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
-        if (widget.allowsWholeSeries)
-          CheckboxListTile(
-            key: const Key('occurrence-scope-series'),
-            value: _wholeSeries,
-            onChanged: (value) =>
-                setState(() => _wholeSeries = value ?? false),
-            title: const Text('改整个系列'),
-            subtitle: const Text('所有各次一起换到新时间'),
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
+        if (widget.allowsFollowing || widget.allowsWholeSeries) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                key: const Key('occurrence-scope-single'),
+                label: const Text('仅本次'),
+                selected: _scope == _OccurrenceScope.single,
+                onSelected: (_) =>
+                    setState(() => _scope = _OccurrenceScope.single),
+              ),
+              if (widget.allowsFollowing)
+                ChoiceChip(
+                  key: const Key('occurrence-scope-following'),
+                  label: const Text('本次及以后'),
+                  selected: _scope == _OccurrenceScope.following,
+                  onSelected: (_) =>
+                      setState(() => _scope = _OccurrenceScope.following),
+                ),
+              if (widget.allowsWholeSeries)
+                ChoiceChip(
+                  key: const Key('occurrence-scope-series'),
+                  label: const Text('整个系列'),
+                  selected: _scope == _OccurrenceScope.series,
+                  onSelected: (_) =>
+                      setState(() => _scope = _OccurrenceScope.series),
+                ),
+            ],
           ),
+        ],
       ],
     ),
     actions: [
@@ -355,9 +402,8 @@ String _formatLocal(
 }
 
 DateTime? _parseLocalDateTime(String raw) {
-  final match = RegExp(
-    r'^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$',
-  ).firstMatch(raw.trim());
+  final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$')
+      .firstMatch(raw.trim());
   if (match == null) return null;
   return DateTime(
     int.parse(match.group(1)!),
@@ -385,6 +431,8 @@ Future<void> _confirmDelete(
     String title,
   )?
   onDeleteOccurrence,
+  required Future<bool> Function(String eventId, DateTime occurrenceStartUtc)?
+  onDeleteFollowing,
 }) async {
   final choice = await showDialog<String>(
     context: context,
@@ -406,6 +454,12 @@ Future<void> _confirmDelete(
             onPressed: () => Navigator.of(dialogContext).pop('occurrence'),
             child: const Text('只删这一次'),
           ),
+        if (onDeleteFollowing != null)
+          TextButton(
+            key: const Key('delete-following-occurrences'),
+            onPressed: () => Navigator.of(dialogContext).pop('following'),
+            child: const Text('本次及以后'),
+          ),
         TextButton(
           key: const Key('delete-entire'),
           onPressed: () => Navigator.of(dialogContext).pop('entire'),
@@ -415,17 +469,16 @@ Future<void> _confirmDelete(
     ),
   );
   if (choice == 'occurrence') {
-    await onDeleteOccurrence!(
-      item.id,
-      item.range.startUtc,
-      item.title,
-    );
+    await onDeleteOccurrence!(item.id, item.range.startUtc, item.title);
+  } else if (choice == 'following') {
+    await onDeleteFollowing!(item.id, item.range.startUtc);
   } else if (choice == 'entire') {
     await onDeleteEvent!(item.id);
   }
 }
 
-final class _DayItemTile extends StatelessWidget {  const _DayItemTile({
+final class _DayItemTile extends StatelessWidget {
+  const _DayItemTile({
     required this.item,
     required this.start,
     required this.end,
