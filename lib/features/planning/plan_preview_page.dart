@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 
 enum PreviewChangeKind { added, moved, split, removed }
 
@@ -208,10 +209,9 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                 onPressed: () async {
                   final undone = await widget.onUndoPlan!();
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(undone ? '已撤销上一次计划' : '没有可撤销的已执行计划'),
-                    ),
+                  showPlannerMessage(
+                    context,
+                    message: undone ? '已撤销上一次计划' : '没有可撤销的已执行计划',
                   );
                 },
                 icon: const Icon(Icons.undo),

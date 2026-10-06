@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/interruption_reason.dart';
 import 'package:personal_planner/features/focus/focus_recovery_dialog.dart';
 
@@ -155,8 +156,7 @@ final class _FocusPageState extends State<FocusPage> {
       () => widget.service.resume(plannedEndUtc: widget.plannedEndUtc),
     );
     if (!mounted || !beyond) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已超出原计划时段，剩余待办时间将重新排程')));
+    showPlannerMessage(context, message: '已超出原计划时段，剩余待办时间将重新排程');
   }
 
   Future<void> _pause() async {

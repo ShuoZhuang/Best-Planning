@@ -27,6 +27,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/design/planner_glass.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
@@ -240,20 +241,9 @@ final class _PlannerAppState extends State<PlannerApp> {
     final messenger = _messengerKey.currentState;
     if (messenger == null) return;
     messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            IconButton(
-              tooltip: '关闭提示',
-              onPressed: messenger.hideCurrentSnackBar,
-              icon: const Icon(Icons.close_rounded),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(outcome.message.isEmpty ? '计划已更新' : outcome.message),
-            ),
-          ],
-        ),
+      plannerSnackBar(
+        messenger,
+        message: outcome.message.isEmpty ? '计划已更新' : outcome.message,
         action: outcome.applied
             ? null
             : SnackBarAction(

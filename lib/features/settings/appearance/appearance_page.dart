@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 
 final class AppearancePage extends StatelessWidget {
   const AppearancePage({required this.service, super.key});
@@ -43,9 +44,7 @@ final class AppearancePage extends StatelessWidget {
       await service.setMode(mode);
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('外观设置多次保存失败，已恢复原来的选择；详情已写入诊断日志')),
-      );
+      showPlannerMessage(context, message: '外观设置多次保存失败，已恢复原来的选择；详情已写入诊断日志');
     }
   }
 }
