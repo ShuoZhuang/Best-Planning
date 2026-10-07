@@ -8,7 +8,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
-final class DriftPlanRepository implements PlanStore {
+final class DriftPlanRepository implements PlanStore, PlanBlockHistory {
   DriftPlanRepository(this._database, {this.clock = const SystemClock()});
 
   final AppDatabase _database;
@@ -116,6 +116,69 @@ final class DriftPlanRepository implements PlanStore {
         blocks: blocks,
       );
     });
+  }
+
+  /// 窗口内的块，来自**所有**计划版本（含 `superseded`），并带出所属版本与版本生成时刻。
+  ///
+  /// **不按 `status` 过滤**是这里的关键：重排会把旧版本标成 `superseded`，而过去几天当时排了
+  /// 什么只留在那些版本里。只读 `confirmed` 就是"重排一次、历史全没"——用户 2026-10-07 报的
+  /// 正是这个。**已经发生的事不该被后来的计划改写。**
+  ///
+  /// **必须带出 `versionCreatedAtUtc`**：调用方要按版本挑出"那一天当时在用的那一版"，而不是把
+  /// 各版本求并集——求并集就会重复，见 `HistoricalPlanBlock` 的注释。
+  @override
+  Future<List<HistoricalPlanBlock>> blocksInWindow(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async {
+    final blocks = _database.scheduleBlocks;
+    final versions = _database.planVersions;
+    final query =
+        _database.select(blocks).join([
+            innerJoin(versions, versions.id.equalsExp(blocks.planVersionId)),
+          ])
+          ..where(
+            blocks.startAtUtc.isSmallerThanValue(
+                  endUtc.microsecondsSinceEpoch,
+                ) &
+                blocks.endAtUtc.isBiggerThanValue(
+                  startUtc.microsecondsSinceEpoch,
+                ),
+          )
+          ..orderBy([
+            OrderingTerm.desc(versions.createdAtUtc),
+            OrderingTerm.asc(blocks.startAtUtc),
+            OrderingTerm.asc(blocks.id),
+          ]);
+    final rows = await query.get();
+    return [
+      for (final row in rows)
+        if (row.readTableOrNull(blocks) case final block?)
+          if (row.readTableOrNull(versions) case final version?)
+            HistoricalPlanBlock(
+              versionId: version.id,
+              versionCreatedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
+                version.createdAtUtc,
+                isUtc: true,
+              ),
+              block: PlannedBlock(
+                id: block.id,
+                taskId: block.taskId,
+                range: TimeRange(
+                  startUtc: DateTime.fromMicrosecondsSinceEpoch(
+                    block.startAtUtc,
+                    isUtc: true,
+                  ),
+                  endUtc: DateTime.fromMicrosecondsSinceEpoch(
+                    block.endAtUtc,
+                    isUtc: true,
+                  ),
+                ),
+                explanationCode: block.explanationCode,
+                locked: block.locked,
+              ),
+            ),
+    ];
   }
 
   Future<ConfirmedPlan> _loadVersion(PlanVersion version) async {

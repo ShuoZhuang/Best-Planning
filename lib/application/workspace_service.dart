@@ -1,5 +1,6 @@
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 
@@ -38,18 +39,19 @@ final class WorkspaceService {
   Future<List<PlannerProject>> listProjects() => repository.listProjects();
 
   /// 新建领域，排序追加到末尾，因此建立顺序即用户看到的顺序。
-  ///
-  /// `color` 写 0：该列仍保留在库里，但日历与今日页的配色已回到**按类型着色**，
-  /// 领域颜色暂时没有消费方（详见 `area_palette` 的历史与本文件上一版）。
   Future<PlannerArea> createArea(String name, {bool isLife = false}) async {
     final existing = await repository.listAreas();
     final now = clock.nowUtc();
-    final sortOrder = existing.isEmpty ? 0 : existing.last.sortOrder + 1;
+    final sortOrder = existing.isEmpty
+        ? 0
+        : existing
+                  .map((area) => area.sortOrder)
+                  .reduce((a, b) => a > b ? a : b) +
+              1;
     final area = PlannerArea(
       id: idGenerator.next(),
       name: name,
-      // 颜色列保留在库里但当前不使用：配色已回到按类型着色。
-      color: 0,
+      color: _nextAreaColor(existing, sortOrder),
       sortOrder: sortOrder,
       isLife: isLife,
       createdAtUtc: now,
@@ -67,6 +69,24 @@ final class WorkspaceService {
   /// 设置或取消生活标记。这是**唯一**能让生活配额与"生活"分类生效的操作。
   Future<void> setAreaLife(PlannerArea area, bool isLife) => repository
       .saveArea(area.copyWith(isLife: isLife, updatedAtUtc: clock.nowUtc()));
+
+  Future<void> setAreaColor(String areaId, int colorArgb) async {
+    if (!isOpaqueArgb(colorArgb)) {
+      throw ArgumentError.value(
+        colorArgb,
+        'colorArgb',
+        'Must be an opaque 32-bit ARGB color.',
+      );
+    }
+    final areas = await repository.listAreas();
+    final index = areas.indexWhere((area) => area.id == areaId);
+    if (index < 0) {
+      throw ArgumentError.value(areaId, 'areaId', '领域不存在');
+    }
+    await repository.saveArea(
+      areas[index].copyWith(color: colorArgb, updatedAtUtc: clock.nowUtc()),
+    );
+  }
 
   /// 新建项目。
   ///
@@ -123,16 +143,19 @@ final class WorkspaceService {
                   .reduce((a, b) => a > b ? a : b) +
               1;
     var created = 0;
+    final usedColors = existing
+        .map((area) => resolveAreaColorArgb(area.color, area.sortOrder))
+        .toSet();
     for (final entry in DefaultAreas.entries) {
       if (existingNames.contains(entry.name.trim().toLowerCase())) continue;
       final now = clock.nowUtc();
       final areaOrder = order++;
+      final color = _nextAreaColorFromUsed(usedColors, areaOrder);
       await repository.saveArea(
         PlannerArea(
           id: idGenerator.next(),
           name: entry.name,
-          // 与 createArea 同一条规则：默认领域一建立就有各自可区分的颜色。
-          color: 0,
+          color: color,
           sortOrder: areaOrder,
           isLife: entry.isLife,
           createdAtUtc: now,
@@ -140,8 +163,24 @@ final class WorkspaceService {
         ),
       );
       existingNames.add(entry.name.trim().toLowerCase());
+      usedColors.add(color);
       created++;
     }
     return created;
   }
+}
+
+int _nextAreaColor(List<PlannerArea> existing, int sortOrder) =>
+    _nextAreaColorFromUsed(
+      existing
+          .map((area) => resolveAreaColorArgb(area.color, area.sortOrder))
+          .toSet(),
+      sortOrder,
+    );
+
+int _nextAreaColorFromUsed(Set<int> usedColors, int sortOrder) {
+  for (final color in areaPaletteArgb) {
+    if (!usedColors.contains(color)) return color;
+  }
+  return resolveAreaColorArgb(0, sortOrder);
 }

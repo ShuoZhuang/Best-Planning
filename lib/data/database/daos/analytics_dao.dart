@@ -7,18 +7,34 @@ import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 
 final class AnalyticsDao implements AnalyticsDataSource {
-  const AnalyticsDao(this.database);
+  const AnalyticsDao(this.database, {required this.calendar});
 
   final AppDatabase database;
 
+  /// 固定日程的**展开与例外处理**从这里来。
+  ///
+  /// **刻意复用日历仓储而不是在统计层重算**：重复规则展开、跨午夜的例外行、"这一次被删除"的
+  /// 零长度标记，这套约定已经由 `DriftCalendarRepository.occurrencesBetween` 实现并被日历页使用
+  /// （`RecurrenceExpander` + 例外替换）。统计层再写一遍就是第二份约定，迟早两边不一致——本项目
+  /// 在"存储键两端约定不一致"上已经吃过一次亏（技术设计 §13.0 的 W5）。
+  ///
+  /// **必填而不是可选**：可选会让"忘了注入"表现为"固定日程静默不计入领域占比"，而那正是本轮要修的
+  /// 缺陷本身。宁可让调用点多传一个参数。
+  final CalendarRepository calendar;
+
   @override
   Future<AnalyticsDataset> load(AnalyticsFilter filter) async {
+    // 领域表**只查一次**：固定日程要领域名与生活标记，「领域覆盖缺口」要知道**全部**领域
+    // （零占用的那些在任何分布里都不会出现）。
+    final areaRows = await database.select(database.areas).get();
     final tasks = await _tasks(filter);
     final planned = await _planned(filter);
     final actual = await _actual(filter);
+    final fixed = await _fixedEvents(filter, areaRows);
     final events = await _events(filter);
     return AnalyticsDataset(
       weeklyLifeQuotaMinutes: await _weeklyLifeQuota(),
@@ -28,8 +44,44 @@ final class AnalyticsDao implements AnalyticsDataSource {
       tasks: tasks,
       plannedBlocks: planned,
       actualEntries: actual,
+      fixedEvents: fixed,
       events: events,
+      areas: [
+        for (final row in areaRows)
+          AnalyticsAreaFact(id: row.id, name: row.name, isLife: row.isLife),
+      ],
     );
+  }
+
+  /// 读筛选范围内的固定日程，并带上所属领域名与生活标记。
+  ///
+  /// 领域名与生活标记由调用方**一次查全表**后传进来（`areas` 只有个位数行），避免每条日程各查
+  /// 一次变成 N+1。与 `_taskFact` 同一判据：生活标记读领域上的 `is_life`，不按名字猜。
+  Future<List<AnalyticsFixedFact>> _fixedEvents(
+    AnalyticsFilter filter,
+    List<Area> areaRows,
+  ) async {
+    final occurrences = await calendar.occurrencesBetween(
+      filter.startUtc,
+      filter.endUtc,
+    );
+    if (occurrences.isEmpty) return const [];
+
+    final byId = {
+      for (final row in areaRows) row.id: (name: row.name, isLife: row.isLife),
+    };
+
+    return [
+      for (final occurrence in occurrences)
+        AnalyticsFixedFact(
+          title: occurrence.title,
+          areaId: occurrence.areaId,
+          areaName: byId[occurrence.areaId]?.name,
+          isLife: byId[occurrence.areaId]?.isLife ?? false,
+          startUtc: occurrence.range.startUtc,
+          endUtc: occurrence.range.endUtc,
+        ),
+    ];
   }
 
   Future<List<AnalyticsTaskFact>> _tasks(AnalyticsFilter filter) async {

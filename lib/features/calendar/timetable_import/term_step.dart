@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 
 final class TimetableTermStep extends StatelessWidget {
@@ -123,6 +124,7 @@ final class TimetableTermStep extends StatelessWidget {
 
   Future<void> _pickMonday(BuildContext context) async {
     final picked = await showDatePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialDate: controller.firstWeekMonday,
       firstDate: DateTime(controller.referenceDate.year - 2),

@@ -9,6 +9,7 @@ import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 
@@ -21,6 +22,13 @@ void main() {
     await settings.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // 首次教程闸门与首次引导是同一条套路（设置键 + 版本比较）。不喂这一条，
+    // 整应用 pump 出来的会是教程页而不是主界面——教程自身的用例在 test/features/tutorial/。
+    // ignore: unused_local_variable
+    await settings.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
     await tester.pumpWidget(
       ProviderScope(

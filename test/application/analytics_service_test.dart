@@ -9,6 +9,7 @@ import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 
 void main() {
   final start = DateTime.utc(2026, 10, 2, 10);
@@ -165,7 +166,12 @@ void main() {
     // 门禁不是门禁，因此这里改为"预热一次 + 三次取最小值"，并把上界放宽到能跨过负载噪声、
     // 但仍能抓住数量级退化的水平。它是**防线**（例如不小心写出 N+1 会到秒级），
     // 不是性能门禁——真正的性能门禁需要独立的基准装置，而不是混在功能用例里。
-    final service = AnalyticsService(source: AnalyticsDao(database));
+    final service = AnalyticsService(
+      source: AnalyticsDao(
+        database,
+        calendar: DriftCalendarRepository(database),
+      ),
+    );
     final filter = AnalyticsFilter(startUtc: yearStart, endUtc: yearEnd);
     // 预热：把首次查询的解析与预编译成本排除在测量之外。
     await service.query(filter);

@@ -1,13 +1,14 @@
-import 'dart:math' as math;
-
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/feedback_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/domain/models/area_period_matrix.dart';
+import 'package:personal_planner/domain/models/chart_kind.dart';
 import 'package:personal_planner/domain/models/feedback_message.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
+import 'package:personal_planner/features/analytics/chart_view.dart';
 import 'package:personal_planner/features/analytics/feedback_cards.dart';
 
 final class AnalyticsPage extends StatefulWidget {
@@ -23,6 +24,8 @@ final class AnalyticsPage extends StatefulWidget {
     required this.timeZoneId,
     this.feedbackMessages = const [],
     this.loadTagNames,
+    this.loadChartKinds,
+    this.saveChartKind,
     super.key,
   });
 
@@ -38,6 +41,14 @@ final class AnalyticsPage extends StatefulWidget {
   /// 不需要知道标签存在哪里。为空时整块不渲染，而不是给一个空的下拉。
   final Future<Set<String>> Function()? loadTagNames;
 
+  /// 读取用户为每张卡片选过的图表类型；为空时全部用默认类型。
+  final Future<Map<AnalyticsChartSlot, ChartKind>> Function()? loadChartKinds;
+
+  /// 保存某张卡片的图表类型选择。为空时选择只在本次会话内生效
+  /// （测试与最小装配不必带持久化）。
+  final Future<void> Function(AnalyticsChartSlot slot, ChartKind kind)?
+  saveChartKind;
+
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
 }
@@ -48,6 +59,41 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   Object? _error;
   bool _loading = true;
   Set<String> _availableTags = const {};
+
+  /// 「领域 × 周期」矩阵：上周 / 本周 / 本月各自的**计划块**时长，按领域成行。
+  ///
+  /// 它的周期是**固定的**三个，不随上面的范围选择变化——用户要的是"领域时间分配的横向纵向
+  /// 对比"（FR-STAT 的横向＝领域之间、纵向＝周期之间），一个固定基准比一个跟着筛选器漂的表格
+  /// 更能回答这个问题。标签筛选仍然生效（周期只换时间窗，不换筛选条件）。
+  AreaPeriodMatrix? _matrix;
+
+  /// 用户为每张卡片选过的图表类型。没选过的位置由 `resolveChartKind` 补默认值。
+  Map<AnalyticsChartSlot, ChartKind> _chartKinds = const {};
+
+  /// 某张卡片当前该用哪种图型。
+  ChartKind _kindOf(AnalyticsChartSlot slot) =>
+      resolveChartKind(slot, _chartKinds);
+
+  /// 换一张卡片的图型：**先落界面再持久化**。
+  ///
+  /// 顺序是刻意的：写设置可能失败（磁盘满、文件被占），而"点了一下没反应"比"选择没被记住"
+  /// 更让人困惑。持久化失败只丢一次记忆，不该回滚用户已经看到的界面。
+  Future<void> _setChartKind(AnalyticsChartSlot slot, ChartKind kind) async {
+    setState(() => _chartKinds = {..._chartKinds, slot: kind});
+    try {
+      await widget.saveChartKind?.call(slot, kind);
+    } on Object {
+      // 记忆失败不影响本次选择已经生效。
+    }
+  }
+
+  Future<void> _loadChartKinds() async {
+    final loader = widget.loadChartKinds;
+    if (loader == null) return;
+    final kinds = await loader();
+    if (!mounted) return;
+    setState(() => _chartKinds = kinds);
+  }
 
   /// 由**本页自己算出来**的温和反馈（FR-STAT-08 的呈现侧）。
   ///
@@ -67,6 +113,7 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
     );
     _load();
     _loadTagNames();
+    _loadChartKinds();
   }
 
   /// `nowUtc` 在**本机时区**下的日历日（只取年月日）。
@@ -103,9 +150,9 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       _error = null;
     });
     try {
-      // **顺序是刻意的**：先取对照窗口、再取当前窗口。既有的 widget 测试以"最后一次查询即
-      // 用户所选窗口"来断言筛选器（`filters.last`），把当前窗口放在最后可以不动那些断言。
-      // 那里的位置耦合是既有事实，本处不新增耦合，但也不假装它不存在。
+      // **顺序是刻意的**：先取对照窗口、再取矩阵的三个周期、最后取当前窗口。既有的 widget 测试
+      // 以"最后一次查询即用户所选窗口"来断言筛选器（`filters.last`），把当前窗口放在最后可以
+      // 不动那些断言。那里的位置耦合是既有事实，本处不新增耦合，但也不假装它不存在。
       final length = _filter.endUtc.difference(_filter.startUtc);
       final previous = await widget.analytics.query(
         AnalyticsFilter(
@@ -117,10 +164,12 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
           statuses: _filter.statuses,
         ),
       );
+      final matrix = await _loadAreaPeriodMatrix();
       final report = await widget.analytics.query(_filter);
       if (!mounted) return;
       setState(() {
         _report = report;
+        _matrix = matrix;
         _feedback = const FeedbackService().generate(report, previous);
       });
     } catch (error) {
@@ -129,6 +178,48 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// 组装「领域 × 周期」矩阵：上周 / 本周 / 本月，各查一次。
+  ///
+  /// 周期边界一律走 [_localMidnight]（本机时区日界），与页面顶部那段口径说明一致——用 UTC 日界
+  /// 会让"周一"在 UTC+8 偏一天。周一为一周之始，与 `_selectWeek` 同一规则。
+  Future<AreaPeriodMatrix> _loadAreaPeriodMatrix() async {
+    final today = _todayLocalDate();
+    final monday = _addDays(today, -(today.weekday - 1));
+    final periods = <({String label, AnalyticsFilter filter})>[
+      (label: '上周', filter: _rangeFilter(_addDays(monday, -7), monday)),
+      (label: '本周', filter: _rangeFilter(monday, _addDays(monday, 7))),
+      (
+        label: '本月',
+        filter: _rangeFilter(
+          DateTime(today.year, today.month),
+          DateTime(today.year, today.month + 1),
+        ),
+      ),
+    ];
+
+    final reports = <({String label, AnalyticsReport report})>[];
+    for (final period in periods) {
+      reports.add((
+        label: period.label,
+        report: await widget.analytics.query(period.filter),
+      ));
+    }
+    return buildAreaPeriodMatrix(reports);
+  }
+
+  /// 只换时间窗、**沿用当前筛选条件**（领域／项目／标签／状态）的区间。
+  AnalyticsFilter _rangeFilter(
+    DateTime localStart,
+    DateTime localEndExclusive,
+  ) => AnalyticsFilter(
+    startUtc: _localMidnight(localStart),
+    endUtc: _localMidnight(localEndExclusive),
+    areaIds: _filter.areaIds,
+    projectIds: _filter.projectIds,
+    tags: _filter.tags,
+    statuses: _filter.statuses,
+  );
 
   /// 外部注入的 `feedbackMessages` 优先（测试与显式装配用），否则用本页按对照窗口算出的结果。
   List<FeedbackMessage> get _messages =>
@@ -166,6 +257,7 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       widget.timeZoneId,
     );
     final selected = await showDateRangePicker(
+      builder: plannerPickerBuilder,
       context: context,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
@@ -176,6 +268,11 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       helpText: '选择统计范围',
       cancelText: '取消',
       confirmText: '应用',
+      // **全屏模式下确认按钮用的是 `saveText`，不是 `confirmText`**（`DateRangePickerDialog`
+      // 在窄屏会走全屏形态）。不传它就只能拿 `MaterialLocalizations.saveButtonLabel`，
+      // 而在没有中文本地化时那正是英文的 `Save`——2026-10-07 用户截图里那个按钮就是它。
+      // 两个都传，两种形态才都是"应用"。
+      saveText: '应用',
     );
     if (selected == null) return;
     _setRange(
@@ -237,7 +334,10 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 6),
-                const Text('计划、实际投入和推断结论分别展示，休息与娱乐同样是有价值的时间。'),
+                // **这句话原本写的是"计划、实际投入和推断结论分别展示"**。2026-10-06 用户要求把
+                // "实际"这一侧从统计里全部拿掉（"这个程序原先的本质就是计划，实际是什么没有统计
+                // 必要"），因此口径说明必须跟着改——留着一句介绍用户看不到的东西，比没有介绍更糟。
+                const Text('只看你计划了什么：固定日程、已确认的计划块、保护时间与完成情况。休息与娱乐同样是有价值的时间。'),
                 const SizedBox(height: 18),
                 _RangeControls(
                   filter: _filter,
@@ -271,13 +371,46 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                 ],
                 if (_report case final report?) ...[
                   const SizedBox(height: 22),
-                  _Overview(report: report),
+                  // **顺序即重点**（2026-10-06 用户确认的改版）：
+                  //   ①② 领域时间分配——横向占比、纵向总计（用户的主诉求）
+                  //   ③  我规划得合理吗——完成情况 + 领域覆盖缺口
+                  //   ④  我有没有好好休息——休息时长、作息规律性、工作休息比例
+                  //   ⑤  精力、中断与调整（FR-STAT-06，原样保留）
+                  // "计划 vs 实际"整组已按用户要求移除，理由与口径偏离记在规格里。
+                  _AreaShareSection(
+                    report: report,
+                    kind: _kindOf(AnalyticsChartSlot.areaShare),
+                    onKind: (kind) =>
+                        _setChartKind(AnalyticsChartSlot.areaShare, kind),
+                  ),
+                  const SizedBox(height: 20),
+                  if (_matrix case final matrix?) ...[
+                    _PeriodTotalSection(
+                      matrix: matrix,
+                      kind: _kindOf(AnalyticsChartSlot.periodTotal),
+                      onKind: (kind) =>
+                          _setChartKind(AnalyticsChartSlot.periodTotal, kind),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  _PlanQualitySection(report: report),
                   if (_messages.isNotEmpty) ...[
                     const SizedBox(height: 20),
                     FeedbackCards(messages: _messages, filter: report.filter),
                   ],
                   const SizedBox(height: 20),
-                  _ChartGrid(report: report),
+                  _RestSection(
+                    report: report,
+                    restKind: _kindOf(AnalyticsChartSlot.restDuration),
+                    onRestKind: (kind) =>
+                        _setChartKind(AnalyticsChartSlot.restDuration, kind),
+                    workRestKind: _kindOf(AnalyticsChartSlot.workRest),
+                    onWorkRestKind: (kind) =>
+                        _setChartKind(AnalyticsChartSlot.workRest, kind),
+                    routineKind: _kindOf(AnalyticsChartSlot.routine),
+                    onRoutineKind: (kind) =>
+                        _setChartKind(AnalyticsChartSlot.routine, kind),
+                  ),
                   const SizedBox(height: 20),
                   _EvidenceLists(report: report),
                 ],
@@ -400,10 +533,28 @@ final class _RangeControls extends StatelessWidget {
             // 4. **在那之前，用户已经可以用「自定义范围」选中一个学期**：所以这不是功能缺口，
             //    只是"少一个一键预设"。这一判断同时写在 `docs/testing/original-requirements-audit.md`
             //    的第 ⑮ 条里。
-            OutlinedButton(onPressed: onToday, child: const Text('今天')),
-            OutlinedButton(onPressed: onWeek, child: const Text('本周')),
-            OutlinedButton(onPressed: onMonth, child: const Text('本月')),
-            FilledButton.tonal(onPressed: onCustom, child: const Text('自定义范围')),
+            // **四个按钮都要有 key**：新增的「领域时间分配」矩阵表头里也有"上周／本周／本月"
+            // 这几个字，按文本查找会命中多个控件——测试点不动，也不再唯一。
+            OutlinedButton(
+              key: const Key('analytics-range-today'),
+              onPressed: onToday,
+              child: const Text('今天'),
+            ),
+            OutlinedButton(
+              key: const Key('analytics-range-week'),
+              onPressed: onWeek,
+              child: const Text('本周'),
+            ),
+            OutlinedButton(
+              key: const Key('analytics-range-month'),
+              onPressed: onMonth,
+              child: const Text('本月'),
+            ),
+            FilledButton.tonal(
+              key: const Key('analytics-range-custom'),
+              onPressed: onCustom,
+              child: const Text('自定义范围'),
+            ),
             Text(
               '${format.format(filter.startUtc)} — '
               '${format.format(inclusiveEnd)}',
@@ -415,46 +566,487 @@ final class _RangeControls extends StatelessWidget {
   }
 }
 
-final class _Overview extends StatelessWidget {
-  const _Overview({required this.report});
+/// **① 横向：领域占比**——所选范围里各领域的时间占比。
+///
+/// 口径是"总占用"（计划块 + 固定日程）。用户 2026-10-06 的原话："领域时间分配为什么不把固定日程
+/// 统计进去，有的固定日程不是也有领域的吗"——课表本来就有领域，此前数据集里根本没有日历事件，
+/// 于是占比只统计任务计划块，把每周占大头的那部分漏掉了。
+final class _AreaShareSection extends StatelessWidget {
+  const _AreaShareSection({
+    required this.report,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final AnalyticsReport report;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final distribution = [
+      for (final item in report.domainDistribution)
+        if (item.totalMinutes > 0) item,
+    ];
+    return _SectionCard(
+      cardKey: const Key('analytics-area-share'),
+      slot: AnalyticsChartSlot.areaShare,
+      kind: kind,
+      onKind: onKind,
+      title: '领域占比',
+      subtitle: '横向对比：所选范围里时间分给了哪些领域（含固定日程）',
+      chart: AnalyticsChart(
+        kind: kind,
+        emptyLabel: '所选范围里还没有已确认的计划块或固定日程。',
+        data: [
+          for (var index = 0; index < distribution.length; index++)
+            ChartDatum(
+              label: distribution[index].label,
+              value: distribution[index].totalMinutes,
+              color: chartColorAt(index),
+            ),
+        ],
+      ),
+      footnote: distribution
+          .map(
+            (item) =>
+                '${item.label} ${_minutes(item.totalMinutes)}'
+                '（计划 ${item.plannedMinutes} 分钟 + '
+                '固定日程 ${item.fixedMinutes} 分钟）',
+          )
+          .join('\n'),
+    );
+  }
+}
+
+/// **② 纵向：时间总计**——上周／本周／本月各自的总占用，下面是逐领域的矩阵表。
+///
+/// 图表类型可选柱状/条形/折线；**矩阵表不参与选择**（表就是表），它给出每个格子精确的分钟数与
+/// 该周期内的占比，"横向占比 + 纵向总计"两件事因此在一张表里对齐。
+final class _PeriodTotalSection extends StatelessWidget {
+  const _PeriodTotalSection({
+    required this.matrix,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final AreaPeriodMatrix matrix;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = [
+      for (var column = 0; column < matrix.periods.length; column++)
+        ChartDatum(
+          label: matrix.periods[column],
+          value: matrix.periodTotal(column),
+          color: chartColorAt(column),
+        ),
+    ];
+    return Card(
+      key: const Key('analytics-period-total'),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionHeader(
+              title: '时间总计',
+              subtitle: '纵向对比：上周 / 本周 / 本月的总占用（含固定日程）',
+              slot: AnalyticsChartSlot.periodTotal,
+              kind: kind,
+              onKind: onKind,
+            ),
+            const SizedBox(height: 12),
+            AnalyticsChart(
+              kind: kind,
+              height: 180,
+              emptyLabel: '上周、本周与本月都还没有已确认的计划块或固定日程。',
+              data: totals,
+            ),
+            // 判据与图表的空状态一致：**合计为 0** 时不画表。领域仍会出现在报告的分布里（只是
+            // 分钟数为 0），所以 `matrix.isEmpty` 是 false——用它会画出一张全是"—"的表。
+            if (matrix.totalMinutes > 0) ...[
+              const SizedBox(height: 14),
+              _MatrixTable(matrix: matrix),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// **③ 我规划得合理吗**：完成情况 + **领域覆盖缺口**。
+///
+/// "完成率/按期完成/逾期率"三个问的都是"计划本身合不合理"，与"计划 vs 实际"无关，因此按要求保留。
+/// **逾期率此前一直算出来却从未显示**——它是最便宜的一条。
+final class _PlanQualitySection extends StatelessWidget {
+  const _PlanQualitySection({required this.report});
   final AnalyticsReport report;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 12,
-    runSpacing: 12,
+  Widget build(BuildContext context) {
+    final coverage = report.areaCoverage;
+    return Wrap(
+      key: const Key('analytics-plan-quality'),
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _MetricCard(
+          icon: Icons.task_alt,
+          title: _ratioText('完成率', report.completionRate),
+          detail: report.completionRate.isAvailable
+              ? '范围内到期或完成的任务'
+              : '该范围暂无可计算任务',
+        ),
+        _MetricCard(
+          icon: Icons.schedule_outlined,
+          title: _ratioText('按期完成', report.onTimeCompletionRate),
+          detail: '分母是已完成且设有截止时间的任务',
+        ),
+        _MetricCard(
+          icon: Icons.warning_amber_outlined,
+          title: _ratioText('逾期', report.overdueRate),
+          detail: '分母是范围内到期的任务；完成晚于截止即算逾期',
+        ),
+        if (coverage != null)
+          _MetricCard(
+            key: const Key('analytics-area-coverage'),
+            icon: Icons.grid_view_outlined,
+            title: coverage.allCovered
+                ? '领域覆盖 ${coverage.covered.length} / ${coverage.totalAreas}'
+                : '未排计划：${coverage.uncovered.join('、')}',
+            detail: coverage.allCovered
+                ? '每个领域在这个范围里都有时间'
+                : '这 ${coverage.uncovered.length} 个领域在范围内一个计划块、'
+                      '一场固定日程都没有',
+          ),
+      ],
+    );
+  }
+}
+
+/// **④ 我有没有好好休息**：休息时长（A）、工作与休息比例（D）、作息规律性（C）。
+///
+/// 三项**全部只看计划侧数据**：用户明确要求把"实际投入"从统计里拿掉，而"有没有好好休息"改看
+/// 自己的规划——把任务排进睡眠、天天在不同时刻开工，就是规划层面的"没给自己留休息"。
+final class _RestSection extends StatelessWidget {
+  const _RestSection({
+    required this.report,
+    required this.restKind,
+    required this.onRestKind,
+    required this.workRestKind,
+    required this.onWorkRestKind,
+    required this.routineKind,
+    required this.onRoutineKind,
+  });
+
+  final AnalyticsReport report;
+  final ChartKind restKind;
+  final ValueChanged<ChartKind> onRestKind;
+  final ChartKind workRestKind;
+  final ValueChanged<ChartKind> onWorkRestKind;
+  final ChartKind routineKind;
+  final ValueChanged<ChartKind> onRoutineKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final rest = report.restSummary;
+    final workRest = report.workRest;
+    final routine = report.routine;
+    if (rest == null && workRest == null && routine.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      key: const Key('analytics-rest'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('休息', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (rest != null) ...[
+          _RestDurationCard(rest: rest, kind: restKind, onKind: onRestKind),
+          const SizedBox(height: 16),
+        ],
+        if (workRest != null) ...[
+          _WorkRestCard(
+            metric: workRest,
+            kind: workRestKind,
+            onKind: onWorkRestKind,
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (!routine.isEmpty)
+          _RoutineCard(
+            routine: routine,
+            kind: routineKind,
+            onKind: onRoutineKind,
+          ),
+      ],
+    );
+  }
+}
+
+/// A：各类休息的容量与被侵占量。
+final class _RestDurationCard extends StatelessWidget {
+  const _RestDurationCard({
+    required this.rest,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final RestSummaryMetric rest;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (rest.achievedRatio * 100).round();
+    return _SectionCard(
+      cardKey: const Key('analytics-rest-duration'),
+      slot: AnalyticsChartSlot.restDuration,
+      kind: kind,
+      onKind: onKind,
+      title: '休息时长',
+      subtitle:
+          '保护时间共 ${_minutes(rest.totalMinutes)}，'
+          '平均每天 ${_minutes(rest.averageDailyMinutes)}；'
+          '其中 ${_minutes(rest.invadedMinutes)} 被安排占用（达成 $percent%）',
+      chart: AnalyticsChart(
+        kind: kind,
+        emptyLabel: '还没有设置任何保护时间。',
+        data: [
+          for (var index = 0; index < rest.windows.length; index++)
+            ChartDatum(
+              label: rest.windows[index].label,
+              value: rest.windows[index].minutes,
+              color: chartColorAt(index),
+            ),
+        ],
+      ),
+      footnote: rest.windows
+          .map(
+            (window) =>
+                '${window.label} ${_minutes(window.minutes)}'
+                '${window.invadedMinutes == 0 ? '（完整保留）' : '，被占用 ${window.invadedMinutes} 分钟'}',
+          )
+          .join('\n'),
+    );
+  }
+}
+
+/// D：工作 / 生活 / 休息 / 未安排 的四段比例。
+final class _WorkRestCard extends StatelessWidget {
+  const _WorkRestCard({
+    required this.metric,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final WorkRestMetric metric;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+    cardKey: const Key('analytics-work-rest'),
+    slot: AnalyticsChartSlot.workRest,
+    kind: kind,
+    onKind: onKind,
+    title: '工作与休息的比例',
+    subtitle:
+        '休息（含生活）占 ${(metric.restRatio * 100).round()}%，'
+        '工作占 ${(metric.workRatio * 100).round()}%',
+    chart: AnalyticsChart(
+      kind: kind,
+      emptyLabel: '暂无可比较的时间。',
+      data: [
+        ChartDatum(
+          label: '工作/学习',
+          value: metric.workMinutes,
+          color: chartColorAt(0),
+        ),
+        ChartDatum(
+          label: '生活',
+          value: metric.lifeMinutes,
+          color: chartColorAt(1),
+        ),
+        ChartDatum(
+          label: '空着的休息',
+          value: metric.restMinutes,
+          color: chartColorAt(2),
+        ),
+        ChartDatum(
+          label: '未安排',
+          value: metric.idleMinutes,
+          color: chartColorAt(3),
+        ),
+      ],
+    ),
+    footnote:
+        '工作/学习 ${_minutes(metric.workMinutes)}，'
+        '生活 ${_minutes(metric.lifeMinutes)}，'
+        '空着的休息 ${_minutes(metric.restMinutes)}，'
+        '未安排 ${_minutes(metric.idleMinutes)}',
+  );
+}
+
+/// C：作息规律性——每天的开工与收工时刻，以及它们的极差。
+final class _RoutineCard extends StatelessWidget {
+  const _RoutineCard({
+    required this.routine,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final RoutineMetric routine;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final startSpread = routine.startSpreadMinutes ?? 0;
+    final endSpread = routine.endSpreadMinutes ?? 0;
+    return _SectionCard(
+      cardKey: const Key('analytics-routine'),
+      slot: AnalyticsChartSlot.routine,
+      kind: kind,
+      onKind: onKind,
+      title: '作息规律性',
+      subtitle:
+          '开工相差 ${_minutes(startSpread)}，收工相差 ${_minutes(endSpread)}；'
+          '平均 ${_clockText(routine.averageStartMinute)} 开工、'
+          '${_clockText(routine.averageEndMinute)} 收工',
+      chart: AnalyticsChart(
+        kind: kind,
+        emptyLabel: '这个范围里还没有任何安排。',
+        data: [
+          for (var index = 0; index < routine.perDay.length; index++)
+            ChartDatum(
+              label:
+                  '${routine.perDay[index].localDate.month}/'
+                  '${routine.perDay[index].localDate.day}',
+              // 用**每天安排的跨度**当数值：它同时反映"多早开工"和"多晚收工"，
+              // 比单独画开工时刻更能看出"这一天被拉得多长"。
+              value:
+                  routine.perDay[index].lastMinute -
+                  routine.perDay[index].firstMinute,
+              color: chartColorAt(index),
+            ),
+        ],
+      ),
+      footnote: routine.perDay
+          .map(
+            (day) =>
+                '${day.localDate.month}/${day.localDate.day} '
+                '${_clockText(day.firstMinute)}–${_clockText(day.lastMinute)}',
+          )
+          .join('\n'),
+    );
+  }
+}
+
+/// 统一的"标题 + 图型选择 + 图 + 脚注"卡片，避免每张各写一遍同样的骨架。
+final class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.cardKey,
+    required this.slot,
+    required this.kind,
+    required this.onKind,
+    required this.title,
+    required this.subtitle,
+    required this.chart,
+    required this.footnote,
+  });
+
+  final Key cardKey;
+  final AnalyticsChartSlot slot;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+  final String title;
+  final String subtitle;
+  final Widget chart;
+  final String footnote;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: cardKey,
+    child: Padding(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            title: title,
+            subtitle: subtitle,
+            slot: slot,
+            kind: kind,
+            onKind: onKind,
+          ),
+          const SizedBox(height: 12),
+          chart,
+          if (footnote.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(footnote, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+/// 卡片抬头：标题、一行口径说明、右侧的图型选择器。
+final class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.title,
+    required this.subtitle,
+    required this.slot,
+    required this.kind,
+    required this.onKind,
+  });
+
+  final String title;
+  final String subtitle;
+  final AnalyticsChartSlot slot;
+  final ChartKind kind;
+  final ValueChanged<ChartKind> onKind;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _MetricCard(
-        icon: Icons.event_note_outlined,
-        title: '计划 ${report.plannedMinutes} 分钟',
-        detail: '来自已确认计划块与所选范围的交集',
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
       ),
-      _MetricCard(
-        icon: Icons.timer_outlined,
-        title: '实际 ${report.actualMinutes} 分钟',
-        detail: '仅统计已确认的实际记录',
-      ),
-      _MetricCard(
-        icon: Icons.task_alt,
-        title: _ratioText('完成率', report.completionRate),
-        detail: report.completionRate.isAvailable
-            ? '范围内到期或完成的任务'
-            : '该范围暂无可计算任务',
-      ),
-      _MetricCard(
-        icon: Icons.schedule_outlined,
-        title: _ratioText('按期完成', report.onTimeCompletionRate),
-        detail: '分母是已完成且设有截止时间的任务',
-      ),
-      _MetricCard(
-        icon: Icons.self_improvement_outlined,
-        title:
-            '生活配额 ${report.lifeQuota.actualMinutes} / '
-            '${report.lifeQuota.targetMinutes} 分钟',
-        detail: '计划 ${report.lifeQuota.plannedMinutes} 分钟，实际与计划不互相替代',
-      ),
+      const SizedBox(width: 12),
+      ChartKindSelector(slot: slot, current: kind, onChanged: onKind),
     ],
   );
+}
+
+/// 分钟数 → "X 小时 Y 分钟"。图表与脚注共用同一套写法。
+String _minutes(int value) {
+  final hours = value ~/ 60;
+  final rest = value % 60;
+  if (hours == 0) return '$rest 分钟';
+  if (rest == 0) return '$hours 小时';
+  return '$hours 小时 $rest 分钟';
+}
+
+/// 本地分钟数 → `HH:mm`（1440 记作 `24:00`）。
+String _clockText(int? minute) {
+  if (minute == null) return '—';
+  final hour = minute ~/ 60;
+  final rest = minute % 60;
+  return '${hour.toString().padLeft(2, '0')}:${rest.toString().padLeft(2, '0')}';
 }
 
 String _ratioText(String label, RatioMetric metric) => metric.isAvailable
@@ -466,6 +1058,7 @@ final class _MetricCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.detail,
+    super.key,
   });
 
   final IconData icon;
@@ -500,251 +1093,70 @@ final class _MetricCard extends StatelessWidget {
   );
 }
 
-final class _ChartGrid extends StatelessWidget {
-  const _ChartGrid({required this.report});
-  final AnalyticsReport report;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final width = constraints.maxWidth >= 880
-          ? (constraints.maxWidth - 16) / 2
-          : constraints.maxWidth;
-      return Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          SizedBox(
-            width: width,
-            child: _DomainChart(report: report),
-          ),
-          SizedBox(
-            width: width,
-            child: _ComparisonChart(report: report),
-          ),
-          SizedBox(
-            width: constraints.maxWidth,
-            child: _TrendChart(report: report),
-          ),
-        ],
-      );
-    },
-  );
-}
-
-final class _DomainChart extends StatelessWidget {
-  const _DomainChart({required this.report});
-  final AnalyticsReport report;
+/// 矩阵表：行是领域（按合计降序），列是周期，格子是"分钟数 + 该周期内的占比"。
+final class _MatrixTable extends StatelessWidget {
+  const _MatrixTable({required this.matrix});
+  final AreaPeriodMatrix matrix;
 
   @override
   Widget build(BuildContext context) {
-    final data = report.domainDistribution;
-    final label =
-        '领域分布图：${data.map((item) => '${item.label}实际${item.actualMinutes}分钟').join('，')}';
-    final total = data.fold<int>(0, (sum, item) => sum + item.actualMinutes);
-    return _ChartCard(
-      title: '领域分布',
-      summary: data.isEmpty
-          ? '所选范围暂无领域时间记录。'
-          : data
-                .map(
-                  (item) =>
-                      '${item.label}：实际 ${item.actualMinutes} 分钟，'
-                      '计划 ${item.plannedMinutes} 分钟',
-                )
-                .join('\n'),
-      chart: Semantics(
-        label: label,
-        excludeSemantics: true,
-        child: total == 0
-            ? const Center(child: Text('暂无实际投入'))
-            : PieChart(
-                PieChartData(
-                  centerSpaceRadius: 34,
-                  sectionsSpace: 2,
-                  sections: [
-                    for (var index = 0; index < data.length; index++)
-                      PieChartSectionData(
-                        value: data[index].actualMinutes.toDouble(),
-                        title: data[index].label,
-                        radius: 58,
-                        color: _chartColors[index % _chartColors.length],
-                        titleStyle: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
-                      ),
-                  ],
+    final headerStyle = Theme.of(context).textTheme.labelLarge;
+    final bodyStyle = Theme.of(context).textTheme.bodyMedium;
+    final mutedStyle = Theme.of(context).textTheme.bodySmall;
+    return Table(
+      key: const Key('analytics-area-period-table'),
+      columnWidths: {
+        0: const FlexColumnWidth(1.6),
+        for (var column = 0; column < matrix.periods.length; column++)
+          column + 1: const FlexColumnWidth(),
+        matrix.periods.length + 1: const FlexColumnWidth(),
+      },
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      children: [
+        TableRow(
+          children: [
+            _cell('领域', headerStyle),
+            for (final period in matrix.periods) _cell(period, headerStyle),
+            _cell('合计', headerStyle),
+          ],
+        ),
+        for (var index = 0; index < matrix.rows.length; index++)
+          TableRow(
+            children: [
+              _cell(
+                matrix.rows[index].label,
+                bodyStyle,
+                key: Key('area-period-row-${matrix.rows[index].label}'),
+              ),
+              for (var column = 0; column < matrix.periods.length; column++)
+                _cell(
+                  matrix.rows[index].minutes[column] == 0
+                      ? '—'
+                      : '${matrix.rows[index].minutes[column]} 分钟'
+                            '（${matrix.sharePercent(matrix.rows[index].minutes[column], column)}%）',
+                  matrix.rows[index].minutes[column] == 0
+                      ? mutedStyle
+                      : bodyStyle,
                 ),
-              ),
-      ),
-    );
-  }
-}
-
-final class _ComparisonChart extends StatelessWidget {
-  const _ComparisonChart({required this.report});
-  final AnalyticsReport report;
-
-  @override
-  Widget build(BuildContext context) {
-    final maxValue = math.max(report.plannedMinutes, report.actualMinutes);
-    return _ChartCard(
-      title: '计划 / 实际',
-      summary: '计划 ${report.plannedMinutes} 分钟；实际 ${report.actualMinutes} 分钟。',
-      chart: Semantics(
-        label:
-            '计划实际对比图：计划${report.plannedMinutes}分钟，实际${report.actualMinutes}分钟',
-        excludeSemantics: true,
-        child: BarChart(
-          BarChartData(
-            minY: 0,
-            maxY: math.max(1, maxValue * 1.15).toDouble(),
-            gridData: const FlGridData(show: false),
-            borderData: FlBorderData(show: false),
-            titlesData: FlTitlesData(
-              topTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: false),
-              ),
-              rightTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: false),
-              ),
-              leftTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: false),
-              ),
-              bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
-                  showTitles: true,
-                  getTitlesWidget: (value, meta) => Text(
-                    value == 0 ? '计划' : '实际',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ),
-            ),
-            barGroups: [
-              _bar(0, report.plannedMinutes, _chartColors[0]),
-              _bar(1, report.actualMinutes, _chartColors[1]),
+              _cell('${matrix.rows[index].totalMinutes} 分钟', bodyStyle),
             ],
           ),
+        TableRow(
+          children: [
+            _cell('合计', headerStyle),
+            for (var column = 0; column < matrix.periods.length; column++)
+              _cell('${matrix.periodTotal(column)} 分钟', headerStyle),
+            _cell('${matrix.totalMinutes} 分钟', headerStyle),
+          ],
         ),
-      ),
+      ],
     );
   }
 
-  BarChartGroupData _bar(int x, int minutes, Color color) => BarChartGroupData(
-    x: x,
-    barRods: [
-      BarChartRodData(
-        toY: minutes.toDouble(),
-        width: 34,
-        color: color,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-      ),
-    ],
-  );
-}
-
-final class _TrendChart extends StatelessWidget {
-  const _TrendChart({required this.report});
-  final AnalyticsReport report;
-
-  @override
-  Widget build(BuildContext context) {
-    final trend = report.trend;
-    final maxValue = trend.fold<int>(
-      0,
-      (current, item) =>
-          math.max(current, math.max(item.plannedMinutes, item.actualMinutes)),
-    );
-    return _ChartCard(
-      title: '每日趋势',
-      summary:
-          '所选范围合计：计划 ${report.plannedMinutes} 分钟，实际 ${report.actualMinutes} 分钟。',
-      chart: Semantics(
-        label: '每日趋势图：计划${report.plannedMinutes}分钟，实际${report.actualMinutes}分钟',
-        excludeSemantics: true,
-        child: trend.isEmpty
-            ? const Center(child: Text('暂无趋势数据'))
-            : LineChart(
-                LineChartData(
-                  minX: 0,
-                  maxX: math.max(1, trend.length - 1).toDouble(),
-                  minY: 0,
-                  maxY: math.max(1, maxValue * 1.15).toDouble(),
-                  gridData: FlGridData(
-                    drawVerticalLine: false,
-                    horizontalInterval: math.max(1, maxValue / 3).toDouble(),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  titlesData: const FlTitlesData(
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  lineBarsData: [
-                    _line(
-                      trend,
-                      (item) => item.plannedMinutes,
-                      _chartColors[0],
-                    ),
-                    _line(trend, (item) => item.actualMinutes, _chartColors[1]),
-                  ],
-                ),
-              ),
-      ),
-    );
-  }
-
-  LineChartBarData _line(
-    List<DailyTimeMetric> values,
-    int Function(DailyTimeMetric) select,
-    Color color,
-  ) => LineChartBarData(
-    color: color,
-    barWidth: 3,
-    isCurved: true,
-    dotData: const FlDotData(show: false),
-    spots: [
-      for (var index = 0; index < values.length; index++)
-        FlSpot(index.toDouble(), select(values[index]).toDouble()),
-    ],
-  );
-}
-
-final class _ChartCard extends StatelessWidget {
-  const _ChartCard({
-    required this.title,
-    required this.summary,
-    required this.chart,
-  });
-
-  final String title;
-  final String summary;
-  final Widget chart;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          SizedBox(height: 210, child: chart),
-          const SizedBox(height: 12),
-          Text(summary),
-        ],
-      ),
-    ),
+  Widget _cell(String text, TextStyle? style, {Key? key}) => Padding(
+    key: key,
+    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+    child: Text(text, style: style),
   );
 }
 
@@ -762,27 +1174,12 @@ final class _EvidenceLists extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('精力、中断与调整', style: Theme.of(context).textTheme.titleLarge),
+          Text('中断与调整', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 10),
-          // FR-STAT-05 的"不同精力时段的完成效果"。区间为空（未设置时区，或用户还没设过
-          // 精力区间）时整节不显示——一个空壳比没有更让人困惑。
-          if (report.energyPeriods.isNotEmpty) ...[
-            for (final period in report.energyPeriods)
-              Text(
-                '${period.label}：投入 ${period.actualMinutes} 分钟，'
-                '完成 ${period.completedTasks} 项',
-              ),
-            const SizedBox(height: 10),
-          ],
-          // FR-STAT-05 的"休息保护情况"。口径写在领域模型上：保护总时长与被实际专注覆盖的
-          // 分钟数。数据源为空时整行不显示。
-          //
-          // **文案要点明"睡眠与保护时段"**：这个数字现在**包含睡眠**（每天 8 小时上下），
-          // 只说"保护 N 分钟"会让用户以为它只算午餐和固定休息，从而觉得数字大得离谱。
-          if (report.restProtection != null) ...[
-            Text(report.restProtection!.summaryLabel),
-            const SizedBox(height: 10),
-          ],
+          // **"不同精力时段的完成效果"与"休息保护情况"两行已按用户要求移除**：
+          // 前者按**实际投入**分桶，后者按"实际专注有没有落进保护时间"算，两者都属于
+          // "实际"这一侧。休息那一侧已由上面的《休息》一节按**计划侧**重做（休息时长/作息
+          // 规律性/工作休息比例）。FR-STAT-06 的三项原样保留。
           Text(_rankedText('常见中断', report.commonInterruptions)),
           const SizedBox(height: 6),
           Text(_rankedText('重排原因', report.replanReasons)),
@@ -801,12 +1198,3 @@ final class _EvidenceLists extends StatelessWidget {
 String _rankedText(String label, List<RankedMetric> values) => values.isEmpty
     ? '$label：暂无记录'
     : '$label：${values.map((item) => '${item.code} ${item.count} 次').join('，')}';
-
-const _chartColors = [
-  Color(0xFF3567D4),
-  Color(0xFF1F9D7A),
-  Color(0xFFE39035),
-  Color(0xFF8B5CC7),
-  Color(0xFFD6576B),
-  Color(0xFF4B8A9A),
-];

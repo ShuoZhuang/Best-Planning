@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
+import 'package:personal_planner/application/analytics_chart_preference_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
@@ -13,6 +15,7 @@ import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
@@ -52,6 +55,7 @@ import 'package:personal_planner/features/settings/planning_rules/planning_rules
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
@@ -86,8 +90,13 @@ GoRouter createPlannerRouter({
   /// 而"提供不了历史"本身是合法状态（那就没有撤销按钮）。
   PlanHistoryRepository? planHistory,
   AnalyticsQuery? analytics,
+
+  /// 统计页每张卡片的图表类型选择（持久在 `analytics.chartTypes.v1`）。
+  /// 为空时统计页照常可用，只是选择不跨会话保留。
+  AnalyticsChartPreferenceService? chartPreferences,
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
+  ScheduleColorService? scheduleColors,
   WindowBehaviorService? windowBehavior,
   TagService? tagService,
   AppLockService? appLock,
@@ -533,13 +542,14 @@ GoRouter createPlannerRouter({
           path: '/workspace',
           builder: (context, state) {
             final service = workspaceService;
-            if (service == null) {
+            final colors = scheduleColors;
+            if (service == null || colors == null) {
               return const _UnavailablePage(
                 title: '领域与项目',
                 message: '领域服务未装配，暂无法管理领域与项目。',
               );
             }
-            return WorkspaceManagementPage(workspace: service);
+            return WorkspaceManagementPage(workspace: service, colors: colors);
           },
         ),
         GoRoute(
@@ -547,6 +557,9 @@ GoRouter createPlannerRouter({
           // "信息架构提醒"）。只列出实际装配好的子页。
           path: '/settings',
           builder: (context, state) => SettingsHubPage(
+            // 版本号显示在设置页底部（用户 2026-10-07 要求）。常量来源是 ackup_assembly.dart，
+            // 与 pubspec.yaml 的一致性由 ersion_consistency_test 守着。
+            versionLabel: appVersion,
             entries: [
               SettingsHubEntry(
                 key: const Key('settings-appearance'),
@@ -612,8 +625,22 @@ GoRouter createPlannerRouter({
                 subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
                 onOpen: () => context.go('/settings/relaxation'),
               ),
+              // 新手教程放在最后：它是"随时重看"的入口，不是每天要动的东西。
+              SettingsHubEntry(
+                key: const Key('settings-tutorial'),
+                title: '新手教程',
+                subtitle: '用真实界面截图走一遍主要功能，两分钟',
+                onOpen: () => context.go('/settings/tutorial'),
+              ),
             ],
           ),
+        ),
+        GoRoute(
+          path: '/settings/tutorial',
+          // 从设置进来的这一次**看完不写"已看过"**：用户主动重看一遍，不该改变首次提示的状态；
+          // 而首次自动弹出的那一次由 `PlannerApp` 在自己的 onComplete 里落库。
+          builder: (context, state) =>
+              TutorialPage(onComplete: () => context.go('/settings')),
         ),
         GoRoute(
           path: '/settings/appearance',
@@ -772,6 +799,10 @@ GoRouter createPlannerRouter({
               timeZoneId: timeZoneId,
               // FR-STAT-02 的标签筛选。标签服务未装配时整块不渲染。
               loadTagNames: tagService?.allTagNames,
+              // 图表类型选择（用户要求"由我来选择显示哪个"）。设置仓储未装配时
+              // 选择只在本次会话内生效，而不是让整页不可用。
+              loadChartKinds: chartPreferences?.load,
+              saveChartKind: chartPreferences?.save,
             );
           },
         ),

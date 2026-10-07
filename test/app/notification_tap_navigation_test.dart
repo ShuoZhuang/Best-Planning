@@ -13,6 +13,7 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -99,6 +100,13 @@ void main() {
     await settings.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // 首次教程闸门与首次引导是同一条套路（设置键 + 版本比较）。不喂这一条，
+    // 整应用 pump 出来的会是教程页而不是主界面——教程自身的用例在 test/features/tutorial/。
+    // ignore: unused_local_variable
+    await settings.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
     await tester.pumpWidget(
       ProviderScope(
@@ -233,6 +241,11 @@ void main() {
     await settings.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // 首次教程闸门（同一条套路）：不喂这一条，pump 出来的会是教程页而不是主界面。
+    await settings.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
 
     await tester.pumpWidget(

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
+import 'package:personal_planner/domain/models/schedule_colors.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
+import 'package:personal_planner/features/workspace/schedule_color_picker_dialog.dart';
 
 /// 领域与项目的管理界面：新建、改名、标记生活、归档。
 ///
@@ -18,9 +22,14 @@ import 'package:personal_planner/domain/models/workspace.dart';
 /// 编辑采用**行内编辑**而不是弹窗：控件始终在 widget 树里，测试可以按 `Key` 定位，
 /// 不需要先弹出一个对话框再在对话框里找控件。同一时刻只允许编辑一行。
 final class WorkspaceManagementPage extends StatefulWidget {
-  const WorkspaceManagementPage({required this.workspace, super.key});
+  const WorkspaceManagementPage({
+    required this.workspace,
+    required this.colors,
+    super.key,
+  });
 
   final WorkspaceService workspace;
+  final ScheduleColorService colors;
 
   @override
   State<WorkspaceManagementPage> createState() =>
@@ -35,6 +44,7 @@ final class _WorkspaceManagementPageState
 
   List<PlannerArea> _areas = const [];
   List<PlannerProject> _projects = const [];
+  ScheduleSpecialColors _specialColors = ScheduleSpecialColors.defaults;
   bool _loading = true;
   bool _newAreaIsLife = false;
   String? _newProjectAreaId;
@@ -60,10 +70,12 @@ final class _WorkspaceManagementPageState
   Future<void> _reload() async {
     final areas = await widget.workspace.listAreas();
     final projects = await widget.workspace.listProjects();
+    final specialColors = await widget.colors.loadSpecialColors();
     if (!mounted) return;
     setState(() {
       _areas = areas;
       _projects = projects;
+      _specialColors = specialColors;
       _loading = false;
       // 领域可能刚被改名或新建，保持选择仍然有效。
       _newProjectAreaId = areas.any((area) => area.id == _newProjectAreaId)
@@ -125,6 +137,38 @@ final class _WorkspaceManagementPageState
     await _reload();
   }
 
+  Future<void> _changeAreaColor(PlannerArea area) async {
+    final current = resolveAreaColorArgb(area.color, area.sortOrder);
+    final selected = await showScheduleColorPickerDialog(
+      context,
+      categoryLabel: area.name,
+      selectedArgb: current,
+    );
+    if (selected == null || selected == current) return;
+    try {
+      await widget.workspace.setAreaColor(area.id, selected);
+      await _reload();
+    } on Object {
+      if (mounted) _report('颜色保存失败，请重试。');
+    }
+  }
+
+  Future<void> _changeSpecialColor(ScheduleSpecialCategory category) async {
+    final current = _specialColors.colorOf(category);
+    final selected = await showScheduleColorPickerDialog(
+      context,
+      categoryLabel: _specialColorLabel(category),
+      selectedArgb: current,
+    );
+    if (selected == null || selected == current) return;
+    try {
+      await widget.colors.setSpecialColor(category, selected);
+      await _reload();
+    } on Object {
+      if (mounted) _report('颜色保存失败，请重试。');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -155,11 +199,13 @@ final class _WorkspaceManagementPageState
         for (final area in _areas)
           _AreaRow(
             area: area,
+            colorArgb: resolveAreaColorArgb(area.color, area.sortOrder),
             editing: _editingKey == 'area:${area.id}',
             editField: _editField,
             onStartRename: () => _startEditing('area:${area.id}', area.name),
             onConfirmRename: () => _commitRename(area, null),
             onCancelRename: () => setState(() => _editingKey = null),
+            onChangeColor: () => _changeAreaColor(area),
             onToggleLife: (value) async {
               await widget.workspace.setAreaLife(area, value);
               await _reload();
@@ -199,6 +245,18 @@ final class _WorkspaceManagementPageState
             ),
           ),
         ),
+        const Divider(height: 40),
+        Text('特殊日程颜色', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        const Text('保护时间和没有领域的事项不属于领域，但在所有日程页面使用这里设置的颜色。'),
+        const SizedBox(height: 8),
+        for (final category in ScheduleSpecialCategory.values)
+          _SpecialColorRow(
+            category: category,
+            label: _specialColorLabel(category),
+            colorArgb: _specialColors.colorOf(category),
+            onChangeColor: () => _changeSpecialColor(category),
+          ),
         const Divider(height: 40),
         Text('项目', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
@@ -288,24 +346,33 @@ final class _WorkspaceManagementPageState
 final class _AreaRow extends StatelessWidget {
   const _AreaRow({
     required this.area,
+    required this.colorArgb,
     required this.editing,
     required this.editField,
     required this.onStartRename,
     required this.onConfirmRename,
     required this.onCancelRename,
+    required this.onChangeColor,
     required this.onToggleLife,
   });
 
   final PlannerArea area;
+  final int colorArgb;
   final bool editing;
   final TextEditingController editField;
   final VoidCallback onStartRename;
   final VoidCallback onConfirmRename;
   final VoidCallback onCancelRename;
+  final VoidCallback onChangeColor;
   final ValueChanged<bool> onToggleLife;
 
   @override
   Widget build(BuildContext context) => Card(
+    // **必须自己给外边距**：全局 `cardTheme.margin` 是 `EdgeInsets.zero`，而「领域」「特殊日程
+    // 颜色」「项目」这三处都是连续直铺 `Card`，于是相邻两张卡的圆角边框**直接贴在一起**（实测
+    // 上一张的下边框 y=522、下一张的上边框 y=523），彩色圆点看着挤成一堆。这里补 8px。
+    key: Key('area-card-${area.id}'),
+    margin: const EdgeInsets.only(bottom: _rowGap),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
@@ -313,6 +380,13 @@ final class _AreaRow extends StatelessWidget {
         children: [
           Row(
             children: [
+              _ColorButton(
+                key: Key('area-color-${area.id}'),
+                colorArgb: colorArgb,
+                semanticsLabel: '更换“${area.name}”领域颜色',
+                onPressed: onChangeColor,
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: editing
                     ? TextField(
@@ -325,11 +399,10 @@ final class _AreaRow extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(area.name, key: Key('area-name-${area.id}')),
-                          if (area.isLife)
-                            Text(
-                              '计入个人生活时间',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
+                          Text(
+                            area.isLife ? '领域 · 计入个人生活时间' : '领域',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ],
                       ),
               ),
@@ -364,6 +437,88 @@ final class _AreaRow extends StatelessWidget {
   );
 }
 
+/// 「领域」「特殊日程颜色」「项目」三处列表里相邻卡片之间的纵向间隔。
+///
+/// 存在的理由：全局 `cardTheme.margin` 是 `EdgeInsets.zero`，这三处又都是直接连续铺 `Card`，
+/// 于是相邻两张卡的圆角边框会**贴在一起**——2026-10-06 实测上一张的下边框在 y=522、下一张的
+/// 上边框在 y=523，只差 1px。彩色圆点在视觉上因此挤成一堆（用户反馈"间距靠得太近"）。
+const double _rowGap = 8;
+
+/// 特殊日程分类的名称与颜色入口。
+final class _SpecialColorRow extends StatelessWidget {
+  const _SpecialColorRow({
+    required this.category,
+    required this.label,
+    required this.colorArgb,
+    required this.onChangeColor,
+  });
+
+  final ScheduleSpecialCategory category;
+  final String label;
+  final int colorArgb;
+  final VoidCallback onChangeColor;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: Key('special-card-${category.name}'),
+    margin: const EdgeInsets.only(bottom: _rowGap),
+    child: ListTile(
+      leading: _ColorButton(
+        key: Key('special-color-${category.name}'),
+        colorArgb: colorArgb,
+        semanticsLabel: '更换“$label”颜色',
+        onPressed: onChangeColor,
+      ),
+      title: Text(label),
+      subtitle: const Text('特殊日程分类'),
+    ),
+  );
+}
+
+final class _ColorButton extends StatelessWidget {
+  const _ColorButton({
+    required super.key,
+    required this.colorArgb,
+    required this.semanticsLabel,
+    required this.onPressed,
+  });
+
+  final int colorArgb;
+  final String semanticsLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: semanticsLabel,
+    button: true,
+    excludeSemantics: true,
+    child: Tooltip(
+      message: semanticsLabel,
+      child: SizedBox.square(
+        dimension: 44,
+        child: IconButton(
+          onPressed: onPressed,
+          icon: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Color(colorArgb),
+              shape: BoxShape.circle,
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
+            ),
+            child: const SizedBox.square(dimension: 24),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+String _specialColorLabel(ScheduleSpecialCategory category) =>
+    switch (category) {
+      ScheduleSpecialCategory.protectedTime => '保护时间',
+      ScheduleSpecialCategory.unassignedTask => '无领域任务',
+      ScheduleSpecialCategory.unassignedFixed => '无领域固定日程',
+    };
+
 final class _ProjectRow extends StatelessWidget {
   const _ProjectRow({
     required this.project,
@@ -387,6 +542,8 @@ final class _ProjectRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
+    key: Key('project-card-${project.id}'),
+    margin: const EdgeInsets.only(bottom: _rowGap),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(

@@ -11,6 +11,7 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
@@ -36,9 +37,9 @@ void main() {
 
   tearDown(() => database.close());
 
-  Future<AnalyticsReport> report() =>
-      AnalyticsService(source: AnalyticsDao(database))
-          .query(AnalyticsFilter(startUtc: start, endUtc: end));
+  Future<AnalyticsReport> report() => AnalyticsService(
+    source: AnalyticsDao(database, calendar: DriftCalendarRepository(database)),
+  ).query(AnalyticsFilter(startUtc: start, endUtc: end));
 
   test('建议事件写进去之后统计读得出来（此前恒为零）', () async {
     final at = DateTime.utc(2026, 10, 3, 9);

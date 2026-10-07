@@ -6,6 +6,7 @@ import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
@@ -79,6 +80,10 @@ void main() {
       clock: clock,
       idGenerator: UuidIdGenerator(),
     );
+    final scheduleColors = ScheduleColorService(
+      settings: settingsRepository,
+      workspace: workspaceRepository,
+    );
     await workspaceService.ensureDefaultAreas();
     final studyArea = (await workspaceService.listAreas()).firstWhere(
       (area) => area.name == '学业',
@@ -112,7 +117,9 @@ void main() {
       tasks: taskRepository,
       calendar: calendarRepository,
       plans: planRepository,
+      history: planRepository,
       rules: ruleResolver,
+      colors: scheduleColors,
       zones: zones,
       timeZoneId: timeZoneId,
     );
@@ -122,6 +129,8 @@ void main() {
           taskRepository: taskRepository,
           settingsRepository: settingsRepository,
           planRepository: planRepository,
+          workspaceService: workspaceService,
+          scheduleColors: scheduleColors,
           zones: zones,
           timeZoneId: timeZoneId,
           planningService: planning,

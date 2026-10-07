@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
+import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
+import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
+import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 /// 日视图（FR-CAL-03）。
@@ -107,6 +111,7 @@ final class DayViewPage extends StatelessWidget {
       final localDay = zones.toLocal(dayStartUtc, timeZoneId);
       final items = [...?snapshot.data]
         ..sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
+      final summaries = summarizeScheduleCategories(items);
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -130,6 +135,13 @@ final class DayViewPage extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (summaries.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerRight,
+                child: ScheduleCategoryLegend(summaries: summaries),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (snapshot.hasError)
               Text('读取日程失败：${snapshot.error}')
             else if (!snapshot.hasData)
@@ -631,20 +643,41 @@ final class _DayItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: item.kind.color(scheme),
-      child: ListTile(
-        key: Key('day-item-${item.id}'),
-        leading: Icon(item.kind.icon),
-        title: Text(item.title),
-        subtitle: Text(
-          [
-            // 类型用文字而不只是颜色：需求 §12 要求不能只靠颜色区分。
-            '${_clock(start)}–${_clock(end)}',
-            item.kind.label,
-            ?item.explanation,
-          ].join(' · '),
+    // 与七日历、今日共用同一个派生器：同一事项在三个视图里必须逐值同色。
+    final visual = scheduleCategoryCardStyle(item.categoryColor);
+    return Semantics(
+      key: Key('day-item-${item.id}'),
+      container: true,
+      excludeSemantics: true,
+      label:
+          '${item.title}，${_clock(start)}到${_clock(end)}，${item.categoryLabel}，${item.kind.label}'
+          '${item.isCompleted ? '，已完成' : ''}',
+      child: Card(
+        key: Key('day-schedule-card-${item.id}'),
+        color: visual.fill,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: visual.border),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          leading: Icon(item.kind.icon, color: visual.accent),
+          title: Text(item.title),
+          subtitle: Text(
+            [
+              '${_clock(start)}–${_clock(end)}',
+              item.categoryLabel,
+              ?item.explanation,
+            ].join(' · '),
+          ),
+          // 「已完成」标记：任务勾选完成、或固定日程时间已过。muted 色，不抢分类色。
+          trailing: item.isCompleted
+              ? Icon(
+                  Icons.check_circle_outline,
+                  key: Key('day-schedule-completed-${item.id}'),
+                  color: PlannerPalette.textMuted,
+                )
+              : null,
         ),
       ),
     );

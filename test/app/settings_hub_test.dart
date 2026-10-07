@@ -18,6 +18,7 @@ import 'package:personal_planner/data/repositories/drift_academic_calendar_repos
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/settings/academic_calendar/academic_calendar_page.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
@@ -81,6 +82,13 @@ void main() {
     await repository.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // 首次教程闸门与首次引导是同一条套路（设置键 + 版本比较）。不喂这一条，
+    // 整应用 pump 出来的会是教程页而不是主界面——教程自身的用例在 test/features/tutorial/。
+    // ignore: unused_local_variable
+    await repository.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
     await tester.pumpWidget(
       ProviderScope(
@@ -158,6 +166,46 @@ void main() {
     for (final tile in tester.widgetList<ListTile>(find.byType(ListTile))) {
       expect(tile.minTileHeight ?? 0, greaterThanOrEqualTo(44));
     }
+  });
+
+  testWidgets('页面底部显示软件版本号（用户 2026-10-07 要求）', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          versionLabel: '1.5.0+30',
+          entries: [
+            SettingsHubEntry(title: '甲', subtitle: '说明甲', onOpen: () {}),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings-version-label')), findsOneWidget);
+    expect(find.text('软件版本 1.5.0+30'), findsOneWidget);
+
+    // 它在**所有入口卡片之后**：用户要往下看才能见到，而不是挤在标题旁边。
+    final label = tester.getRect(
+      find.byKey(const Key('settings-version-label')),
+    );
+    final lastCard = tester.getRect(find.byType(Card).last);
+    expect(label.top, greaterThan(lastCard.bottom));
+  });
+
+  testWidgets('没有版本号时整行不渲染，而不是显示"未知版本"', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(title: '甲', subtitle: '说明甲', onOpen: () {}),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings-version-label')), findsNothing);
+    expect(find.textContaining('软件版本'), findsNothing);
   });
 
   testWidgets('设置入口页列出已装配的子页，并能进入规划规则', (tester) async {

@@ -55,6 +55,9 @@ flutter test integration_test/backup_restore_flow_test.dart -d windows
 发布必须用 MSIX：可靠的通知取消与查询能力依赖 Windows **包身份**，只有 release EXE 时
 通知行为不可靠。
 
+从 `1.4.1+21` 起，每个交给用户体验的版本必须同时提供便携目录、ZIP、已签名 MSIX、签名公钥
+证书和使用说明，不能再只导出 EXE。
+
 ```powershell
 dart run msix:create
 ```

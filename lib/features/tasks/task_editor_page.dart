@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
@@ -145,6 +146,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
   Future<void> _pickDue() async {
     final now = widget.zones.toLocal(widget.nowUtc, widget.timeZoneId);
     final date = await showDatePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialDate: _dueLocal ?? now,
       firstDate: DateTime(now.year - 10),
@@ -152,6 +154,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialTime: _dueLocal == null
           ? const TimeOfDay(hour: 23, minute: 59)
@@ -186,6 +189,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
   }) async {
     final now = widget.zones.toLocal(widget.nowUtc, widget.timeZoneId);
     final date = await showDatePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialDate: current ?? now,
       firstDate: DateTime(now.year - 10),
@@ -193,6 +197,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
     );
     if (date == null || !mounted) return null;
     final time = await showTimePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialTime: current == null
           ? fallbackTime

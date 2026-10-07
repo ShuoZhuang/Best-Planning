@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
+import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
+import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 final class TodayPage extends StatefulWidget {
@@ -80,7 +83,16 @@ final class _TodayPageState extends State<TodayPage> {
                         id: item.id,
                         title: item.title,
                         kind: item.kind,
+                        categoryKey: item.categoryKey,
+                        categoryLabel: item.categoryLabel,
+                        categoryColorArgb: item.categoryColorArgb,
+                        categorySortOrder: item.categorySortOrder,
                         explanation: item.explanation,
+                        // **拷贝时新字段容易漏**：这里的对象是"按当天裁剪过区间"的副本，
+                        // 漏掉 `isCompleted` 会让"已完成"标记在这一页永远不显示——这条由
+                        // `today_page_test.dart` 的标记用例守着。
+                        isCompleted: item.isCompleted,
+                        areaId: item.areaId,
                         range: TimeRange(
                           startUtc: item.range.startUtc.isBefore(widget.day)
                               ? widget.day
@@ -94,43 +106,60 @@ final class _TodayPageState extends State<TodayPage> {
                         ),
                       ),
                 ]..sort((a, b) => a.range.startUtc.compareTo(b.range.startUtc));
-                return LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 960;
-                    final timeline = _TimelinePanel(
-                      items: items,
-                      formatTime: formatTime,
-                    );
-                    final summary = _PlanningRail(
-                      items: items,
-                      formatTime: formatTime,
-                    );
-                    if (wide) {
-                      return Row(
-                        key: const Key('today-wide-layout'),
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(flex: 7, child: timeline),
-                          const SizedBox(width: 16),
-                          SizedBox(
-                            width: 310,
-                            child: SingleChildScrollView(child: summary),
-                          ),
-                        ],
-                      );
-                    }
-                    return SingleChildScrollView(
-                      key: const Key('today-compact-layout'),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          timeline,
-                          const SizedBox(height: 16),
-                          summary,
-                        ],
+                final categorySummaries = summarizeScheduleCategories(items);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ScheduleCategoryLegend(
+                        summaries: categorySummaries,
                       ),
-                    );
-                  },
+                    ),
+                    if (categorySummaries.isNotEmpty)
+                      const SizedBox(height: 12),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final wide = constraints.maxWidth >= 960;
+                          final timeline = _TimelinePanel(
+                            items: items,
+                            formatTime: formatTime,
+                          );
+                          final summary = _PlanningRail(
+                            items: items,
+                            categorySummaries: categorySummaries,
+                            formatTime: formatTime,
+                          );
+                          if (wide) {
+                            return Row(
+                              key: const Key('today-wide-layout'),
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(flex: 7, child: timeline),
+                                const SizedBox(width: 16),
+                                SizedBox(
+                                  width: 310,
+                                  child: SingleChildScrollView(child: summary),
+                                ),
+                              ],
+                            );
+                          }
+                          return SingleChildScrollView(
+                            key: const Key('today-compact-layout'),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                timeline,
+                                const SizedBox(height: 16),
+                                summary,
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -165,51 +194,6 @@ final class _TodayHeader extends StatelessWidget {
           ],
         ),
       ),
-      const _Legend(),
-    ],
-  );
-}
-
-/// 图例：**按类型**列出今天的颜色含义，与卡片取色同一套口径。
-///
-/// 曾短暂改成"按领域 + 保护"着色（领域色由 `areas.color` 提供），但整屏卡片各按领域上色后
-/// 观感明显变差，用户要求恢复到原来的按类型着色，图例因此一并回到四项。
-///
-/// 注：第三项的"可移动任务"沿用旧文案，而任务的类型标签其实是"任务"——两者不一致是历史遗留，
-/// 与配色无关，因此这次原样保留，避免借着"恢复配色"顺手改文案。
-final class _Legend extends StatelessWidget {
-  const _Legend();
-
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 12,
-    runSpacing: 6,
-    children: const [
-      _LegendItem(color: PlannerPalette.accent, label: '固定'),
-      _LegendItem(color: PlannerPalette.positive, label: '保护'),
-      _LegendItem(color: PlannerPalette.warning, label: '可移动任务'),
-      _LegendItem(color: Color(0xffb391d3), label: '生活'),
-    ],
-  );
-}
-
-final class _LegendItem extends StatelessWidget {
-  const _LegendItem({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Container(
-        width: 7,
-        height: 7,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
-      const SizedBox(width: 5),
-      Text(label, style: Theme.of(context).textTheme.bodySmall),
     ],
   );
 }
@@ -278,10 +262,15 @@ final class _TimelineItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = _toneFor(item.kind);
+    // 与七日历、单日详情共用同一个派生器：同一事项在三个视图里必须逐值同色。
+    // 此前这里用的是 `alpha: 0.10`（比七日历的 0.18 还浅），左侧强调条却是 100% 原色，
+    // 于是"浅底 + 亮条"看起来像两块拼在一起。
+    final visual = scheduleCategoryCardStyle(item.categoryColor);
     return Semantics(
+      key: ValueKey('today-schedule-${item.id}'),
       label:
-          '${item.title}，${item.kind.label}，${formatTime(item.range.startUtc)}到${formatTime(item.range.endUtc)}',
+          '${item.title}，${item.categoryLabel}，${item.kind.label}，${formatTime(item.range.startUtc)}到${formatTime(item.range.endUtc)}'
+          '${item.isCompleted ? '，已完成' : ''}',
       child: SizedBox(
         height: 82,
         child: Row(
@@ -311,7 +300,7 @@ final class _TimelineItem extends StatelessWidget {
                     width: 9,
                     height: 9,
                     decoration: BoxDecoration(
-                      color: tone,
+                      color: visual.accent,
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: PlannerPalette.surface,
@@ -329,16 +318,30 @@ final class _TimelineItem extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Container(
+                key: ValueKey('today-schedule-card-${item.id}'),
                 margin: const EdgeInsets.only(bottom: 10),
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: tone.withValues(alpha: 0.10),
-                  border: Border.all(color: PlannerPalette.outline),
+                  color: visual.fill,
+                  border: Border.all(color: visual.border),
                   borderRadius: BorderRadius.circular(8),
                 ),
+                // **`stretch` 是这条竖条能不能被看见的关键**，不是排版洁癖：`Row` 默认
+                // `CrossAxisAlignment.center`，而没有子节点的 `ColoredBox` 内在高度是 0，于是
+                // "左侧强调条"会被量成 0×3 的零面积控件——控件树里有它、颜色也对、测试里
+                // `tester.widget<ColoredBox>(...).color` 照样通过，屏幕上却什么都没有（用户就是
+                // 这么发现它的）。卡片高度在这里本来就是紧约束（外层 `Row` 也是 `stretch`），
+                // 所以只要把内层 `Row` 也设成 `stretch`，竖条就会被拉满整张卡片的高度。
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(width: 3, color: tone),
+                    SizedBox(
+                      width: 3,
+                      child: ColoredBox(
+                        key: ValueKey('today-schedule-accent-${item.id}'),
+                        color: visual.accent,
+                      ),
+                    ),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -347,7 +350,12 @@ final class _TimelineItem extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            Icon(item.kind.icon, size: 18, color: tone),
+                            Icon(
+                              item.kind.icon,
+                              key: ValueKey('today-schedule-icon-${item.id}'),
+                              size: 18,
+                              color: visual.accent,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
@@ -366,7 +374,7 @@ final class _TimelineItem extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    '${formatTime(item.range.startUtc)}–${formatTime(item.range.endUtc)} · ${item.kind.label}',
+                                    '${formatTime(item.range.startUtc)}–${formatTime(item.range.endUtc)} · ${item.categoryLabel}',
                                     style: const TextStyle(
                                       color: PlannerPalette.textSecondary,
                                       fontSize: 12,
@@ -375,6 +383,19 @@ final class _TimelineItem extends StatelessWidget {
                                 ],
                               ),
                             ),
+                            // 「已完成」标记。任务：所属任务已勾选完成；固定日程：结束时间已过。
+                            // 用 muted 而不是分类色：它不是分类信息，只是状态，不该跟分类抢注意力。
+                            if (item.isCompleted) ...[
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.check_circle_outline,
+                                key: ValueKey(
+                                  'today-schedule-completed-${item.id}',
+                                ),
+                                size: 16,
+                                color: PlannerPalette.textMuted,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -422,9 +443,14 @@ final class _EmptyTimeline extends StatelessWidget {
 }
 
 final class _PlanningRail extends StatelessWidget {
-  const _PlanningRail({required this.items, required this.formatTime});
+  const _PlanningRail({
+    required this.items,
+    required this.categorySummaries,
+    required this.formatTime,
+  });
 
   final List<ScheduleViewItem> items;
+  final List<ScheduleCategorySummary> categorySummaries;
   final String Function(DateTime value) formatTime;
 
   @override
@@ -434,14 +460,6 @@ final class _PlanningRail extends StatelessWidget {
       0,
       (sum, item) => sum + item.range.durationMinutes,
     );
-    final fixedMinutes = items
-        .where((item) => item.kind == ScheduleItemKind.fixed)
-        .fold<int>(0, (sum, item) => sum + item.range.durationMinutes);
-    final protectedMinutes = items
-        .where((item) => item.kind == ScheduleItemKind.protectedTime)
-        .fold<int>(0, (sum, item) => sum + item.range.durationMinutes);
-    final flexibleMinutes = totalMinutes - fixedMinutes - protectedMinutes;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -472,7 +490,7 @@ final class _PlanningRail extends StatelessWidget {
                     children: [
                       Icon(
                         current.kind.icon,
-                        color: _toneFor(current.kind),
+                        color: current.categoryColor,
                         size: 20,
                       ),
                       const SizedBox(width: 9),
@@ -493,7 +511,7 @@ final class _PlanningRail extends StatelessWidget {
                   ),
                   const SizedBox(height: 9),
                   Text(
-                    '${formatTime(current.range.startUtc)}–${formatTime(current.range.endUtc)} · ${current.kind.label}',
+                    '${formatTime(current.range.startUtc)}–${formatTime(current.range.endUtc)} · ${current.categoryLabel}',
                     style: const TextStyle(color: PlannerPalette.textSecondary),
                   ),
                 ],
@@ -525,29 +543,23 @@ final class _PlanningRail extends StatelessWidget {
                   style: const TextStyle(color: PlannerPalette.textMuted),
                 ),
                 const SizedBox(height: 16),
-                _CapacityBar(
-                  fixed: fixedMinutes,
-                  protectedTime: protectedMinutes,
-                  flexible: flexibleMinutes,
-                ),
+                _CapacityBar(summaries: categorySummaries),
                 const SizedBox(height: 14),
-                _MetricRow(
-                  label: '固定日程',
-                  value: _durationText(fixedMinutes),
-                  color: PlannerPalette.accent,
-                ),
-                const SizedBox(height: 8),
-                _MetricRow(
-                  label: '保护时间',
-                  value: _durationText(protectedMinutes),
-                  color: PlannerPalette.positive,
-                ),
-                const SizedBox(height: 8),
-                _MetricRow(
-                  label: '任务与生活',
-                  value: _durationText(flexibleMinutes),
-                  color: PlannerPalette.warning,
-                ),
+                for (
+                  var index = 0;
+                  index < categorySummaries.length;
+                  index++
+                ) ...[
+                  if (index > 0) const SizedBox(height: 8),
+                  _MetricRow(
+                    key: ValueKey(
+                      'today-capacity-category-${categorySummaries[index].categoryKey}',
+                    ),
+                    label: categorySummaries[index].categoryLabel,
+                    value: _durationText(categorySummaries[index].minutes),
+                    color: categorySummaries[index].categoryColor,
+                  ),
+                ],
               ],
             ),
           ),
@@ -594,21 +606,16 @@ final class _PlanningRail extends StatelessWidget {
 }
 
 final class _CapacityBar extends StatelessWidget {
-  const _CapacityBar({
-    required this.fixed,
-    required this.protectedTime,
-    required this.flexible,
-  });
+  const _CapacityBar({required this.summaries});
 
-  final int fixed;
-  final int protectedTime;
-  final int flexible;
+  final List<ScheduleCategorySummary> summaries;
 
   @override
   Widget build(BuildContext context) {
-    final total = fixed + protectedTime + flexible;
+    final total = summaries.fold<int>(0, (sum, item) => sum + item.minutes);
     if (total == 0) {
       return Container(
+        key: const Key('today-capacity-bar'),
         height: 7,
         decoration: BoxDecoration(
           color: PlannerPalette.surfaceHover,
@@ -619,24 +626,21 @@ final class _CapacityBar extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: SizedBox(
+        key: const Key('today-capacity-bar'),
         height: 7,
         child: Row(
+          // **`stretch` 必不可少**：`Row` 默认 `CrossAxisAlignment.center`，而每段是无子节点的
+          // `ColoredBox`（内在高度 0），于是"有安排时"整条容量条会被量成 0 高、完全看不见——
+          // 反而"当天没有安排"那条灰色底条是普通 `Container(height: 7)`，一直看得见。用户看到的
+          // 现象就是"有数据时容量条消失"。这里靠 `stretch` 让各段铺满这 7 像素。
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (fixed > 0)
-              Expanded(
-                flex: fixed,
-                child: const ColoredBox(color: PlannerPalette.accent),
-              ),
-            if (protectedTime > 0)
-              Expanded(
-                flex: protectedTime,
-                child: const ColoredBox(color: PlannerPalette.positive),
-              ),
-            if (flexible > 0)
-              Expanded(
-                flex: flexible,
-                child: const ColoredBox(color: PlannerPalette.warning),
-              ),
+            for (final summary in summaries)
+              if (summary.minutes > 0)
+                Expanded(
+                  flex: summary.minutes,
+                  child: ColoredBox(color: summary.categoryColor),
+                ),
           ],
         ),
       ),
@@ -649,6 +653,7 @@ final class _MetricRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    super.key,
   });
 
   final String label;
@@ -800,13 +805,6 @@ ScheduleViewItem? _currentOrNext(List<ScheduleViewItem> items) {
   }
   return items.last;
 }
-
-Color _toneFor(ScheduleItemKind kind) => switch (kind) {
-  ScheduleItemKind.fixed => PlannerPalette.accent,
-  ScheduleItemKind.protectedTime => PlannerPalette.positive,
-  ScheduleItemKind.task => PlannerPalette.warning,
-  ScheduleItemKind.life => const Color(0xffb391d3),
-};
 
 String _durationText(int minutes) {
   if (minutes <= 0) return '0 分钟';

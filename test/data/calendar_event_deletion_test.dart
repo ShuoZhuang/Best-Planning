@@ -199,6 +199,10 @@ void main() {
       id: scheduleFixedItemId('anchor-1'),
       title: '数据结构课',
       kind: ScheduleItemKind.fixed,
+      categoryKey: 'special:unassigned-fixed',
+      categoryLabel: '无领域固定日程',
+      categoryColorArgb: 0xffa8b86f,
+      categorySortOrder: 10002,
       range: TimeRange(
         startUtc: DateTime.utc(2026, 10, 5, 9),
         endUtc: DateTime.utc(2026, 10, 5, 10),

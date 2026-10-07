@@ -19,13 +19,6 @@ extension ScheduleItemKindPresentation on ScheduleItemKind {
     ScheduleItemKind.task => Icons.task_alt,
     ScheduleItemKind.life => Icons.self_improvement,
   };
-
-  Color color(ColorScheme scheme) => switch (this) {
-    ScheduleItemKind.fixed => scheme.primaryContainer,
-    ScheduleItemKind.protectedTime => scheme.tertiaryContainer,
-    ScheduleItemKind.task => scheme.secondaryContainer,
-    ScheduleItemKind.life => scheme.surfaceContainerHighest,
-  };
 }
 
 /// "调整归属"对话框的领域选项：`id` 用于保存，`name` 用于显示。
@@ -48,20 +41,38 @@ final class ScheduleViewItem {
     required this.title,
     required this.kind,
     required this.range,
+    required this.categoryKey,
+    required this.categoryLabel,
+    required this.categoryColorArgb,
+    required this.categorySortOrder,
     this.explanation,
     this.areaId,
+    this.isCompleted = false,
   });
 
   final String id;
   final String title;
   final ScheduleItemKind kind;
   final TimeRange range;
+  final String categoryKey;
+  final String categoryLabel;
+  final int categoryColorArgb;
+  final int categorySortOrder;
   final String? explanation;
+
+  /// 这条计划块所属的任务**已经完成**。
+  ///
+  /// 存在的理由：已确认计划里的块不会因为勾选完成而消失（只有重排才会把它去掉），但它所属的任务
+  /// 离开了"未结束任务"集合——此前数据源因此查不到它的标题与领域，卡片退化成标题「已安排任务」、
+  /// 分类「无领域任务」，看起来像"勾完之后任务变成了另一个分类"。现在这类块照常显示真实标题与
+  /// 领域色，只多一个"已完成"标记。
+  final bool isCompleted;
+
+  Color get categoryColor => Color(categoryColorArgb);
 
   /// 条目所属领域的 id（固定日程用于"调整归属"时预选当前值）。
   ///
-  /// **只用于归属，不参与着色**：日历与今日页按 `kind` 着色（见 `ScheduleItemKind.color`），
-  /// 曾经短暂改成按领域上色，观感明显变差，已按用户要求还原。
+  /// 归属由数据源解析成上面的分类展示字段；页面不能再自行查询领域或判断颜色。
   final String? areaId;
 }
 

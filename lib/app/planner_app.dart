@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
+import 'package:personal_planner/application/analytics_chart_preference_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
@@ -16,6 +17,7 @@ import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -26,6 +28,7 @@ import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
@@ -42,6 +45,7 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
@@ -59,9 +63,11 @@ final class PlannerApp extends StatefulWidget {
     this.planRepository,
     this.correctionLog,
     this.analytics,
+    this.chartPreferences,
     this.preferences,
     this.notifications,
     this.workspaceService,
+    this.scheduleColors,
     this.windowBehavior,
     this.tagService,
     this.appLock,
@@ -122,6 +128,12 @@ final class PlannerApp extends StatefulWidget {
   /// 根本没有路由，是 W3 登记的缺口之一。
   final AnalyticsQuery? analytics;
 
+  /// 统计页的图表类型选择（持久化）。
+  ///
+  /// 与 `analytics` 一样由组合根装配；为 `null` 时统计页照常可用，只是选择不跨会话
+  /// 保留（不为了一个"记住图表类型"的能力让整页不可达）。
+  final AnalyticsChartPreferenceService? chartPreferences;
+
   /// 学习偏好的读取与调整服务。为空时"偏好"页仍然可达，但会说明服务未装配。
   final PreferenceService? preferences;
 
@@ -131,6 +143,9 @@ final class PlannerApp extends StatefulWidget {
 
   /// 领域与项目服务。为空时任务详情页不提供项目选择，其余功能不受影响。
   final WorkspaceService? workspaceService;
+
+  /// 今日、日历与领域设置共用的颜色目录。测试未显式装配时可从工作区与设置仓库构造。
+  final ScheduleColorService? scheduleColors;
 
   /// 关闭主窗口的行为（收进托盘后台运行 / 直接退出）。
   ///
@@ -223,6 +238,10 @@ final class _PlannerAppState extends State<PlannerApp> {
   late final Future<bool> _onboardingRequired;
   bool _onboardingCompleted = false;
 
+  /// 是否该提示新手教程。与 `_onboardingRequired` 同一套路（设置键 + 版本比较）。
+  late final Future<bool> _tutorialRequired;
+  bool _tutorialCompleted = false;
+
   /// 启动时是否仍处于锁定状态；null 表示尚未判定完（此时显示进度，不显示内容）。
   bool? _locked;
 
@@ -296,12 +315,28 @@ final class _PlannerAppState extends State<PlannerApp> {
       final stored = value == null ? null : int.tryParse(value);
       return stored == null || stored < OnboardingPage.currentSchemaVersion;
     }();
+    // 新手教程与首次引导同一条套路：读一个整数版本键，低于当前版本就提示一次。
+    // **排在首次引导之后**：引导问的是"关键默认值"，教程讲的是"怎么用"，先定值再讲用法。
+    _tutorialRequired = () async {
+      await _appearanceReady;
+      final value = await _settingsRepository.read(TutorialPage.seenKey);
+      final stored = value == null ? null : int.tryParse(value);
+      return stored == null || stored < TutorialPage.currentVersion;
+    }();
     final zones = widget.zones ?? TimeZoneDatabase();
     final clock = const SystemClock();
     final todayStartUtc = zones.localMidnightToUtc(
       _dateOnly(zones.toLocal(clock.nowUtc(), widget.timeZoneId)),
       widget.timeZoneId,
     );
+    final scheduleColors =
+        widget.scheduleColors ??
+        (widget.workspaceService == null
+            ? null
+            : ScheduleColorService(
+                settings: _settingsRepository,
+                workspace: widget.workspaceService!.repository,
+              ));
     _router = createPlannerRouter(
       taskService: TaskService(
         repository: _repository,
@@ -341,7 +376,9 @@ final class _PlannerAppState extends State<PlannerApp> {
           ? widget.planRepository as PlanStore
           : null,
       analytics: widget.analytics,
+      chartPreferences: widget.chartPreferences,
       workspaceService: widget.workspaceService,
+      scheduleColors: scheduleColors,
       windowBehavior: widget.windowBehavior,
       tagService: widget.tagService,
       appLock: widget.appLock,
@@ -455,25 +492,78 @@ final class _PlannerAppState extends State<PlannerApp> {
             ),
           );
         }
-        return MaterialApp.router(
-          title: '智能日程',
-          debugShowCheckedModeBanner: false,
-          // 自动重排的提示要走这个 key：State 的 context 在 MaterialApp **之上**，
-          // 从那里 ScaffoldMessenger.maybeOf 找不到下面这个 messenger（实测：提示不出现）。
-          scaffoldMessengerKey: _messengerKey,
-          routerConfig: _router,
-          theme: _theme,
-          builder: (context, child) =>
-              PlannerBackdrop(child: child ?? const SizedBox.shrink()),
+        // **首次引导之后**再问一次要不要看新手教程。顺序是刻意的：引导在定"关键默认值"，
+        // 教程在讲"功能怎么用"——先定值，再讲用法。
+        //
+        // `_markTutorialSeen` 先落库再放开界面：写失败时下次启动会再问一遍（可接受），
+        // 而反过来会让"看过了"丢在一次失败的写入里。
+        return FutureBuilder<bool>(
+          future: _tutorialRequired,
+          builder: (context, tutorialSnapshot) {
+            final tutorialRequired = tutorialSnapshot.data;
+            if (tutorialRequired == null) {
+              return _shell(
+                const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+              );
+            }
+            if (tutorialRequired && !_tutorialCompleted) {
+              return _shell(
+                TutorialPage(
+                  onComplete: () async {
+                    await _markTutorialSeen();
+                    if (mounted) {
+                      setState(() => _tutorialCompleted = true);
+                    }
+                  },
+                ),
+              );
+            }
+            return MaterialApp.router(
+              title: '智能日程',
+              debugShowCheckedModeBanner: false,
+              // **Material 自带控件要说中文**：不配这三行，日期／时间选择器与对话框按钮会回落到
+              // Flutter 内置的英文文案——确认按钮显示成 `Save`、月份显示 `October 2026`。那正是
+              // 2026-10-07 用户反馈里"容易被看不见"的那个按钮。设置与理由见 PlannerLocalization。
+              locale: PlannerLocalization.locale,
+              localizationsDelegates: PlannerLocalization.delegates,
+              supportedLocales: PlannerLocalization.supportedLocales,
+              // 自动重排的提示要走这个 key：State 的 context 在 MaterialApp **之上**，
+              // 从那里 ScaffoldMessenger.maybeOf 找不到下面这个 messenger（实测：提示不出现）。
+              scaffoldMessengerKey: _messengerKey,
+              routerConfig: _router,
+              theme: _theme,
+              builder: (context, child) =>
+                  PlannerBackdrop(child: child ?? const SizedBox.shrink()),
+            );
+          },
         );
       },
     );
+  }
+
+  /// 记住"教程看过了"。写当前版本号，将来教程大改时抬 [TutorialPage.currentVersion]
+  /// 就能让老用户再看一次增量。
+  Future<void> _markTutorialSeen() async {
+    try {
+      await _settingsRepository.write(
+        TutorialPage.seenKey,
+        '${TutorialPage.currentVersion}',
+      );
+    } on Object {
+      // 写不进去只影响"下次是否再提示"——不能因此把用户卡在教程里。
+    }
   }
 
   /// 非路由状态的统一外壳：引导、解锁与加载都共用同一套标题与主题。
   Widget _shell(Widget home) => MaterialApp(
     title: '智能日程',
     debugShowCheckedModeBanner: false,
+    // 与路由形态共用同一份本地化设置：引导、解锁与加载页同样会弹选择器。
+    locale: PlannerLocalization.locale,
+    localizationsDelegates: PlannerLocalization.delegates,
+    supportedLocales: PlannerLocalization.supportedLocales,
     scaffoldMessengerKey: _messengerKey,
     theme: _theme,
     builder: (context, child) =>

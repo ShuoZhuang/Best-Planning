@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/domain/models/task.dart';
 
@@ -169,6 +170,7 @@ final class _TaskListPageState extends State<TaskListPage> {
                           // 页面只交出本地日期与"当天第几分钟"；换算与写入都在注入方那边，
                           // 且整批只换算一次（见字段说明）。
                           final picked = await showDatePicker(
+                            builder: plannerPickerBuilder,
                             context: context,
                             initialDate: widget.nowUtc,
                             firstDate: DateTime(widget.nowUtc.year - 1),

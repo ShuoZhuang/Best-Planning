@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
@@ -450,6 +451,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
                 key: const Key('set-due-date'),
                 onPressed: () async {
                   final picked = await showDatePicker(
+                    builder: plannerPickerBuilder,
                     context: context,
                     initialDate: task.dueAtUtc?.toLocal() ?? widget.nowUtc,
                     firstDate: DateTime(widget.nowUtc.year - 1),

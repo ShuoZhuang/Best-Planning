@@ -100,6 +100,7 @@ final class AnalyticsService implements AnalyticsQuery {
       taskById,
       planned,
       actualByEntry,
+      dataset.fixedEvents,
       filter,
     );
     final trend = _trend(planned, actualByEntry, filter);
@@ -190,6 +191,57 @@ final class AnalyticsService implements AnalyticsQuery {
         modified: suggestionCodes.where((code) => code == 'modified').length,
         rejected: suggestionCodes.where((code) => code == 'rejected').length,
       ),
+      // ── 2026-10-06 统计复盘改版：按用户确认的清单新增的四项 ──
+      // 全部**只依赖计划侧数据**（计划块、固定日程、保护时间设置）。用户明确要求把"实际投入"
+      // 从统计里拿掉，因此这里一条都不读 `actualByEntry`。
+      restSummary: _restSummary(
+        windows: dataset.protectedWindows,
+        planned: planned,
+        fixed: dataset.fixedEvents,
+        filter: filter,
+        zones: zones,
+        timeZoneId: timeZoneId,
+      ),
+      routine: _routine(
+        planned: planned,
+        fixed: dataset.fixedEvents,
+        filter: filter,
+        zones: zones,
+        timeZoneId: timeZoneId,
+      ),
+      workRest: _workRest(
+        protectedMinutes: _protectedMinutes(
+          windows: dataset.protectedWindows,
+          filter: filter,
+          zones: zones,
+          timeZoneId: timeZoneId,
+        ),
+        workedMinutes: _workedMinutes(
+          taskById: taskById,
+          planned: planned,
+          fixed: dataset.fixedEvents,
+          life: false,
+          filter: filter,
+        ),
+        lifeMinutes: _workedMinutes(
+          taskById: taskById,
+          planned: planned,
+          fixed: dataset.fixedEvents,
+          life: true,
+          filter: filter,
+        ),
+        scheduleMinutes: _scheduledIntersectingProtected(
+          windows: dataset.protectedWindows,
+          taskById: taskById,
+          planned: planned,
+          fixed: dataset.fixedEvents,
+          filter: filter,
+          zones: zones,
+          timeZoneId: timeZoneId,
+        ),
+        filter: filter,
+      ),
+      areaCoverage: _areaCoverage(dataset.areas, domain),
     );
   }
 }
@@ -249,6 +301,7 @@ List<DomainTimeMetric> _domainDistribution(
   Map<String, AnalyticsTaskFact> taskById,
   List<AnalyticsPlannedFact> planned,
   Map<AnalyticsActualFact, int> actual,
+  List<AnalyticsFixedFact> fixed,
   AnalyticsFilter filter,
 ) {
   final values = <String, _MutableDomain>{};
@@ -261,12 +314,25 @@ List<DomainTimeMetric> _domainDistribution(
     );
   }
 
+  _MutableDomain domainForArea(String? areaId, String? areaName) =>
+      values.putIfAbsent(
+        areaId ?? 'unassigned',
+        () => _MutableDomain(areaId ?? 'unassigned', areaName ?? '未分类'),
+      );
+
   for (final item in planned) {
     domainFor(item.taskId).planned += _intersectionMinutes(
       item.startUtc,
       item.endUtc,
       filter,
     );
+  }
+  // 固定日程按**它自己的领域**归集，不经过任务表——课表本来就不挂在任务上。这也是"领域时间分配
+  // 必须包含固定日程"那条反馈的落点。
+  for (final item in fixed) {
+    final minutes = _intersectionMinutes(item.startUtc, item.endUtc, filter);
+    if (minutes <= 0) continue;
+    domainForArea(item.areaId, item.areaName).fixed += minutes;
   }
   for (final item in actual.entries) {
     domainFor(item.key.taskId).actual += item.value;
@@ -278,10 +344,15 @@ List<DomainTimeMetric> _domainDistribution(
           label: item.label,
           plannedMinutes: item.planned,
           actualMinutes: item.actual,
+          fixedMinutes: item.fixed,
         ),
       )
       .toList();
+  // 排序用**总占用**（计划块 + 固定日程）：领域时间分配看的是总时间，用实际投入排会让"有课表但
+  // 还没记实际投入"的领域沉到底部——那正是用户库里发生的事（实际投入只有 1 条）。
   result.sort((a, b) {
+    final byTotal = b.totalMinutes.compareTo(a.totalMinutes);
+    if (byTotal != 0) return byTotal;
     final byActual = b.actualMinutes.compareTo(a.actualMinutes);
     return byActual != 0 ? byActual : a.label.compareTo(b.label);
   });
@@ -391,6 +462,7 @@ final class _MutableDomain {
   final String label;
   int planned = 0;
   int actual = 0;
+  int fixed = 0;
 }
 
 final class _MutableDay {
@@ -486,50 +558,27 @@ List<EnergyPeriodMetric> _energyPeriods({
 /// **口径经产品侧确认（2026-10-04）：休息保护按"实际发生"计算**——保护窗口被**实际专注**占用
 /// 即算被牺牲，空着即算被保护；**不是**看计划块有没有排进保护窗口（"排程器尊不尊重休息"是另一种
 /// 定义，会给出不同数字，本轮未采用）。
-RestProtectionMetric? _restProtection({
+/// 范围内**每一条**保护时段实例：已按天展开、已裁到筛选范围、已处理跨午夜与 `endMinute == 1440`。
+///
+/// **抽出来给三处共用**：旧的"休息保护情况"、新的"休息时长（A）"、以及"工作与休息比例（D）"里的
+/// 侵占计算。这段展开逻辑踩过两个坑——`endMinute == 1440` 直接传给 `localDateTimeToUtc` 会抛参数
+/// 错误让整个查询失败（§13.0 的 C11），跨午夜则必须用**日历加法**（`day + 1`）而不是
+/// `add(Duration(days: 1))`（夏令时回拨日会让日期不变）。**只应有一份实现**：抄第二份就等于给下一个
+/// 改代码的人准备了一个"只修好一半"的机会。
+List<({String label, DateTime startUtc, DateTime endUtc})> _protectedInstances({
   required List<AnalyticsProtectedWindow> windows,
-  required List<DateTime> relaxedLocalDates,
-  required Map<AnalyticsActualFact, int> actualByEntry,
   required AnalyticsFilter filter,
-  required TimeZoneDatabase? zones,
-  required String? timeZoneId,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
 }) {
-  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
-
-  int overlapScaled(DateTime start, DateTime end) {
-    var total = 0;
-    for (final entry in actualByEntry.entries) {
-      final entryStart = entry.key.startUtc;
-      final entryEnd = entry.key.endUtc;
-      final overlapStart = entryStart.isAfter(start) ? entryStart : start;
-      final overlapEnd = entryEnd.isBefore(end) ? entryEnd : end;
-      if (!overlapStart.isBefore(overlapEnd)) continue;
-      final entryMicros = entryEnd.difference(entryStart).inMicroseconds;
-      if (entryMicros <= 0) continue;
-      total +=
-          (entry.value *
-                  overlapEnd.difference(overlapStart).inMicroseconds /
-                  entryMicros)
-              .round();
-    }
-    return total;
-  }
-
   final localStart = zones.toLocal(filter.startUtc, timeZoneId);
   final localEnd = zones.toLocal(filter.endUtc, timeZoneId);
 
   /// 把"锚定日在 [anchor]、本地第 [minute] 分钟"换算成 UTC。
   ///
   /// **`minute == 1440` 必须走次日零点**：`LocalTimeRange` 明确允许 `endMinute == 1440`
-  /// （09:00–24:00 是合法且不跨午夜的区间），而 `localDateTimeToUtc` 只接受 [0, 1439]，
-  /// 直接传会抛参数错误、让整个统计查询失败。这正是 §13.0 的 C11 在保护时间展开器上记过的
-  /// 那个"类型允许、运行必炸"——统计侧此前有同一处，只是从未被触发（用户没设过 24:00 的
-  /// 保护段）。**日期推进用日历加法**（`day + 1`）而不是 `add(Duration(days: 1))`：后者是
-  /// 绝对时间加法，在夏令时回拨日会让日期不变（C11 的第二半）。
+  /// （09:00–24:00 是合法且不跨午夜的区间），而 `localDateTimeToUtc` 只接受 [0, 1439]。
   DateTime boundaryUtc(DateTime anchor, int minute) {
-    // 1440 必须换成"次日本地零点"这**一个**调用，而不是把 1440 传给 `localDateTimeToUtc`
-    // ——后者只接受 [0, 1439]。（第一版就是只改了锚点日、仍把 1440 传下去，用例当场报
-    // `Invalid argument (minuteOfDay): 1440`。）
     if (minute >= LocalTimeRange.minutesPerDay) {
       return zones.localMidnightToUtc(
         DateTime.utc(anchor.year, anchor.month, anchor.day + 1),
@@ -539,20 +588,23 @@ RestProtectionMetric? _restProtection({
     return zones.localDateTimeToUtc(anchor, minute, timeZoneId);
   }
 
-  var protectedMinutes = 0;
-  var overlappedMinutes = 0;
+  final instances = <({String label, DateTime startUtc, DateTime endUtc})>[];
+  // **从范围首日的「前一天」开始走**：跨午夜的保护段（睡眠默认 23:00–07:00）锚定在**前一天**，
+  // 而它的后半段（首日 00:00–07:00）落在范围之内。此前从首日本身开始，那一夜的后半段就被整个
+  // 漏掉——7 天范围只报 2940 分钟而不是 3360，界面上一除便成"平均每天只睡 6 小时"。这是
+  // 2026-10-06 把"休息时长"提到显眼位置时才暴露出来的旧缺陷（旧口径下它被淹没在长句里）。
   for (
-    var day = DateTime.utc(localStart.year, localStart.month, localStart.day);
+    var day = DateTime.utc(
+      localStart.year,
+      localStart.month,
+      localStart.day - 1,
+    );
     !day.isAfter(DateTime.utc(localEnd.year, localEnd.month, localEnd.day));
     day = DateTime.utc(day.year, day.month, day.day + 1)
   ) {
     final isWeekend = day.weekday >= DateTime.saturday;
     for (final window in windows) {
       if (window.isWeekend != null && window.isWeekend != isWeekend) continue;
-      // **跨午夜的保护段现在被支持**：睡眠默认就是 23:00–07:00。此前这里直接 `continue`
-      // 跳过——理由是"`protectedTimes` 里只有午餐、晚餐与固定休息"，那句话对当时的数据是
-      // 对的，但睡眠正是最该被算进"休息保护"的那一段。`endMinute <= startMinute` 因此改判为
-      // "跨到次日"，终点锚在**次日**的同名分钟上。
       final crossesMidnight = window.endMinute <= window.startMinute;
       final rawStart = boundaryUtc(day, window.startMinute);
       final rawEnd = crossesMidnight
@@ -566,10 +618,349 @@ RestProtectionMetric? _restProtection({
           : rawStart;
       final end = rawEnd.isAfter(filter.endUtc) ? filter.endUtc : rawEnd;
       if (!start.isBefore(end)) continue;
-      protectedMinutes += end.difference(start).inMinutes;
-      overlappedMinutes += overlapScaled(start, end);
+      instances.add((label: window.label, startUtc: start, endUtc: end));
     }
   }
+  return instances;
+}
+
+/// 保护时段在范围内的**总容量**（A 与 D 的分母）。
+int _protectedMinutes({
+  required List<AnalyticsProtectedWindow> windows,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return 0;
+  return _protectedInstances(
+    windows: windows,
+    filter: filter,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  ).fold<int>(
+    0,
+    (sum, item) => sum + item.endUtc.difference(item.startUtc).inMinutes,
+  );
+}
+
+/// 范围内的**本地日数**（含首尾）。按本地日界数，而不是把 UTC 时长除 24——夏令时那一天不是 24 小时。
+///
+/// **末日取 `endUtc - 1µs` 所在的本地日**：`endUtc` 是**排他**上界，若它正好是本地零点，
+/// 那一天的 00:00 并不在范围内。直接用它的日期会多算一天（7 天范围报成 8 天），而"平均每天
+/// 休息多少"正是用这个数当分母的。
+int _localDayCount(
+  AnalyticsFilter filter,
+  TimeZoneDatabase zones,
+  String timeZoneId,
+) {
+  final localStart = zones.toLocal(filter.startUtc, timeZoneId);
+  final localLast = zones.toLocal(
+    filter.endUtc.subtract(const Duration(microseconds: 1)),
+    timeZoneId,
+  );
+  final first = DateTime.utc(localStart.year, localStart.month, localStart.day);
+  final last = DateTime.utc(localLast.year, localLast.month, localLast.day);
+  return last.difference(first).inDays + 1;
+}
+
+/// 把一条安排裁到筛选范围，返回分钟数；完全在范围外返回 0。
+int _scheduledMinutes(DateTime start, DateTime end, AnalyticsFilter filter) {
+  final clippedStart = start.isBefore(filter.startUtc)
+      ? filter.startUtc
+      : start;
+  final clippedEnd = end.isAfter(filter.endUtc) ? filter.endUtc : end;
+  if (!clippedStart.isBefore(clippedEnd)) return 0;
+  return clippedEnd.difference(clippedStart).inMinutes;
+}
+
+/// **休息时长（A）**：每类保护窗口的容量，以及其中被安排侵占的分钟数。
+///
+/// 口径与旧的"休息保护情况"**不同**，这是刻意的：旧口径按"实际专注有没有落进保护时间"算，
+/// 而用户明确要求把实际投入从统计里全部拿掉，并把"有没有好好休息"改成看**自己的规划**——
+/// 计划块/固定日程排进睡眠或午晚餐，就是规划层面的"没给自己留休息"。
+RestSummaryMetric? _restSummary({
+  required List<AnalyticsProtectedWindow> windows,
+  required List<AnalyticsPlannedFact> planned,
+  required List<AnalyticsFixedFact> fixed,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
+  final instances = _protectedInstances(
+    windows: windows,
+    filter: filter,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+  if (instances.isEmpty) return null;
+
+  final scheduled = <(DateTime, DateTime)>[
+    for (final item in planned)
+      if (_scheduledMinutes(item.startUtc, item.endUtc, filter) > 0)
+        (item.startUtc, item.endUtc),
+    for (final item in fixed)
+      if (_scheduledMinutes(item.startUtc, item.endUtc, filter) > 0)
+        (item.startUtc, item.endUtc),
+  ];
+
+  /// 一条安排与**某一类窗口**的重叠分钟数，按该安排自身的长度封顶。
+  ///
+  /// 封顶是必要的：同一类的多条窗口可能彼此重叠（例如把固定休息设在睡眠里），不封顶会让
+  /// "被侵占"超过"总容量"，界面上立刻出现一眼就像 bug 的数字（旧代码在 `_restProtection`
+  /// 里也做了同样的 clamp，理由相同）。
+  int invadedFor(
+    Iterable<({String label, DateTime startUtc, DateTime endUtc})> subset,
+    DateTime start,
+    DateTime end,
+  ) {
+    var total = 0;
+    for (final instance in subset) {
+      final s = start.isAfter(instance.startUtc) ? start : instance.startUtc;
+      final e = end.isBefore(instance.endUtc) ? end : instance.endUtc;
+      if (s.isBefore(e)) total += e.difference(s).inMinutes;
+    }
+    final length = _scheduledMinutes(start, end, filter);
+    return total > length ? length : total;
+  }
+
+  // 按标签分组，保持 windows 里第一次出现的顺序（用户设置里的顺序就是界面顺序）。
+  final labels = <String>[];
+  for (final window in windows) {
+    if (!labels.contains(window.label)) labels.add(window.label);
+  }
+
+  final metrics = <RestWindowMetric>[];
+  for (final label in labels) {
+    final subset = instances.where((item) => item.label == label).toList();
+    if (subset.isEmpty) continue;
+    final minutes = subset.fold<int>(
+      0,
+      (sum, item) => sum + item.endUtc.difference(item.startUtc).inMinutes,
+    );
+    var invaded = 0;
+    for (final (start, end) in scheduled) {
+      invaded += invadedFor(subset, start, end);
+    }
+    metrics.add(
+      RestWindowMetric(
+        label: label,
+        minutes: minutes,
+        invadedMinutes: invaded.clamp(0, minutes),
+      ),
+    );
+  }
+  if (metrics.isEmpty) return null;
+
+  return RestSummaryMetric(
+    windows: metrics,
+    days: _localDayCount(filter, zones, timeZoneId),
+  );
+}
+
+/// 所有**已安排**的区间（计划块 + 固定日程），裁掉完全在范围外的。
+List<(DateTime, DateTime)> _scheduledIntervals({
+  required List<AnalyticsPlannedFact> planned,
+  required List<AnalyticsFixedFact> fixed,
+  required AnalyticsFilter filter,
+}) => [
+  for (final item in planned)
+    if (_scheduledMinutes(item.startUtc, item.endUtc, filter) > 0)
+      (item.startUtc, item.endUtc),
+  for (final item in fixed)
+    if (_scheduledMinutes(item.startUtc, item.endUtc, filter) > 0)
+      (item.startUtc, item.endUtc),
+];
+
+/// **作息规律性（C）**：每天开工/收工时刻的散布。
+///
+/// 没有时区时返回空——本地时刻没有时区就无从谈起，按 UTC 算出来的"开工时刻"是错的，
+/// 那比不显示更糟。
+RoutineMetric _routine({
+  required List<AnalyticsPlannedFact> planned,
+  required List<AnalyticsFixedFact> fixed,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (zones == null || timeZoneId == null) {
+    return const RoutineMetric(perDay: []);
+  }
+  final perDay = <DateTime, List<(int, int)>>{};
+  for (final (start, end) in _scheduledIntervals(
+    planned: planned,
+    fixed: fixed,
+    filter: filter,
+  )) {
+    final clippedStart = start.isBefore(filter.startUtc)
+        ? filter.startUtc
+        : start;
+    final clippedEnd = end.isAfter(filter.endUtc) ? filter.endUtc : end;
+    final localStart = zones.toLocal(clippedStart, timeZoneId);
+    final localEnd = zones.toLocal(clippedEnd, timeZoneId);
+    final day = DateTime.utc(localStart.year, localStart.month, localStart.day);
+    final endDay = DateTime.utc(localEnd.year, localEnd.month, localEnd.day);
+    final startMinute = localStart.hour * 60 + localStart.minute;
+    // 跨到次日就记作当天 24:00 —— "收工"不该因为跨过一次午夜就变成一个更小的数。
+    final endMinute = endDay.isAfter(day)
+        ? LocalTimeRange.minutesPerDay
+        : localEnd.hour * 60 + localEnd.minute;
+    perDay.putIfAbsent(day, () => []).add((startMinute, endMinute));
+  }
+  if (perDay.isEmpty) return const RoutineMetric(perDay: []);
+
+  final days = perDay.keys.toList()..sort();
+  return RoutineMetric(
+    perDay: [
+      for (final day in days)
+        DailyRoutineMetric(
+          localDate: day,
+          firstMinute: perDay[day]!
+              .map((item) => item.$1)
+              .reduce((a, b) => a < b ? a : b),
+          lastMinute: perDay[day]!
+              .map((item) => item.$2)
+              .reduce((a, b) => a > b ? a : b),
+        ),
+    ],
+  );
+}
+
+/// 按"是不是生活领域"把计划块与固定日程的分钟数分成两堆（D 的两段）。
+int _workedMinutes({
+  required Map<String, AnalyticsTaskFact> taskById,
+  required List<AnalyticsPlannedFact> planned,
+  required List<AnalyticsFixedFact> fixed,
+  required bool life,
+  required AnalyticsFilter filter,
+}) {
+  var total = 0;
+  for (final item in planned) {
+    final task = taskById[item.taskId];
+    if (task == null || task.isLifeTask != life) continue;
+    total += _scheduledMinutes(item.startUtc, item.endUtc, filter);
+  }
+  for (final item in fixed) {
+    if (item.isLife != life) continue;
+    total += _scheduledMinutes(item.startUtc, item.endUtc, filter);
+  }
+  return total;
+}
+
+/// 已安排的区间与保护时段的重叠分钟数（按每条安排自身长度封顶，理由同 `_restSummary`）。
+int _scheduledIntersectingProtected({
+  required List<AnalyticsProtectedWindow> windows,
+  required Map<String, AnalyticsTaskFact> taskById,
+  required List<AnalyticsPlannedFact> planned,
+  required List<AnalyticsFixedFact> fixed,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return 0;
+  final instances = _protectedInstances(
+    windows: windows,
+    filter: filter,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+  if (instances.isEmpty) return 0;
+
+  var total = 0;
+  for (final (start, end) in _scheduledIntervals(
+    planned: planned,
+    fixed: fixed,
+    filter: filter,
+  )) {
+    var overlap = 0;
+    for (final instance in instances) {
+      final s = start.isAfter(instance.startUtc) ? start : instance.startUtc;
+      final e = end.isBefore(instance.endUtc) ? end : instance.endUtc;
+      if (s.isBefore(e)) overlap += e.difference(s).inMinutes;
+    }
+    final length = _scheduledMinutes(start, end, filter);
+    total += overlap > length ? length : overlap;
+  }
+  return total;
+}
+
+/// **工作与休息的比例（D）**：四段划分，不重不漏。
+WorkRestMetric? _workRest({
+  required int protectedMinutes,
+  required int workedMinutes,
+  required int lifeMinutes,
+  required int scheduleMinutes,
+  required AnalyticsFilter filter,
+}) {
+  if (protectedMinutes <= 0) return null;
+  final total = filter.endUtc.difference(filter.startUtc).inMinutes;
+  if (total <= 0) return null;
+  // **真正空着的休息** = 保护容量 − 被安排侵占的部分。用"容量减侵占"而不是直接把
+  // 保护容量整段算成休息：把任务排进睡眠时段的人，不该因此在报表上看到"休息很充足"。
+  final free = (protectedMinutes - scheduleMinutes).clamp(0, protectedMinutes);
+  final idle = (total - workedMinutes - lifeMinutes - free).clamp(0, total);
+  return WorkRestMetric(
+    workMinutes: workedMinutes,
+    lifeMinutes: lifeMinutes,
+    restMinutes: free,
+    idleMinutes: idle,
+  );
+}
+
+/// **领域覆盖（#2）**：把"全部领域"与"有占用的领域"对起来，算出零占用的那些。
+AreaCoverageMetric? _areaCoverage(
+  List<AnalyticsAreaFact> areas,
+  List<DomainTimeMetric> distribution,
+) {
+  if (areas.isEmpty) return null;
+  final busy = {
+    for (final item in distribution)
+      if (item.totalMinutes > 0) item.id,
+  };
+  final covered = <String>[];
+  final uncovered = <String>[];
+  for (final area in areas) {
+    (busy.contains(area.id) ? covered : uncovered).add(area.name);
+  }
+  covered.sort();
+  uncovered.sort();
+  return AreaCoverageMetric(
+    covered: covered,
+    uncovered: uncovered,
+    totalAreas: areas.length,
+  );
+}
+
+RestProtectionMetric? _restProtection({
+  required List<AnalyticsProtectedWindow> windows,
+  required List<DateTime> relaxedLocalDates,
+  required Map<AnalyticsActualFact, int> actualByEntry,
+  required AnalyticsFilter filter,
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+}) {
+  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
+  final instances = _protectedInstances(
+    windows: windows,
+    filter: filter,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+
+  var protectedMinutes = 0;
+  var overlappedMinutes = 0;
+  for (final instance in instances) {
+    protectedMinutes += instance.endUtc.difference(instance.startUtc).inMinutes;
+    overlappedMinutes += _actualOverlapScaled(
+      actualByEntry,
+      instance.startUtc,
+      instance.endUtc,
+    );
+  }
+  if (protectedMinutes <= 0) return null;
+
+  final localStart = zones.toLocal(filter.startUtc, timeZoneId);
+  final localEnd = zones.toLocal(filter.endUtc, timeZoneId);
 
   // "哪几天被临时放宽过"：日期由数据层原样交出，落在筛选范围哪一个本地日之间由这里判断
   // （时区只有服务层有）。范围按**本地日**而非 UTC 瞬时比较：键里写的就是本地日期，
@@ -597,4 +988,30 @@ RestProtectionMetric? _restProtection({
     overlappedMinutes: overlappedMinutes.clamp(0, protectedMinutes),
     relaxedDays: relaxedDays,
   );
+}
+
+/// 实际投入落在 `[start, end)` 里的分钟数，**按每段专注的实际占比折算**（暂停期间不算占用）。
+///
+/// 从 `_restProtection` 里抽出来，供保护时段展开后的逐段调用。
+int _actualOverlapScaled(
+  Map<AnalyticsActualFact, int> actualByEntry,
+  DateTime start,
+  DateTime end,
+) {
+  var total = 0;
+  for (final entry in actualByEntry.entries) {
+    final entryStart = entry.key.startUtc;
+    final entryEnd = entry.key.endUtc;
+    final overlapStart = entryStart.isAfter(start) ? entryStart : start;
+    final overlapEnd = entryEnd.isBefore(end) ? entryEnd : end;
+    if (!overlapStart.isBefore(overlapEnd)) continue;
+    final entryMicros = entryEnd.difference(entryStart).inMicroseconds;
+    if (entryMicros <= 0) continue;
+    total +=
+        (entry.value *
+                overlapEnd.difference(overlapStart).inMicroseconds /
+                entryMicros)
+            .round();
+  }
+  return total;
 }

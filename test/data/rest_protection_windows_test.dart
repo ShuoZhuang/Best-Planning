@@ -16,6 +16,7 @@ import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 
 void main() {
   late AppDatabase database;
@@ -41,7 +42,7 @@ void main() {
 
   setUp(() {
     database = AppDatabase.forTesting(NativeDatabase.memory());
-    dao = AnalyticsDao(database);
+    dao = AnalyticsDao(database, calendar: DriftCalendarRepository(database));
   });
 
   tearDown(() => database.close());

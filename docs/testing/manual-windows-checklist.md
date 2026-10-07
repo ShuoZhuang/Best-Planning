@@ -115,7 +115,7 @@ Task 20 的交付物之一。本清单用于在 Windows 桌面上逐项确认自
 | --- | --- | --- | --- | --- |
 | 7.1 | 开始、暂停、继续、结束计时 | 状态正确切换，实际时长落库 | | **可达**（`e95d839`：入口在任务详情页，路由 `/focus/:taskId`） |
 | 7.2 | 计时中强制结束进程后重启 | 提示确认实际结束时间，不把离线间隔计入实际投入 | | **可达**（`d9a437b`：`FocusPage.initState` 调 `recoverOpenEntry()` 并弹恢复对话框；`test/application/focus_service_test.dart` :: 重启发现 running 记录时要求确认，时钟跳变不直接计入） |
-| 7.3 | 打开统计页 | 计划时长与实际投入分开显示，并可选择时间范围 | | **可达**（`/analytics` 路由 + 侧边导航） |
+| 7.3 | 打开统计页 | **领域占比与时间总计**（含固定日程）、**休息时长/作息规律性/工作休息比例**、完成率/按期完成/逾期率；可选择时间范围；每张图可切换图型 | | **可达**（`/analytics` 路由 + 侧边导航）。**2026-10-06 口径变更**：验收项原文是"计划时长与实际投入分开显示"，用户明确要求移除"实际"这一侧（见规格 §8.9.1），故本行改为新口径；图型选择持久在 `analytics.chartTypes.v1` |
 
 ## 8. 通知
 
@@ -196,6 +196,9 @@ $msix = Get-ChildItem build\windows\x64\runner\Release\personal_planner_*.msix |
 Add-AppxPackage -Path $msix.FullName
 (Get-AppxPackage -Name ShuoZhuang.PersonalPlanner).Version
 ```
+
+> 每个交给用户体验的版本都必须同时交付便携目录、ZIP、已签名 MSIX、签名公钥证书和使用说明，
+> 并把三类产物的 SHA-256、签名状态、覆盖安装结果和启动结果写入发布台账。
 
 ## C. 启动与关闭（各节都用得到）
 

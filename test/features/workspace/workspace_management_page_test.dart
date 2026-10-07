@@ -9,12 +9,15 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
+import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/features/workspace/workspace_management_page.dart';
 
@@ -77,10 +80,11 @@ PlannerArea _area(
   String name, {
   bool isLife = false,
   int sortOrder = 0,
+  int color = 0,
 }) => PlannerArea(
   id: id,
   name: name,
-  color: 0,
+  color: color,
   sortOrder: sortOrder,
   isLife: isLife,
   createdAtUtc: _created,
@@ -98,8 +102,11 @@ PlannerProject _project(String id, String areaId, String name) =>
 
 void main() {
   late WorkspaceService service;
+  late MemorySettingsRepository settings;
+  late ScheduleColorService colors;
 
   setUp(() {
+    settings = MemorySettingsRepository();
     service = WorkspaceService(
       repository: _MemoryWorkspace(
         areas: [
@@ -111,11 +118,16 @@ void main() {
       clock: const _Clock(),
       idGenerator: _Ids(),
     );
+    colors = ScheduleColorService(
+      settings: settings,
+      workspace: service.repository,
+    );
   });
 
   Future<void> pump(
     WidgetTester tester, {
     WorkspaceService? withService,
+    ScheduleColorService? withColors,
   }) async {
     // 页面比默认的 800x600 测试视口高得多。`ListView` 只给已经布局的子项建立 element，
     // 因此视口外的控件连"找到"都做不到（`ensureVisible` 会报 Bad state: No element），
@@ -127,7 +139,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: WorkspaceManagementPage(workspace: withService ?? service),
+          body: WorkspaceManagementPage(
+            workspace: withService ?? service,
+            colors: withColors ?? colors,
+          ),
         ),
       ),
     );
@@ -143,6 +158,33 @@ void main() {
 
   String nameOf(WidgetTester tester, String key) =>
       tester.widget<Text>(find.byKey(Key(key))).data!;
+
+  testWidgets('领域、特殊日程颜色与项目的卡片之间各留出间隔，不再贴在一起', (tester) async {
+    await pump(tester);
+
+    // 三处列表（领域／特殊日程颜色／项目）都是直接连续铺 `Card`，而全局 `cardTheme.margin`
+    // 是 `EdgeInsets.zero`——不给间隔时相邻两张卡的圆角边框直接贴在一起（2026-10-06 实测上一张
+    // 的下边框 y=522、下一张的上边框 y=523），彩色圆点在视觉上挤成一堆。
+    //
+    // **这条断言刻意钉"声明的下边距"，不去量像素**：量像素试过三种写法都不成立——对 `Card` 取
+    // rect 会把它内部的 `margin` 一起算进去（间隔恒读成 0）；改量内层 `Material`，`.first` 抓到的
+    // 并不是卡片表面；改量彩色圆点按钮，去掉外边距后读数**完全不变**（28 → 28），是个假绿。
+    // 而这里要守的契约本来就是"这三处列表的卡片各留一段行间隔"，直接钉它既准确也不会骗人。
+    for (final key in const [
+      'area-card-area-study',
+      'area-card-area-life',
+      'special-card-protectedTime',
+      'special-card-unassignedTask',
+      'special-card-unassignedFixed',
+      'project-card-project-1',
+    ]) {
+      expect(
+        tester.widget<Card>(find.byKey(Key(key))).margin,
+        const EdgeInsets.only(bottom: 8),
+        reason: '$key 没有留出行间隔，相邻卡片会贴在一起',
+      );
+    }
+  });
 
   testWidgets('领域改名写回存储，且只推进修改时间', (tester) async {
     await pump(tester);
@@ -267,10 +309,84 @@ void main() {
       clock: const _Clock(),
       idGenerator: _Ids(),
     );
-    await pump(tester, withService: empty);
+    await pump(
+      tester,
+      withService: empty,
+      withColors: ScheduleColorService(
+        settings: settings,
+        workspace: empty.repository,
+      ),
+    );
 
     expect(find.text('尚无领域。'), findsOneWidget);
     expect(find.text('项目必须挂在领域下：请先建立一个领域。'), findsOneWidget);
     expect(find.byKey(const Key('create-project')), findsNothing);
   });
+
+  testWidgets('领域和三个特殊分类都能从同一个可访问色板改色', (tester) async {
+    await pump(tester);
+
+    expect(find.text('领域'), findsWidgets);
+    expect(find.text('保护时间'), findsOneWidget);
+    expect(find.text('无领域任务'), findsOneWidget);
+    expect(find.text('无领域固定日程'), findsOneWidget);
+
+    await tapKey(tester, 'area-color-area-study');
+    expect(find.text('设置“学业”颜色'), findsOneWidget);
+    expect(find.byKey(const Key('color-swatch-0')), findsOneWidget);
+    expect(find.byKey(const Key('color-swatch-7')), findsOneWidget);
+    expect(tester.getSize(find.byKey(const Key('color-swatch-0'))).width, 44);
+    expect(tester.getSize(find.byKey(const Key('color-swatch-0'))).height, 44);
+    expect(find.byKey(const Key('selected-color-0')), findsOneWidget);
+    final semantics = tester.getSemantics(
+      find.byKey(const Key('color-swatch-0')),
+    );
+    expect(semantics.label, contains('蓝色'));
+    expect(semantics.label, contains('当前已选择'));
+
+    await tapKey(tester, 'color-swatch-3');
+    final study = (await service.listAreas()).firstWhere(
+      (area) => area.id == 'area-study',
+    );
+    expect(study.color, areaPaletteArgb[3]);
+    expect(find.text('设置“学业”颜色'), findsNothing);
+
+    await tapKey(tester, 'special-color-unassignedTask');
+    expect(find.text('设置“无领域任务”颜色'), findsOneWidget);
+    await tapKey(tester, 'color-swatch-4');
+    expect(
+      (await colors.loadSpecialColors()).unassignedTask,
+      areaPaletteArgb[4],
+    );
+  });
+
+  testWidgets('特殊颜色保存失败时保留原值并在当前页面提示', (tester) async {
+    final failing = ScheduleColorService(
+      settings: _FailingWriteSettings(),
+      workspace: service.repository,
+    );
+    await pump(tester, withColors: failing);
+
+    await tapKey(tester, 'special-color-protectedTime');
+    await tapKey(tester, 'color-swatch-0');
+
+    expect(find.text('颜色保存失败，请重试。'), findsOneWidget);
+    expect(
+      (await failing.loadSpecialColors()).protectedTime,
+      defaultProtectedTimeArgb,
+    );
+    expect(find.text('领域与项目'), findsOneWidget);
+  });
+}
+
+final class _FailingWriteSettings implements SettingsRepository {
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> remove(String key) async {}
+
+  @override
+  Future<void> write(String key, String value) =>
+      throw StateError('write failed');
 }

@@ -3,6 +3,8 @@
 // 与周视图共用同一个 `ScheduleViewSource`，差别是**按本机时区显示时刻**——周视图的卡片
 // 只给类型与标题。因此这里最要紧的断言不是"渲染了几个卡片"，而是"时刻按给定时区换算"，
 // 以及"类型不只靠颜色区分"（需求 §12）。
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +12,9 @@ import 'package:personal_planner/app/planner_app.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
+import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 
@@ -29,16 +33,33 @@ final class _Items implements ScheduleViewSource {
   }
 }
 
+final class _StreamItems implements ScheduleViewSource {
+  const _StreamItems(this.stream);
+  final Stream<List<ScheduleViewItem>> stream;
+
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      stream;
+}
+
 ScheduleViewItem _item({
   required String id,
   required String title,
   required ScheduleItemKind kind,
   required int startHourUtc,
   int durationHours = 1,
+  String? categoryKey,
+  String? categoryLabel,
+  int? categoryColorArgb,
+  int? categorySortOrder,
 }) => ScheduleViewItem(
   id: id,
   title: title,
   kind: kind,
+  categoryKey: categoryKey ?? 'test:${kind.name}',
+  categoryLabel: categoryLabel ?? kind.label,
+  categoryColorArgb: categoryColorArgb ?? 0xff456789,
+  categorySortOrder: categorySortOrder ?? kind.index,
   range: TimeRange(
     startUtc: DateTime.utc(2026, 10, 5, startHourUtc),
     endUtc: DateTime.utc(2026, 10, 5, startHourUtc + durationHours),
@@ -91,7 +112,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('按给定时区显示时刻与类型，类型不只靠颜色区分', (tester) async {
+  testWidgets('按给定时区显示时刻与分类，类型由图标和语义保留', (tester) async {
     await pump(
       tester,
       items: [
@@ -100,22 +121,305 @@ void main() {
           title: '数据结构课',
           kind: ScheduleItemKind.fixed,
           startHourUtc: 9,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff2f86ff,
+          categorySortOrder: 0,
         ),
         _item(
           id: 'block:block-1',
           title: '写方案',
           kind: ScheduleItemKind.task,
           startHourUtc: 14,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff2f86ff,
+          categorySortOrder: 0,
         ),
       ],
     );
 
     expect(find.textContaining('09:00–10:00'), findsOneWidget);
     expect(find.textContaining('14:00–15:00'), findsOneWidget);
-    // 类型以文字给出，而不是只靠卡片底色。
-    expect(find.textContaining('固定日程'), findsOneWidget);
-    expect(find.textContaining('任务'), findsOneWidget);
+    expect(find.textContaining('学业'), findsNWidgets(3));
+    expect(find.textContaining('固定日程'), findsNothing);
+    expect(find.textContaining('任务'), findsNothing);
+    expect(find.byIcon(Icons.event), findsOneWidget);
+    expect(find.byIcon(Icons.task_alt), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('day-item-fixed:event-1')))
+          .label,
+      contains('固定日程'),
+    );
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('day-item-block:block-1')))
+          .label,
+      contains('任务'),
+    );
     expect(find.text('写方案'), findsOneWidget);
+  });
+
+  testWidgets('单日卡片使用分类色且数据刷新后立即更新', (tester) async {
+    const firstColor = Color(0xff2f86ff);
+    const secondColor = Color(0xfff06f7a);
+    final controller = StreamController<List<ScheduleViewItem>>();
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    addTearDown(controller.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DayViewPage(
+            source: _StreamItems(controller.stream),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+          ),
+        ),
+      ),
+    );
+
+    ScheduleViewItem item(int color, String label) => _item(
+      id: 'block:refresh',
+      title: '整理资料',
+      kind: ScheduleItemKind.task,
+      startHourUtc: 9,
+      categoryKey: 'area:current',
+      categoryLabel: label,
+      categoryColorArgb: color,
+      categorySortOrder: 0,
+    );
+
+    controller.add([item(firstColor.toARGB32(), '学业')]);
+    await tester.pump();
+    // 卡片颜色只能来自共享派生器：不透明深色填充 + 低亮描边。
+    void expectCardColor(Color categoryColor) {
+      final expected = scheduleCategoryCardStyle(categoryColor);
+      final card = tester.widget<Card>(
+        find.byKey(const Key('day-schedule-card-block:refresh')),
+      );
+      expect(card.color, expected.fill);
+      expect(
+        (card.shape! as RoundedRectangleBorder).side.color,
+        expected.border,
+      );
+      expect(
+        tester
+            .widget<Icon>(
+              find.descendant(
+                of: find.byKey(const Key('day-schedule-card-block:refresh')),
+                matching: find.byIcon(Icons.task_alt),
+              ),
+            )
+            .color,
+        expected.accent,
+      );
+    }
+
+    expectCardColor(firstColor);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('day-schedule-card-block:refresh')),
+        matching: find.textContaining('学业'),
+      ),
+      findsOneWidget,
+    );
+
+    controller.add([item(secondColor.toARGB32(), '竞赛')]);
+    await tester.pump();
+    expectCardColor(secondColor);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('day-schedule-card-block:refresh')),
+        matching: find.textContaining('竞赛'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('day-schedule-card-block:refresh')),
+        matching: find.textContaining('学业'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('单日详情的学业、生活、保护时间与无领域任务各用共享深色卡片', (tester) async {
+    const studyColor = Color(0xff2f86ff);
+    const lifeColor = Color(0xffb391d3);
+    const protectedColor = Color(0xff5ec8e5);
+    const unassignedColor = Color(0xff7f92b2);
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:class',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 8,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: studyColor.toARGB32(),
+          categorySortOrder: 0,
+        ),
+        _item(
+          id: 'block:homework',
+          title: '算法作业',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 10,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: studyColor.toARGB32(),
+          categorySortOrder: 0,
+        ),
+        _item(
+          id: 'block:movie',
+          title: '看电影',
+          kind: ScheduleItemKind.life,
+          startHourUtc: 12,
+          categoryKey: 'area:life',
+          categoryLabel: '生活',
+          categoryColorArgb: lifeColor.toARGB32(),
+          categorySortOrder: 4,
+        ),
+        _item(
+          id: 'protected:lunch:1',
+          title: '午餐时间',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 13,
+          categoryKey: 'special:protected',
+          categoryLabel: '保护时间',
+          categoryColorArgb: protectedColor.toARGB32(),
+          categorySortOrder: 10000,
+        ),
+        _item(
+          id: 'block:loose',
+          title: '零散任务',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 15,
+          categoryKey: 'special:unassigned-task',
+          categoryLabel: '未分类任务',
+          categoryColorArgb: unassignedColor.toARGB32(),
+          categorySortOrder: 10001,
+        ),
+      ],
+    );
+
+    for (final (id, color, icon) in <(String, Color, IconData)>[
+      ('fixed:class', studyColor, Icons.event),
+      ('block:homework', studyColor, Icons.task_alt),
+      ('block:movie', lifeColor, Icons.self_improvement),
+      ('protected:lunch:1', protectedColor, Icons.shield_outlined),
+      ('block:loose', unassignedColor, Icons.task_alt),
+    ]) {
+      final expected = scheduleCategoryCardStyle(color);
+      final card = tester.widget<Card>(
+        find.byKey(Key('day-schedule-card-$id')),
+      );
+      expect(card.color, expected.fill, reason: '$id 的填充');
+      expect(card.color!.toARGB32() >>> 24, 0xff, reason: '$id 的填充必须不透明');
+      expect(card.surfaceTintColor, Colors.transparent);
+      expect(
+        (card.shape! as RoundedRectangleBorder).side.color,
+        expected.border,
+        reason: '$id 的描边',
+      );
+      expect(
+        tester
+            .widget<Icon>(
+              find.descendant(
+                of: find.byKey(Key('day-schedule-card-$id')),
+                matching: find.byIcon(icon),
+              ),
+            )
+            .color,
+        expected.accent,
+        reason: '$id 的图标强调色',
+      );
+    }
+
+    // 同学业的固定日程与任务同色，只由图标区分；类型标签不进卡片正文。
+    expect(
+      tester
+          .widget<Card>(find.byKey(const Key('day-schedule-card-fixed:class')))
+          .color,
+      tester
+          .widget<Card>(
+            find.byKey(const Key('day-schedule-card-block:homework')),
+          )
+          .color,
+    );
+    // 跨页面一致性：今日、七日历、单日详情对同一个分类色（学业蓝 `#2f86ff`）必须得到同一组
+    // ARGB。三个页面的测试各自钉住这三个字面值，任何一处自己另算一遍都会在那里红掉。
+    final shared = scheduleCategoryCardStyle(studyColor);
+    expect(shared.accent.toARGB32(), 0xff2f86ff);
+    expect(shared.fill.toARGB32(), 0xff17345b);
+    expect(shared.border.toARGB32(), 0xff20487f);
+    expect(
+      tester
+          .widget<Card>(find.byKey(const Key('day-schedule-card-fixed:class')))
+          .color,
+      shared.fill,
+    );
+  });
+
+  testWidgets('单日详情为已完成条目显示完成标记', (tester) async {
+    await pump(
+      tester,
+      items: [
+        ScheduleViewItem(
+          id: 'block:done',
+          title: '已经做完的事',
+          kind: ScheduleItemKind.task,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff2f86ff,
+          categorySortOrder: 0,
+          isCompleted: true,
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 10, 5, 9),
+            endUtc: DateTime.utc(2026, 10, 5, 10),
+          ),
+        ),
+        _item(
+          id: 'block:open',
+          title: '还没做的事',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 11,
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff2f86ff,
+          categorySortOrder: 0,
+        ),
+      ],
+    );
+
+    // 标记不取代操作入口，也不改标题与分类。
+    expect(find.text('已经做完的事'), findsOneWidget);
+    expect(
+      find.byKey(const Key('day-schedule-completed-block:done')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('day-schedule-completed-block:open')),
+      findsNothing,
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('day-item-block:done'))).label,
+      contains('已完成'),
+    );
+    // 完成与未完成同领域 → 同色。
+    expect(
+      tester
+          .widget<Card>(find.byKey(const Key('day-schedule-card-block:done')))
+          .color,
+      tester
+          .widget<Card>(find.byKey(const Key('day-schedule-card-block:open')))
+          .color,
+    );
   });
 
   testWidgets('换一个时区，同一批 UTC 条目显示为不同时刻', (tester) async {
@@ -665,6 +969,13 @@ void main() {
     await settings.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // 首次教程闸门与首次引导是同一条套路（设置键 + 版本比较）。不喂这一条，
+    // 整应用 pump 出来的会是教程页而不是主界面——教程自身的用例在 test/features/tutorial/。
+    // ignore: unused_local_variable
+    await settings.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
     await tester.pumpWidget(
       ProviderScope(

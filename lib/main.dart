@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
+import 'package:personal_planner/application/analytics_chart_preference_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
@@ -18,6 +19,7 @@ import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -305,6 +307,10 @@ Future<void> main() async {
     clock: clock,
     idGenerator: UuidIdGenerator(),
   );
+  final scheduleColorService = ScheduleColorService(
+    settings: settingsRepository,
+    workspace: workspaceRepository,
+  );
   final academicCalendar = AcademicCalendarService(
     repository: DriftAcademicCalendarRepository(database),
     clock: clock,
@@ -537,6 +543,7 @@ Future<void> main() async {
         // 与启动时的默认领域初始化共用同一实例：任务详情页要用它列出项目，
         // 用户才能把任务归属到领域下的项目（R2）。
         workspaceService: workspaceService,
+        scheduleColors: scheduleColorService,
         // 关闭主窗口的行为（托盘后台运行 / 直接退出），见「设置 → 窗口与后台」。
         windowBehavior: windowBehaviorService,
         // 任务详情页的标签区（FR-TASK-02）。与统计的标签筛选读的是同一批表。
@@ -567,11 +574,17 @@ Future<void> main() async {
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
         analytics: AnalyticsService(
-          source: AnalyticsDao(database),
+          // 固定日程的展开与例外处理复用同一个日历仓储：统计层的「领域时间分配」必须把课表算进去，
+          // 而展开规则（重复、跨午夜例外、"这一次被删除"的零长度标记）只应有一份实现。
+          source: AnalyticsDao(database, calendar: calendarRepository),
           // FR-STAT-05 的精力分桶按**本地时刻**归桶，因此这里必须把时区交进去；
           // 不交则该节不显示（而不是按 UTC 算出一组错误的时段）。
           zones: zones,
           timeZoneId: timeZoneId,
+        ),
+        // 图表类型选择持久在设置里（用户要求"由我来选择显示哪个"）。
+        chartPreferences: AnalyticsChartPreferenceService(
+          settings: settingsRepository,
         ),
         backups: backups,
         erasure: erasure,
@@ -594,7 +607,10 @@ Future<void> main() async {
           tasks: taskRepository,
           calendar: calendarRepository,
           plans: planRepository,
+          // 同一个仓储：它同时实现 `PlanBlockHistory`（历史块要一起读，否则重排后过去几天就空了）。
+          history: planRepository,
           rules: ruleResolver,
+          colors: scheduleColorService,
           zones: zones,
           timeZoneId: timeZoneId,
         ),

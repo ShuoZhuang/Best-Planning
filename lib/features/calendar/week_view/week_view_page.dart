@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
+import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
+import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 final class WeekViewPage extends StatefulWidget {
@@ -41,8 +45,11 @@ final class _WeekViewPageState extends State<WeekViewPage> {
   }
 
   void _subscribe() {
+    // **订阅窗口要比显示的八天更宽，左边多一天**：用户在 2026-10-07 要求"就像手机上的天气预报
+    // 一样"——七天前面补一列"昨天"，可以往回看一眼刚过去的那天。少订阅那一天，昨天那一列会
+    // 永远是空的，而界面上看起来像"昨天没有安排"（假空，比不显示更糟）。
     _stream = widget.source.watch(
-      widget.weekStart,
+      widget.weekStart.subtract(const Duration(days: 1)),
       widget.weekStart.add(const Duration(days: 7)),
     );
   }
@@ -112,7 +119,18 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                 if (snapshot.data!.isEmpty) {
                   return const Center(child: Text('未来七天暂无安排'));
                 }
-                return _week(context, snapshot.data!);
+                final summaries = summarizeScheduleCategories(snapshot.data!);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ScheduleCategoryLegend(summaries: summaries),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(child: _week(context, snapshot.data!)),
+                  ],
+                );
               },
             ),
           ),
@@ -127,13 +145,19 @@ final class _WeekViewPageState extends State<WeekViewPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var index = 0; index < 7; index++)
+          // **索引从 -1 开始**：-1 是"昨天"那一列，0..6 仍然是"今天起七天"。
+          //
+          // 这个下标方案是刻意选的：`week-day-0` 依旧是**今天**，因此既有的用例与「查看当日」的
+          // 语义都不用改，而昨天有一个稳定且一目了然的 key（`week-day--1`）。
+          for (var index = -1; index < 7; index++)
             _DayColumn(
               key: ValueKey('week-day-$index'),
               day: widget.weekStart.add(Duration(days: index)),
               localDay: (widget.toLocal ?? (date) => date)(
                 widget.weekStart.add(Duration(days: index)),
               ),
+              relativeLabel: _relativeLabel(index),
+              isToday: index == 0,
               toLocal: widget.toLocal,
               onOpenDay: widget.onOpenDay,
               items: items.where((item) {
@@ -163,6 +187,21 @@ final class _WeekViewPageState extends State<WeekViewPage> {
       ),
     );
   }
+
+  /// 列头第一行：`昨天` / `今天` / `明天` 优先，其余显示星期。
+  ///
+  /// 用户 2026-10-07 的要求原话："七日日历里要是昨天 今天 明天，然后后面就是周几周几"。
+  /// 这也正是天气应用的做法：最近三天用相对日称呼（一眼知道是哪天），更远的日子用星期几
+  /// （才读得出"离今天还有多远"）。
+  String _relativeLabel(int index) {
+    if (index == -1) return '昨天';
+    if (index == 0) return '今天';
+    if (index == 1) return '明天';
+    const names = ['一', '二', '三', '四', '五', '六', '日'];
+    final day = widget.weekStart.add(Duration(days: index));
+    final local = (widget.toLocal ?? (date) => date)(day);
+    return '周${names[local.weekday - 1]}';
+  }
 }
 
 final class _DayColumn extends StatelessWidget {
@@ -171,6 +210,8 @@ final class _DayColumn extends StatelessWidget {
     required this.localDay,
     required this.items,
     required this.onMove,
+    this.relativeLabel,
+    this.isToday = false,
     this.toLocal,
     this.onOpenDay,
     super.key,
@@ -183,8 +224,16 @@ final class _DayColumn extends StatelessWidget {
   final ValueChanged<DateTime>? onOpenDay;
   final DateTime Function(DateTime)? toLocal;
 
+  /// 列头第一行：`昨天` / `今天` / `周三`。为空时不显示那一行。
+  final String? relativeLabel;
+
+  /// 是否是"今天"那一列。天气应用会把今天标出来，这里同样处理——否则八列长得一样，
+  /// 用户得靠日期自己去数"今天是哪一列"。
+  final bool isToday;
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return DragTarget<ScheduleViewItem>(
       onAcceptWithDetails: (details) => onMove(details.data),
       builder: (context, candidates, rejected) => AnimatedContainer(
@@ -194,11 +243,15 @@ final class _DayColumn extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: candidates.isEmpty
-              ? Theme.of(context).colorScheme.surfaceContainerLow
-              : Theme.of(context).colorScheme.primaryContainer,
+              ? (isToday
+                    ? scheme.surfaceContainerHigh
+                    : scheme.surfaceContainerLow)
+              : scheme.primaryContainer,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
+            // 今天用主色描边 + 更亮的底：八列里一眼能找到它。
+            color: isToday ? scheme.primary : scheme.outlineVariant,
+            width: isToday ? 1.6 : 1,
           ),
         ),
         child: Material(
@@ -212,16 +265,35 @@ final class _DayColumn extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            '${localDay.month}月${localDay.day}日',
-                            style: Theme.of(context).textTheme.titleSmall,
+                        if (relativeLabel != null)
+                          Text(
+                            relativeLabel!,
+                            key: ValueKey('week-day-label-$relativeLabel'),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: isToday
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                  fontWeight: isToday
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
                           ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${localDay.month}月${localDay.day}日',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            if (onOpenDay != null)
+                              const Icon(Icons.chevron_right_rounded, size: 18),
+                          ],
                         ),
-                        if (onOpenDay != null)
-                          const Icon(Icons.chevron_right_rounded, size: 18),
                       ],
                     ),
                   ),
@@ -315,35 +387,63 @@ final class _DraggableScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 卡片颜色**只**从共享派生器取：填充不透明、描边低亮，三个视图逐值一致。
+    // 这里不能自己再叠 `withValues(alpha: …)`——那正是"卡片发白"的成因：底下的玻璃
+    // 背景会透上来，四种材质模式下同一张卡片的观感各不相同。
+    final visual = scheduleCategoryCardStyle(item.categoryColor);
     final card = Card(
-      color: item.kind.color(Theme.of(context).colorScheme),
-      child: InkWell(
-        onTap: onTap,
+      key: ValueKey('week-schedule-card-${item.id}'),
+      color: visual.fill,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: visual.border),
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(item.kind.icon, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    item.kind.label,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${_time((toLocal ?? (date) => date)(item.range.startUtc))}–'
-                '${_time((toLocal ?? (date) => date)(item.range.endUtc))}',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(item.title),
-            ],
+      ),
+      child: Semantics(
+        label:
+            '${item.title}，${_time((toLocal ?? (date) => date)(item.range.startUtc))}到${_time((toLocal ?? (date) => date)(item.range.endUtc))}，${item.categoryLabel}，${item.kind.label}'
+            '${item.isCompleted ? '，已完成' : ''}',
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(item.kind.icon, size: 16, color: visual.accent),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        item.categoryLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                    // 「已完成」标记：任务勾选完成、或固定日程时间已过。
+                    // 用 muted 而不是分类色——它是状态，不该跟分类抢注意力。
+                    if (item.isCompleted)
+                      Icon(
+                        Icons.check_circle_outline,
+                        key: ValueKey('week-schedule-completed-${item.id}'),
+                        size: 14,
+                        color: PlannerPalette.textMuted,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_time((toLocal ?? (date) => date)(item.range.startUtc))}–'
+                  '${_time((toLocal ?? (date) => date)(item.range.endUtc))}',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(item.title),
+              ],
+            ),
           ),
         ),
       ),

@@ -59,7 +59,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(query.filters.last.tags, {'论文'});
 
-    await tester.tap(find.text('本月'));
+    await tester.tap(find.byKey(const Key('analytics-range-month')));
     await tester.pumpAndSettle();
 
     expect(query.filters.last.tags, {'论文'});

@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/data/database/app_database.dart';
@@ -165,5 +166,50 @@ void main() {
       '生活',
     ]);
     expect(await service.ensureDefaultAreas(), 0);
+  });
+
+  test('默认领域按现有排序保存前五种可区分颜色', () async {
+    await service.ensureDefaultAreas();
+
+    final areas = await service.listAreas();
+    expect(
+      areas.map((area) => area.color).toList(),
+      areaPaletteArgb.take(5).toList(),
+    );
+  });
+
+  test('新领域优先使用未占用色，色板耗尽后按排序循环', () async {
+    final created = <int>[];
+    for (var index = 0; index < areaPaletteArgb.length + 1; index++) {
+      created.add((await service.createArea('领域 $index')).color);
+    }
+
+    expect(created.take(areaPaletteArgb.length), areaPaletteArgb);
+    expect(created.last, areaPaletteArgb.first);
+  });
+
+  test('修改领域颜色只改变目标领域的颜色和修改时间', () async {
+    final area = await service.createArea('学业', isLife: true);
+
+    await service.setAreaColor(area.id, 0xff123456);
+
+    final updated = (await service.listAreas()).single;
+    expect(updated.color, 0xff123456);
+    expect(updated.name, area.name);
+    expect(updated.sortOrder, area.sortOrder);
+    expect(updated.isLife, isTrue);
+    expect(updated.createdAtUtc, area.createdAtUtc);
+    expect(updated.updatedAtUtc, _now);
+  });
+
+  test('拒绝透明或越界的领域颜色且不修改存储', () async {
+    final area = await service.createArea('学业');
+
+    await expectLater(
+      service.setAreaColor(area.id, 0x00123456),
+      throwsArgumentError,
+    );
+
+    expect((await service.listAreas()).single.color, area.color);
   });
 }

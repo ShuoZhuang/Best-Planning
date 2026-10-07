@@ -12,6 +12,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 
 void main() {
   late AppDatabase database;
@@ -73,7 +74,7 @@ void main() {
 
   setUp(() async {
     database = AppDatabase.forTesting(NativeDatabase.memory());
-    dao = AnalyticsDao(database);
+    dao = AnalyticsDao(database, calendar: DriftCalendarRepository(database));
     service = AnalyticsService(source: dao);
     await seedTask('task-1', 120);
     await seedTask('task-2', 60);
@@ -110,6 +111,95 @@ void main() {
 
     expect(all.completionRate.denominator, 2);
     expect(tagged.completionRate.denominator, 1);
+  });
+
+  test('固定日程进入数据集，带领域名与生活标记', () async {
+    // 2026-10-06 的反馈："领域时间分配为什么不把固定日程统计进去"。此前数据集里
+    // **完全没有日历事件**，因此领域占比只统计任务计划块，把每周占大头的课表漏掉了。
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 0xff2f86ff,
+            sortOrder: 0,
+            isLife: const Value(false),
+            createdAtUtc: const Value(1),
+            updatedAtUtc: const Value(1),
+          ),
+        );
+    await database
+        .into(database.calendarEvents)
+        .insert(
+          CalendarEventsCompanion.insert(
+            id: 'event-1',
+            title: '高等数学',
+            startAtUtc: start
+                .add(const Duration(hours: 1))
+                .microsecondsSinceEpoch,
+            endAtUtc: start
+                .add(const Duration(hours: 3))
+                .microsecondsSinceEpoch,
+            timeZoneId: 'Asia/Shanghai',
+            areaId: const Value('area-study'),
+            updatedAtUtc: 1,
+          ),
+        );
+
+    final dataset = await dao.load(filterWith(const {}));
+
+    expect(dataset.fixedEvents, hasLength(1));
+    final event = dataset.fixedEvents.single;
+    expect(event.title, '高等数学');
+    expect(event.areaId, 'area-study');
+    expect(event.areaName, '学业', reason: '领域名要一起带出来，统计层不该再自己查一次');
+    expect(event.isLife, isFalse);
+    expect(event.endUtc.difference(event.startUtc), const Duration(hours: 2));
+  });
+
+  test('固定日程的时长按领域计入，读来源是日程本身而不是任务表', () async {
+    // 课表不挂在任何任务上：它必须靠自己的 areaId 归集，否则"有课表但没建任务"的领域
+    // 在占比里恒为 0。
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 0xff2f86ff,
+            sortOrder: 0,
+            isLife: const Value(false),
+            createdAtUtc: const Value(1),
+            updatedAtUtc: const Value(1),
+          ),
+        );
+    await database
+        .into(database.calendarEvents)
+        .insert(
+          CalendarEventsCompanion.insert(
+            id: 'event-1',
+            title: '高等数学',
+            startAtUtc: start
+                .add(const Duration(hours: 1))
+                .microsecondsSinceEpoch,
+            endAtUtc: start
+                .add(const Duration(hours: 3))
+                .microsecondsSinceEpoch,
+            timeZoneId: 'Asia/Shanghai',
+            areaId: const Value('area-study'),
+            updatedAtUtc: 1,
+          ),
+        );
+
+    final report = await service.query(filterWith(const {}));
+    final study = report.domainDistribution.firstWhere(
+      (item) => item.label == '学业',
+    );
+
+    expect(study.fixedMinutes, 120);
+    expect(study.plannedMinutes, 0);
+    expect(study.totalMinutes, 120);
   });
 
   test('多个标签是"同时满足"，不是"满足任意一个"', () async {

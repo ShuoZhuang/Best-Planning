@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/domain/models/academic_calendar.dart';
+import 'package:personal_planner/design/planner_pickers.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 
 final class TimetablePeriodStep extends StatelessWidget {
@@ -115,6 +116,7 @@ final class _PeriodRow extends StatelessWidget {
   Future<void> _pick(BuildContext context, bool start) async {
     final minute = start ? entry.startMinute : entry.endMinute;
     final picked = await showTimePicker(
+      builder: plannerPickerBuilder,
       context: context,
       initialTime: TimeOfDay(hour: minute ~/ 60, minute: minute % 60),
       helpText: start ? '选择开始时间' : '选择结束时间',
