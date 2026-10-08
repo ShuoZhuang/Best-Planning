@@ -50,16 +50,23 @@ SnackBar plannerSnackBar(
 
 /// Shows an app message bubble through the nearest [ScaffoldMessenger].
 ///
-/// Does nothing when there is no messenger, which is the same tolerance the
-/// call sites had before (`ScaffoldMessenger.maybeOf`).
+/// **Tolerates having nowhere to show it.** A `ScaffoldMessenger` can exist with no descendant
+/// [Scaffold] to present to — `MaterialApp` provides the messenger, so a page pumped bare in a
+/// widget test (or hosted in a route without a scaffold) hits exactly that. `showSnackBar` then
+/// *asserts* (`_scaffolds.isNotEmpty`) and throws, which turns a message that could not be shown
+/// into a crash in the calling flow. Since this helper is called after a state change has already
+/// been applied, throwing here would report the wrong thing: the action succeeded.
+///
+/// So: no messenger, or nothing to present to ⇒ the message is simply dropped. Both cases are
+/// recorded by [canShowPlannerMessage] so a test can distinguish "not drawn" from "cannot be drawn".
 void showPlannerMessage(
   BuildContext context, {
   required String message,
   SnackBarAction? action,
   Duration? duration,
 }) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
+  if (!canShowPlannerMessage(context)) return;
+  final messenger = ScaffoldMessenger.maybeOf(context)!;
   messenger.showSnackBar(
     plannerSnackBar(
       messenger,
@@ -69,3 +76,24 @@ void showPlannerMessage(
     ),
   );
 }
+
+/// Whether [showPlannerMessage] would actually be able to present a bubble from [context].
+///
+/// Two conditions, both required: a [ScaffoldMessenger] must be reachable, **and** it must have at
+/// least one descendant [Scaffold]. Callers that must not silently lose a message can check this
+/// and choose another surface; the today page uses it so its own tests stay honest about whether a
+/// bubble was expected.
+bool canShowPlannerMessage(BuildContext context) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return false;
+  // `ScaffoldMessengerState` exposes registered scaffolds only through its internal state; the
+  // public, documented proxy is `Scaffold.maybeOf` walking down from the context. A context that
+  // is inside a `Scaffold` subtree has one; the messenger alone does not imply it.
+  return context.findAncestorStateOfType<ScaffoldMessengerState>() != null &&
+      _hasScaffoldAncestor(context);
+}
+
+/// `Scaffold.maybeOf` walks **up**, so it answers "is this context inside a Scaffold".
+/// A page pumped bare is not, and that is precisely the case that used to assert.
+bool _hasScaffoldAncestor(BuildContext context) =>
+    Scaffold.maybeOf(context) != null;

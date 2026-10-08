@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_action_feedback.dart';
 import 'package:personal_planner/design/planner_glass.dart';
+import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
@@ -21,6 +25,7 @@ final class TodayPage extends StatefulWidget {
     this.onRequestAdjust,
     this.onToggleLock,
     this.onSkipCurrent,
+    this.onUndoLastChange,
     this.dismissedProposalId,
     this.onDismissReplan,
     this.replanProposalId,
@@ -72,6 +77,17 @@ final class TodayPage extends StatefulWidget {
   /// 页面不替调用方做这两种决定。
   final ValueChanged<ScheduleViewItem>? onSkipCurrent;
 
+  /// 撤销**上一个**由这一页发起的计划变更（路线图 §11 Task 12）。
+  ///
+  /// 「完成」与「跳过本次」都会让计划重排，而重排是不可逆的（旧版本只在历史里留着）。
+  /// 用户点错一下此前没有任何回头路：气泡只说"已完成"。装配层把这个端口接上之后，
+  /// 每一次变更都会在气泡上带一个「撤销」。
+  ///
+  /// **为空时只显示消息、不显示撤销**（而不是显示一个点了没反应的按钮）——
+  /// 与这一页其它端口同一口径。语义由装配层定义（回滚到哪一版、要不要重新排程），
+  /// 页面只负责把入口摆出来。
+  final Future<void> Function()? onUndoLastChange;
+
   /// 本次会话里已被用户关掉的那条重排提示对应的方案 id。
   ///
   /// **用 id 而不是 bool**：bool 会让"关掉一次之后就再也不提醒"，
@@ -105,6 +121,29 @@ final class _TodayPageState extends State<TodayPage> {
   }
 
   void _retry() => setState(_subscribe);
+
+  /// 走一个会改动计划的动作，并在装配了撤销端口时给出「撤销」（§11 Task 12）。
+  ///
+  /// **为什么把消息也放在这里**：此前"完成"与"跳过本次"由装配层各自弹自己的气泡，
+  /// 于是同一个动作在两处可能给出不同文案；把"做了什么 + 怎么回去"收在一处，
+  /// 两者就不可能不一致。装配层只需要接上 [TodayPage.onUndoLastChange]。
+  ///
+  /// `await` 是刻意的：撤销端口要在**动作已经落库之后**才可用（否则撤销回滚的是尚未发生的
+  /// 变更）。`onComplete` 的实现本身是异步的（改状态 + 计划重排）。
+  Future<void> _runPlanChange({
+    required String message,
+    required FutureOr<void> Function() action,
+  }) async {
+    await action();
+    if (!mounted) return;
+    final undo = widget.onUndoLastChange;
+    if (undo == null) {
+      // 没有撤销端口时**只报消息**，不画一个点了没反应的「撤销」。
+      showPlannerMessage(context, message: message);
+      return;
+    }
+    showUndoableAction(context, message: message, onUndo: () => undo());
+  }
 
   /// 判定"当前安排"用的时刻：显式传入优先（测试可控），否则取系统当前时间。
   DateTime get _effectiveNow => (widget.nowUtc ?? DateTime.now()).toUtc();
@@ -206,12 +245,27 @@ final class _TodayPageState extends State<TodayPage> {
                             formatTime: formatTime,
                             nowUtc: _effectiveNow,
                             onStartFocus: widget.onStartFocus,
-                            onComplete: widget.onComplete,
+                            // 「完成」与「跳过本次」都包一层：走完动作之后给一条**可撤销**的
+                            // 提示（§11 Task 12）。装配层未接撤销端口时，这一层只负责把消息
+                            // 说清楚，行为与本批次之前一致。
+                            onComplete: widget.onComplete == null
+                                ? null
+                                : (item) => _runPlanChange(
+                                    message: '已完成「${item.title}」',
+                                    action: () => widget.onComplete!(item),
+                                  ),
                             onOpenDetail: widget.onOpenDetail,
                             onDefer: widget.onDefer,
                             onRequestAdjust: widget.onRequestAdjust,
                             onToggleLock: widget.onToggleLock,
-                            onSkipCurrent: widget.onSkipCurrent,
+                            onSkipCurrent: widget.onSkipCurrent == null
+                                ? null
+                                : (item) => _runPlanChange(
+                                    // 文案刻意不说"已完成"：跳过只是这一块这次不排，
+                                    // 任务仍然待办（用户 2026-10-07 的定义）。
+                                    message: '已跳过「${item.title}」这一次',
+                                    action: () => widget.onSkipCurrent!(item),
+                                  ),
                           );
                           final summary = _PlanningRail(
                             items: items,

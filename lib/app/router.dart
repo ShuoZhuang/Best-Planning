@@ -78,6 +78,35 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 场景下（例如只构造 `PlannerApp()`），今日页与周视图仍可显示真实数据源给出的
 /// 内容，而"生成计划"入口会隐藏、调整预览会明确提示计划服务不可用，而不是
 /// 显示一个点了没反应的按钮。
+/// 记住"上一个由某个页面发起、且可以撤销的计划变更"（路线图 §11 Task 12）。
+///
+/// `PlanUndoService` 已经能撤销**整份计划**的版本（FR-REPLAN-08，用在计划预览页），
+/// 而 §11 Task 12 要的是另一件事：把**刚刚那一次点击**退回去。两者的粒度不同——
+/// 「完成一个任务」并不产生新的计划版本（只改任务状态），因此版本级撤销够不到它。
+///
+/// **为什么是一个装在闭包里的槽位，而不是 `TaskService` 上的一个方法**：可撤销的动作不只
+/// 任务状态一种（跳过一次排程、改本周目标、暂停周期目标），它们分散在不同服务上；
+/// 让每个服务各自记住"上一次"会把同一件事实现四遍。这里只在**装配层**记一个逆操作，
+/// 由每个动作自己在发起时填进来——这也是页面只拿到"一个回调"的原因。
+///
+/// **只留最后一个**：这是"撤销刚刚那一下"的语义，不是历史栈。历史栈属于计划版本
+/// （`PlanHistoryRepository` 已经在做），再叠一层只会让用户分不清撤销退回到哪一步。
+final class _LastReversibleChange {
+  Future<void> Function()? _undo;
+
+  /// 记下一次变更的逆操作。[undo] 为空表示这次动作不可撤销（于是气泡上不出现撤销入口）。
+  void remember(Future<void> Function()? undo) => _undo = undo;
+
+  /// 执行并**清空**逆操作：同一次变更只能被撤销一次，撤完之后不该还能再撤一遍。
+  Future<void> undo() async {
+    final undo = _undo;
+    _undo = null;
+    await undo?.call();
+  }
+
+  Future<void> Function()? get current => _undo;
+}
+
 /// 打开一条事项的"详情"（M1，路线图 §3.2）。
 ///
 /// **这是"这条事项该去哪儿"在真实装配里的唯一实现**：今日页与周视图都走它，因此同一个
@@ -142,6 +171,16 @@ GoRouter createPlannerRouter({
   AnalyticsChartPreferenceService? chartPreferences,
   PreferenceService? preferences,
   WorkspaceService? workspaceService,
+
+  /// 撤销**刚刚那一次**计划变更的落点（路线图 §11 Task 12）。
+  ///
+  /// 与 [planHistory]（整份计划的版本撤销，FR-REPLAN-08）**不是同一件事**：那个按钮在计划
+  /// 预览页上，撤销的是"上一次应用的整份计划"；这里撤销的是"刚刚点的那一下"——比如完成一个
+  /// 任务，而它并不产生新的计划版本，版本级撤销够不到。
+  ///
+  /// 由这个装配层的每个动作在发起时**填进逆操作**（见 [_LastReversibleChange]）。
+  /// 为空时今日页只报消息、不显示撤销入口。
+  Future<void> Function()? onUndoLastChange,
   ScheduleColorService? scheduleColors,
   WindowBehaviorService? windowBehavior,
   TagService? tagService,
@@ -168,981 +207,1006 @@ GoRouter createPlannerRouter({
   /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
   /// 与本仓库既有的"不给一个点了才知道没装的入口"同一条约定。
   UpdateService? updateService,
-}) => GoRouter(
-  initialLocation: '/today',
-  routes: [
-    ShellRoute(
-      builder: (context, state, child) => _PlannerShell(
-        location: state.uri.path,
-        onGeneratePlan: planningService == null
-            ? null
-            : (shellContext) => _generatePlan(
-                shellContext,
-                planningService,
-                planApplication,
-                autoAdjustStore,
-              ),
-        onSpecialDay: recovery == null || calendar == null
-            ? null
-            : (shellContext) => shellContext.go('/special-day'),
-        child: child,
-      ),
-      routes: [
-        GoRoute(
-          path: '/today',
-          builder: (context, state) => TodayPage(
-            source: scheduleSource,
-            day: todayStartUtc,
-            toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
-            nowUtc: nowUtc ?? todayStartUtc,
-            // ── M4（路线图 §8）今日页的执行动作 ──────────────────────────────────
-            //
-            // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
-            //
-            // 只接三条是因为另外两条**现在给不出诚实的落地**：
-            // · 「延后」需要用户先输入延后多久（`TaskService.deferTask` 要求 `by > 0`），
-            //   而 M4 的验收目标是"从今日页直接执行"，不是再造一个时长收集界面；
-            // · 「请求调整」只对**已确认计划块**有意义（`movableTaskBlockId`），
-            //   而这一页同时显示固定日程与保护时间——对它们给"请求调整"是假的入口。
-            // 两者在端口为空时**不渲染**（页面自己保证），因此不会出现点了没反应的按钮。
-            // 见 `docs/testing/m4-acceptance.md` 的未完成项。
-            onStartFocus: focusService == null
-                ? null
-                : (item) => context.go('/focus/${item.taskId!}'),
-            onComplete: (item) async {
-              // 与任务详情页的"完成"共用同一个服务方法，因此统计记录、重排原因标签
-              // 与别处完全一致——不在这一页另造一套状态变更。
-              await taskService.changeStatus(
-                item.taskId!,
-                TaskStatus.completed,
-              );
-            },
-            // M1（路线图 §3.2）：不同事项的去处由共享的解析器决定——
-            // 任务进 `/tasks/:id`、固定日程进当天日视图、保护时间进 `/settings/rules`。
-            // 此前这里是 `context.go('/tasks/${item.taskId!}')`：对固定日程与保护时间
-            // （`taskId` 为 `null`）会当场抛 `Null check operator used on a null value`。
-            onOpenDetail: (item) =>
-                _openScheduleItemDetail(context, item, todayStartUtc),
-            // ── 「跳过本次」（M4，2026-10-07 用户定义）────────────────────────────
-            //
-            // 三步，与用户给的定义一一对应：
-            //   ① 记下"这一块这次不排"（消费方是排程输入来源，见 `pending_skips.dart`）；
-            //   ② 重新生成提案——**任务仍在待排集合里**，因此引擎会在截止时间前
-            //      自己找下一个空档，新时间可能是今天稍后/明天/别的日期，
-            //      **不是**把 `availableFromUtc` 设成明天（那是「延后到明天」）；
-            //   ③ 走既有的 `PlanGenerationFlow`：默认进预览；"信任自动调整"开启时才直接应用。
-            //      复用而不是新写，是为了让"默认预览、信任才自动应用"这条规则只有一处实现。
-            onSkipCurrent: pendingSkips == null || planningService == null
-                ? null
-                : (item) async {
-                    final blockId = movableTaskBlockId(item);
-                    // 只有计划块能跳过；不可移动的条目（固定日程、保护时间）在页面上
-                    // 本来就不会显示这个入口，这里是第二道防线。
-                    if (blockId == null) return;
-                    pendingSkips.setRequestedSkip(
-                      RequestedSkip(blockId: blockId),
-                    );
-                    final proposal = await planningService.createProposal();
-                    if (!context.mounted) return;
-                    final outcome =
-                        await PlanGenerationFlow(
-                          isTrusted: () =>
-                              autoAdjustStore.enabled &&
-                              planApplication != null,
-                        ).run(
-                          proposal: proposal,
-                          apply: planApplication == null
-                              ? (proposal) async => ApplyPlanResult.stale()
-                              : planApplication.apply,
-                        );
-                    if (!context.mounted) return;
-                    if (outcome.message.isNotEmpty) {
-                      showPlannerMessage(context, message: outcome.message);
-                      return;
-                    }
-                    context.go('/planning/preview/${outcome.proposalId}');
-                  },
-          ),
-        ),
-        GoRoute(
-          path: '/tasks',
-          builder: (context, state) => TaskListPage(
-            service: taskService,
-            nowUtc: nowUtc ?? todayStartUtc,
-            // §10：**当前确认计划**是"是否已安排"的唯一依据。这里把既有的 `plans`
-            // 直接传下去，而不新建第二套计划服务——同一个事实只留一个出口。
-            plans: plans,
-            // 计划块与截止时间要显示成用户读的本地钟点；页面不认识时区，
-            // 与今日页、周视图同一分工。
-            zones: zones,
-            timeZoneId: timeZoneId,
-            // §7 的"已安排为空"空状态里的生成计划入口。未装配排程服务时不显示，
-            // 免得给出一个点了没反应的按钮（与壳层"生成计划"同一判断）。
-            onGeneratePlan: planningService == null
-                ? null
-                : () => _generatePlan(
-                    context,
-                    planningService,
-                    planApplication,
-                    autoAdjustStore,
-                  ),
-            // FR-TASK-03 的"批量调整"最后一环。整批共用同一天，因此**只换算一次**；
-            // 页面不认识时区，本地日期到 UTC 的换算在此完成（与"设置截止时间"同一模式）。
-            onSetDueDateForSelection: (taskIds, localDate, minute) async {
-              final dueAtUtc = zones.localDateTimeToUtc(
-                localDate,
-                minute,
-                timeZoneId,
-              );
-              var allSaved = true;
-              for (final id in taskIds) {
-                final result = await taskService.setDueDate(id, dueAtUtc);
-                allSaved = allSaved && result.isSuccess;
-              }
-              return allSaved;
-            },
-          ),
-        ),
-        GoRoute(
-          // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
-          // 此前该路由不存在，点击提醒无处可去。
-          path: '/tasks/new',
-          builder: (context, state) => TaskEditorPage(
-            service: taskService,
-            settings: settingsService,
-            workspace: workspaceService,
-            zones: zones,
-            timeZoneId: timeZoneId,
-            nowUtc: nowUtc ?? todayStartUtc,
-            onSaved: (task) => context.go('/tasks/${task.id}'),
-            onCancel: () => context.go('/tasks'),
-          ),
-        ),
-        GoRoute(
-          path: '/tasks/:taskId/edit',
-          builder: (context, state) => TaskEditorPage(
-            taskId: state.pathParameters['taskId'],
-            service: taskService,
-            settings: settingsService,
-            workspace: workspaceService,
-            zones: zones,
-            timeZoneId: timeZoneId,
-            nowUtc: nowUtc ?? todayStartUtc,
-            onSaved: (task) => context.go('/tasks/${task.id}'),
-            onCancel: () =>
-                context.go('/tasks/${state.pathParameters['taskId']}'),
-          ),
-        ),
-        GoRoute(
-          path: '/tasks/:taskId',
-          builder: (context, state) => TaskDetailPage(
-            service: taskService,
-            onEdit: () =>
-                context.go('/tasks/${state.pathParameters['taskId']}/edit'),
-            workspace: workspaceService,
-            // FR-TASK-02 的标签入口。为空时该区不显示，其余部分照常可用。
-            tags: tagService,
-            // FR-FOCUS-01 的入口。页面不认识路由，导航由这里注入。
-            onStartFocus: focusService == null
-                ? null
-                : () => context.go('/focus/${state.pathParameters['taskId']!}'),
-            taskId: state.pathParameters['taskId']!,
-            nowUtc: nowUtc ?? todayStartUtc,
-            // FR-REPLAN-07 的"设置截止时间"。页面把**本地**日期与"当天第几分钟"交回，
-            // 时区换算是这里的事——路由持有 `zones` 与 `timeZoneId`，页面两者都不需要。
-            onSetDueDate: (localDate, minute) async {
-              final result = await taskService.setDueDate(
-                state.pathParameters['taskId']!,
-                zones.localDateTimeToUtc(localDate, minute, timeZoneId),
-              );
-              return result.isSuccess;
-            },
-            // FR-REPLAN-01 的"延期事项"：把截止时间**整体后移**。页面只交回"延后多久"，目标时刻由
-            // 服务层按"原截止时间 + 时长"算出——**页面因此不必知道原截止时间，也不必碰时区**
-            // （与上面那条"设置截止时间"的分工正好互补）。
-            //
-            // 与上面刻意分成两个入口：一个是"挪到哪一天"，一个是"往后挪多久"；两者发出的领域变化
-            // 类别也不同（`taskSchedulingChanged` / `taskDeferred`），统计页的"重排原因"会显示成
-            // 不同的词。没有截止时间的任务**由服务层拒绝**（页面也不再显示入口）。
-            onDeferTask: (by) async {
-              final result = await taskService.deferTask(
-                state.pathParameters['taskId']!,
-                by: by,
-              );
-              return result.isSuccess;
-            },
-            // FR-TASK-04：任务转固定日程。**只预填标题**——事件编辑器没有"所属领域"控件，
-            // 因此领域无从预填（这一点已登记，而不是假装填了）；任务本身**不动**，任务页上
-            // 有对应提示，避免同一件事被排两次。
-            onCreateEvent: calendarService == null
-                ? null
-                : (title) => context.go(
-                    '/calendar/new?title=${Uri.encodeComponent(title)}',
-                  ),
-            // FR-FOCUS-05：汇总这条任务**已确认**的专注分钟，再按它重算剩余时长。
-            // 汇总放在组合根——只有它能同时看到专注记录与任务服务，而两个服务彼此不必认识。
-            onRecomputeFromFocus: focusService == null
-                ? null
-                : () async {
-                    final taskId = state.pathParameters['taskId']!;
-                    final entries = await focusService.store.confirmedEntries();
-                    final actualMinutes = entries
-                        .where((entry) => entry.taskId == taskId)
-                        .fold<int>(
-                          0,
-                          (sum, entry) => sum + entry.activeMinutes,
-                        );
-                    final result = await taskService.applyFocusRecompute(
-                      taskId: taskId,
-                      actualMinutes: actualMinutes,
-                    );
-                    return result.isSuccess;
-                  },
-          ),
-        ),
-        GoRoute(
-          // 专注计时（FR-FOCUS-01）。页面早已存在，但从未有路由，也没有任何界面指向它，
-          // 因此计时在真实运行中完全不可达（W3）。
-          path: '/focus/:taskId',
-          builder: (context, state) {
-            final service = focusService;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '专注计时',
-                message: '专注服务未装配，暂无法计时。',
-              );
-            }
-            return _FocusLoader(
-              focus: service,
-              tasks: taskService,
-              taskId: state.pathParameters['taskId']!,
-              // 2026-10-04 的需求：「专注中断后可以继续接续，**前提是还在待办时间段内**；超出了
-              // 就要对剩余待办时间重新排序。」因此这一页需要知道该任务在**当前已确认计划**里的
-              // 计划块终点。`plans` 为空（未装配计划仓储）时窗口未知——按服务里的规则，那种情况
-              // 一律允许接续，因为**没有依据就别说超出了**。
-              plans: plans,
-            );
-          },
-        ),
-        GoRoute(
-          path: '/calendar',
-          builder: (context, state) => WeekViewPage(
-            source: scheduleSource,
-            toLocal: (instant) => zones.toLocal(instant, timeZoneId),
-            weekStart: todayStartUtc,
-            moveController: moveController,
-            // M5（§9）：记住本机选的「紧凑／时间轴」。
-            // 与统计页图表偏好同一形状（`SettingsRepository` + 读失败回默认）。
-            viewModePreference: WeekViewPreferenceService(
-              settings: settingsService.repository,
-            ),
-            // M5（§9）＋ M1（§3.2）："点击任务、固定日程或保护时间进入对应详情"。
-            //
-            // 判定与今日页**共用** `_openScheduleItemDetail`：此前这一页自己判
-            // `taskId != null`，而保护时间会退回日视图——那是"能进得去但进错了地方"，
-            // §3.2 要求保护时间进 `/settings/rules`。固定日程仍然进日视图，
-            // 但带上领域事件 id 以便定位那一条。
-            onOpenItem: (item) {
-              final local = zones.toLocal(item.range.startUtc, timeZoneId);
-              final day = zones.localMidnightToUtc(
-                DateTime(local.year, local.month, local.day),
-                timeZoneId,
-              );
-              _openScheduleItemDetail(context, item, day);
-            },
-            onProposalCreated: (proposalId) =>
-                context.go('/planning/preview/$proposalId'),
-            // FR-CAL-03 的日视图入口：与周视图互为切换，不占导航项。
-            onOpenDay: (dayStartUtc) => context.go(
-              '/calendar/day/${dayStartUtc.microsecondsSinceEpoch}',
-            ),
-            onCreateEvent: calendarService == null
-                ? null
-                : () => context.go('/calendar/new'),
-            onImportTimetable:
-                timetableOcr == null ||
-                    timetableImport == null ||
-                    academicCalendar == null ||
-                    workspaceService == null
-                ? null
-                : () => context.go('/calendar/import'),
-          ),
-        ),
-        GoRoute(
-          path: '/calendar/import',
-          builder: (context, state) {
-            final ocr = timetableOcr;
-            final importer = timetableImport;
-            final academics = academicCalendar;
-            final workspace = workspaceService;
-            if (ocr == null ||
-                importer == null ||
-                academics == null ||
-                workspace == null) {
-              return const _UnavailablePage(
-                title: '导入课表',
-                message: '课表导入服务未完整装配，暂时无法使用。',
-              );
-            }
-            final controller = TimetableImportController(
-              ocrEngine: ocr,
-              academicCalendar: academics,
-              importService: importer,
-              workspace: workspace,
-              timeZoneId: timeZoneId,
-              referenceDate: zones.toLocal(nowUtc ?? todayStartUtc, timeZoneId),
-              imagePicker:
-                  timetableImagePicker ??
-                  const FileSelectorTimetableImagePicker(),
-            );
-            return TimetableImportPage(
-              controller: controller,
-              onCancel: () => context.go('/calendar'),
-              onCompleted: (outcome) {
-                final messenger = ScaffoldMessenger.of(context);
-                context.go('/calendar');
-                messenger.showSnackBar(
-                  plannerSnackBar(
-                    messenger,
-                    // 摘要里带上识别数与被跳过的原因：只报创建数会让"16 门建了 15 组"
-                    // 看起来像漏了一门。
-                    message: outcome.message,
-                    action: SnackBarAction(
-                      label: '撤销本次导入',
-                      onPressed: () {
-                        _undoTimetableImport(
-                          messenger.context,
-                          importer,
-                          outcome.batch.id,
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        GoRoute(
-          path: '/calendar/new',
-          builder: (context, state) {
-            final service = calendarService;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '新建固定日程',
-                message: '日历写入服务未装配，暂无法新建固定日程。',
-              );
-            }
-            final localDay = zones.toLocal(todayStartUtc, timeZoneId);
-            final startUtc = zones.localDateTimeToUtc(
-              DateTime(localDay.year, localDay.month, localDay.day),
-              9 * 60,
-              timeZoneId,
-            );
-            return Padding(
-              padding: const EdgeInsets.all(24),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '新建固定日程',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 20),
-                      EventEditorForm(
-                        service: service,
-                        initialStartUtc: startUtc,
-                        initialEndUtc: startUtc.add(const Duration(hours: 1)),
-                        timeZoneId: timeZoneId,
-                        zones: zones,
-                        // 领域与项目来源：固定日程也能选归属，与任务一致。
-                        workspace: workspaceService,
-                        // FR-TASK-04：从任务页跳来时预填标题（`?title=...`）。
-                        initialTitle: state.uri.queryParameters['title'] ?? '',
-                        onSaved: () => context.go('/calendar'),
-                      ),
-                    ],
-                  ),
+}) {
+  // §11 Task 12 的撤销槽位：每个可撤销动作在发起时把逆操作填进来，今日页拿它当撤销入口。
+  final lastChange = _LastReversibleChange();
+  return GoRouter(
+    initialLocation: '/today',
+    routes: [
+      ShellRoute(
+        builder: (context, state, child) => _PlannerShell(
+          location: state.uri.path,
+          onGeneratePlan: planningService == null
+              ? null
+              : (shellContext) => _generatePlan(
+                  shellContext,
+                  planningService,
+                  planApplication,
+                  autoAdjustStore,
                 ),
-              ),
-            );
-          },
+          onSpecialDay: recovery == null || calendar == null
+              ? null
+              : (shellContext) => shellContext.go('/special-day'),
+          child: child,
         ),
-        GoRoute(
-          // 日视图（FR-CAL-03）。与周视图共用同一个数据源，只是窗口为一天。
-          path: '/calendar/day/:dayStartMicros',
-          builder: (context, state) {
-            final micros = int.tryParse(
-              state.pathParameters['dayStartMicros'] ?? '',
-            );
-            if (micros == null) {
-              return const _UnavailablePage(
-                title: '日视图',
-                message: '日期参数无效，无法显示这一天。',
-              );
-            }
-            return DayViewPage(
+        routes: [
+          GoRoute(
+            path: '/today',
+            builder: (context, state) => TodayPage(
               source: scheduleSource,
-              dayStartUtc: DateTime.fromMicrosecondsSinceEpoch(
-                micros,
-                isUtc: true,
-              ),
-              zones: zones,
-              timeZoneId: timeZoneId,
-              // M1（§3.2）：从今日页/周视图点一条**固定日程**进来时带上它的领域事件 id，
-              // 这一页据此把那条标记出来（"定位该日程"）。为空时行为与从前一样。
-              highlightEventId: state.uri.queryParameters['event'],
-              onOpenWeek: () => context.go('/calendar'),
-              // 调整固定日程的归属。领域清单从工作区读，页面只交回选中的 id。
-              onSetEventArea: calendarService == null
-                  ? null
-                  : (id, areaId) => calendarService.setEventArea(
-                      eventId: id,
-                      areaId: areaId,
-                    ),
-              loadAreaOptions: workspaceService == null
-                  ? null
-                  : () async => [
-                      for (final area in await workspaceService.listAreas())
-                        ScheduleAreaOption(id: area.id, name: area.name),
-                    ],
-              // FR-CAL-01 的删除。页面只交回条目 id；删除端口未装配时不显示该按钮。
-              // 删除后**不需要手动刷新**：日程视图由 drift 的 watch 驱动，写入会使它重新发出。
-              onDeleteEvent: calendarService?.deleteEvent,
-              // FR-CAL-02 的"只删这一次"。页面只交回条目 id、起点与标题；是否为重复日程、
-              // 以及例外用哪个时区，都由仓储判定（它才摸得到规则行）。
-              onDeleteOccurrence: calendarService == null
-                  ? null
-                  : (id, startUtc, title) => calendarService.deleteOccurrence(
-                      anchorId: id,
-                      occurrenceStartUtc: startUtc,
-                      title: title,
-                    ),
-              onDeleteFollowing: calendarService == null
-                  ? null
-                  : (id, startUtc) =>
-                        calendarService.deleteFollowingOccurrences(
-                          anchorId: id,
-                          occurrenceStartUtc: startUtc,
-                        ),
-              // FR-CAL-02 的"改这一次"。页面交回**本地**时刻，UTC 换算在这里做（路由持有
-              // `zones` 与时区标识），与截止时间、事件编辑器两处的分工一致。
-              onReplaceOccurrence: calendarService == null
-                  ? null
-                  : (id, startUtc, newStart, newEnd, title) =>
-                        calendarService.replaceOccurrence(
-                          anchorId: id,
-                          occurrenceStartUtc: startUtc,
-                          newStartUtc: zones.localDateTimeToUtc(
-                            DateTime(
-                              newStart.year,
-                              newStart.month,
-                              newStart.day,
-                            ),
-                            newStart.hour * 60 + newStart.minute,
-                            timeZoneId,
-                          ),
-                          newEndUtc: zones.localDateTimeToUtc(
-                            DateTime(newEnd.year, newEnd.month, newEnd.day),
-                            newEnd.hour * 60 + newEnd.minute,
-                            timeZoneId,
-                          ),
-                          title: title,
-                        ),
-              onReplaceFollowing: calendarService == null
-                  ? null
-                  : (id, startUtc, newStart, newEnd) =>
-                        calendarService.replaceFollowingOccurrences(
-                          anchorId: id,
-                          occurrenceStartUtc: startUtc,
-                          newStartUtc: zones.localDateTimeToUtc(
-                            DateTime(
-                              newStart.year,
-                              newStart.month,
-                              newStart.day,
-                            ),
-                            newStart.hour * 60 + newStart.minute,
-                            timeZoneId,
-                          ),
-                          newEndUtc: zones.localDateTimeToUtc(
-                            DateTime(newEnd.year, newEnd.month, newEnd.day),
-                            newEnd.hour * 60 + newEnd.minute,
-                            timeZoneId,
-                          ),
-                        ),
-              // FR-CAL-02 的"改整个系列"：改锚点与规则本身（所有各次一起变）。
-              onReplaceSeries: calendarService == null
-                  ? null
-                  : (id, newStart, newEnd) => calendarService.replaceSeries(
-                      anchorId: id,
-                      newStartUtc: zones.localDateTimeToUtc(
-                        DateTime(newStart.year, newStart.month, newStart.day),
-                        newStart.hour * 60 + newStart.minute,
-                        timeZoneId,
-                      ),
-                      newEndUtc: zones.localDateTimeToUtc(
-                        DateTime(newEnd.year, newEnd.month, newEnd.day),
-                        newEnd.hour * 60 + newEnd.minute,
-                        timeZoneId,
-                      ),
-                    ),
-            );
-          },
-        ),
-        GoRoute(
-          // 需求的信息架构把"项目与分类管理"归在任务之下，因此它是任务的同级入口，
-          // 而不是又一个设置页。管理界面本身此前完全不存在：服务层、仓库与
-          // "新建项目并归属"都已就绪，但用户改不了名字、标记不了生活、归档不了项目。
-          path: '/workspace',
-          builder: (context, state) {
-            final service = workspaceService;
-            final colors = scheduleColors;
-            if (service == null || colors == null) {
-              return const _UnavailablePage(
-                title: '领域与项目',
-                message: '领域服务未装配，暂无法管理领域与项目。',
-              );
-            }
-            return WorkspaceManagementPage(workspace: service, colors: colors);
-          },
-        ),
-        GoRoute(
-          // 设置成为入口页：其下再列子页，导航栏因此不必每加一个设置页就长一项（W3 的
-          // "信息架构提醒"）。只列出实际装配好的子页。
-          path: '/settings',
-          builder: (context, state) => SettingsHubPage(
-            // 版本号显示在设置页底部（用户 2026-10-07 要求）。常量来源是 ackup_assembly.dart，
-            // 与 pubspec.yaml 的一致性由 ersion_consistency_test 守着。
-            versionLabel: appVersion,
-            entries: [
-              SettingsHubEntry(
-                key: const Key('settings-rules'),
-                title: '规划规则与默认值',
-                group: SettingsGroup.planning,
-                // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
-                // 提醒开关、提前量与免打扰时段），而原来的副标题一个字都没提通知——用户因此
-                // 在设置里找不到它（真实的反馈：按说明去找"通知设置"，翻遍设置页都没看到）。
-                // 副标题只是文案，但**入口的说明与实际内容不符就是可发现性缺陷**。
-                subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
-                // M8（§12「每个入口展示一项当前关键值」，例子就是"默认专注 50 分钟"）。
-                // 读的是**已有设置**，不新建服务、不落库、不上报。
-                //
-                // **为什么要 `resolveForDate` 而不是直接读补丁**：用户规则是一层**补丁**
-                // （`PlanningRulesPatch.defaultFocusMinutes` 是可空的），真实的专注分钟数
-                // 由"默认值 ← 常见补丁 ← 工作日/周末补丁 ← 当日覆盖"逐层应用得出。
-                // 直接读补丁会在用户没改过这一项时拿到 `null`——那样入口上就什么都不显示，
-                // 而用户想问的恰恰是"现在到底是多少"。因此按**今天**解析出**生效值**。
-                currentValue: () async {
-                  // 用路由器已有的 `todayStartUtc`（而不是再取一次系统时间）：
-                  // 组合根已经把它算好并按本机时区落在当日零点，重算一次只会引入第二套口径。
-                  final zoneNow = zones.toLocal(todayStartUtc, timeZoneId);
-                  final resolved = await settingsService.resolveForDate(
-                    DateTime(zoneNow.year, zoneNow.month, zoneNow.day),
-                  );
-                  return '默认专注 ${resolved.rules.defaultFocusMinutes} 分钟';
-                },
-                onOpen: () => context.go('/settings/rules'),
-              ),
-              SettingsHubEntry(
-                key: const Key('settings-appearance'),
-                title: '外观与材质',
-                group: SettingsGroup.appearance,
-                subtitle: '在无玻璃、克制、激进和极致液态玻璃之间切换',
-                // `AppearanceService` 是 `ChangeNotifier` 且启动时已 `load()` 过，
-                // 因此直接读内存里的当前值即可（不为了一个提示再查一次库）。
-                currentValue: () async =>
-                    '材质：${_materialLabel(appearance.mode)}',
-                onOpen: () => context.go('/settings/appearance'),
-              ),
-              if (windowBehavior != null)
-                SettingsHubEntry(
-                  key: const Key('settings-window'),
-                  title: '窗口与后台',
-                  group: SettingsGroup.appearance,
-                  subtitle: '关闭窗口后收进托盘后台运行，还是直接退出程序',
-                  currentValue: () async =>
-                      '关闭窗口：${(await windowBehavior.load()).label}',
-                  onOpen: () => context.go('/settings/window'),
-                ),
-              if (academicCalendar != null)
-                SettingsHubEntry(
-                  key: const Key('settings-academic-calendar'),
-                  title: '学期与节次模板',
-                  group: SettingsGroup.planning,
-                  subtitle: '校准当前周数，设置每一节课的开始与结束时间',
-                  onOpen: () => context.go('/settings/academic-calendar'),
-                ),
-              SettingsHubEntry(
-                key: const Key('settings-relaxation'),
-                title: '临时放宽每日上限',
-                group: SettingsGroup.planning,
-                subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
-                onOpen: () => context.go('/settings/relaxation'),
-              ),
-              if (preferences != null)
-                SettingsHubEntry(
-                  key: const Key('settings-preferences'),
-                  title: '学习偏好',
-                  group: SettingsGroup.notification,
-                  subtitle: '查看、确认或停用从行为中学到的偏好',
-                  onOpen: () => context.go('/settings/preferences'),
-                ),
-              if (appLock != null)
-                SettingsHubEntry(
-                  key: const Key('settings-app-lock'),
-                  title: '应用锁',
-                  group: SettingsGroup.notification,
-                  subtitle: '启动时需要密码；不宣称加密数据库',
-                  currentValue: () async =>
-                      '应用锁：${await appLock.isEnabled() ? '已开启' : '关闭'}',
-                  onOpen: () => context.go('/settings/app-lock'),
-                ),
-              if (exportService != null)
-                SettingsHubEntry(
-                  key: const Key('settings-export'),
-                  title: '数据导出',
-                  group: SettingsGroup.data,
-                  subtitle: '把全部事实导出为 JSON 文件',
-                  onOpen: () => context.go('/settings/export'),
-                ),
-              if (backupService != null)
-                SettingsHubEntry(
-                  key: const Key('settings-backup'),
-                  title: '数据备份与恢复',
-                  group: SettingsGroup.data,
-                  subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
-                  onOpen: () => context.go('/settings/backup'),
-                ),
-              // M8（路线图 §3.6）：更新检查的入口。
+              day: todayStartUtc,
+              toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
+              nowUtc: nowUtc ?? todayStartUtc,
+              // ── M4（路线图 §8）今日页的执行动作 ──────────────────────────────────
               //
-              // **放在「通知与隐私」这一组**：它是本应用唯一会联网的功能，用户想知道"这个程序
-              // 什么时候会联网"时应该在这一组里找得到它，而不是埋在数据备份旁边。
+              // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
               //
-              // 入口右侧展示自动检查的开关状态（§12「每个入口展示一项当前关键值」）：用户不点
-              // 进去就能看出"它到底会不会自己联网"——而这正是这一项最需要被一眼看到的信息。
-              if (updateService != null)
-                SettingsHubEntry(
-                  key: const ValueKey<String>('settings-update'),
-                  title: '检查更新',
-                  group: SettingsGroup.notification,
-                  subtitle: '查看当前版本，手动检查或关闭自动检查（只请求版本信息）',
-                  currentValue: () async =>
-                      (await updateService.loadSettings()).autoCheckEnabled
-                      ? '自动检查已开启'
-                      : '自动检查已关闭',
-                  onOpen: () => context.go('/settings/update'),
-                ),
-              // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
-              //
-              // 用户的原话："我怎么从引导首页点进去啊，这个的前提是我没有装软件吧"——
-              // 他说得对：引导首页只在**首次启动**那条路径上出现，走完（或跳过）之后
-              // 设置里没有任何入口能再看到它。而新手教程一直有"随时重看"，
-              // **这条不一致本身就是缺口**。
-              SettingsHubEntry(
-                key: const Key('settings-onboarding'),
-                title: '首次引导',
-                group: SettingsGroup.data,
-                subtitle: '重新看一遍建任务／导入课表／主要界面这三个入口',
-                onOpen: () => context.go('/settings/onboarding'),
-              ),
-              // 新手教程放在数据与帮助这一组的最后：它是"随时重看"的入口，
-              // 不是每天要动的东西。
-              SettingsHubEntry(
-                key: const Key('settings-tutorial'),
-                title: '新手教程',
-                group: SettingsGroup.data,
-                subtitle: '用真实界面截图走一遍主要功能，两分钟',
-                onOpen: () => context.go('/settings/tutorial'),
-              ),
-            ],
-          ),
-        ),
-        GoRoute(
-          path: '/settings/onboarding',
-          // **从设置重新打开首次引导**（用户 2026-10-08 反馈后补）。
-          //
-          // 三个入口都**复用既有页面**，不新建第二套编辑器或导入向导——
-          // 用户明确要求引导里创建的任务与普通任务**没有任何业务区别**
-          // （同一任务表、同一套默认值与校验、可编辑可删除可完成可重排、
-          // 统计与日历里照常显示、退出引导后仍保留）。
-          builder: (context, state) => OnboardingReopenPage(
-            settings: settingsService.repository,
-            tasks: taskService.repository,
-            onCreateTask: () => context.go('/tasks/new'),
-            onImportTimetable: () => context.go('/calendar/import'),
-            onLearnUi: () => context.go('/settings/tutorial'),
-          ),
-        ),
-        GoRoute(
-          path: '/settings/tutorial',
-          // 从设置进来的这一次**看完不写"已看过"**：用户主动重看一遍，不该改变首次提示的状态；
-          // 而首次自动弹出的那一次由 `PlannerApp` 在自己的 onComplete 里落库。
-          builder: (context, state) =>
-              TutorialPage(onComplete: () => context.go('/settings')),
-        ),
-        GoRoute(
-          path: '/settings/appearance',
-          builder: (context, state) => AppearancePage(service: appearance),
-        ),
-        GoRoute(
-          path: '/settings/window',
-          builder: (context, state) {
-            final service = windowBehavior;
-            if (service == null) {
-              // 未装配时给出说明，而不是一个点了不生效的开关（与学期页同一条约定）。
-              return const _UnavailablePage(
-                title: '窗口与后台',
-                message: '窗口行为服务未装配，暂无法设置关闭窗口时的行为。',
-              );
-            }
-            return WindowBackgroundPage(windowBehavior: service);
-          },
-        ),
-        GoRoute(
-          path: '/settings/academic-calendar',
-          builder: (context, state) {
-            final service = academicCalendar;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '学期与节次模板',
-                message: '学期服务未装配，暂无法保存学期与节次模板。',
-              );
-            }
-            return AcademicCalendarPage(
-              service: service,
-              referenceDate: zones.toLocal(todayStartUtc, timeZoneId),
-              timeZoneId: timeZoneId,
-            );
-          },
-        ),
-        GoRoute(
-          // FR-REPLAN-07 的"临时放宽每日上限"处理入口。此前**这条入口完全不存在**：
-          // `saveDateOverride` 是既有的写入方法，但全库**没有任何调用方**，
-          // 因此"临时例外"这一层从来没有被用户碰过。
-          //
-          // 入口放在设置里而不是只挂在"无可行计划"报告上：需求只要求"提供处理入口"，
-          // 而用户想在计划变得不可行**之前**主动腾出时间也是合理的（例如知道今晚要加班）。
-          path: '/settings/relaxation',
-          builder: (context, state) {
-            // `todayStartUtc` 就是"今天本地零点"，因此它的本地日历日就是今天——
-            // 不必再向路由器引入一个时钟（那会让"今天"有两个来源）。
-            final today = zones.toLocal(todayStartUtc, timeZoneId);
-            final localDate = DateTime(today.year, today.month, today.day);
-            Future<int> effectiveLimit() async =>
-                (await settingsService.resolveForDate(localDate))
-                    .rules
-                    .dailyMovableTaskLimitMinutes;
-            Future<int?> overrideMinutes() async =>
-                (await settingsService.loadDateOverride(localDate))
-                    ?.dailyMovableTaskLimitMinutes;
-            return RelaxationPage(
-              localDate: localDate,
-              loadEffectiveLimitMinutes: effectiveLimit,
-              loadOverrideMinutes: overrideMinutes,
-              onSave: (minutes) async {
-                // 例外的**全部**内容就是"这一天把上限改成多少"。用 patch 而不是复制整份
-                // 规则：复制整份会让今天之后任何规则改动都和这条例外脱节。
-                await settingsService.saveDateOverride(
-                  localDate,
-                  PlanningRulesPatch(dailyMovableTaskLimitMinutes: minutes),
+              // 只接三条是因为另外两条**现在给不出诚实的落地**：
+              // · 「延后」需要用户先输入延后多久（`TaskService.deferTask` 要求 `by > 0`），
+              //   而 M4 的验收目标是"从今日页直接执行"，不是再造一个时长收集界面；
+              // · 「请求调整」只对**已确认计划块**有意义（`movableTaskBlockId`），
+              //   而这一页同时显示固定日程与保护时间——对它们给"请求调整"是假的入口。
+              // 两者在端口为空时**不渲染**（页面自己保证），因此不会出现点了没反应的按钮。
+              // 见 `docs/testing/m4-acceptance.md` 的未完成项。
+              onStartFocus: focusService == null
+                  ? null
+                  : (item) => context.go('/focus/${item.taskId!}'),
+              onComplete: (item) async {
+                // 与任务详情页的"完成"共用同一个服务方法，因此统计记录、重排原因标签
+                // 与别处完全一致——不在这一页另造一套状态变更。
+                final taskId = item.taskId;
+                if (taskId == null) return;
+                // §11 Task 12：**先取改之前的状态再改**。「完成」不产生新的计划版本，
+                // 因此版本级撤销（`PlanUndoService`）够不到它；这里记的是"把这个任务改回
+                // 原来的状态"。取的是改之前那一个值，而不是写死 `open`——从别的状态回来时
+                // 才不会把它错改成未完成。
+                final before = await taskService.findById(taskId);
+                await taskService.changeStatus(taskId, TaskStatus.completed);
+                lastChange.remember(
+                  before == null || before.status == TaskStatus.completed
+                      ? null
+                      : () => taskService.changeStatus(taskId, before.status),
                 );
-                return true;
               },
-              onClear: () async {
-                await settingsService.clearDateOverride(localDate);
-                return true;
-              },
-            );
-          },
-        ),
-        GoRoute(
-          path: '/settings/backup',
-          builder: (context, state) {
-            final service = backupService;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '数据备份与恢复',
-                message: '备份服务未装配，暂无法备份或恢复。',
-              );
-            }
-            // 文件选择与归档写入用的是同一个端口实例（与导出页同样的做法）。
-            //
-            // **永久清除的入口现在是接通的**（spec §18 第 18 项此前因此未勾选）。原先不传
-            // `erasure` 是因为"删库需要关库—换实例—重开"；现改为**延迟到下次启动执行**
-            // （与恢复那条路径同一个套路，见 `backup_assembly.dart`），因此不需要在运行中
-            // 换库实例。`erasure` 为空时（测试或未装配）那一块仍然不渲染——不给一个点了
-            // 不生效的按钮。
-            return BackupPage(
-              backups: service,
-              erasure: erasure,
-              files: const FileSelectorAdapter(),
-            );
-          },
-        ),
-        GoRoute(
-          path: '/settings/rules',
-          builder: (context, state) => PlanningRulesPage(
-            service: settingsService,
-            autoAdjustStore: autoAdjustStore,
-          ),
-        ),
-        GoRoute(
-          // M8（路线图 §3.6 / Task 11）：更新设置页。
-          //
-          // 未装配时给出说明而不是空白页：深链接（通知 payload、用户手改地址）可能直接落在这里。
-          path: '/settings/update',
-          builder: (context, state) {
-            final service = updateService;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '检查更新',
-                message: '更新服务未装配，暂无法检查更新。',
-              );
-            }
-            return UpdatePage(
-              // **控制器在这里建、在这里交给页面**：页面只认 `UpdatePageController`
-              // （见 `update_page.dart` 的说明），因此六种状态都能脱离真服务测试。
+              // M1（路线图 §3.2）：不同事项的去处由共享的解析器决定——
+              // 任务进 `/tasks/:id`、固定日程进当天日视图、保护时间进 `/settings/rules`。
+              // 此前这里是 `context.go('/tasks/${item.taskId!}')`：对固定日程与保护时间
+              // （`taskId` 为 `null`）会当场抛 `Null check operator used on a null value`。
+              onOpenDetail: (item) =>
+                  _openScheduleItemDetail(context, item, todayStartUtc),
+              // §11 Task 12：撤销刚刚那一次变更。装配层没接端口时不显示撤销入口
+              // （今日页据此只报消息），因此这里可以无条件传。
+              onUndoLastChange: lastChange.undo,
+              // ── 「跳过本次」（M4，2026-10-07 用户定义）────────────────────────────
               //
-              // 每进入一次新建一个：控制器是有状态的（上次结论、最后一次是谁触发的），
-              // 复用同一个实例会让"上一次的失败原因"出现在这一次的页面上。既然是在这里 new 的，
-              // 释放也交给页面（`disposeController`）——这一层没有别的持有者。
-              controller: ServiceUpdatePageController.production(service),
-              disposeController: true,
-            );
-          },
-        ),
-        GoRoute(
-          // 应用锁必须可达，否则它只能"被开启"却无法被开启：启动门控已经存在，但设置
-          // 密码的入口此前没有任何路由，用户永远无法让锁生效（W6 + W3）。
-          path: '/settings/app-lock',
-          builder: (context, state) {
-            final service = appLock;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '应用锁',
-                message: '应用锁服务未装配，暂无法开启或关闭应用锁。',
-              );
-            }
-            return AppLockPage(service: service);
-          },
-        ),
-        GoRoute(
-          // 数据导出（FR-DATA-06）。服务与适配器早已写好并有测试，但从未在生产装配，
-          // 因此"导出"在真实运行中不可达。
-          path: '/settings/export',
-          builder: (context, state) {
-            final service = exportService;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '数据导出',
-                message: '导出服务未装配，暂无法导出数据。',
-              );
-            }
-            // 目录选择与写入用的是同一个端口实例，这里直接复用服务里那一份。
-            return ExportPage(service: service);
-          },
-        ),
-        GoRoute(
-          path: '/analytics',
-          builder: (context, state) {
-            final query = analytics;
-            // 与调整预览一致：依赖未装配时明确说明原因，而不是给一个点了没反应的页面。
-            if (query == null) {
-              return const _UnavailablePage(
-                title: '统计',
-                message: '统计服务未装配，暂无法展示统计报表。',
-              );
-            }
-            return AnalyticsPage(
-              analytics: query,
-              nowUtc: nowUtc ?? todayStartUtc,
-              // 必填：统计的"今天／本周／本月"必须是用户本机时区的日界（§13／R11）。
-              // 路由器本来就持有这两样，因此这里只是把已有的东西交下去。
-              zones: zones,
-              timeZoneId: timeZoneId,
-              // FR-STAT-02 的标签筛选。标签服务未装配时整块不渲染。
-              loadTagNames: tagService?.allTagNames,
-              // 图表类型选择（用户要求"由我来选择显示哪个"）。设置仓储未装配时
-              // 选择只在本次会话内生效，而不是让整页不可用。
-              loadChartKinds: chartPreferences?.load,
-              saveChartKind: chartPreferences?.save,
-            );
-          },
-        ),
-        GoRoute(
-          // 设置类页面统一挂在 /settings 之下，入口页按前缀判断导航选中项。
-          path: '/settings/preferences',
-          builder: (context, state) {
-            final service = preferences;
-            if (service == null) {
-              return const _UnavailablePage(
-                title: '偏好设置',
-                message: '偏好服务未装配，暂无法查看或调整学习到的偏好。',
-              );
-            }
-            return PreferencesPage(
-              service: service,
-              // FR-PREF-01/03 的输入端：没有它，这一页永远列不出建议。
-              loadEvidence: loadPreferenceEvidence,
-              // FR-STAT 的"建议采纳行为"来源（W5）。
-              onSuggestionAction: onSuggestionAction,
-            );
-          },
-        ),
-        GoRoute(
-          // 特殊日与次日恢复保护（Task 11）。C8 修复后恢复例外不再落库，因此这条链路
-          // 必须真正可达：页面早已存在，却从来没有路由，也没有任何界面指向它（W3）。
-          path: '/special-day',
-          builder: (context, state) {
-            final service = recovery;
-            final events = calendar;
-            if (service == null || events == null) {
-              return const _UnavailablePage(
-                title: '特殊日与恢复保护',
-                message: '恢复服务未装配，暂无法生成恢复方案。',
-              );
-            }
-            return _SpecialDayLoader(
-              recovery: service,
-              calendar: events,
-              settings: settingsService,
-              zones: zones,
-              timeZoneId: timeZoneId,
-              nowUtc: nowUtc ?? todayStartUtc,
-              onOpenPreview: (proposalId) =>
-                  context.go('/planning/preview/$proposalId'),
-            );
-          },
-        ),
-        GoRoute(
-          path: '/planning/preview/:proposalId',
-          builder: (context, state) => _PlanPreviewLoader(
-            // **key 是必需的，不是装饰**：`_PlanPreviewLoaderState` 用
-            // `late final Future<PlanPreviewModel> _model = _build()` 只算一次。重新生成
-            // （见页面里的"重新生成计划"）会 `go` 到**同一路由的不同 proposalId**，此时
-            // widget 类型与位置都没变，Flutter 会**复用 State**，`_build()` 不会重跑——页面
-            // 会继续显示那份已经过期的模型，按钮看起来点了没反应。按 proposalId 给 key 会让
-            // 参数变化时换掉 Element，从而重建 State。
-            key: ValueKey(state.pathParameters['proposalId']),
-            proposalId: state.pathParameters['proposalId']!,
-            planning: planningService,
-            application: planApplication,
-            plans: plans,
-            planHistory: planHistory,
-            autoAdjustStore: autoAdjustStore,
-            zones: zones,
-            timeZoneId: timeZoneId,
+              // 三步，与用户给的定义一一对应：
+              //   ① 记下"这一块这次不排"（消费方是排程输入来源，见 `pending_skips.dart`）；
+              //   ② 重新生成提案——**任务仍在待排集合里**，因此引擎会在截止时间前
+              //      自己找下一个空档，新时间可能是今天稍后/明天/别的日期，
+              //      **不是**把 `availableFromUtc` 设成明天（那是「延后到明天」）；
+              //   ③ 走既有的 `PlanGenerationFlow`：默认进预览；"信任自动调整"开启时才直接应用。
+              //      复用而不是新写，是为了让"默认预览、信任才自动应用"这条规则只有一处实现。
+              onSkipCurrent: pendingSkips == null || planningService == null
+                  ? null
+                  : (item) async {
+                      final blockId = movableTaskBlockId(item);
+                      // 只有计划块能跳过；不可移动的条目（固定日程、保护时间）在页面上
+                      // 本来就不会显示这个入口，这里是第二道防线。
+                      if (blockId == null) return;
+                      pendingSkips.setRequestedSkip(
+                        RequestedSkip(blockId: blockId),
+                      );
+                      final proposal = await planningService.createProposal();
+                      if (!context.mounted) return;
+                      final outcome =
+                          await PlanGenerationFlow(
+                            isTrusted: () =>
+                                autoAdjustStore.enabled &&
+                                planApplication != null,
+                          ).run(
+                            proposal: proposal,
+                            apply: planApplication == null
+                                ? (proposal) async => ApplyPlanResult.stale()
+                                : planApplication.apply,
+                          );
+                      if (!context.mounted) return;
+                      if (outcome.message.isNotEmpty) {
+                        showPlannerMessage(context, message: outcome.message);
+                        return;
+                      }
+                      context.go('/planning/preview/${outcome.proposalId}');
+                    },
+            ),
           ),
-        ),
-      ],
-    ),
-  ],
-);
+          GoRoute(
+            path: '/tasks',
+            builder: (context, state) => TaskListPage(
+              service: taskService,
+              nowUtc: nowUtc ?? todayStartUtc,
+              // §10：**当前确认计划**是"是否已安排"的唯一依据。这里把既有的 `plans`
+              // 直接传下去，而不新建第二套计划服务——同一个事实只留一个出口。
+              plans: plans,
+              // 计划块与截止时间要显示成用户读的本地钟点；页面不认识时区，
+              // 与今日页、周视图同一分工。
+              zones: zones,
+              timeZoneId: timeZoneId,
+              // §7 的"已安排为空"空状态里的生成计划入口。未装配排程服务时不显示，
+              // 免得给出一个点了没反应的按钮（与壳层"生成计划"同一判断）。
+              onGeneratePlan: planningService == null
+                  ? null
+                  : () => _generatePlan(
+                      context,
+                      planningService,
+                      planApplication,
+                      autoAdjustStore,
+                    ),
+              // FR-TASK-03 的"批量调整"最后一环。整批共用同一天，因此**只换算一次**；
+              // 页面不认识时区，本地日期到 UTC 的换算在此完成（与"设置截止时间"同一模式）。
+              onSetDueDateForSelection: (taskIds, localDate, minute) async {
+                final dueAtUtc = zones.localDateTimeToUtc(
+                  localDate,
+                  minute,
+                  timeZoneId,
+                );
+                var allSaved = true;
+                for (final id in taskIds) {
+                  final result = await taskService.setDueDate(id, dueAtUtc);
+                  allSaved = allSaved && result.isSuccess;
+                }
+                return allSaved;
+              },
+            ),
+          ),
+          GoRoute(
+            // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
+            // 此前该路由不存在，点击提醒无处可去。
+            path: '/tasks/new',
+            builder: (context, state) => TaskEditorPage(
+              service: taskService,
+              settings: settingsService,
+              workspace: workspaceService,
+              zones: zones,
+              timeZoneId: timeZoneId,
+              nowUtc: nowUtc ?? todayStartUtc,
+              onSaved: (task) => context.go('/tasks/${task.id}'),
+              onCancel: () => context.go('/tasks'),
+            ),
+          ),
+          GoRoute(
+            path: '/tasks/:taskId/edit',
+            builder: (context, state) => TaskEditorPage(
+              taskId: state.pathParameters['taskId'],
+              service: taskService,
+              settings: settingsService,
+              workspace: workspaceService,
+              zones: zones,
+              timeZoneId: timeZoneId,
+              nowUtc: nowUtc ?? todayStartUtc,
+              onSaved: (task) => context.go('/tasks/${task.id}'),
+              onCancel: () =>
+                  context.go('/tasks/${state.pathParameters['taskId']}'),
+            ),
+          ),
+          GoRoute(
+            path: '/tasks/:taskId',
+            builder: (context, state) => TaskDetailPage(
+              service: taskService,
+              onEdit: () =>
+                  context.go('/tasks/${state.pathParameters['taskId']}/edit'),
+              workspace: workspaceService,
+              // FR-TASK-02 的标签入口。为空时该区不显示，其余部分照常可用。
+              tags: tagService,
+              // FR-FOCUS-01 的入口。页面不认识路由，导航由这里注入。
+              onStartFocus: focusService == null
+                  ? null
+                  : () =>
+                        context.go('/focus/${state.pathParameters['taskId']!}'),
+              taskId: state.pathParameters['taskId']!,
+              nowUtc: nowUtc ?? todayStartUtc,
+              // FR-REPLAN-07 的"设置截止时间"。页面把**本地**日期与"当天第几分钟"交回，
+              // 时区换算是这里的事——路由持有 `zones` 与 `timeZoneId`，页面两者都不需要。
+              onSetDueDate: (localDate, minute) async {
+                final result = await taskService.setDueDate(
+                  state.pathParameters['taskId']!,
+                  zones.localDateTimeToUtc(localDate, minute, timeZoneId),
+                );
+                return result.isSuccess;
+              },
+              // FR-REPLAN-01 的"延期事项"：把截止时间**整体后移**。页面只交回"延后多久"，目标时刻由
+              // 服务层按"原截止时间 + 时长"算出——**页面因此不必知道原截止时间，也不必碰时区**
+              // （与上面那条"设置截止时间"的分工正好互补）。
+              //
+              // 与上面刻意分成两个入口：一个是"挪到哪一天"，一个是"往后挪多久"；两者发出的领域变化
+              // 类别也不同（`taskSchedulingChanged` / `taskDeferred`），统计页的"重排原因"会显示成
+              // 不同的词。没有截止时间的任务**由服务层拒绝**（页面也不再显示入口）。
+              onDeferTask: (by) async {
+                final result = await taskService.deferTask(
+                  state.pathParameters['taskId']!,
+                  by: by,
+                );
+                return result.isSuccess;
+              },
+              // FR-TASK-04：任务转固定日程。**只预填标题**——事件编辑器没有"所属领域"控件，
+              // 因此领域无从预填（这一点已登记，而不是假装填了）；任务本身**不动**，任务页上
+              // 有对应提示，避免同一件事被排两次。
+              onCreateEvent: calendarService == null
+                  ? null
+                  : (title) => context.go(
+                      '/calendar/new?title=${Uri.encodeComponent(title)}',
+                    ),
+              // FR-FOCUS-05：汇总这条任务**已确认**的专注分钟，再按它重算剩余时长。
+              // 汇总放在组合根——只有它能同时看到专注记录与任务服务，而两个服务彼此不必认识。
+              onRecomputeFromFocus: focusService == null
+                  ? null
+                  : () async {
+                      final taskId = state.pathParameters['taskId']!;
+                      final entries = await focusService.store
+                          .confirmedEntries();
+                      final actualMinutes = entries
+                          .where((entry) => entry.taskId == taskId)
+                          .fold<int>(
+                            0,
+                            (sum, entry) => sum + entry.activeMinutes,
+                          );
+                      final result = await taskService.applyFocusRecompute(
+                        taskId: taskId,
+                        actualMinutes: actualMinutes,
+                      );
+                      return result.isSuccess;
+                    },
+            ),
+          ),
+          GoRoute(
+            // 专注计时（FR-FOCUS-01）。页面早已存在，但从未有路由，也没有任何界面指向它，
+            // 因此计时在真实运行中完全不可达（W3）。
+            path: '/focus/:taskId',
+            builder: (context, state) {
+              final service = focusService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '专注计时',
+                  message: '专注服务未装配，暂无法计时。',
+                );
+              }
+              return _FocusLoader(
+                focus: service,
+                tasks: taskService,
+                taskId: state.pathParameters['taskId']!,
+                // 2026-10-04 的需求：「专注中断后可以继续接续，**前提是还在待办时间段内**；超出了
+                // 就要对剩余待办时间重新排序。」因此这一页需要知道该任务在**当前已确认计划**里的
+                // 计划块终点。`plans` 为空（未装配计划仓储）时窗口未知——按服务里的规则，那种情况
+                // 一律允许接续，因为**没有依据就别说超出了**。
+                plans: plans,
+              );
+            },
+          ),
+          GoRoute(
+            path: '/calendar',
+            builder: (context, state) => WeekViewPage(
+              source: scheduleSource,
+              toLocal: (instant) => zones.toLocal(instant, timeZoneId),
+              weekStart: todayStartUtc,
+              moveController: moveController,
+              // M5（§9）：记住本机选的「紧凑／时间轴」。
+              // 与统计页图表偏好同一形状（`SettingsRepository` + 读失败回默认）。
+              viewModePreference: WeekViewPreferenceService(
+                settings: settingsService.repository,
+              ),
+              // M5（§9）＋ M1（§3.2）："点击任务、固定日程或保护时间进入对应详情"。
+              //
+              // 判定与今日页**共用** `_openScheduleItemDetail`：此前这一页自己判
+              // `taskId != null`，而保护时间会退回日视图——那是"能进得去但进错了地方"，
+              // §3.2 要求保护时间进 `/settings/rules`。固定日程仍然进日视图，
+              // 但带上领域事件 id 以便定位那一条。
+              onOpenItem: (item) {
+                final local = zones.toLocal(item.range.startUtc, timeZoneId);
+                final day = zones.localMidnightToUtc(
+                  DateTime(local.year, local.month, local.day),
+                  timeZoneId,
+                );
+                _openScheduleItemDetail(context, item, day);
+              },
+              onProposalCreated: (proposalId) =>
+                  context.go('/planning/preview/$proposalId'),
+              // FR-CAL-03 的日视图入口：与周视图互为切换，不占导航项。
+              onOpenDay: (dayStartUtc) => context.go(
+                '/calendar/day/${dayStartUtc.microsecondsSinceEpoch}',
+              ),
+              onCreateEvent: calendarService == null
+                  ? null
+                  : () => context.go('/calendar/new'),
+              onImportTimetable:
+                  timetableOcr == null ||
+                      timetableImport == null ||
+                      academicCalendar == null ||
+                      workspaceService == null
+                  ? null
+                  : () => context.go('/calendar/import'),
+            ),
+          ),
+          GoRoute(
+            path: '/calendar/import',
+            builder: (context, state) {
+              final ocr = timetableOcr;
+              final importer = timetableImport;
+              final academics = academicCalendar;
+              final workspace = workspaceService;
+              if (ocr == null ||
+                  importer == null ||
+                  academics == null ||
+                  workspace == null) {
+                return const _UnavailablePage(
+                  title: '导入课表',
+                  message: '课表导入服务未完整装配，暂时无法使用。',
+                );
+              }
+              final controller = TimetableImportController(
+                ocrEngine: ocr,
+                academicCalendar: academics,
+                importService: importer,
+                workspace: workspace,
+                timeZoneId: timeZoneId,
+                referenceDate: zones.toLocal(
+                  nowUtc ?? todayStartUtc,
+                  timeZoneId,
+                ),
+                imagePicker:
+                    timetableImagePicker ??
+                    const FileSelectorTimetableImagePicker(),
+              );
+              return TimetableImportPage(
+                controller: controller,
+                onCancel: () => context.go('/calendar'),
+                onCompleted: (outcome) {
+                  final messenger = ScaffoldMessenger.of(context);
+                  context.go('/calendar');
+                  messenger.showSnackBar(
+                    plannerSnackBar(
+                      messenger,
+                      // 摘要里带上识别数与被跳过的原因：只报创建数会让"16 门建了 15 组"
+                      // 看起来像漏了一门。
+                      message: outcome.message,
+                      action: SnackBarAction(
+                        label: '撤销本次导入',
+                        onPressed: () {
+                          _undoTimetableImport(
+                            messenger.context,
+                            importer,
+                            outcome.batch.id,
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          GoRoute(
+            path: '/calendar/new',
+            builder: (context, state) {
+              final service = calendarService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '新建固定日程',
+                  message: '日历写入服务未装配，暂无法新建固定日程。',
+                );
+              }
+              final localDay = zones.toLocal(todayStartUtc, timeZoneId);
+              final startUtc = zones.localDateTimeToUtc(
+                DateTime(localDay.year, localDay.month, localDay.day),
+                9 * 60,
+                timeZoneId,
+              );
+              return Padding(
+                padding: const EdgeInsets.all(24),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 680),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '新建固定日程',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 20),
+                        EventEditorForm(
+                          service: service,
+                          initialStartUtc: startUtc,
+                          initialEndUtc: startUtc.add(const Duration(hours: 1)),
+                          timeZoneId: timeZoneId,
+                          zones: zones,
+                          // 领域与项目来源：固定日程也能选归属，与任务一致。
+                          workspace: workspaceService,
+                          // FR-TASK-04：从任务页跳来时预填标题（`?title=...`）。
+                          initialTitle:
+                              state.uri.queryParameters['title'] ?? '',
+                          onSaved: () => context.go('/calendar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          GoRoute(
+            // 日视图（FR-CAL-03）。与周视图共用同一个数据源，只是窗口为一天。
+            path: '/calendar/day/:dayStartMicros',
+            builder: (context, state) {
+              final micros = int.tryParse(
+                state.pathParameters['dayStartMicros'] ?? '',
+              );
+              if (micros == null) {
+                return const _UnavailablePage(
+                  title: '日视图',
+                  message: '日期参数无效，无法显示这一天。',
+                );
+              }
+              return DayViewPage(
+                source: scheduleSource,
+                dayStartUtc: DateTime.fromMicrosecondsSinceEpoch(
+                  micros,
+                  isUtc: true,
+                ),
+                zones: zones,
+                timeZoneId: timeZoneId,
+                // M1（§3.2）：从今日页/周视图点一条**固定日程**进来时带上它的领域事件 id，
+                // 这一页据此把那条标记出来（"定位该日程"）。为空时行为与从前一样。
+                highlightEventId: state.uri.queryParameters['event'],
+                onOpenWeek: () => context.go('/calendar'),
+                // 调整固定日程的归属。领域清单从工作区读，页面只交回选中的 id。
+                onSetEventArea: calendarService == null
+                    ? null
+                    : (id, areaId) => calendarService.setEventArea(
+                        eventId: id,
+                        areaId: areaId,
+                      ),
+                loadAreaOptions: workspaceService == null
+                    ? null
+                    : () async => [
+                        for (final area in await workspaceService.listAreas())
+                          ScheduleAreaOption(id: area.id, name: area.name),
+                      ],
+                // FR-CAL-01 的删除。页面只交回条目 id；删除端口未装配时不显示该按钮。
+                // 删除后**不需要手动刷新**：日程视图由 drift 的 watch 驱动，写入会使它重新发出。
+                onDeleteEvent: calendarService?.deleteEvent,
+                // FR-CAL-02 的"只删这一次"。页面只交回条目 id、起点与标题；是否为重复日程、
+                // 以及例外用哪个时区，都由仓储判定（它才摸得到规则行）。
+                onDeleteOccurrence: calendarService == null
+                    ? null
+                    : (id, startUtc, title) => calendarService.deleteOccurrence(
+                        anchorId: id,
+                        occurrenceStartUtc: startUtc,
+                        title: title,
+                      ),
+                onDeleteFollowing: calendarService == null
+                    ? null
+                    : (id, startUtc) =>
+                          calendarService.deleteFollowingOccurrences(
+                            anchorId: id,
+                            occurrenceStartUtc: startUtc,
+                          ),
+                // FR-CAL-02 的"改这一次"。页面交回**本地**时刻，UTC 换算在这里做（路由持有
+                // `zones` 与时区标识），与截止时间、事件编辑器两处的分工一致。
+                onReplaceOccurrence: calendarService == null
+                    ? null
+                    : (id, startUtc, newStart, newEnd, title) =>
+                          calendarService.replaceOccurrence(
+                            anchorId: id,
+                            occurrenceStartUtc: startUtc,
+                            newStartUtc: zones.localDateTimeToUtc(
+                              DateTime(
+                                newStart.year,
+                                newStart.month,
+                                newStart.day,
+                              ),
+                              newStart.hour * 60 + newStart.minute,
+                              timeZoneId,
+                            ),
+                            newEndUtc: zones.localDateTimeToUtc(
+                              DateTime(newEnd.year, newEnd.month, newEnd.day),
+                              newEnd.hour * 60 + newEnd.minute,
+                              timeZoneId,
+                            ),
+                            title: title,
+                          ),
+                onReplaceFollowing: calendarService == null
+                    ? null
+                    : (id, startUtc, newStart, newEnd) =>
+                          calendarService.replaceFollowingOccurrences(
+                            anchorId: id,
+                            occurrenceStartUtc: startUtc,
+                            newStartUtc: zones.localDateTimeToUtc(
+                              DateTime(
+                                newStart.year,
+                                newStart.month,
+                                newStart.day,
+                              ),
+                              newStart.hour * 60 + newStart.minute,
+                              timeZoneId,
+                            ),
+                            newEndUtc: zones.localDateTimeToUtc(
+                              DateTime(newEnd.year, newEnd.month, newEnd.day),
+                              newEnd.hour * 60 + newEnd.minute,
+                              timeZoneId,
+                            ),
+                          ),
+                // FR-CAL-02 的"改整个系列"：改锚点与规则本身（所有各次一起变）。
+                onReplaceSeries: calendarService == null
+                    ? null
+                    : (id, newStart, newEnd) => calendarService.replaceSeries(
+                        anchorId: id,
+                        newStartUtc: zones.localDateTimeToUtc(
+                          DateTime(newStart.year, newStart.month, newStart.day),
+                          newStart.hour * 60 + newStart.minute,
+                          timeZoneId,
+                        ),
+                        newEndUtc: zones.localDateTimeToUtc(
+                          DateTime(newEnd.year, newEnd.month, newEnd.day),
+                          newEnd.hour * 60 + newEnd.minute,
+                          timeZoneId,
+                        ),
+                      ),
+              );
+            },
+          ),
+          GoRoute(
+            // 需求的信息架构把"项目与分类管理"归在任务之下，因此它是任务的同级入口，
+            // 而不是又一个设置页。管理界面本身此前完全不存在：服务层、仓库与
+            // "新建项目并归属"都已就绪，但用户改不了名字、标记不了生活、归档不了项目。
+            path: '/workspace',
+            builder: (context, state) {
+              final service = workspaceService;
+              final colors = scheduleColors;
+              if (service == null || colors == null) {
+                return const _UnavailablePage(
+                  title: '领域与项目',
+                  message: '领域服务未装配，暂无法管理领域与项目。',
+                );
+              }
+              return WorkspaceManagementPage(
+                workspace: service,
+                colors: colors,
+              );
+            },
+          ),
+          GoRoute(
+            // 设置成为入口页：其下再列子页，导航栏因此不必每加一个设置页就长一项（W3 的
+            // "信息架构提醒"）。只列出实际装配好的子页。
+            path: '/settings',
+            builder: (context, state) => SettingsHubPage(
+              // 版本号显示在设置页底部（用户 2026-10-07 要求）。常量来源是 ackup_assembly.dart，
+              // 与 pubspec.yaml 的一致性由 ersion_consistency_test 守着。
+              versionLabel: appVersion,
+              entries: [
+                SettingsHubEntry(
+                  key: const Key('settings-rules'),
+                  title: '规划规则与默认值',
+                  group: SettingsGroup.planning,
+                  // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
+                  // 提醒开关、提前量与免打扰时段），而原来的副标题一个字都没提通知——用户因此
+                  // 在设置里找不到它（真实的反馈：按说明去找"通知设置"，翻遍设置页都没看到）。
+                  // 副标题只是文案，但**入口的说明与实际内容不符就是可发现性缺陷**。
+                  subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
+                  // M8（§12「每个入口展示一项当前关键值」，例子就是"默认专注 50 分钟"）。
+                  // 读的是**已有设置**，不新建服务、不落库、不上报。
+                  //
+                  // **为什么要 `resolveForDate` 而不是直接读补丁**：用户规则是一层**补丁**
+                  // （`PlanningRulesPatch.defaultFocusMinutes` 是可空的），真实的专注分钟数
+                  // 由"默认值 ← 常见补丁 ← 工作日/周末补丁 ← 当日覆盖"逐层应用得出。
+                  // 直接读补丁会在用户没改过这一项时拿到 `null`——那样入口上就什么都不显示，
+                  // 而用户想问的恰恰是"现在到底是多少"。因此按**今天**解析出**生效值**。
+                  currentValue: () async {
+                    // 用路由器已有的 `todayStartUtc`（而不是再取一次系统时间）：
+                    // 组合根已经把它算好并按本机时区落在当日零点，重算一次只会引入第二套口径。
+                    final zoneNow = zones.toLocal(todayStartUtc, timeZoneId);
+                    final resolved = await settingsService.resolveForDate(
+                      DateTime(zoneNow.year, zoneNow.month, zoneNow.day),
+                    );
+                    return '默认专注 ${resolved.rules.defaultFocusMinutes} 分钟';
+                  },
+                  onOpen: () => context.go('/settings/rules'),
+                ),
+                SettingsHubEntry(
+                  key: const Key('settings-appearance'),
+                  title: '外观与材质',
+                  group: SettingsGroup.appearance,
+                  subtitle: '在无玻璃、克制、激进和极致液态玻璃之间切换',
+                  // `AppearanceService` 是 `ChangeNotifier` 且启动时已 `load()` 过，
+                  // 因此直接读内存里的当前值即可（不为了一个提示再查一次库）。
+                  currentValue: () async =>
+                      '材质：${_materialLabel(appearance.mode)}',
+                  onOpen: () => context.go('/settings/appearance'),
+                ),
+                if (windowBehavior != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-window'),
+                    title: '窗口与后台',
+                    group: SettingsGroup.appearance,
+                    subtitle: '关闭窗口后收进托盘后台运行，还是直接退出程序',
+                    currentValue: () async =>
+                        '关闭窗口：${(await windowBehavior.load()).label}',
+                    onOpen: () => context.go('/settings/window'),
+                  ),
+                if (academicCalendar != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-academic-calendar'),
+                    title: '学期与节次模板',
+                    group: SettingsGroup.planning,
+                    subtitle: '校准当前周数，设置每一节课的开始与结束时间',
+                    onOpen: () => context.go('/settings/academic-calendar'),
+                  ),
+                SettingsHubEntry(
+                  key: const Key('settings-relaxation'),
+                  title: '临时放宽每日上限',
+                  group: SettingsGroup.planning,
+                  subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
+                  onOpen: () => context.go('/settings/relaxation'),
+                ),
+                if (preferences != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-preferences'),
+                    title: '学习偏好',
+                    group: SettingsGroup.notification,
+                    subtitle: '查看、确认或停用从行为中学到的偏好',
+                    onOpen: () => context.go('/settings/preferences'),
+                  ),
+                if (appLock != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-app-lock'),
+                    title: '应用锁',
+                    group: SettingsGroup.notification,
+                    subtitle: '启动时需要密码；不宣称加密数据库',
+                    currentValue: () async =>
+                        '应用锁：${await appLock.isEnabled() ? '已开启' : '关闭'}',
+                    onOpen: () => context.go('/settings/app-lock'),
+                  ),
+                if (exportService != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-export'),
+                    title: '数据导出',
+                    group: SettingsGroup.data,
+                    subtitle: '把全部事实导出为 JSON 文件',
+                    onOpen: () => context.go('/settings/export'),
+                  ),
+                if (backupService != null)
+                  SettingsHubEntry(
+                    key: const Key('settings-backup'),
+                    title: '数据备份与恢复',
+                    group: SettingsGroup.data,
+                    subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
+                    onOpen: () => context.go('/settings/backup'),
+                  ),
+                // M8（路线图 §3.6）：更新检查的入口。
+                //
+                // **放在「通知与隐私」这一组**：它是本应用唯一会联网的功能，用户想知道"这个程序
+                // 什么时候会联网"时应该在这一组里找得到它，而不是埋在数据备份旁边。
+                //
+                // 入口右侧展示自动检查的开关状态（§12「每个入口展示一项当前关键值」）：用户不点
+                // 进去就能看出"它到底会不会自己联网"——而这正是这一项最需要被一眼看到的信息。
+                if (updateService != null)
+                  SettingsHubEntry(
+                    key: const ValueKey<String>('settings-update'),
+                    title: '检查更新',
+                    group: SettingsGroup.notification,
+                    subtitle: '查看当前版本，手动检查或关闭自动检查（只请求版本信息）',
+                    currentValue: () async =>
+                        (await updateService.loadSettings()).autoCheckEnabled
+                        ? '自动检查已开启'
+                        : '自动检查已关闭',
+                    onOpen: () => context.go('/settings/update'),
+                  ),
+                // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
+                //
+                // 用户的原话："我怎么从引导首页点进去啊，这个的前提是我没有装软件吧"——
+                // 他说得对：引导首页只在**首次启动**那条路径上出现，走完（或跳过）之后
+                // 设置里没有任何入口能再看到它。而新手教程一直有"随时重看"，
+                // **这条不一致本身就是缺口**。
+                SettingsHubEntry(
+                  key: const Key('settings-onboarding'),
+                  title: '首次引导',
+                  group: SettingsGroup.data,
+                  subtitle: '重新看一遍建任务／导入课表／主要界面这三个入口',
+                  onOpen: () => context.go('/settings/onboarding'),
+                ),
+                // 新手教程放在数据与帮助这一组的最后：它是"随时重看"的入口，
+                // 不是每天要动的东西。
+                SettingsHubEntry(
+                  key: const Key('settings-tutorial'),
+                  title: '新手教程',
+                  group: SettingsGroup.data,
+                  subtitle: '用真实界面截图走一遍主要功能，两分钟',
+                  onOpen: () => context.go('/settings/tutorial'),
+                ),
+              ],
+            ),
+          ),
+          GoRoute(
+            path: '/settings/onboarding',
+            // **从设置重新打开首次引导**（用户 2026-10-08 反馈后补）。
+            //
+            // 三个入口都**复用既有页面**，不新建第二套编辑器或导入向导——
+            // 用户明确要求引导里创建的任务与普通任务**没有任何业务区别**
+            // （同一任务表、同一套默认值与校验、可编辑可删除可完成可重排、
+            // 统计与日历里照常显示、退出引导后仍保留）。
+            builder: (context, state) => OnboardingReopenPage(
+              settings: settingsService.repository,
+              tasks: taskService.repository,
+              onCreateTask: () => context.go('/tasks/new'),
+              onImportTimetable: () => context.go('/calendar/import'),
+              onLearnUi: () => context.go('/settings/tutorial'),
+            ),
+          ),
+          GoRoute(
+            path: '/settings/tutorial',
+            // 从设置进来的这一次**看完不写"已看过"**：用户主动重看一遍，不该改变首次提示的状态；
+            // 而首次自动弹出的那一次由 `PlannerApp` 在自己的 onComplete 里落库。
+            builder: (context, state) =>
+                TutorialPage(onComplete: () => context.go('/settings')),
+          ),
+          GoRoute(
+            path: '/settings/appearance',
+            builder: (context, state) => AppearancePage(service: appearance),
+          ),
+          GoRoute(
+            path: '/settings/window',
+            builder: (context, state) {
+              final service = windowBehavior;
+              if (service == null) {
+                // 未装配时给出说明，而不是一个点了不生效的开关（与学期页同一条约定）。
+                return const _UnavailablePage(
+                  title: '窗口与后台',
+                  message: '窗口行为服务未装配，暂无法设置关闭窗口时的行为。',
+                );
+              }
+              return WindowBackgroundPage(windowBehavior: service);
+            },
+          ),
+          GoRoute(
+            path: '/settings/academic-calendar',
+            builder: (context, state) {
+              final service = academicCalendar;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '学期与节次模板',
+                  message: '学期服务未装配，暂无法保存学期与节次模板。',
+                );
+              }
+              return AcademicCalendarPage(
+                service: service,
+                referenceDate: zones.toLocal(todayStartUtc, timeZoneId),
+                timeZoneId: timeZoneId,
+              );
+            },
+          ),
+          GoRoute(
+            // FR-REPLAN-07 的"临时放宽每日上限"处理入口。此前**这条入口完全不存在**：
+            // `saveDateOverride` 是既有的写入方法，但全库**没有任何调用方**，
+            // 因此"临时例外"这一层从来没有被用户碰过。
+            //
+            // 入口放在设置里而不是只挂在"无可行计划"报告上：需求只要求"提供处理入口"，
+            // 而用户想在计划变得不可行**之前**主动腾出时间也是合理的（例如知道今晚要加班）。
+            path: '/settings/relaxation',
+            builder: (context, state) {
+              // `todayStartUtc` 就是"今天本地零点"，因此它的本地日历日就是今天——
+              // 不必再向路由器引入一个时钟（那会让"今天"有两个来源）。
+              final today = zones.toLocal(todayStartUtc, timeZoneId);
+              final localDate = DateTime(today.year, today.month, today.day);
+              Future<int> effectiveLimit() async =>
+                  (await settingsService.resolveForDate(localDate))
+                      .rules
+                      .dailyMovableTaskLimitMinutes;
+              Future<int?> overrideMinutes() async =>
+                  (await settingsService.loadDateOverride(localDate))
+                      ?.dailyMovableTaskLimitMinutes;
+              return RelaxationPage(
+                localDate: localDate,
+                loadEffectiveLimitMinutes: effectiveLimit,
+                loadOverrideMinutes: overrideMinutes,
+                onSave: (minutes) async {
+                  // 例外的**全部**内容就是"这一天把上限改成多少"。用 patch 而不是复制整份
+                  // 规则：复制整份会让今天之后任何规则改动都和这条例外脱节。
+                  await settingsService.saveDateOverride(
+                    localDate,
+                    PlanningRulesPatch(dailyMovableTaskLimitMinutes: minutes),
+                  );
+                  return true;
+                },
+                onClear: () async {
+                  await settingsService.clearDateOverride(localDate);
+                  return true;
+                },
+              );
+            },
+          ),
+          GoRoute(
+            path: '/settings/backup',
+            builder: (context, state) {
+              final service = backupService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '数据备份与恢复',
+                  message: '备份服务未装配，暂无法备份或恢复。',
+                );
+              }
+              // 文件选择与归档写入用的是同一个端口实例（与导出页同样的做法）。
+              //
+              // **永久清除的入口现在是接通的**（spec §18 第 18 项此前因此未勾选）。原先不传
+              // `erasure` 是因为"删库需要关库—换实例—重开"；现改为**延迟到下次启动执行**
+              // （与恢复那条路径同一个套路，见 `backup_assembly.dart`），因此不需要在运行中
+              // 换库实例。`erasure` 为空时（测试或未装配）那一块仍然不渲染——不给一个点了
+              // 不生效的按钮。
+              return BackupPage(
+                backups: service,
+                erasure: erasure,
+                files: const FileSelectorAdapter(),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/settings/rules',
+            builder: (context, state) => PlanningRulesPage(
+              service: settingsService,
+              autoAdjustStore: autoAdjustStore,
+            ),
+          ),
+          GoRoute(
+            // M8（路线图 §3.6 / Task 11）：更新设置页。
+            //
+            // 未装配时给出说明而不是空白页：深链接（通知 payload、用户手改地址）可能直接落在这里。
+            path: '/settings/update',
+            builder: (context, state) {
+              final service = updateService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '检查更新',
+                  message: '更新服务未装配，暂无法检查更新。',
+                );
+              }
+              return UpdatePage(
+                // **控制器在这里建、在这里交给页面**：页面只认 `UpdatePageController`
+                // （见 `update_page.dart` 的说明），因此六种状态都能脱离真服务测试。
+                //
+                // 每进入一次新建一个：控制器是有状态的（上次结论、最后一次是谁触发的），
+                // 复用同一个实例会让"上一次的失败原因"出现在这一次的页面上。既然是在这里 new 的，
+                // 释放也交给页面（`disposeController`）——这一层没有别的持有者。
+                controller: ServiceUpdatePageController.production(service),
+                disposeController: true,
+              );
+            },
+          ),
+          GoRoute(
+            // 应用锁必须可达，否则它只能"被开启"却无法被开启：启动门控已经存在，但设置
+            // 密码的入口此前没有任何路由，用户永远无法让锁生效（W6 + W3）。
+            path: '/settings/app-lock',
+            builder: (context, state) {
+              final service = appLock;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '应用锁',
+                  message: '应用锁服务未装配，暂无法开启或关闭应用锁。',
+                );
+              }
+              return AppLockPage(service: service);
+            },
+          ),
+          GoRoute(
+            // 数据导出（FR-DATA-06）。服务与适配器早已写好并有测试，但从未在生产装配，
+            // 因此"导出"在真实运行中不可达。
+            path: '/settings/export',
+            builder: (context, state) {
+              final service = exportService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '数据导出',
+                  message: '导出服务未装配，暂无法导出数据。',
+                );
+              }
+              // 目录选择与写入用的是同一个端口实例，这里直接复用服务里那一份。
+              return ExportPage(service: service);
+            },
+          ),
+          GoRoute(
+            path: '/analytics',
+            builder: (context, state) {
+              final query = analytics;
+              // 与调整预览一致：依赖未装配时明确说明原因，而不是给一个点了没反应的页面。
+              if (query == null) {
+                return const _UnavailablePage(
+                  title: '统计',
+                  message: '统计服务未装配，暂无法展示统计报表。',
+                );
+              }
+              return AnalyticsPage(
+                analytics: query,
+                nowUtc: nowUtc ?? todayStartUtc,
+                // 必填：统计的"今天／本周／本月"必须是用户本机时区的日界（§13／R11）。
+                // 路由器本来就持有这两样，因此这里只是把已有的东西交下去。
+                zones: zones,
+                timeZoneId: timeZoneId,
+                // FR-STAT-02 的标签筛选。标签服务未装配时整块不渲染。
+                loadTagNames: tagService?.allTagNames,
+                // 图表类型选择（用户要求"由我来选择显示哪个"）。设置仓储未装配时
+                // 选择只在本次会话内生效，而不是让整页不可用。
+                loadChartKinds: chartPreferences?.load,
+                saveChartKind: chartPreferences?.save,
+              );
+            },
+          ),
+          GoRoute(
+            // 设置类页面统一挂在 /settings 之下，入口页按前缀判断导航选中项。
+            path: '/settings/preferences',
+            builder: (context, state) {
+              final service = preferences;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '偏好设置',
+                  message: '偏好服务未装配，暂无法查看或调整学习到的偏好。',
+                );
+              }
+              return PreferencesPage(
+                service: service,
+                // FR-PREF-01/03 的输入端：没有它，这一页永远列不出建议。
+                loadEvidence: loadPreferenceEvidence,
+                // FR-STAT 的"建议采纳行为"来源（W5）。
+                onSuggestionAction: onSuggestionAction,
+              );
+            },
+          ),
+          GoRoute(
+            // 特殊日与次日恢复保护（Task 11）。C8 修复后恢复例外不再落库，因此这条链路
+            // 必须真正可达：页面早已存在，却从来没有路由，也没有任何界面指向它（W3）。
+            path: '/special-day',
+            builder: (context, state) {
+              final service = recovery;
+              final events = calendar;
+              if (service == null || events == null) {
+                return const _UnavailablePage(
+                  title: '特殊日与恢复保护',
+                  message: '恢复服务未装配，暂无法生成恢复方案。',
+                );
+              }
+              return _SpecialDayLoader(
+                recovery: service,
+                calendar: events,
+                settings: settingsService,
+                zones: zones,
+                timeZoneId: timeZoneId,
+                nowUtc: nowUtc ?? todayStartUtc,
+                onOpenPreview: (proposalId) =>
+                    context.go('/planning/preview/$proposalId'),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/planning/preview/:proposalId',
+            builder: (context, state) => _PlanPreviewLoader(
+              // **key 是必需的，不是装饰**：`_PlanPreviewLoaderState` 用
+              // `late final Future<PlanPreviewModel> _model = _build()` 只算一次。重新生成
+              // （见页面里的"重新生成计划"）会 `go` 到**同一路由的不同 proposalId**，此时
+              // widget 类型与位置都没变，Flutter 会**复用 State**，`_build()` 不会重跑——页面
+              // 会继续显示那份已经过期的模型，按钮看起来点了没反应。按 proposalId 给 key 会让
+              // 参数变化时换掉 Element，从而重建 State。
+              key: ValueKey(state.pathParameters['proposalId']),
+              proposalId: state.pathParameters['proposalId']!,
+              planning: planningService,
+              application: planApplication,
+              plans: plans,
+              planHistory: planHistory,
+              autoAdjustStore: autoAdjustStore,
+              zones: zones,
+              timeZoneId: timeZoneId,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
 /// 特殊日页需要**当日的规则与固定日程**，因此先把它们装配好再渲染页面。
 ///

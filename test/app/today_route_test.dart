@@ -418,6 +418,46 @@ void main() {
           '实际记下的是：${skips.all.map((item) => item.blockId).toList()}',
     );
   });
+
+  // ── Task 12（路线图 §11）：可撤销动作 ─────────────────────────────────────────
+
+  testWidgets('Task 12 「完成」之后气泡上有「撤销」，点它把任务改回原状态', (tester) async {
+    final harness = await pumpTodayRoute(tester);
+
+    await tester.tap(find.byKey(const Key('today-complete-block:b1')));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await harness.repository.getById('t1'))!.status,
+      TaskStatus.completed,
+      reason: '前置条件：点完之后已完成',
+    );
+    // **撤销入口必须由装配层真的接上才可能出现**——页面自己造不出它。
+    expect(find.text('撤销'), findsOneWidget, reason: '§11 Task 12：完成要有撤销入口');
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await harness.repository.getById('t1'))!.status,
+      TaskStatus.open,
+      reason: '撤销必须把任务改回点之前的状态（而不是写死成某个状态）',
+    );
+  });
+
+  testWidgets('Task 12 撤销的是「刚刚那一下」，同一次变更撤不了两遍', (tester) async {
+    final harness = await pumpTodayRoute(tester);
+
+    await tester.tap(find.byKey(const Key('today-complete-block:b1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect((await harness.repository.getById('t1'))!.status, TaskStatus.open);
+    // 撤销槽位在用过之后被清空：这是"撤销刚刚那一下"的语义，不是历史栈
+    // （历史栈是计划版本的职责，由 `PlanHistoryRepository` 承担）。
+    expect(find.text('撤销'), findsNothing, reason: '撤销过后不该还能再撤一遍');
+  });
 }
 
 /// 一个**立即返回**的排程问题来源：只要求 `planningService` 非空好让入口渲染，
