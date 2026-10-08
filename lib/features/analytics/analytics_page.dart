@@ -12,6 +12,7 @@ import 'package:personal_planner/features/analytics/analytics_adjustments_tab.da
 import 'package:personal_planner/features/analytics/analytics_drilldown_sheet.dart';
 import 'package:personal_planner/features/analytics/analytics_overview.dart';
 import 'package:personal_planner/features/analytics/analytics_plan_quality_tab.dart';
+import 'package:personal_planner/features/analytics/recurring_goal_summary.dart';
 import 'package:personal_planner/features/analytics/analytics_rest_tab.dart';
 import 'package:personal_planner/features/analytics/analytics_time_allocation_tab.dart';
 import 'package:personal_planner/features/analytics/feedback_cards.dart';
@@ -34,6 +35,8 @@ final class AnalyticsPage extends StatefulWidget {
     this.saveChartKind,
     this.openBreakdown,
     this.openBreakdownTarget,
+    this.recurringGoals,
+    this.onOpenRecurringGoals,
     super.key,
   });
 
@@ -78,6 +81,15 @@ final class AnalyticsPage extends StatefulWidget {
 
   /// 从明细进入任务或日程（§3.1 的"再从明细进入任务或日程"）。为空时明细行不可点。
   final void Function(AnalyticsBreakdownTarget target)? openBreakdownTarget;
+
+  /// 周期目标的汇总（§3.1 最后一条、§11 Task 9）。
+  ///
+  /// **为空时整张卡不出现。** 未装配周期目标服务的装配（以及绝大多数既有测试）就是这种情况；
+  /// 显示一张"周期目标 0"的卡只会让人以为功能坏了，而事实是这个批次没装配它。
+  final RecurringGoalSummaryData? recurringGoals;
+
+  /// 点周期目标摘要里的入口时的去向。为空时不给入口。
+  final VoidCallback? onOpenRecurringGoals;
 
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
@@ -540,6 +552,19 @@ final class _AnalyticsPageState extends State<AnalyticsPage>
                       // 就能处理这种情况，一行代码就能自证。
                       onOpenSource: (slot) => _openBreakdown(report, slot),
                     ),
+                    // ── 周期目标摘要（§3.1 最后一条、§11 Task 9）──────────────────
+                    //
+                    // **刻意放在四项摘要之后、四个页签之前**：它既不是"这一段时间分给了谁"
+                    // （那由领域时间分配回答），也不是一个可以与"计划总时长"相加的数字，
+                    // 因此单独一张卡，并且卡里自己声明口径。装配层没接周期目标时整张卡不出现
+                    // （`recurringGoals` 为空），而不是显示一个空壳。
+                    if (widget.recurringGoals case final goals?) ...[
+                      const SizedBox(height: 20),
+                      AnalyticsRecurringGoalSummary(
+                        data: goals,
+                        onOpenDetail: widget.onOpenRecurringGoals,
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     // ── 四个页签（§3.1）────────────────────────────────────────
                     //

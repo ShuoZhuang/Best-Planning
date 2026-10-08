@@ -15,6 +15,8 @@ final class NotificationPreferencesSection extends StatelessWidget {
     required this.onCalendarStartChanged,
     required this.onDeadlineChanged,
     required this.onConflictChanged,
+    this.recurringGoalEnabled = true,
+    this.onRecurringGoalChanged,
     required this.errors,
     super.key,
   });
@@ -32,6 +34,15 @@ final class NotificationPreferencesSection extends StatelessWidget {
   final ValueChanged<bool> onCalendarStartChanged;
   final ValueChanged<bool> onDeadlineChanged;
   final ValueChanged<bool> onConflictChanged;
+
+  /// 周期目标提醒的开关（§3.5、§11 Task 9）。默认开启。
+  ///
+  /// 与另外四类并列，而不是藏进周期目标自己的页面：用户找"别提醒我"的时候会来通知设置，
+  /// 而不会想到去周期目标里找一个开关。**`onRecurringGoalChanged` 为空时不渲染**——
+  /// 与这个应用其它端口同一口径，不给点了没反应的开关。
+  final bool recurringGoalEnabled;
+  final ValueChanged<bool>? onRecurringGoalChanged;
+
   final Map<String, String> errors;
 
   @override
@@ -62,6 +73,12 @@ final class NotificationPreferencesSection extends StatelessWidget {
             value: conflictEnabled,
             onChanged: onConflictChanged,
           ),
+          if (onRecurringGoalChanged case final onRecurringGoalChanged?)
+            _Switch(
+              title: '周期目标提醒',
+              value: recurringGoalEnabled,
+              onChanged: onRecurringGoalChanged,
+            ),
         ],
       ),
       const SizedBox(height: 12),

@@ -29,6 +29,7 @@ final class NotificationPreferences {
     this.deadlineLeadMinutes = 24 * 60,
     this.conflictEnabled = true,
     this.conflictLeadMinutes = 30,
+    this.recurringGoalEnabled = true,
     LocalTimeRange? quietHours,
   }) : quietHours =
            quietHours ??
@@ -47,6 +48,13 @@ final class NotificationPreferences {
   /// 需求 FR-NOTIFY-02 要求**每一种通知类型**都能单独设置提前时间，而冲突类型此前
   /// 只有开关没有提前时间。冲突本身不绑定具体时刻，因此提前时间是相对"现在"计算。
   final int conflictLeadMinutes;
+
+  /// 周期目标提醒（周中进度、到期缺口、容量不足）的开关。默认开启。
+  ///
+  /// **默认与其它四类一致为 `true`**：路线图 §3.5 把这三条提醒当作周期目标功能的一部分，
+  /// 而不是一个可选的锦上添花。用户在设置里可以单独关掉它——这是"能关"，不是"默认关"。
+  final bool recurringGoalEnabled;
+
   final LocalTimeRange quietHours;
 }
 
@@ -217,6 +225,9 @@ final class SettingsService {
       deadlineLeadMinutes: value['deadlineLeadMinutes'] as int,
       conflictEnabled: value['conflictEnabled'] as bool,
       conflictLeadMinutes: value['conflictLeadMinutes'] as int? ?? 30,
+      // **缺失时默认开启**，而不是 `as bool`：1.7 之前存下的设置里没有这个键，
+      // 直接强转会抛在启动路径上；而"老用户升级后收不到周期目标提醒"也是错的默认。
+      recurringGoalEnabled: value['recurringGoalEnabled'] as bool? ?? true,
       quietHours: _rangeFromJson(value['quietHours']),
     );
   }
@@ -246,6 +257,7 @@ final class SettingsService {
         'deadlineLeadMinutes': preferences.deadlineLeadMinutes,
         'conflictEnabled': preferences.conflictEnabled,
         'conflictLeadMinutes': preferences.conflictLeadMinutes,
+        'recurringGoalEnabled': preferences.recurringGoalEnabled,
         'quietHours': _rangeToJson(preferences.quietHours),
       }),
     );

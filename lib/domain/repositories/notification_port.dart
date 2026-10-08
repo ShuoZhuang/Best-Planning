@@ -43,7 +43,20 @@ final class NotificationCapability {
 }
 
 /// 通知类别。
-enum NotificationKind { taskStart, calendarStart, deadline, conflict }
+///
+/// **这是通知 payload 契约的一部分**（`NotificationPayload.encode` 按名字写进 JSON，
+/// 平台的点击回调按同一个名字解回来），因此新增取值是安全的：解码端按
+/// [NotificationKind.values] 的名字匹配，对不上时退回默认值而不是抛异常。
+///
+/// `recurringGoal` 是 1.7 加入的第五类（路线图 §3.5、§11 Task 9）：周期目标的周中提醒、
+/// 到期缺口与容量不足。它复用既有的 `NotificationPort`，不另开一条通知通道。
+enum NotificationKind {
+  taskStart,
+  calendarStart,
+  deadline,
+  conflict,
+  recurringGoal,
+}
 
 /// 通知 payload 的编解码契约（FR-NOTIFY-04）。
 ///
