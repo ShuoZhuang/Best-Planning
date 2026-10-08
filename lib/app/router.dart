@@ -209,6 +209,10 @@ Future<void> _handleShortfall(
   required String timeZoneId,
   required CapacityShortfall shortfall,
   required ShortfallAction action,
+
+  /// 记下一次可撤销动作的逆操作（§11 Task 12）。为空时该动作不可撤销——气泡上不出现入口，
+  /// 与今日页同一口径。
+  void Function(Future<void> Function() undo)? onRememberUndo,
 }) async {
   final template = await recurring.repository.findTemplate(
     shortfall.templateId,
@@ -220,9 +224,36 @@ Future<void> _handleShortfall(
     return;
   }
   final now = DateTime.now().toUtc();
+  // ── 记录逆操作（§11 Task 12 第 1 条）────────────────────────────────────
+  //
+  // 三个动作里有两个会真的改写模板：`lowerTarget` 与 `relaxPreferredWindow`。它们在改动**之前**
+  // 把原值包成一个闭包记进撤销槽位，于是用户在气泡上点"撤销"能把这一步退回去。
+  //
+  // **只有这两条需要记**：`relaxDailyLimit` 写的是**按日例外**（`saveDateOverride`），
+  // 它本身就是"只影响今天"的临时设置，撤销它要另一套按日记录的逆操作；`allowPartialWeek`
+  // 什么都没改（它只是"用户接受现状"这一表态），因此无可撤销。为它们各造一个撤销入口，
+  // 会让"撤销"这个词在界面上有两套含义。
+  void rememberTemplateRestore(RecurringTaskTemplate before) {
+    final undo = onRememberUndo;
+    if (undo == null) return;
+    undo(() async {
+      await recurring.updateTemplate(
+        before.id,
+        (current) => current.copyWith(
+          targetMinutes: before.targetMinutes,
+          preferredStartMinute: before.preferredStartMinute,
+          preferredEndMinute: before.preferredEndMinute,
+        ),
+        scope: RecurringEditScope.thisCycle,
+        nowUtc: DateTime.now().toUtc(),
+      );
+    });
+  }
+
   String message;
   switch (action) {
     case ShortfallAction.lowerTarget:
+      rememberTemplateRestore(template);
       await recurring.updateTemplate(
         template.id,
         (current) => current.copyWith(
@@ -236,6 +267,7 @@ Future<void> _handleShortfall(
       message =
           '已把「${template.title}」本周目标调低到 ${shortfall.schedulableMinutes} 分钟';
     case ShortfallAction.relaxPreferredWindow:
+      rememberTemplateRestore(template);
       await recurring.updateTemplate(
         template.id,
         (current) => current.copyWith(
@@ -1412,6 +1444,7 @@ GoRouter createPlannerRouter({
               plans: plans,
               planHistory: planHistory,
               taskTitles: taskService,
+              onRememberUndo: lastChange.remember,
               // M6（§3.4）：缺口卡片的四个动作需要周期服务（改模板、放宽期望时段）与
               // 设置服务（临时放宽每日上限）。
               recurring: recurringTasks,
@@ -1881,12 +1914,19 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.recurring,
     this.settings,
     this.taskTitles,
+    this.onRememberUndo,
     super.key,
   });
 
   /// 标题查询端口（Task 12A Step 6）。为空时预览回落到"未命名任务"——
   /// **绝不回落成裸 UUID**。
   final TaskTitleLookup? taskTitles;
+
+  /// 记下一次可撤销动作的逆操作（§11 Task 12 第 1 条）。
+  ///
+  /// 缺口卡片里的「调低本周目标」与「放宽期望时段」会真的改写模板，因此要把改动前的值记下来。
+  /// 为空时那两个动作不可撤销——气泡上不出现撤销入口，与今日页同一口径。
+  final void Function(Future<void> Function() undo)? onRememberUndo;
 
   final String proposalId;
   final AutoAdjustStore autoAdjustStore;
@@ -2024,6 +2064,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
                 timeZoneId: widget.timeZoneId,
                 shortfall: shortfall,
                 action: action,
+                onRememberUndo: widget.onRememberUndo,
               ),
         // 时序图 `else stale` 分支的 `request recalculation`：复用顶层的 `_generatePlan`
         // ——它已经是"生成提案 → 按信任设置决定是否直接应用 → 导航到预览"的既有路径，因此这里
