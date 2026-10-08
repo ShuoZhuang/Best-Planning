@@ -23,6 +23,7 @@ final class AnalyticsPage extends StatefulWidget {
     // 别的时区静默算错一天。
     required this.zones,
     required this.timeZoneId,
+    this.clock,
     this.feedbackMessages = const [],
     this.loadTagNames,
     this.loadChartKinds,
@@ -34,6 +35,18 @@ final class AnalyticsPage extends StatefulWidget {
   final DateTime nowUtc;
   final TimeZoneDatabase zones;
   final String timeZoneId;
+
+  /// 读取"现在"的时钟。为空时一律用 [nowUtc]——那让行为**确定**：
+  /// 页面算出来的范围只取决于显式传入的那个瞬时，测试因此可复现。
+  ///
+  /// **为什么需要有它**：§3.1 要求"程序跨过午夜后自动刷新『今天』，不能继续显示昨天"
+  /// （§7.1 第 4 条）。而 [nowUtc] 是构造时的一个**瞬时**，页面若在 `initState` 里用它算一次
+  /// 范围就再也不管，程序开着跨过午夜之后"今天"仍然是昨天——**不会报错**，用户看到一个
+  /// 看起来正常、实际少算一天的页面。有了时钟，页面在每次重建时都能问一次"现在是哪一天"，
+  /// 发现日期变了就把范围重新算一遍（重建由切回前台、托盘唤醒、父层定时器等触发）。
+  ///
+  /// 生产装配传 `clock.nowUtc`；测试传一个可控的闭包，就能把时间推到午夜之后。
+  final DateTime Function()? clock;
   final List<FeedbackMessage> feedbackMessages;
 
   /// 读取可筛选的标签名；为空时不显示标签筛选。
@@ -107,22 +120,34 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   @override
   void initState() {
     super.initState();
-    final today = _todayLocalDate();
-    _filter = AnalyticsFilter(
-      startUtc: _localMidnight(today),
-      endUtc: _localMidnight(_addDays(today, 1)),
-    );
+    // §3.1："默认范围为**本周**"。此前默认是"今天"，而用户打开统计页想看的是这一周的安排，
+    // 每天都要手工点一次「本周」。
+    _filter = _weekFilter(_todayLocalDate());
+    _nowAnchor = _readNow();
+    _syncDateAcrossMidnight();
     _load();
     _loadTagNames();
     _loadChartKinds();
   }
 
+  /// 上一次"今天"是哪个本地日，以及当时算出的范围是哪种预设。
+  ///
+  /// 用来发现"程序跨过午夜但没有重启"（§7.1 第 4 条）。存**预设**而不是原始区间是刻意的：
+  /// 用户选了「本月」时跨过午夜不需要动他的选择，只有"跟着今天走"的那三种预设（今天／本周／
+  /// 本月）才要在日期变化后重算。
+  DateTime _nowAnchor = DateTime(1970);
+
+  /// 读一次"现在"：[AnalyticsPage.clock] 优先，否则用构造时传入的 [AnalyticsPage.nowUtc]。
+  DateTime _readNow() => widget.clock?.call() ?? widget.nowUtc;
+
   /// `nowUtc` 在**本机时区**下的日历日（只取年月日）。
   ///
   /// 用 `zones.toLocal` 而不是 `nowUtc.year/month/day`：后者拿到的是 **UTC** 的日期，
   /// 在 UTC+8 的凌晨会差一天。
-  DateTime _todayLocalDate() {
-    final local = widget.zones.toLocal(widget.nowUtc, widget.timeZoneId);
+  DateTime _todayLocalDate() => _localDateOf(_readNow());
+
+  DateTime _localDateOf(DateTime instantUtc) {
+    final local = widget.zones.toLocal(instantUtc, widget.timeZoneId);
     return DateTime(local.year, local.month, local.day);
   }
 
@@ -136,6 +161,61 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   /// 日期不变——§13.0 的 C11 在保护时间展开器上记过同一处（"按日推进用了绝对时间加法"）。
   DateTime _addDays(DateTime localDate, int days) =>
       DateTime(localDate.year, localDate.month, localDate.day + days);
+
+  /// 含 [today] 的那一周（周一起 7 天）的区间。
+  AnalyticsFilter _weekFilter(DateTime today) {
+    final monday = _addDays(today, -(today.weekday - DateTime.monday));
+    return AnalyticsFilter(
+      startUtc: _localMidnight(monday),
+      endUtc: _localMidnight(_addDays(monday, 7)),
+    );
+  }
+
+  /// 程序跨过午夜后重算"跟着今天走"的范围（§3.1／§7.1 第 4 条）。
+  ///
+  /// 在每次重建时调用。发现**本地日**变了就按当前预设重算一遍并重新查询；用户选的是
+  /// 「自定义范围」时不动——那是他显式指定的日期，跨午夜与它无关。
+  ///
+  /// **为什么不用定时器**：定时器要处理"程序被挂起／系统休眠"下的漂移，还要在 dispose 时
+  /// 拆掉，而重建本来就会发生（切回前台、托盘唤醒、父层刷新）。这里只依赖"日期变了"这个
+  /// 事实，因此无论界面因为什么原因重建，答案都对。
+  void _syncDateAcrossMidnight() {
+    final today = _todayLocalDate();
+    if (today == _nowAnchor) return;
+    _nowAnchor = today;
+
+    final kind = _rangeKindFor(
+      _filter,
+      zones: widget.zones,
+      timeZoneId: widget.timeZoneId,
+    );
+    final refreshed = switch (kind) {
+      _RangeKind.today => AnalyticsFilter(
+        startUtc: _localMidnight(today),
+        endUtc: _localMidnight(_addDays(today, 1)),
+        tags: _filter.tags,
+      ),
+      _RangeKind.week => AnalyticsFilter(
+        startUtc: _weekFilter(today).startUtc,
+        endUtc: _weekFilter(today).endUtc,
+        tags: _filter.tags,
+      ),
+      _RangeKind.month => AnalyticsFilter(
+        startUtc: _localMidnight(DateTime(today.year, today.month)),
+        endUtc: _localMidnight(DateTime(today.year, today.month + 1)),
+        tags: _filter.tags,
+      ),
+      // 自定义范围与"今天"无关：用户指定的是哪几天，跨午夜不该把它改掉。
+      _RangeKind.custom => null,
+    };
+    if (refreshed == null) return;
+    if (refreshed.startUtc == _filter.startUtc &&
+        refreshed.endUtc == _filter.endUtc) {
+      return;
+    }
+    _filter = refreshed;
+    _load();
+  }
 
   Future<void> _loadTagNames() async {
     final loader = widget.loadTagNames;
@@ -318,120 +398,124 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('统计与复盘')),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1080),
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                Text(
-                  '看见时间去了哪里',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 6),
-                // **这句话原本写的是"计划、实际投入和推断结论分别展示"**。2026-10-06 用户要求把
-                // "实际"这一侧从统计里全部拿掉（"这个程序原先的本质就是计划，实际是什么没有统计
-                // 必要"），因此口径说明必须跟着改——留着一句介绍用户看不到的东西，比没有介绍更糟。
-                const Text('只看你计划了什么：固定日程、已确认的计划块、保护时间与完成情况。休息与娱乐同样是有价值的时间。'),
-                const SizedBox(height: 18),
-                _RangeControls(
-                  filter: _filter,
-                  // **以区间为唯一真相反推高亮**：见 `_rangeKindFor` 的说明。
-                  selected: _rangeKindFor(
-                    _filter,
-                    zones: widget.zones,
-                    timeZoneId: widget.timeZoneId,
-                    nowUtc: widget.nowUtc,
+  Widget build(BuildContext context) {
+    // §3.1／§7.1 第 4 条：先确认"今天"还是不是今天。跨过午夜时这里会把范围重算一遍，
+    // 因此下面的「今天」高亮与查询窗口都跟着走，不会继续显示昨天。
+    _syncDateAcrossMidnight();
+    return Scaffold(
+      appBar: AppBar(title: const Text('统计与复盘')),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1080),
+            child: RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  Text(
+                    '看见时间去了哪里',
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  onToday: _selectToday,
-                  onWeek: _selectWeek,
-                  onMonth: _selectMonth,
-                  onCustom: _selectCustom,
-                ),
-                if (widget.loadTagNames != null) ...[
-                  const SizedBox(height: 14),
-                  _TagFilter(
-                    available: _availableTags,
-                    selected: _filter.tags,
-                    onToggle: _toggleTag,
-                    onClear: () => _setTags(const {}),
+                  const SizedBox(height: 6),
+                  // **这句话原本写的是"计划、实际投入和推断结论分别展示"**。2026-10-06 用户要求把
+                  // "实际"这一侧从统计里全部拿掉（"这个程序原先的本质就是计划，实际是什么没有统计
+                  // 必要"），因此口径说明必须跟着改——留着一句介绍用户看不到的东西，比没有介绍更糟。
+                  const Text('只看你计划了什么：固定日程、已确认的计划块、保护时间与完成情况。休息与娱乐同样是有价值的时间。'),
+                  const SizedBox(height: 18),
+                  _RangeControls(
+                    filter: _filter,
+                    // **以区间为唯一真相反推高亮**：见 `_rangeKindFor` 的说明。
+                    selected: _rangeKindFor(
+                      _filter,
+                      zones: widget.zones,
+                      timeZoneId: widget.timeZoneId,
+                    ),
+                    onToday: _selectToday,
+                    onWeek: _selectWeek,
+                    onMonth: _selectMonth,
+                    onCustom: _selectCustom,
                   ),
-                ],
-                if (_loading) ...[
-                  const SizedBox(height: 18),
-                  const LinearProgressIndicator(),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 18),
-                  Card(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      // 加载失败要**被播报**（M2 §6：错误不能只靠视觉表达）。
-                      child: Semantics(
-                        liveRegion: true,
-                        child: Text('统计加载失败：$_error'),
+                  if (widget.loadTagNames != null) ...[
+                    const SizedBox(height: 14),
+                    _TagFilter(
+                      available: _availableTags,
+                      selected: _filter.tags,
+                      onToggle: _toggleTag,
+                      onClear: () => _setTags(const {}),
+                    ),
+                  ],
+                  if (_loading) ...[
+                    const SizedBox(height: 18),
+                    const LinearProgressIndicator(),
+                  ],
+                  if (_error != null) ...[
+                    const SizedBox(height: 18),
+                    Card(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        // 加载失败要**被播报**（M2 §6：错误不能只靠视觉表达）。
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text('统计加载失败：$_error'),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-                if (_report case final report?) ...[
-                  const SizedBox(height: 22),
-                  // **顺序即重点**（2026-10-06 用户确认的改版）：
-                  //   ①② 领域时间分配——横向占比、纵向总计（用户的主诉求）
-                  //   ③  我规划得合理吗——完成情况 + 领域覆盖缺口
-                  //   ④  我有没有好好休息——休息时长、作息规律性、工作休息比例
-                  //   ⑤  精力、中断与调整（FR-STAT-06，原样保留）
-                  // "计划 vs 实际"整组已按用户要求移除，理由与口径偏离记在规格里。
-                  _AreaShareSection(
-                    report: report,
-                    kind: _kindOf(AnalyticsChartSlot.areaShare),
-                    onKind: (kind) =>
-                        _setChartKind(AnalyticsChartSlot.areaShare, kind),
-                  ),
-                  const SizedBox(height: 20),
-                  if (_matrix case final matrix?) ...[
-                    _PeriodTotalSection(
-                      matrix: matrix,
-                      kind: _kindOf(AnalyticsChartSlot.periodTotal),
+                  ],
+                  if (_report case final report?) ...[
+                    const SizedBox(height: 22),
+                    // **顺序即重点**（2026-10-06 用户确认的改版）：
+                    //   ①② 领域时间分配——横向占比、纵向总计（用户的主诉求）
+                    //   ③  我规划得合理吗——完成情况 + 领域覆盖缺口
+                    //   ④  我有没有好好休息——休息时长、作息规律性、工作休息比例
+                    //   ⑤  精力、中断与调整（FR-STAT-06，原样保留）
+                    // "计划 vs 实际"整组已按用户要求移除，理由与口径偏离记在规格里。
+                    _AreaShareSection(
+                      report: report,
+                      kind: _kindOf(AnalyticsChartSlot.areaShare),
                       onKind: (kind) =>
-                          _setChartKind(AnalyticsChartSlot.periodTotal, kind),
+                          _setChartKind(AnalyticsChartSlot.areaShare, kind),
                     ),
                     const SizedBox(height: 20),
-                  ],
-                  _PlanQualitySection(report: report),
-                  if (_messages.isNotEmpty) ...[
+                    if (_matrix case final matrix?) ...[
+                      _PeriodTotalSection(
+                        matrix: matrix,
+                        kind: _kindOf(AnalyticsChartSlot.periodTotal),
+                        onKind: (kind) =>
+                            _setChartKind(AnalyticsChartSlot.periodTotal, kind),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    _PlanQualitySection(report: report),
+                    if (_messages.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      FeedbackCards(messages: _messages, filter: report.filter),
+                    ],
                     const SizedBox(height: 20),
-                    FeedbackCards(messages: _messages, filter: report.filter),
+                    _RestSection(
+                      report: report,
+                      restKind: _kindOf(AnalyticsChartSlot.restDuration),
+                      onRestKind: (kind) =>
+                          _setChartKind(AnalyticsChartSlot.restDuration, kind),
+                      workRestKind: _kindOf(AnalyticsChartSlot.workRest),
+                      onWorkRestKind: (kind) =>
+                          _setChartKind(AnalyticsChartSlot.workRest, kind),
+                      routineKind: _kindOf(AnalyticsChartSlot.routine),
+                      onRoutineKind: (kind) =>
+                          _setChartKind(AnalyticsChartSlot.routine, kind),
+                    ),
+                    const SizedBox(height: 20),
+                    _EvidenceLists(report: report),
                   ],
-                  const SizedBox(height: 20),
-                  _RestSection(
-                    report: report,
-                    restKind: _kindOf(AnalyticsChartSlot.restDuration),
-                    onRestKind: (kind) =>
-                        _setChartKind(AnalyticsChartSlot.restDuration, kind),
-                    workRestKind: _kindOf(AnalyticsChartSlot.workRest),
-                    onWorkRestKind: (kind) =>
-                        _setChartKind(AnalyticsChartSlot.workRest, kind),
-                    routineKind: _kindOf(AnalyticsChartSlot.routine),
-                    onRoutineKind: (kind) =>
-                        _setChartKind(AnalyticsChartSlot.routine, kind),
-                  ),
-                  const SizedBox(height: 20),
-                  _EvidenceLists(report: report),
                 ],
-              ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// 把用户在选择器里选中的**日期范围**换算成统计用的 UTC 窗口。
@@ -551,36 +635,52 @@ enum _RangeKind { today, week, month, custom }
 /// 手动同步，漏一处就会出现"按钮亮着但范围不是它"。**以区间为唯一真相**，
 /// 高亮永远和实际查询的那段一致，不可能漂移。
 ///
-/// **比较的是瞬时而不是日期**：四个预设都由同一套 `localMidnightToUtc` 算出来，
+/// **只看区间自己的形状，不拿"今天"去套。** 早先的实现是"把今天的三种预设区间算出来，
+/// 看哪一个等于当前区间"，那在**跨过午夜之后必然失效**：用户昨天选了「今天」，区间停在
+/// 昨天，而"今天的预设"已经是新的一天——于是它被判成「自定义范围」，上面那条按预设重算的
+/// 刷新逻辑直接跳过（实测：跨午夜后不再重载，正是要修的那条缺陷）。改成按**形状**判断：
+///
+/// - 起止落在同一个本地日历日 → `today`；
+/// - 起止都落在本地周一且相差 7 天 → `week`（周一起算，与 `_weekFilter` 同一规则）；
+/// - 起点是该月 1 日、终点是次月 1 日 → `month`；
+/// - 其余 → `custom`（用户显式选的日期区间，跨午夜不该被动）。
+///
+/// **比较的是瞬时而不是日期**：三个预设都由同一套 `localMidnightToUtc` 算出来，
 /// 因此同一段区间必然逐微秒相等。用日期比较反而会在夏令时切换日误判。
 _RangeKind _rangeKindFor(
   AnalyticsFilter filter, {
   required TimeZoneDatabase zones,
   required String timeZoneId,
-  required DateTime nowUtc,
 }) {
-  final local = zones.toLocal(nowUtc, timeZoneId);
-  final today = DateTime(local.year, local.month, local.day);
+  final startLocal = _localDateOfInstant(zones, timeZoneId, filter.startUtc);
+  final endLocal = _localDateOfInstant(zones, timeZoneId, filter.endUtc);
   DateTime midnight(DateTime date) =>
       zones.localMidnightToUtc(date, timeZoneId);
   // 按日历加减天数：绝对时间加法在夏令时切换日会退回当天 23:00，日期不变。
   DateTime addDays(DateTime date, int days) =>
       DateTime(date.year, date.month, date.day + days);
 
-  bool matches(DateTime startLocal, DateTime endLocal) =>
-      filter.startUtc == midnight(startLocal) &&
-      filter.endUtc == midnight(endLocal);
-
-  if (matches(today, addDays(today, 1))) return _RangeKind.today;
-  final monday = addDays(today, -(today.weekday - 1));
-  if (matches(monday, addDays(monday, 7))) return _RangeKind.week;
-  if (matches(
-    DateTime(today.year, today.month),
-    DateTime(today.year, today.month + 1),
-  )) {
+  if (endLocal == addDays(startLocal, 1)) return _RangeKind.today;
+  if (filter.endUtc == midnight(addDays(startLocal, 7)) &&
+      startLocal.weekday == DateTime.monday) {
+    return _RangeKind.week;
+  }
+  if (startLocal.day == 1 &&
+      endLocal == DateTime(startLocal.year, startLocal.month + 1)) {
     return _RangeKind.month;
   }
   return _RangeKind.custom;
+}
+
+/// UTC 瞬时 → 它所在**本地日**的年月日。与 State 里的 `_localDateOf` 同一口径，
+/// 但这一层是顶层纯函数，因此测试与 State 用的是同一段逻辑。
+DateTime _localDateOfInstant(
+  TimeZoneDatabase zones,
+  String timeZoneId,
+  DateTime instantUtc,
+) {
+  final local = zones.toLocal(instantUtc, timeZoneId);
+  return DateTime(local.year, local.month, local.day);
 }
 
 final class _RangeControls extends StatelessWidget {

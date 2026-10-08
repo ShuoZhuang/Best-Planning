@@ -271,6 +271,126 @@ void main() {
     expect(find.text('上周、本周与本月都还没有已确认的计划块或固定日程。'), findsOneWidget);
     expect(find.byKey(const Key('analytics-area-period-table')), findsNothing);
   });
+  // ── M2（路线图 §3.1、§7.1 第 4 条）：默认范围与跨午夜刷新 ──────────────────────
+  //
+  // **为什么必须有这两条**：`nowUtc` 是构造时传进来的一个**瞬时**。页面若在 `initState` 里
+  // 用它算一次范围就再也不管，那么程序开着跨过午夜之后，"今天"仍然是昨天——而**不会报错**，
+  // 用户看到的是一个看起来正常、实际少算一天的页面。§7.1 因此把"「今天」在午夜后更新；
+  // 10 月 8 日不能继续显示 10 月 7 日范围"写成了一条独立的验收点。
+
+  testWidgets('M2 默认范围是本周，而不是今天', (tester) async {
+    tester.view.physicalSize = const Size(1400, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final zones = TimeZoneDatabase();
+    const zoneId = 'Asia/Shanghai';
+    final query = _AnalyticsQueryFake(_report());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnalyticsPage(
+          analytics: query,
+          // 本地 2026-10-08（周四）16:00。
+          nowUtc: DateTime.utc(2026, 10, 8, 8),
+          zones: zones,
+          timeZoneId: zoneId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 默认窗口应当是含今天的那一周：周一起 7 天。
+    //
+    // **为什么看 `last`**：`_load` 的顺序是"先取对照窗口、再取矩阵的三个周期、最后取当前窗口"
+    // （那段顺序的说明写在页面里）。因此**最后一次查询就是用户所选范围**；`first` 是紧邻其前的
+    // 对照窗口（同样 7 天，但是上一周），拿它断言会把"本周"误测成"上周"。
+    final selected = query.filters.last;
+    expect(
+      selected.startUtc,
+      zones.localMidnightToUtc(DateTime(2026, 10, 5), zoneId),
+      reason: '§3.1："默认范围为本周"——周一（10-05）是这一周的起点',
+    );
+    expect(
+      selected.endUtc,
+      zones.localMidnightToUtc(DateTime(2026, 10, 12), zoneId),
+    );
+    // 反向确认它**不是**「今天」：只断言"7 天窗口"是不够的，"默认是今天"正是要被改掉的旧行为。
+    expect(
+      selected.endUtc.difference(selected.startUtc),
+      const Duration(days: 7),
+      reason: '默认是整周（7 天），不是单日',
+    );
+  });
+
+  testWidgets('M2 跨过午夜后「今天」重新计算，不继续显示昨天', (tester) async {
+    tester.view.physicalSize = const Size(1400, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final zones = TimeZoneDatabase();
+    const zoneId = 'Asia/Shanghai';
+    // 可变的"现在"：测试自己把它推过本地午夜。
+    var now = DateTime.utc(2026, 10, 8, 8); // 本地 10-08 16:00
+
+    final query = _AnalyticsQueryFake(_report());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnalyticsPage(
+          analytics: query,
+          nowUtc: now,
+          clock: () => now,
+          zones: zones,
+          timeZoneId: zoneId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('analytics-range-today')));
+    await tester.pumpAndSettle();
+    expect(
+      query.filters.last.startUtc,
+      zones.localMidnightToUtc(DateTime(2026, 10, 8), zoneId),
+      reason: '前置条件：跨午夜之前"今天"是 10 月 8 日',
+    );
+
+    // 跨过本地午夜：本地 10-09 00:30（UTC 10-08 16:30）。
+    now = DateTime.utc(2026, 10, 8, 16, 30);
+    // ignore: avoid_print
+    print('DIAG before rebuild: queries=${query.filters.length}');
+    // 模拟"程序还在运行、界面被重建"：切回前台、托盘唤醒都会走到这里。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnalyticsPage(
+          analytics: query,
+          nowUtc: DateTime.utc(2026, 10, 8, 8),
+          clock: () => now,
+          zones: zones,
+          timeZoneId: zoneId,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // ignore: avoid_print
+    print(
+      'DIAG after rebuild: queries=${query.filters.length} '
+      'last=${query.filters.last.startUtc}',
+    );
+
+    expect(
+      query.filters.last.startUtc,
+      zones.localMidnightToUtc(DateTime(2026, 10, 9), zoneId),
+      reason:
+          '§7.1 第 4 条："今天"在午夜后必须更新。若这里仍是 10-08，'
+          '用户会看到一个少算一天的"今天"，而且不会报错',
+    );
+    expect(
+      query.filters.last.endUtc,
+      zones.localMidnightToUtc(DateTime(2026, 10, 10), zoneId),
+    );
+  });
 }
 
 AnalyticsReport _report() {
