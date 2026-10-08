@@ -87,7 +87,9 @@ void main() {
 
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     await tester.pumpAndSettle();
-    router.go('/tasks/new');
+    // **M6 起 `/tasks/new` 是类型选择器**，任务表单移到了 `/tasks/new/task`
+    // （路线图 §3.3 / §11 Task 7：新建入口要提供四种清楚的去向）。
+    router.go('/tasks/new/task');
     await tester.pumpAndSettle();
   }
 

@@ -52,8 +52,14 @@ void main() {
     // UTC 2026-10-11 20:00 = 本地(UTC+8) 2026-10-12 04:00 → 东八区是下一周；
     // 而 UTC 时区里它仍是 2026-10-11（周日），属于 10-05 那一周。
     final instant = DateTime.utc(2026, 10, 11, 20);
-    expect(weeklyPeriodFor(instant, shanghai).startLocalDate, DateTime(2026, 10, 12));
-    expect(weeklyPeriodFor(instant, 'UTC').startLocalDate, DateTime(2026, 10, 5));
+    expect(
+      weeklyPeriodFor(instant, shanghai).startLocalDate,
+      DateTime(2026, 10, 12),
+    );
+    expect(
+      weeklyPeriodFor(instant, 'UTC').startLocalDate,
+      DateTime(2026, 10, 5),
+    );
   });
 
   test('程序跨周未重启：同一个 nowUtc 反复算出的周界完全一致', () {

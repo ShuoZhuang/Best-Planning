@@ -95,10 +95,8 @@ void main() {
   );
 
   /// 本周三到下周三的滚动窗口（与生产里的七天窗口同形）。
-  TimeRange windowFrom(DateTime nowUtc) => TimeRange(
-    startUtc: nowUtc,
-    endUtc: nowUtc.add(const Duration(days: 7)),
-  );
+  TimeRange windowFrom(DateTime nowUtc) =>
+      TimeRange(startUtc: nowUtc, endUtc: nowUtc.add(const Duration(days: 7)));
 
   Future<RecurringCycleRun> ensure([DateTime? nowUtc]) {
     final now = nowUtc ?? clock.nowUtc();
@@ -116,7 +114,10 @@ void main() {
         nextWeekStart.add(const Duration(days: 6)),
       );
       expect(cycles, hasLength(2), reason: '本周与下周各一个，不多不少');
-      expect(cycles.where((c) => c.periodStartLocalDate == weekStart), hasLength(1));
+      expect(
+        cycles.where((c) => c.periodStartLocalDate == weekStart),
+        hasLength(1),
+      );
       final taskRows = await database.select(database.tasks).get();
       expect(taskRows, hasLength(2));
     });
@@ -147,11 +148,25 @@ void main() {
     test('同一周重复调用 ensureCycles 不会改变已完成分钟的归属', () async {
       await repository.saveTemplate(template());
       await ensure();
-      final cycle = (await repository.findCycle('template-1', weekStart))!;
+      final firstCycle = (await repository.findCycle('template-1', weekStart))!;
       await service.recordManualMinutes('template-1', weekStart, 80);
       await ensure();
       final progress = await service.progressForCycle('template-1', weekStart);
       expect(progress.recordedMinutes, 80);
+
+      // **幂等的强形式**：重复调用不仅"不新增一行"，还**不改动已有那一行指向的任务**。
+      // 若实现每次重新生成一个任务并换掉 `task_id`，已记录的 80 分钟会留在旧任务上，
+      // 进度于是突然掉回 0——而只断言"只有一个周期实例"是发现不了的（行数与主键都没变）。
+      final secondCycle = (await repository.findCycle(
+        'template-1',
+        weekStart,
+      ))!;
+      expect(
+        secondCycle.taskId,
+        firstCycle.taskId,
+        reason: '重复生成不得换掉这一周的任务，否则已记录的分钟会与新任务脱钩',
+      );
+      expect(secondCycle.baseTargetMinutes, firstCycle.baseTargetMinutes);
     });
   });
 
@@ -557,4 +572,3 @@ void main() {
     });
   });
 }
-

@@ -57,6 +57,11 @@ final class RecurringCycleCreation {
 /// - **不改写历史**：结算只把结果写进**已经过去**的周期；一旦某个周期的状态不再是
 ///   `open`，后续调用不会再动它（"上周的结果保留"，Global Constraints）。
 final class RecurringTaskService {
+  // **为什么不用 `this._repository` 那种初始化形参**：这些字段全是**私有**的，而
+  // `this._x` 会让形参名变成 `_x`——调用方就得写 `RecurringTaskService(_repository: …)`，
+  // 把一个实现细节漏进公开 API。这里刻意保留"公开形参名 + 私有字段"的映射：
+  // 跨过的是 `prefer_initializing_formals` 这条 lint，不是可读性。
+  // ignore_for_file: prefer_initializing_formals
   RecurringTaskService({
     required RecurringTaskRepository repository,
     required Clock clock,
@@ -86,6 +91,20 @@ final class RecurringTaskService {
   /// 与任务/日历共用的"排程输入变了"入口（见 `replanning_coordinator.dart`）。
   final void Function(ScheduleInputChange change)? _onScheduleInputChanged;
 
+  /// 与 `TaskService.repository` 同一条约定：界面需要"按 id 读一行"这类**纯读取**时，
+  /// 不必为它在本服务上再加一层同名方法。写操作一律仍走本服务的具名方法——它们要带
+  /// 状态判定、事务与"排程输入变了"回调。
+  RecurringTaskRepository get repository => _repository;
+
+  /// 服务使用的时区库与时区标识。
+  ///
+  /// **公开是为了让界面用同一份**：详情页要把"某一周的本地周一"换回 UTC 才能查分钟，
+  /// 若页面自己 `new TimeZoneDatabase()` 并猜一个时区，算出来的边界可能与实例的周界差一天
+  /// （夏令时、跨年都试得出来），于是"这一周已完成多少"会在两个页面上不一样。
+  TimeZoneDatabase get zones => _zones;
+
+  String get timeZoneId => _timeZoneId;
+
   /// 某一周在当前时区里的起止。
   WeeklyPeriod periodContaining(DateTime nowUtc) =>
       WeeklyPeriod.forInstant(nowUtc, _timeZoneId, _zones);
@@ -97,7 +116,10 @@ final class RecurringTaskService {
   /// 结算必须排在生成**之前**：结转要把上一周的缺口写进本周的实例，而 `_carryInFor` 读的是
   /// 上一周那一行的状态。若先生成本周，上一周此刻还挂着 `open`，于是"上周其实达标了"会被
   /// 当成缺口带进本周——实测过：目标 180、已记录 180 的那一周，下周仍然拿 180 分钟结转。
-  Future<RecurringCycleRun> ensureCycles(TimeRange window, DateTime nowUtc) async {
+  Future<RecurringCycleRun> ensureCycles(
+    TimeRange window,
+    DateTime nowUtc,
+  ) async {
     if (!nowUtc.isUtc) {
       throw ArgumentError.value(nowUtc, 'nowUtc', 'Must be UTC.');
     }
@@ -403,11 +425,7 @@ final class RecurringTaskService {
     DateTime nowUtc,
   ) => _repository.findCycle(
     templateId,
-    WeeklyPeriod.forInstant(
-      nowUtc,
-      _timeZoneId,
-      _zones,
-    ).startLocalDate,
+    WeeklyPeriod.forInstant(nowUtc, _timeZoneId, _zones).startLocalDate,
   );
 
   // ── 内部 ─────────────────────────────────────────────────────────────────
@@ -422,11 +440,7 @@ final class RecurringTaskService {
 
   /// 覆盖 `[window]` 的本地周列表（按周一去重、升序）。
   List<WeeklyPeriod> _periodsCovering(TimeRange window) {
-    final first = WeeklyPeriod.forInstant(
-      window.startUtc,
-      _timeZoneId,
-      _zones,
-    );
+    final first = WeeklyPeriod.forInstant(window.startUtc, _timeZoneId, _zones);
     final periods = <WeeklyPeriod>[first];
     // 半开区间：终点那一瞬间属于下一周，因此看 `endUtc - 1µs`。
     final last = WeeklyPeriod.forInstant(
@@ -470,8 +484,7 @@ final class RecurringTaskService {
 
     // 新建时结转**能确定才写**：上一周还未结算就是 0，等工作推进到本周时再由
     // `_applyCarryIn` 补上（见那里的说明）。
-    final carryIn =
-        await _deriveCarryIn(template, period.startLocalDate) ?? 0;
+    final carryIn = await _deriveCarryIn(template, period.startLocalDate) ?? 0;
     final cycle = RecurringTaskCycle(
       templateId: template.id,
       periodStartLocalDate: period.startLocalDate,
@@ -504,6 +517,61 @@ final class RecurringTaskService {
       task: effectiveTask,
       created: stored.taskId == cycle.taskId,
     );
+  }
+
+  /// 新建模板（路线图 §3.3）。
+  ///
+  /// **不在创建时立刻生成实例**：生成是一条独立的、幂等的路径（`ensureCycles`），
+  /// 由启动装配按滚动窗口调用。在这里顺手生成会让"新建"与"启动"各写一次生成逻辑，
+  /// 而两处迟早会漂移——周期唯一性的保证来自数据库主键，不来自哪一处先跑。
+  Future<RecurringTaskTemplate> createTemplate({
+    required String title,
+    required int targetMinutes,
+    String? areaId,
+    String? projectId,
+    String notes = '',
+    TaskPriority priority = TaskPriority.medium,
+    TaskEnergyLevel energyLevel = TaskEnergyLevel.medium,
+    TaskSplitMode splitMode = TaskSplitMode.splittable,
+    int minChunkMinutes = 25,
+    int maxChunkMinutes = 90,
+    int? preferredStartMinute,
+    int? preferredEndMinute,
+    RecurringPace pace = RecurringPace.even,
+    int allowedWeekdaysMask = recurringAllWeekdaysMask,
+    bool carryOverUnfinished = false,
+    DateTime? startsOnLocalDate,
+    DateTime? endsOnLocalDate,
+    DateTime? nowUtc,
+  }) async {
+    final now = nowUtc ?? _clock.nowUtc();
+    final template = RecurringTaskTemplate(
+      id: _idGenerator.next(),
+      title: title,
+      notes: notes,
+      areaId: areaId,
+      projectId: projectId,
+      targetMinutes: targetMinutes,
+      priority: priority,
+      energyLevel: energyLevel,
+      splitMode: splitMode,
+      minChunkMinutes: minChunkMinutes,
+      maxChunkMinutes: maxChunkMinutes,
+      preferredStartMinute: preferredStartMinute,
+      preferredEndMinute: preferredEndMinute,
+      pace: pace,
+      allowedWeekdaysMask: allowedWeekdaysMask,
+      carryOverUnfinished: carryOverUnfinished,
+      startsOnLocalDate:
+          startsOnLocalDate ??
+          weeklyPeriodFor(now, _timeZoneId, zones: _zones).startLocalDate,
+      endsOnLocalDate: endsOnLocalDate,
+      timeZoneId: _timeZoneId,
+      createdAtUtc: now,
+      updatedAtUtc: now,
+    );
+    await _repository.saveTemplate(template);
+    return template;
   }
 
   /// 上一周的缺口，按模板的"结转未完成分钟"开关决定是否带进本周。
@@ -597,7 +665,9 @@ final class RecurringTaskService {
         final met = recorded >= cycle.effectiveTargetMinutes;
         await _repository.saveCycle(
           cycle.copyWith(
-            status: met ? RecurringCycleStatus.met : RecurringCycleStatus.missed,
+            status: met
+                ? RecurringCycleStatus.met
+                : RecurringCycleStatus.missed,
             updatedAtUtc: nowUtc,
           ),
         );
@@ -654,10 +724,7 @@ final class RecurringTaskService {
     );
     if (met && cycle.status == RecurringCycleStatus.open) {
       await _repository.saveCycle(
-        cycle.copyWith(
-          status: RecurringCycleStatus.met,
-          updatedAtUtc: now,
-        ),
+        cycle.copyWith(status: RecurringCycleStatus.met, updatedAtUtc: now),
       );
     }
   }
@@ -677,7 +744,8 @@ final class RecurringTaskService {
     );
   }
 
-  Future<PlannerTask?> _readTask(String taskId) async => _tasks?.getById(taskId);
+  Future<PlannerTask?> _readTask(String taskId) async =>
+      _tasks?.getById(taskId);
 
   /// 周期实例对应的普通任务的 id。
   ///

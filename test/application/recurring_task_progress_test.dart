@@ -217,7 +217,10 @@ void main() {
     final nextNow = DateTime.utc(2026, 10, 12, 4);
     clock.instant = nextNow;
     await service.ensureCycles(
-      TimeRange(startUtc: nextNow, endUtc: nextNow.add(const Duration(days: 7))),
+      TimeRange(
+        startUtc: nextNow,
+        endUtc: nextNow.add(const Duration(days: 7)),
+      ),
       nextNow,
     );
 
@@ -236,7 +239,10 @@ void main() {
     final nextNow = DateTime.utc(2026, 10, 12, 4);
     clock.instant = nextNow;
     await service.ensureCycles(
-      TimeRange(startUtc: nextNow, endUtc: nextNow.add(const Duration(days: 7))),
+      TimeRange(
+        startUtc: nextNow,
+        endUtc: nextNow.add(const Duration(days: 7)),
+      ),
       nextNow,
     );
 

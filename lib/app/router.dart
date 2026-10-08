@@ -17,6 +17,7 @@ import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/week_view_preference_service.dart';
@@ -66,6 +67,9 @@ import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
+import 'package:personal_planner/features/tasks/task_type_chooser.dart';
+import 'package:personal_planner/features/tasks/recurring/recurring_task_detail_page.dart';
+import 'package:personal_planner/features/tasks/recurring/recurring_task_editor_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/features/workspace/workspace_management_page.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
@@ -143,6 +147,45 @@ void _openScheduleItemDetail(
   }
 }
 
+/// 类型选择器的四条去向（M6，路线图 §3.3 / §11 Task 7）。
+///
+/// **只有"周期目标"是被注入的能力**：另外三条本来就存在（任务表单、固定日程编辑器、
+/// 规划规则页），因此它们总能去；周期目标只有在装配了 `RecurringTaskService` 时才可达，
+/// 而"不可达就不给卡片"这条判断写在 `TaskTypeChooserPage.isAvailable` 里。
+void _openNewItemEntry(BuildContext context, PlannerNewItemKind kind) {
+  switch (kind) {
+    case PlannerNewItemKind.task:
+      context.go('/tasks/new/task');
+    case PlannerNewItemKind.recurringGoal:
+      context.go('/tasks/recurring/new');
+    case PlannerNewItemKind.fixedEvent:
+      context.go('/calendar/new');
+    case PlannerNewItemKind.protectedTime:
+      context.go('/settings/rules');
+  }
+}
+
+/// 周期目标详情（M6，路线图 §3.3）。
+///
+/// **只做导航注入**：模板、进度、历史全部由页面自己按 id 读（见
+/// `RecurringTaskDetailPage.templateId` 的说明）。在这里先读一次模板再传进去，会让
+/// "暂停／归档之后页面不刷新"成为一个只能靠重建整条路由才能修的问题。
+Widget _recurringDetailRoute(
+  BuildContext context,
+  RecurringTaskService service,
+  String templateId,
+  DateTime nowUtc,
+) => RecurringTaskDetailPage(
+  service: service,
+  templateId: templateId,
+  nowUtc: nowUtc,
+  // 「开始专注」**刻意不接**：专心路由要 `FocusService`，而这里注入一个只会跳到
+  // 任务详情的按钮，等于给了一个名不副实的入口。页面在端口为空时不渲染它。
+  onStartFocus: null,
+  onEdit: (template) => context.go('/tasks/recurring/${template.id}/edit'),
+  onDelete: (template) => context.go('/tasks'),
+);
+
 GoRouter createPlannerRouter({
   required TaskService taskService,
   required SettingsService settingsService,
@@ -207,6 +250,12 @@ GoRouter createPlannerRouter({
   /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
   /// 与本仓库既有的"不给一个点了才知道没装的入口"同一条约定。
   UpdateService? updateService,
+
+  /// 周期目标的生成、结算与进度（M4～M6，路线图 §3.3）。
+  ///
+  /// **为空时 `/tasks/new` 不显示「周期目标」那张卡，三条周期路由也不注册**——
+  /// 与本仓库既有的"不给一个点了没反应的入口"同一条约定（备份、更新、导出都是这个形状）。
+  RecurringTaskService? recurringTasks,
 }) {
   // §11 Task 12 的撤销槽位：每个可撤销动作在发起时把逆操作填进来，今日页拿它当撤销入口。
   final lastChange = _LastReversibleChange();
@@ -360,7 +409,26 @@ GoRouter createPlannerRouter({
           GoRoute(
             // 通知 payload 里的 route 就指向这里（FR-NOTIFY-04 的快捷入口），
             // 此前该路由不存在，点击提醒无处可去。
+            //
+            // **M6（路线图 §3.3 / §11 Task 7）起这里先是类型选择器**：普通任务、周期目标、
+            // 固定日程、保护时间四条去向。此前它直接就是任务表单，于是"每周英语 180 分钟"
+            // 只能被当成一件 180 分钟的普通任务——而周期目标的语义（每周重新开始、按周汇总、
+            // 未达标不结转）与普通任务完全不同。
             path: '/tasks/new',
+            builder: (context, state) => TaskTypeChooserPage(
+              onSelect: (kind) => _openNewItemEntry(context, kind),
+              // **只显示真的能去的那几张卡**：某一条没有落地页时不给死入口。
+              isAvailable: (kind) => switch (kind) {
+                PlannerNewItemKind.task ||
+                PlannerNewItemKind.fixedEvent ||
+                PlannerNewItemKind.protectedTime => true,
+                PlannerNewItemKind.recurringGoal => recurringTasks != null,
+              },
+              onCancel: () => context.go('/tasks'),
+            ),
+          ),
+          GoRoute(
+            path: '/tasks/new/task',
             builder: (context, state) => TaskEditorPage(
               service: taskService,
               settings: settingsService,
@@ -369,9 +437,52 @@ GoRouter createPlannerRouter({
               timeZoneId: timeZoneId,
               nowUtc: nowUtc ?? todayStartUtc,
               onSaved: (task) => context.go('/tasks/${task.id}'),
-              onCancel: () => context.go('/tasks'),
+              onCancel: () => context.go('/tasks/new'),
             ),
           ),
+          if (recurringTasks != null) ...[
+            GoRoute(
+              path: '/tasks/recurring/new',
+              builder: (context, state) => RecurringTaskEditorPage(
+                service: recurringTasks,
+                workspace: workspaceService,
+                zones: zones,
+                timeZoneId: timeZoneId,
+                nowUtc: nowUtc ?? todayStartUtc,
+                onSaved: (template) =>
+                    context.go('/tasks/recurring/${template.id}'),
+                onCancel: () => context.go('/tasks/new'),
+              ),
+            ),
+            GoRoute(
+              path: '/tasks/recurring/:templateId/edit',
+              builder: (context, state) => RecurringTaskEditorPage(
+                service: recurringTasks,
+                workspace: workspaceService,
+                zones: zones,
+                timeZoneId: timeZoneId,
+                nowUtc: nowUtc ?? todayStartUtc,
+                templateId: state.pathParameters['templateId'],
+                onSaved: (template) =>
+                    context.go('/tasks/recurring/${template.id}'),
+                onCancel: () => context.go(
+                  '/tasks/recurring/${state.pathParameters['templateId']}',
+                ),
+              ),
+            ),
+            GoRoute(
+              // **必须在 `/tasks/:taskId` 之前声明**：GoRouter 按声明顺序取第一个匹配，
+              // 而 `/tasks/recurring/:templateId` 与 `/tasks/:taskId` 在形状上都能匹配
+              // `/tasks/recurring/abc`。放到后面会让周期详情被任务详情截走。
+              path: '/tasks/recurring/:templateId',
+              builder: (context, state) => _recurringDetailRoute(
+                context,
+                recurringTasks,
+                state.pathParameters['templateId'] ?? '',
+                nowUtc ?? todayStartUtc,
+              ),
+            ),
+          ],
           GoRoute(
             path: '/tasks/:taskId/edit',
             builder: (context, state) => TaskEditorPage(

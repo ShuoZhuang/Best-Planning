@@ -91,6 +91,18 @@ abstract interface class RecurringTaskRepository {
   /// 更新周期实例对应的普通任务（结算后会重算它的预计与剩余时长）。
   Future<void> saveTask(PlannerTask task);
 
+  /// 某个任务在 `[startUtc, endUtc)` 内已确认的**每一次**记录时长（分钟），按开始时刻升序。
+  ///
+  /// **"本段 45 分钟"需要它**（§3.3：卡片要同时写"本周已完成 80/180"与"本段 45 分钟"）。
+  /// 与 `recordedMinutesForTask` 的唯一差别是**不求和**：那个回答"这周一共做了多少"，
+  /// 这个回答"今天/这一段做了多少"。两个数字必须来自同一批行，否则同一条专注记录会在
+  /// 同一张卡片上给出两个互相矛盾的时长。
+  Future<List<int>> recordedSegmentsForTask(
+    EntityId taskId,
+    DateTime startUtc,
+    DateTime endUtc,
+  );
+
   /// 删除某个周期实例以及它的普通任务（连带该任务的专注记录与修正记录）。
   ///
   /// 三张表在同一个事务里按依赖顺序清干净：外键（`time_entries.task_id` →

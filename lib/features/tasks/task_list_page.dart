@@ -143,7 +143,10 @@ final class _TaskListPageState extends State<TaskListPage> {
               key: const Key('new-task'),
               onPressed: () => context.go('/tasks/new'),
               icon: const Icon(Icons.add_rounded),
-              label: const Text('新建任务'),
+              // **M6 起这个入口通向类型选择器**（普通任务／周期目标／固定日程／保护时间），
+              // 因此按钮改叫"新建"：继续写"新建任务"会让用户以为只能建任务，而周期目标
+              // 恰恰是他最容易漏掉、也最难在别处找到的那一类。
+              label: const Text('新建'),
             ),
           ),
           const SizedBox(height: 16),
@@ -463,12 +466,12 @@ final class _TaskListPageState extends State<TaskListPage> {
       // 只有"一个任务都没有且用户没在搜索"才说"还没有任务"。
       // 若用户正在搜索，下面那条"没有找到…"才是他该看到的回答。
       message = '还没有任务';
-      hint = '用上面的"新建任务"添加第一项';
+      hint = '用上面的"新建"添加第一项';
       action = FilledButton.icon(
         key: const Key('empty-new-task'),
         onPressed: () => context.go('/tasks/new'),
         icon: const Icon(Icons.add_rounded),
-        label: const Text('新建任务'),
+        label: const Text('新建'),
       );
     } else if (_query.isNotEmpty) {
       // 搜索无结果优先于"某一类为空"：用户刚输入了关键词，

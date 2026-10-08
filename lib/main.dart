@@ -21,6 +21,7 @@ import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
@@ -38,6 +39,7 @@ import 'package:personal_planner/core/local_time_zone.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
+import 'package:personal_planner/data/database/daos/recurring_task_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
@@ -46,6 +48,7 @@ import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart'
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_correction_log.dart';
@@ -54,6 +57,7 @@ import 'package:personal_planner/data/repositories/drift_timetable_import_reposi
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/interruption_reason.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
@@ -402,6 +406,8 @@ Future<void> main() async {
 
   // 标签此前只有两张表：没有任何写入方，因此界面上无法建立标签、也无法把它打到任务上，
   // 统计的标签筛选即便修好取数也没有数据可筛（R1）。
+  // 标签此前只有两张表：没有任何写入方，因此界面上无法建立标签、也无法把它打到任务上，
+  // 统计的标签筛选即便修好取数也没有数据可筛（R1）。
   final tagService = TagService(
     repository: DriftTagRepository(database),
     clock: clock,
@@ -575,6 +581,58 @@ Future<void> main() async {
     unawaited(resyncNotifications());
   };
 
+  // ── 周期目标（M4～M6，路线图 §3.3 / §11 Task 5～7）────────────────────────────
+  //
+  // **装配位置是刻意的**：它在 `onScheduleInputChange` 赋值**之后**构造并用它发原因，
+  // 因此周期目标带来的变化与任务、日历走**同一个** lambda——否则统计的"重排原因"会缺
+  // 一整类，重排也不会被触发。
+  //
+  // **为什么手动补记不直接复用 `FocusService`**：补录的是"某一段已完成的时间"，与"某一周
+  // 属于哪个模板"无关；周期服务要保证的是"补记之后这一周的剩余时长立刻同步"。两者都写
+  // `time_entries`（同一张表、同一口径），因此进度只有一个来源。
+  final recurringTaskRepository = DriftRecurringTaskRepository(
+    database,
+    RecurringTaskDao(database),
+  );
+  final recurringTasks = RecurringTaskService(
+    repository: recurringTaskRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+    zones: zones,
+    timeZoneId: timeZoneId,
+    // 与任务详情页共用同一个任务仓储：周期实例**就是**一件普通任务，它的剩余时长也是
+    // 排程输入，因此必须是同一个写入口。
+    tasks: taskRepository,
+    onScheduleInputChanged: (change) => onScheduleInputChange(change),
+  );
+
+  // 启动即生成"本周 + 下周"的周期实例并结算已经结束的那些。
+  //
+  // **不 await**：周期目标不是启动的必要条件，且它的生成会触发一次重排（走上面的 lambda）。
+  // 但**必须记诊断**——"这周没有目标实例"是用户会报的现象，而 Release 里没有其它线索。
+  //
+  // 窗口取滚动七天（与排程窗口同形），因此跨周不重启也会在下次生成计划时补齐；
+  // 幂等由 `(模板, 周)` 主键保证，重复启动不会重复生成。
+  unawaited(() async {
+    try {
+      final nowUtc = clock.nowUtc();
+      final run = await recurringTasks.ensureCycles(
+        TimeRange(
+          startUtc: nowUtc,
+          endUtc: nowUtc.add(const Duration(days: 7)),
+        ),
+        nowUtc,
+      );
+      diagnostics.write(
+        '周期目标：新建 ${run.createdCount} 个，结算 ${run.settledCount} 个，'
+        '窗口内共 ${run.cycles.length} 个',
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('生成周期目标失败：$error');
+      diagnostics.write('生成周期目标失败：$error\n$stackTrace');
+    }
+  }());
+
   // 启动时就把**已存的**关闭行为下发给宿主窗口。放在这里而不是等用户打开设置页：用户上次
   // 若选了"收进后台"，这次启动点关闭却直接退出，就等于设置没生效。
   //
@@ -659,6 +717,8 @@ Future<void> main() async {
         erasure: erasure,
         // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
         updateService: updateService,
+        // M6：周期目标的生成、结算与三条路由（§3.3）。
+        recurringTasks: recurringTasks,
         updateCheckScheduler: updateCheckScheduler,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),

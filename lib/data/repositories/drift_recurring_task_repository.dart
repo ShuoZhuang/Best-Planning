@@ -173,6 +173,50 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     return total;
   }
 
+  /// 与 [recordedMinutesForTask] 同一批行的**逐条**时长（不求和），按开始时刻升序。
+  ///
+  /// 复用同一段 SQL 口径（已确认、已结束、扣除暂停、下界为 0），因为"本段多少分钟"
+  /// 与"本周一共多少分钟"必须是同一批记录的两个视图；任何一处口径漂移都会让同一张卡片
+  /// 自相矛盾。
+  @override
+  Future<List<int>> recordedSegmentsForTask(
+    String taskId,
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async {
+    final micros =
+        _database.timeEntries.endedAtUtc -
+        _database.timeEntries.startedAtUtc -
+        _database.timeEntries.pausedMinutes *
+            const Constant<int>(Duration.microsecondsPerMinute);
+    final clamped = CaseWhenExpression<int>(
+      cases: [CaseWhen(micros.isBiggerThanValue(0), then: micros)],
+      orElse: const Constant<int>(0),
+    );
+    final query = _database.selectOnly(_database.timeEntries)
+      ..addColumns([clamped])
+      ..where(
+        _database.timeEntries.taskId.equals(taskId) &
+            _database.timeEntries.recoveryState.equals('confirmed') &
+            _database.timeEntries.endedAtUtc.isNotNull() &
+            _database.timeEntries.startedAtUtc.isBiggerOrEqualValue(
+              startUtc.microsecondsSinceEpoch,
+            ) &
+            _database.timeEntries.startedAtUtc.isSmallerThanValue(
+              endUtc.microsecondsSinceEpoch,
+            ),
+      )
+      ..orderBy([
+        OrderingTerm.asc(_database.timeEntries.startedAtUtc),
+        OrderingTerm.asc(_database.timeEntries.id),
+      ]);
+    final rows = await query.get();
+    return [
+      for (final row in rows)
+        (row.read<int>(clamped) ?? 0) ~/ Duration.microsecondsPerMinute,
+    ];
+  }
+
   /// 手动补记：写一条**已确认**的时间记录。
   ///
   /// 与 `DriftFocusEntryStore.save` 用同一套字段与同一段元数据 JSON：两条写入路径如果
@@ -207,9 +251,7 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
               jsonEncode({
                 'schemaVersion': 1,
                 'phase': 'finished',
-                'activeMicroseconds': Duration(
-                  minutes: minutes,
-                ).inMicroseconds,
+                'activeMicroseconds': Duration(minutes: minutes).inMicroseconds,
                 'lastWallAtUtc': endedAtUtc.microsecondsSinceEpoch,
                 'note': note,
               }),
@@ -244,12 +286,12 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
       formatLocalDate(periodStartLocalDate),
     );
     if (cycle == null) return;
-    await (_database.delete(_database.timeEntries)
-          ..where((row) => row.taskId.equals(cycle.taskId)))
-        .go();
-    await (_database.delete(_database.taskCorrections)
-          ..where((row) => row.taskId.equals(cycle.taskId)))
-        .go();
+    await (_database.delete(
+      _database.timeEntries,
+    )..where((row) => row.taskId.equals(cycle.taskId))).go();
+    await (_database.delete(
+      _database.taskCorrections,
+    )..where((row) => row.taskId.equals(cycle.taskId))).go();
     await (_database.delete(_database.recurringTaskCycles)..where(
           (row) =>
               row.templateId.equals(templateId) &

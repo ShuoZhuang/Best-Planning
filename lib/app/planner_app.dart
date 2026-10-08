@@ -18,6 +18,7 @@ import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
@@ -118,6 +119,12 @@ final class PlannerApp extends StatefulWidget {
     /// 而那属于组合根的活。为 `null` 时（测试、未装配）不做任何调度——**绝不会**因此改用
     /// 一个默认实例去联网。
     this.updateCheckScheduler,
+
+    /// 周期目标的生成、结算与进度（M6，路线图 §3.3）。
+    ///
+    /// **为空时 `/tasks/new` 不显示「周期目标」那张卡，三条周期路由也不注册**——
+    /// 与 [updateService] 同一条约定：不给一个点了才知道没装的入口。
+    this.recurringTasks,
 
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
@@ -247,6 +254,9 @@ final class PlannerApp extends StatefulWidget {
 
   /// 更新检查（§3.6）。为空时设置页不显示该入口，直达路由会说明服务未装配。
   final UpdateService? updateService;
+
+  /// 周期目标的生成、结算与进度（M6）。
+  final RecurringTaskService? recurringTasks;
 
   /// 启动后的那一次自动检查。由组合根构造，**生命周期跟着这一层**。
   final UpdateCheckScheduler? updateCheckScheduler;
@@ -483,6 +493,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
       updateService: widget.updateService,
+      recurringTasks: widget.recurringTasks,
     );
     // ── M8：启动后的自动更新检查（§3.6）──────────────────────────────────────
     //

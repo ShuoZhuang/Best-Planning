@@ -29,7 +29,19 @@ enum RecurringPace {
 ///
 /// **只有用户或结算能写入这四个值**：完成分钟是**算出来的**（从 `time_entries`
 /// 汇总），没有一个"进度"字段——否则同一件事会有两个事实来源。
-enum RecurringCycleStatus { open, met, missed, skipped }
+enum RecurringCycleStatus {
+  open,
+  met,
+  missed,
+  skipped;
+
+  /// 已定案：达标、未达标或已跳过。
+  ///
+  /// 与 `TaskStatus.isClosed` 同型。**逐周结算之后就不该再被改动**：详情页据此隐藏
+  /// "跳过这一周""手动补记"这类只对进行中的一周有意义的入口；服务层也据此保证
+  /// "上周的结果保留"（Global Constraints）。
+  bool get isSettled => this != RecurringCycleStatus.open;
+}
 
 /// 模板状态。`archived` 是"停止以后生成"（路线图 §3.3），不是删除：
 /// 已经生成过的周期实例仍要能从历史里读回来，因此模板必须留下。

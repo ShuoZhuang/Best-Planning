@@ -49,6 +49,9 @@ class AppDatabase extends _$AppDatabase {
     Future<String?> Function()? tempDirectoryPath,
     DateTime Function()? now,
   }) : now = now ?? _systemNowUtc,
+       // 生产装配**永远**启用外键：它是"项目必须挂在已存在的领域下""周期实例的任务必须
+       // 真的存在"这些保证的唯一执行者。
+       enforceForeignKeys = true,
        super(
          driftDatabase(
            name: 'personal_planner',
@@ -61,8 +64,11 @@ class AppDatabase extends _$AppDatabase {
          ),
        );
 
-  AppDatabase.forTesting(super.e, {DateTime Function()? now})
-    : now = now ?? _systemNowUtc;
+  AppDatabase.forTesting(
+    super.e, {
+    DateTime Function()? now,
+    this.enforceForeignKeys = true,
+  }) : now = now ?? _systemNowUtc;
 
   /// Opens the database against an existing [QueryExecutor]. Drift's generated
   /// migration tests use this form to point the database at a schema-managed
@@ -73,6 +79,15 @@ class AppDatabase extends _$AppDatabase {
   /// Instant source used to backfill timestamps added by a migration. Injectable
   /// so that migration tests can assert an exact value instead of a range.
   final DateTime Function() now;
+
+  /// 是否在连接时启用 `PRAGMA foreign_keys`。**默认启用**，与生产完全一致。
+  ///
+  /// 只有一种情况需要关掉它：Widget 测试给页面注入的是**假的工作区仓储**（内存里的领域与
+  /// 项目），而模板的 `area_id` 是指向 `areas` 表的真外键。此时"界面上选了学业"这条路径
+  /// 会被外键拒绝，看起来像"保存坏了"，其实只是测试没有把领域写进真库。
+  /// 关掉它让这些用例测量**界面行为**，而外键本身由 `recurring_task_dao_test` 与
+  /// `schema_migration_test` 在真库上守着——两边分工明确，不会互相掩盖。
+  final bool enforceForeignKeys;
 
   /// **必须是字面量**：`drift_dev make-migrations` 与 `drift_dev schema generate` 是**读源码**
   /// 的静态工具，它们解析不了 `=> plannerSchemaVersion` 这样的间接引用，会直接报
@@ -109,7 +124,9 @@ class AppDatabase extends _$AppDatabase {
       }
     },
     beforeOpen: (details) async {
-      await customStatement('PRAGMA foreign_keys = ON');
+      if (enforceForeignKeys) {
+        await customStatement('PRAGMA foreign_keys = ON');
+      }
       // **索引要在每次打开时都补**：v7 迁移里建过一次，但 `onCreate`（全新库）走的是
       // 另一条分支，两条分支各建一次索引就是两处需要同步维护的 SQL。`IF NOT EXISTS`
       // 让这里成为唯一一份定义——迁移与全新库都靠它。
