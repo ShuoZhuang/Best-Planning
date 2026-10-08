@@ -81,6 +81,10 @@ final class _Tasks implements TaskRepository {
   @override
   Future<void> save(PlannerTask task) async {}
 
+  /// 与生产 DAO 的 `watchAll` 一致：**不做任何状态过滤**，已完成与已取消都在其中。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() => Stream.value(values);
+
   /// 与生产 DAO 的 `watchOpen` 一致：**已结束的任务不在其中**。
   ///
   /// 夹具必须照实模拟这一点，否则"勾完完成后计划块查不到标题与领域"那条回归根本测不出来——
@@ -304,8 +308,248 @@ void main() {
     expect(open.title, '还在做的事');
     expect(open.isCompleted, isFalse);
 
+    // M4（路线图 §8）：视图条目必须能指回**任务**，今日页才能就地开始专注／完成／查看详情。
+    // 此前任务 id 只藏在 `id` 的 `'block:'` 前缀之后（那是**计划块 id**，不是任务 id），
+    // 页面要用它就得拆字符串或反过来查计划——两种都会让视图层重新认识领域结构。
+    expect(open.taskId, 'task-open');
+    expect(done.taskId, 'task-done');
+    // 计划块 id 与任务 id 是两件事，这里刻意断言它们不同，免得以后有人把它们混成一个。
+    expect(open.id, 'block:block-0');
+    expect(open.taskId, isNot(open.id));
+
     // 两者同领域 → 同色：完成不该改变分类色。
     expect(done.categoryColorArgb, open.categoryColorArgb);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // M9 收口后修：**今天做完的事不能消失**（用户 2026-10-07 实测报告）。
+  //
+  // 用户原话："我今天完成的算法作业为什么在今日和日历界面不见了"。
+  //
+  // 用他的真实数据核对出的机制：勾选完成 → 重排；**已完成的任务不再参与排程**，
+  // 因此新版本计划里不再有它的块（他库里 `算法作业` 只在 03:51 与 01:49 两版里，
+  // 而当前版是 21:18 生成的）。而"当天有当前版的块就只用当前版"这条规则让今天
+  // 正好命中——于是那条**已经做完的记录整天消失**。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  test('今天做完的事：当前版不再排它时，仍然显示在做它的那个时间', () async {
+    final tasks = <PlannerTask>[
+      _task(
+        'task-done',
+        '算法作业',
+        areaId: 'study',
+      ).copyWith(status: TaskStatus.completed),
+      // 另一个**还在做**的任务：它让"今天有当前版的块"，从而命中那条规则。
+      _task('task-open', '整理新生成长营文件', areaId: 'study'),
+    ];
+    final plan = ConfirmedPlan(
+      id: 'plan-new',
+      inputHash: 'hash',
+      algorithmVersion: '1',
+      blocks: [
+        // 当前版只给未完成的任务排了位置；已完成的那个已经不在里面了。
+        PlannedBlock(id: 'open-block', taskId: 'task-open', range: _range(14)),
+      ],
+    );
+    final history = _History([
+      // 旧版（当时在用的那一版）里有那条已经做完的块。
+      _historical(
+        PlannedBlock(id: 'done-1000', taskId: 'task-done', range: _range(10)),
+        version: 'v-old',
+        // 那一版是**当天已经开工之后**生成的（`_windowStart` 是本地 00:00，注入的现在是它）。
+        createdAtUtc: _windowStart.add(const Duration(hours: 8)),
+      ),
+    ]);
+    final settings = MemorySettingsRepository();
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(tasks),
+      calendar: _Calendar(const []),
+      plans: _Plans(plan),
+      history: history,
+      rules: PlanningRuleResolver(SettingsService(repository: settings)),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      // **“现在”必须晚于那块：注入 00:00 的话 10:00 的块还在未来，
+      // 本用例的前提（已经做完了）就不成立——第一版正是这么写错的。
+      clock: _FixedClock(_windowStart.add(const Duration(hours: 12))),
+    );
+
+    final items = await source.watch(_windowStart, _windowEnd).first;
+
+    final done = items.where((item) => item.taskId == 'task-done').toList();
+    expect(
+      done,
+      hasLength(1),
+      reason:
+          '今天做完的那条必须**正好出现一次**：出现零次就是用户报的"不见了"，'
+          '出现两次就是此前修过的"已完成待办重复"。实际：'
+          '${items.map((i) => '${i.title}@${i.range.startUtc}').toList()}',
+    );
+    expect(done.single.title, '算法作业', reason: '标题不能回退成「已安排任务」');
+    expect(done.single.categoryLabel, '学业', reason: '领域不能退化成「无领域任务」');
+    expect(done.single.isCompleted, isTrue, reason: '任务已完成，卡片应当带完成标记');
+    // **还在做的那条照常在**：补历史不能把它挤掉。
+    expect(items.where((item) => item.taskId == 'task-open'), hasLength(1));
+  });
+
+  test('今天做完的事：当前版**仍然**排着它时，不会因此多出一条', () async {
+    // 反面：如果重排后当前版里还有这个任务的块，就不能再从旧版补一条——
+    // 那正是"已完成待办重复"。判据必须按**任务**，不能按块 id。
+    final tasks = <PlannerTask>[
+      _task(
+        'task-done',
+        '算法作业',
+        areaId: 'study',
+      ).copyWith(status: TaskStatus.completed),
+    ];
+    final plan = ConfirmedPlan(
+      id: 'plan-new',
+      inputHash: 'hash',
+      algorithmVersion: '1',
+      blocks: [
+        PlannedBlock(id: 'now-1000', taskId: 'task-done', range: _range(10)),
+      ],
+    );
+    final history = _History([
+      _historical(
+        PlannedBlock(id: 'old-0730', taskId: 'task-done', range: _range(7)),
+        version: 'v-old',
+        // 那一版是**当天已经开工之后**生成的（`_windowStart` 是本地 00:00，注入的现在是它）。
+        createdAtUtc: _windowStart.add(const Duration(hours: 8)),
+      ),
+    ]);
+    final settings = MemorySettingsRepository();
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(tasks),
+      calendar: _Calendar(const []),
+      plans: _Plans(plan),
+      history: history,
+      rules: PlanningRuleResolver(SettingsService(repository: settings)),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      // **“现在”必须晚于那块：注入 00:00 的话 10:00 的块还在未来，
+      // 本用例的前提（已经做完了）就不成立——第一版正是这么写错的。
+      clock: _FixedClock(_windowStart.add(const Duration(hours: 12))),
+    );
+
+    final items = await source.watch(_windowStart, _windowEnd).first;
+    expect(
+      items.where((item) => item.taskId == 'task-done'),
+      hasLength(1),
+      reason: '当前版说了它在 10:00，就不该再把旧版的 07:30 也捞回来',
+    );
+  });
+
+  test('今天做完的事：只补**整段已经过去**的块，未来时间上的不补', () async {
+    // 未来的时间不存在"做完了"。若把未来块也补进来，会出现"同一件事在将来还有一次"。
+    final tasks = <PlannerTask>[
+      _task(
+        'task-done',
+        '算法作业',
+        areaId: 'study',
+      ).copyWith(status: TaskStatus.completed),
+      _task('task-open', '整理新生成长营文件', areaId: 'study'),
+    ];
+    final plan = ConfirmedPlan(
+      id: 'plan-new',
+      inputHash: 'hash',
+      algorithmVersion: '1',
+      blocks: [
+        PlannedBlock(id: 'open-block', taskId: 'task-open', range: _range(14)),
+      ],
+    );
+    final history = _History([
+      _historical(
+        // `_windowStart` 是本地 00:00；`_range(20)` 落在**当天晚上 20:00**，
+        // 而注入的时钟就是 `_windowStart`（即"现在是当天 00:00"）——因此那一段在未来。
+        PlannedBlock(id: 'future-done', taskId: 'task-done', range: _range(20)),
+        version: 'v-old',
+        // 那一版是**当天已经开工之后**生成的（`_windowStart` 是本地 00:00，注入的现在是它）。
+        createdAtUtc: _windowStart.add(const Duration(hours: 8)),
+      ),
+    ]);
+    final settings = MemorySettingsRepository();
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(tasks),
+      calendar: _Calendar(const []),
+      plans: _Plans(plan),
+      history: history,
+      rules: PlanningRuleResolver(SettingsService(repository: settings)),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      // **“现在”必须晚于那块：注入 00:00 的话 10:00 的块还在未来，
+      // 本用例的前提（已经做完了）就不成立——第一版正是这么写错的。
+      clock: _FixedClock(_windowStart.add(const Duration(hours: 12))),
+    );
+
+    final items = await source.watch(_windowStart, _windowEnd).first;
+    expect(
+      items.where((item) => item.taskId == 'task-done'),
+      isEmpty,
+      reason: '那一段还没到，不可能是"做完的记录"',
+    );
+  });
+
+  test('固定日程与保护时间没有任务 id（它们不是任务）', () async {
+    // M4：`taskId` 为空是"这一条不该出现任务动作"的依据——今日页据此不渲染
+    // 「完成／延后／开始专注」，否则用户会对一条保护时间点"完成"，而那个动作无处落地。
+    final settings = MemorySettingsRepository();
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(const []),
+      calendar: _Calendar([
+        CalendarOccurrence(
+          eventId: 'event-1',
+          title: '线性代数',
+          range: _range(9),
+          areaId: 'study',
+          // 字段确实叫 `locked`；不是我记的名字。
+          locked: false,
+        ),
+      ]),
+      // `_Plans` 要一个非空 `ConfirmedPlan`（它是既有替身的签名），
+      // 因此给一份**没有块**的计划——本条用例只关心固定日程与保护时间。
+      plans: _Plans(
+        ConfirmedPlan(
+          id: 'plan-empty',
+          inputHash: 'hash',
+          algorithmVersion: '1',
+          blocks: const [],
+        ),
+      ),
+      history: _History(),
+      rules: PlanningRuleResolver(SettingsService(repository: settings)),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      clock: _FixedClock(_windowStart),
+    );
+
+    final items = await source.watch(_windowStart, _windowEnd).first;
+    final fixed = items.firstWhere(
+      (item) => item.kind == ScheduleItemKind.fixed,
+    );
+    expect(fixed.taskId, isNull, reason: '固定日程没有所属任务');
+
+    for (final item in items.where(
+      (item) => item.kind == ScheduleItemKind.protectedTime,
+    )) {
+      expect(item.taskId, isNull, reason: '保护时间是按规则算出来的区间，不是任务');
+    }
   });
 
   test('固定日程在时间过去之后才标记为已完成', () async {

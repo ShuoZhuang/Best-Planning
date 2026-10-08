@@ -1,9 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/week_view_preference_service.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/week_view/timeline_day_column.dart';
+import 'package:personal_planner/features/calendar/week_view/timeline_layout.dart';
+
+/// 时间轴的像素密度：每小时 48 像素。
+///
+/// **为什么是 48**：一小时 48 像素时，15 分钟的块有 12 像素（高于最小点击高度 18 的补齐线），
+/// 而一天 24 小时的完整内容高 1152 像素——需要滚动，这正是 §9 说的"允许滚动查看全天"。
+const double _timelinePixelsPerMinute = 48 / 60;
+
+/// 极短任务的最小可点击高度（§9："短任务保持最小可点击高度"）。
+const double _timelineMinimumBlockHeight = 18;
 
 final class WeekViewPage extends StatefulWidget {
   const WeekViewPage({
@@ -12,9 +24,11 @@ final class WeekViewPage extends StatefulWidget {
     required this.moveController,
     this.onProposalCreated,
     this.onOpenDay,
+    this.onOpenItem,
     this.onCreateEvent,
     this.onImportTimetable,
     this.toLocal,
+    this.viewModePreference,
     super.key,
   });
 
@@ -27,9 +41,20 @@ final class WeekViewPage extends StatefulWidget {
   ///
   /// 与周视图互为切换，因此不占用导航项；为空时不显示切换按钮。
   final ValueChanged<DateTime>? onOpenDay;
+
+  /// 打开**某一条**安排对应的详情（§9："点击任务、固定日程或保护时间进入对应详情"）。
+  ///
+  /// 与 [onOpenDay] 分开：点列头是"进入这一天"，点卡片是"进入这一条"。
+  /// 紧凑模式下两者都进当天（既有行为，不回归）；时间轴模式下卡片有自己的去处。
+  final ValueChanged<ScheduleViewItem>? onOpenItem;
+
   final VoidCallback? onCreateEvent;
   final VoidCallback? onImportTimetable;
   final DateTime Function(DateTime instantUtc)? toLocal;
+
+  /// 「紧凑／时间轴」选择的本机持久化（§9："记住本机选择"）。
+  /// 为空时不写回设置，但仍可在本次会话内切换。
+  final WeekViewPreferenceService? viewModePreference;
 
   @override
   State<WeekViewPage> createState() => _WeekViewPageState();
@@ -38,10 +63,32 @@ final class WeekViewPage extends StatefulWidget {
 final class _WeekViewPageState extends State<WeekViewPage> {
   late Stream<List<ScheduleViewItem>> _stream;
 
+  /// 当前展示模式。初值取**紧凑**，读到设置后再切换（§9：紧凑模式保留、默认不强迫用户）。
+  WeekViewMode _mode = WeekViewMode.compact;
+
   @override
   void initState() {
     super.initState();
     _subscribe();
+    _loadMode();
+  }
+
+  /// 读回用户上次的选择。
+  ///
+  /// **异步读、读到再 `setState`**：`SettingsRepository.read` 是异步的，而首帧必须能画出来
+  /// （不能为了一个展示偏好把日历卡在加载态）。因此先按紧凑渲染，读到 `timeline` 再切。
+  Future<void> _loadMode() async {
+    final preference = widget.viewModePreference;
+    if (preference == null) return;
+    final mode = await preference.load();
+    if (!mounted || mode == _mode) return;
+    setState(() => _mode = mode);
+  }
+
+  Future<void> _setMode(WeekViewMode mode) async {
+    if (mode == _mode) return;
+    setState(() => _mode = mode);
+    await widget.viewModePreference?.save(mode);
   }
 
   void _subscribe() {
@@ -95,6 +142,39 @@ final class _WeekViewPageState extends State<WeekViewPage> {
             ],
           ),
           const SizedBox(height: 12),
+          // §9「在七日日历顶部增加'紧凑／时间轴'视图切换」。
+          //
+          // **用 `ChoiceChip` 而不是 `SegmentedButton`**：M2 发现后者每个分段会在语义树里
+          // 产生两个同名节点（屏幕阅读器念两遍）。任务页筛选栏因此也换成了 `ChoiceChip`，
+          // 这里沿用同一做法与同一套 key 命名。
+          //
+          // **外面包一层透明 `Material`**：`ChoiceChip` 要求上方有 `Material`
+          // （它要画墨水扩散），而本页在测试里是裸挂的、生产里上方是 `Scaffold`。
+          // 裸挂的那条路径此前会直接抛 "No Material widget found"——这个包裹同时修好了它，
+          // 也让这一页不再依赖"调用方一定有 Scaffold"这个隐含前提。
+          Material(
+            color: Colors.transparent,
+            child: Row(
+              children: [
+                for (final mode in WeekViewMode.values) ...[
+                  ChoiceChip(
+                    key: Key('week-view-mode-${mode.name}'),
+                    label: Text(
+                      key: Key('week-view-mode-${mode.name}-label'),
+                      switch (mode) {
+                        WeekViewMode.compact => '紧凑',
+                        WeekViewMode.timeline => '时间轴',
+                      },
+                    ),
+                    selected: _mode == mode,
+                    onSelected: (_) => _setMode(mode),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Expanded(
             child: StreamBuilder<List<ScheduleViewItem>>(
               stream: _stream,
@@ -128,7 +208,11 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                       child: ScheduleCategoryLegend(summaries: summaries),
                     ),
                     const SizedBox(height: 12),
-                    Expanded(child: _week(context, snapshot.data!)),
+                    Expanded(
+                      child: _mode == WeekViewMode.compact
+                          ? _week(context, snapshot.data!)
+                          : _timeline(context, snapshot.data!),
+                    ),
                   ],
                 );
               },
@@ -188,8 +272,93 @@ final class _WeekViewPageState extends State<WeekViewPage> {
     );
   }
 
-  /// 列头第一行：`昨天` / `今天` / `明天` 优先，其余显示星期。
+  /// 时间轴模式（§9）：按真实时间比例排列，可滚动查看全天。
   ///
+  /// **复用同一份数据与同一套颜色**：条目仍然来自同一个 `source`，
+  /// 颜色仍然走 `scheduleCategoryCardStyle`（在 `TimelineDayColumn` 内部）。
+  /// 拖动**不**在这里支持——§9 只要求时间轴能看到时长与节奏，
+  /// 而"拖到某一天"这个动作在按小时排列的视图里语义不同（拖到几点？），
+  /// 因此保留紧凑模式作为唯一的拖动入口，不在这里发明一套新的拖放语义。
+  Widget _timeline(BuildContext context, List<ScheduleViewItem> items) {
+    final toLocal = widget.toLocal ?? (value) => value;
+    final days = [
+      for (var index = -1; index < 7; index++)
+        widget.weekStart.add(Duration(days: index)),
+    ];
+    // 每条安排按它所属的**本地日**归列。
+    final perDay = <int, List<ScheduleViewItem>>{};
+    for (final day in days) {
+      final index = days.indexOf(day);
+      perDay[index] = items.where((item) {
+        return item.range.startUtc.isBefore(day.add(const Duration(days: 1))) &&
+            item.range.endUtc.isAfter(day);
+      }).toList();
+    }
+
+    // 可见范围取**所有列**的最早开始与最晚结束（§9："默认显示用户有安排的有效时间范围"）。
+    // 用全局而不是每列各自的范围：各列范围不同的话，同一钟点在相邻两列会落在不同高度，
+    // 时间轴就失去了"横向可比"的意义——而那正是它存在的理由。
+    final ranges = <({int start, int end})>[];
+    for (final entry in perDay.values) {
+      for (final item in entry) {
+        ranges.add(
+          minuteRangeInDay(
+            toLocal(item.range.startUtc),
+            toLocal(item.range.endUtc),
+          ),
+        );
+      }
+    }
+    final window = timelineWindowFor(ranges);
+    final metrics = TimelineMetrics(
+      windowStartMinute: window.start,
+      windowEndMinute: window.end,
+      pixelsPerMinute: _timelinePixelsPerMinute,
+      minimumBlockHeight: _timelineMinimumBlockHeight,
+    );
+
+    return SingleChildScrollView(
+      key: const Key('week-timeline-scroll'),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TimelineHourAxis(metrics: metrics),
+            for (var index = 0; index < days.length; index++)
+              SizedBox(
+                width: 132,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // 列头与紧凑模式**同样的 key 与可点行为**（§9 退出条件：
+                    // "日期气泡、日期标题和卡片均能进入正确日期或详情"）。
+                    _TimelineDayHeader(
+                      key: ValueKey('week-timeline-day-${index - 1}'),
+                      localDay: toLocal(days[index]),
+                      relativeLabel: _relativeLabel(index - 1),
+                      isToday: index - 1 == 0,
+                      onOpenDay: widget.onOpenDay == null
+                          ? null
+                          : () => widget.onOpenDay!(days[index]),
+                    ),
+                    TimelineDayColumn(
+                      items: perDay[index] ?? const [],
+                      metrics: metrics,
+                      localDayStart: toLocal(days[index]),
+                      toLocal: widget.toLocal,
+                      onOpenItem: widget.onOpenItem,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 列头第一行：`昨天` / `今天` / `明天` 优先，其余显示星期。  ///
   /// 用户 2026-10-07 的要求原话："七日日历里要是昨天 今天 明天，然后后面就是周几周几"。
   /// 这也正是天气应用的做法：最近三天用相对日称呼（一眼知道是哪天），更远的日子用星期几
   /// （才读得出"离今天还有多远"）。
@@ -313,6 +482,61 @@ final class _DayColumn extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 时间轴的列头。
+///
+/// **与紧凑模式的列头承担同一职责**：显示"昨天／今天／明天／周X + 月日"，
+/// 并在装配了 [onOpenDay] 时可点进当天。§9 的退出条件要求"日期气泡、日期标题和卡片
+/// 均能进入正确日期或详情"，因此这里必须与紧凑模式一样可点，key 也刻意命名成一对。
+final class _TimelineDayHeader extends StatelessWidget {
+  const _TimelineDayHeader({
+    required this.localDay,
+    required this.relativeLabel,
+    required this.isToday,
+    this.onOpenDay,
+    super.key,
+  });
+
+  final DateTime localDay;
+  final String relativeLabel;
+  final bool isToday;
+  final VoidCallback? onOpenDay;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            relativeLabel,
+            key: ValueKey('week-timeline-day-label-$relativeLabel'),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: isToday ? scheme.primary : scheme.onSurfaceVariant,
+              fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${localDay.month}月${localDay.day}日',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              if (onOpenDay != null)
+                const Icon(Icons.chevron_right_rounded, size: 18),
+            ],
+          ),
+        ],
+      ),
+    );
+    if (onOpenDay == null) return content;
+    return InkWell(onTap: onOpenDay, child: content);
   }
 }
 
