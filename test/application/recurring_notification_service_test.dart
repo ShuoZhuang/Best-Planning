@@ -380,10 +380,7 @@ void main() {
       final harness = _build(
         clock: clock,
         cycles: [_candidate(target: 180, recorded: 72)],
-        quietHours: LocalTimeRange(
-          startMinute: 22 * 60,
-          endMinute: 7 * 60,
-        ),
+        quietHours: LocalTimeRange(startMinute: 22 * 60, endMinute: 7 * 60),
       );
 
       await harness.service.evaluate();

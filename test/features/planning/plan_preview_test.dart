@@ -256,19 +256,26 @@ void main() {
     var calls = 0;
     await tester.pumpWidget(
       MaterialApp(
-        home: PlanPreviewPage(
-          model: PlanPreviewModel(
-            proposalId: 'proposal-1',
-            changes: const [],
-            conflicts: const [],
-            isStale: false,
+        // **必须包一层 `Scaffold`**：`showPlannerMessage` 只在"能画出来"时才画
+        // （`canShowPlannerMessage`：既要能拿到 `ScaffoldMessenger`，又要有 `Scaffold` 后代）。
+        // 裸 `MaterialApp(home: Page)` 里 `MaterialApp` 自带 messenger 却没有 scaffold，
+        // `showSnackBar` 会断言失败，因此那个守卫会选择**悄悄不发**。
+        // 结果是"点击确实生效了、消息却没画"，测试失败信息看着像"撤销没生效"——很难查。
+        home: Scaffold(
+          body: PlanPreviewPage(
+            model: PlanPreviewModel(
+              proposalId: 'proposal-1',
+              changes: const [],
+              conflicts: const [],
+              isStale: false,
+            ),
+            autoAdjustStore: MemoryAutoAdjustStore(),
+            onConfirm: () async {},
+            onUndoPlan: () async {
+              calls++;
+              return true;
+            },
           ),
-          autoAdjustStore: MemoryAutoAdjustStore(),
-          onConfirm: () async {},
-          onUndoPlan: () async {
-            calls++;
-            return true;
-          },
         ),
       ),
     );
@@ -287,16 +294,19 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: PlanPreviewPage(
-          model: PlanPreviewModel(
-            proposalId: 'proposal-1',
-            changes: const [],
-            conflicts: const [],
-            isStale: false,
+        // 同上：没有 `Scaffold` 时消息会被守卫丢弃，这条用例就永远看不到那句文案。
+        home: Scaffold(
+          body: PlanPreviewPage(
+            model: PlanPreviewModel(
+              proposalId: 'proposal-1',
+              changes: const [],
+              conflicts: const [],
+              isStale: false,
+            ),
+            autoAdjustStore: MemoryAutoAdjustStore(),
+            onConfirm: () async {},
+            onUndoPlan: () async => false,
           ),
-          autoAdjustStore: MemoryAutoAdjustStore(),
-          onConfirm: () async {},
-          onUndoPlan: () async => false,
         ),
       ),
     );

@@ -119,7 +119,7 @@ void main() {
       final source = await _extractBackupDatabase(backup, scratch);
 
       final executor = _openReadOnly(source.path);
-      addTearDown(executor.dispose);
+      addTearDown(executor.close);
       expect(
         _scalarInt(executor, 'PRAGMA user_version'),
         6,
@@ -165,10 +165,10 @@ void main() {
 
       // 快照必须是**能打开的** SQLite，且与源库逐表行数一致——"备份了但打不开"等于没备份。
       final snapshotExecutor = _openReadOnly(file.path);
-      addTearDown(snapshotExecutor.dispose);
+      addTearDown(snapshotExecutor.close);
       expect(_scalarInt(snapshotExecutor, 'PRAGMA user_version'), 6);
       final sourceExecutor = _openReadOnly(source.path);
-      addTearDown(sourceExecutor.dispose);
+      addTearDown(sourceExecutor.close);
       expect(
         _rowCounts(snapshotExecutor),
         _rowCounts(sourceExecutor),
@@ -188,7 +188,7 @@ void main() {
       final beforeCounts = _rowCounts(before);
       final beforeTables = _tableNames(before);
       final beforeViolations = _foreignKeyViolations(before);
-      before.dispose();
+      before.close();
       expect(beforeViolations, isEmpty, reason: '前置条件：真实库升级前外键就是干净的');
 
       // **打开就会迁移**：`AppDatabase` 的 schemaVersion 是 7，drift 见到 6 就走 onUpgrade。
@@ -206,7 +206,7 @@ void main() {
       expect(taskCount.read<int>('c'), beforeCounts['tasks']);
 
       final after = _openReadOnly(source.path);
-      addTearDown(after.dispose);
+      addTearDown(after.close);
 
       expect(
         _scalarInt(after, 'PRAGMA user_version'),
@@ -292,7 +292,7 @@ void main() {
       // 再打开一次也不该改变任何东西（幂等）。
       final before = _openReadOnly(source.path);
       final countsBefore = _rowCounts(before);
-      before.dispose();
+      before.close();
 
       final second = AppDatabase.openDefault(
         databasePath: source.path,
@@ -304,7 +304,7 @@ void main() {
       await second.close();
 
       final after = _openReadOnly(source.path);
-      addTearDown(after.dispose);
+      addTearDown(after.close);
       expect(_rowCounts(after), countsBefore, reason: '重复打开不得改动数据');
       expect(_scalarInt(after, 'PRAGMA user_version'), 7);
     });

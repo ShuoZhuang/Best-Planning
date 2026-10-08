@@ -18,6 +18,8 @@ final class SchedulableTask {
     this.energyLevel = TaskEnergyLevel.medium,
     this.isLifeTask = false,
     this.preferredWindow,
+    this.allowedWeekdaysMask = allWeekdaysMask,
+    this.maxMinutesPerLocalDay,
   });
 
   final String id;
@@ -37,7 +39,30 @@ final class SchedulableTask {
   /// `LocalTimeRange.splitAtMidnight` 拆成两段处理，因此 22:00–02:00 这类
   /// 写法不会被当成空区间或反向区间。
   final LocalTimeRange? preferredWindow;
+
+  /// 允许安排的本地星期，7 位掩码，**周一是 bit 0**。默认全部允许。
+  ///
+  /// 与 [maxMinutesPerLocalDay] 一起表达"周期目标的节奏"（路线图 §3.4、Task 8 Step 5）。
+  /// 这两项刻意做成**约束**而不是另写一个排程器：引擎照旧只有一个，节奏只是收窄了它可选的
+  /// 位置与每天可放的量。用户选了"仅周三与周六"时，如果只在展开层拆窗口而引擎不知道，
+  /// 引擎完全可以把量放到别的日子——`recurring_planning_test` 的"仅指定星期不会排到未选择的
+  /// 本地星期"就是钉这一点的。
+  final int allowedWeekdaysMask;
+
+  /// 每个**本地日**最多安排多少分钟；为空表示不限制。
+  ///
+  /// "均匀分布"靠它成立：把目标除到每一天，引擎就无法把整周的量堆进同一天。
+  /// 引擎在放置时会把它减去当天**已经排进去**的分钟，因此它约束的是"这一天总共多少"，
+  /// 而不是"单个片段多长"。
+  final int? maxMinutesPerLocalDay;
+
+  /// 该掩码是否允许某个本地星期（`DateTime.monday` … `DateTime.sunday`）。
+  bool allowsWeekday(int weekday) =>
+      allowedWeekdaysMask & (1 << (weekday - DateTime.monday)) != 0;
 }
+
+/// 全部七天都允许的掩码（周一 bit 0 … 周日 bit 6）。
+const int allWeekdaysMask = 0x7F;
 
 final class BusyInterval {
   const BusyInterval({required this.id, required this.range});

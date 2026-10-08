@@ -98,41 +98,64 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           .toList();
 
       while (remaining > 0) {
-        final ranked = <_RankedCandidate>[];
-        for (final candidate in candidates) {
-          if (candidate.durationMinutes > remaining ||
-              _overlapsAny(candidate.range, blocks) ||
-              _violatesRestGap(problem, task, candidate, blocks)) {
-            continue;
-          }
-          final leftover = remaining - candidate.durationMinutes;
-          if (task.splitMode == TaskSplitMode.splittable &&
-              leftover > 0 &&
-              leftover < task.minChunkMinutes) {
-            continue;
-          }
-          final score = _scoreCandidate(
-            problem,
-            task,
-            candidate,
-            blocks,
-            targets[task.id]!,
-          );
-          if (score.isEligible) {
-            ranked.add(
-              _RankedCandidate(
-                candidate,
-                score.totalScore!,
-                candidate.durationMinutes +
-                    math.min(
-                      leftover,
-                      _continuationCapacity(task, slots, [
-                        ...blocks,
-                        _temporaryBlock(task.id, candidate),
-                      ], notBefore: _restReadyAt(problem, task, candidate)),
-                    ),
-              ),
+        // ── 单日配额是"摊开"的偏好，两轮放置 ────────────────────────────────
+        //
+        // 第一轮**守着**配额：优先把量摊到更多天，这是"均匀分布"能成立的原因（2026-10-08 实测：
+        // 不守配额时确定性引擎会把 180 分钟全堆进同一天）。
+        //
+        // 但配额**不是容量的真相**：它由"目标 ÷ 天数"摊出来，而真正的容量取决于保护时间与
+        // 固定日程。若第一轮一个候选都选不出来，说明守配额会让这一段永远排不进去——那正是
+        // `capacityShortfallForRecurringGoal` 要如实汇报的缺口，不该由配额凭空放大。
+        // 于是第二轮放开配额，把**实际**还放得下的量排进去。
+        //
+        // 两轮的关系是"先摊、摊不动再堆"：`recurring_planning_test` 的「均匀分布跨多个本地日」
+        // 验第一轮，「容量只有 120 分钟 ⇒ 缺口恰好 60」验第二轮。两者都要成立，因此配额不能是硬上限。
+        var ranked = <_RankedCandidate>[];
+        var relaxedDailyQuota = false;
+        for (var pass = 0; pass < 2 && ranked.isEmpty; pass++) {
+          relaxedDailyQuota = pass == 1;
+          for (final candidate in candidates) {
+            if (candidate.durationMinutes > remaining ||
+                _overlapsAny(candidate.range, blocks) ||
+                _exceedsDailyQuota(
+                  problem,
+                  task,
+                  candidate,
+                  blocks,
+                  relaxed: relaxedDailyQuota,
+                ) ||
+                _violatesRestGap(problem, task, candidate, blocks)) {
+              continue;
+            }
+            final leftover = remaining - candidate.durationMinutes;
+            if (task.splitMode == TaskSplitMode.splittable &&
+                leftover > 0 &&
+                leftover < task.minChunkMinutes) {
+              continue;
+            }
+            final score = _scoreCandidate(
+              problem,
+              task,
+              candidate,
+              blocks,
+              targets[task.id]!,
             );
+            if (score.isEligible) {
+              ranked.add(
+                _RankedCandidate(
+                  candidate,
+                  score.totalScore!,
+                  candidate.durationMinutes +
+                      math.min(
+                        leftover,
+                        _continuationCapacity(task, slots, [
+                          ...blocks,
+                          _temporaryBlock(task.id, candidate),
+                        ], notBefore: _restReadyAt(problem, task, candidate)),
+                      ),
+                ),
+              );
+            }
           }
         }
         if (ranked.isEmpty) break;
@@ -391,6 +414,40 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       minimumScore: weights.minimumPreferredTime,
       maximumScore: weights.maximumPreferredTime,
     );
+  }
+
+  /// 把 [candidate] 放进它所属的那个**本地日**之后，该日会不会超过任务自己声明的单日上限
+  /// （路线图 §3.4 "均匀分布"、Task 8 Step 5）。
+  ///
+  /// 判据是"**这一天总共**排了多少"，而不是"这一段多长"：`maxMinutesPerLocalDay` 是从周期目标
+  /// 摊出来的每日配额（例如 180÷7 ≈ 26 分钟），它约束的是一天的总量。因此必须把该日已经排进去
+  /// 的分钟（含锁定块与本次循环先前选中的块）一起算上——否则引擎仍然会把整周的量堆进同一天，
+  /// 而"均匀分布"就只是一个界面上存在、结果上无效的选项。
+  ///
+  /// **[relaxed] 的含义见 [generate] 里的两轮说明**：配额是"摊开"的偏好，不是容量的真相。
+  bool _exceedsDailyQuota(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks, {
+    required bool relaxed,
+  }) {
+    if (relaxed) return false;
+    final quota = task.maxMinutesPerLocalDay;
+    if (quota == null) return false;
+    final zoneId = problem.timeZoneId;
+    final localDate = candidate.localDate;
+    var planned = 0;
+    for (final block in blocks) {
+      if (block.taskId != task.id) continue;
+      final local = _zones.toLocal(block.startUtc, zoneId);
+      if (local.year == localDate.year &&
+          local.month == localDate.month &&
+          local.day == localDate.day) {
+        planned += block.durationMinutes;
+      }
+    }
+    return planned + candidate.durationMinutes > quota;
   }
 
   /// 同一任务在该候选所在本地日是否已有其它片段。

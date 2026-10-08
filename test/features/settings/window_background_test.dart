@@ -115,10 +115,16 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        home: WindowBackgroundPage(
-          windowBehavior: WindowBehaviorService(
-            settings: settings,
-            shell: shell,
+        // **必须包一层 `Scaffold`**：这条用例断言的那句原因是通过 `showPlannerMessage`
+        // 发出来的，而它只在"能画出来"时才画（`canShowPlannerMessage` 要求既有 messenger
+        // 又有 `Scaffold` 后代）。裸 `MaterialApp(home: Page)` 缺后者，消息会被悄悄丢弃，
+        // 失败信息看起来像"原因没写出来"，其实是没地方画。
+        home: Scaffold(
+          body: WindowBackgroundPage(
+            windowBehavior: WindowBehaviorService(
+              settings: settings,
+              shell: shell,
+            ),
           ),
         ),
       ),

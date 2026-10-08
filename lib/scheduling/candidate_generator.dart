@@ -37,6 +37,10 @@ final class CandidateGenerator {
     final candidates = <SchedulingCandidate>[];
 
     for (final slot in slots) {
+      // 只在该日**本地星期**被允许时产出候选（路线图 §3.4 "仅指定星期"）。
+      // 用 `slot.localDate` 而不是把 UTC 时刻换算一遍：可用时段本来就是这个本地日的切片，
+      // 再换一次时区只会在夏令时切换日引入第二个真相。
+      if (!task.allowsWeekday(slot.localDate.weekday)) continue;
       final availableFrom = task.availableFromUtc;
       final earliestStart = availableFrom == null
           ? slot.startUtc
