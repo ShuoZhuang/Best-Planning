@@ -4,33 +4,51 @@
 “已发布”，才算正式发布。
 
 > **当前正式发布：`1.6.2+37` / MSIX `1.6.2.0`（2026-10-08，tag `v1.6.2-build37`）** —— 见下方 `1.6.2+37` 批次。
-> **当前候选：`1.7.0+38` / MSIX `1.7.0.0`（2026-10-08）** —— 产物已就绪，**尚未发布**；见下方 `1.7.0+38` 批次。
+> **当前候选：`1.7.0+39` / MSIX `1.7.0.1`（2026-10-08）** —— 产物已就绪，**尚未发布**；见下方 `1.7.0+39` 批次。
 > `1.6.2+37` 之前的所有批次都保持"候选构建"状态，未对外发布。
 
-## 1.7.0+38 / MSIX 1.7.0.0 — 2026-10-08（`1.7` 发布线 · 路线图全部 14 个任务合并交付）
+## 1.7.0+39 / MSIX 1.7.0.1 — 2026-10-08（`1.7` 发布线 · 路线图全部 14 个任务合并交付）
 
 | 项目 | 结果 |
 | --- | --- |
 | 状态 | **候选构建**（产物已就绪，**尚未发布**）——等待人工验收与 GitHub Release |
 | 变更范围 | **路线图 `1.7.0` 批次的全部 14 个任务 + 用户 2026-10-08 追加的 Task 12A**：① 统计复盘重做（四页签、四项摘要、来源明细、横轴与单位修正）；② 日程详情导航（三类事项各自到正确页面）；③ 按周固定时长的周期目标（模型、生命周期、编辑、排程接入、提醒与统计）；④ 默认开启的 GitHub 更新检查；⑤ 可撤销动作、空状态下一步与长期提示一致性；⑥ **Task 12A：修复会让真实可用时间被误判为"容量不足"的发布阻断问题** |
-| 版本段位 | **`1.6.2` → `1.7.0`**（抬第 2 段）：`1.7` 批次含用户可感知的新功能且向后兼容，按 `version-policy.md` §4.02 的兼容性判据属于**新功能发布线**；构建号全局单调递增 `+37` → `+38`（**不随版本号归零**）；MSIX 第四段 `0` = 本批次首次打包 |
+| 版本段位 | **`1.6.2` → `1.7.0`**（抬第 2 段）：`1.7` 批次含用户可感知的新功能且向后兼容，按 `version-policy.md` §4.02 的兼容性判据属于**新功能发布线**；构建号全局单调递增 `+38` → `+39`（**不随版本号归零**）；MSIX 第四段 `1` = 首次打包之后**内容又变了**（见下方"同版本号重建的代价"）|
 | 数据库 | **schema v7 → v8 有迁移**：v7 新增两张周期目标表；**v8 修复存量的非法片段设置**（`min > max`，或片段上下限超过任务总时长）。v8 一个列都没加、一个表都没建，纯粹是数据修复——**只夹紧片段两列，剩余时长／截止时间／标题／备注／状态一律不动** |
 | 排程算法 | **有改动**：新候选生成规则（最终余量短于最小片段时仍可安排）、窗口起点改为"现在"而非当天本地午夜、周期目标的允许星期与单日配额、未安排任务的结构化原因 |
 | 统计口径 | **未改动**；周期目标的完成分钟**单独一张卡**，不混进领域计划时长 |
 | 新增测试 | 全套 **1572 项通过**（`1.6.2` 收口时为 1073 项）；八个集成测试文件合计 **10 项通过** |
-| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：**451 文件 0 改动**，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**1572 项通过**，退出码 0 |
-| Windows Release | `flutter build windows --release --no-pub` 成功（69.0s）；EXE 文件版本与产品版本均为 `1.7.0+38` |
-| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.7.0-build38-windows-x64-20261008` |
-| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.7.0-build38-windows-x64-20261008.zip`（**34740171 字节**，**35 条目**） |
-| MSIX | 同目录内 `PersonalPlanner-1.7.0-build38-windows-x64-20261008.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.7.0.0`** / x64 |
-| EXE SHA-256 | `DE8073EA21EBA70797DDDF39B92E62F276FB40001E67F176A1EA7BEF5AE08995` |
-| ZIP SHA-256 | `75A8C9AD3A32DA40CFBCFBE0CC451882873C2A650DC8488E2CB8914E99F90883` |
-| MSIX SHA-256 | `6D7CC70FD4B1EEFE58D4E52C093DD393C5852A3D431FFD2FF7FAB7CDB795074C` |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：**455 文件 0 改动**，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**1593 项通过**，退出码 0 |
+| Windows Release | `flutter build windows --release --no-pub` 成功（71.7s）；EXE 文件版本与产品版本均为 `1.7.0+39` |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.7.0-build39-windows-x64-20261008` |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.7.0-build39-windows-x64-20261008.zip`（**34740017 字节**，**35 条目**） |
+| MSIX | 同目录内 `PersonalPlanner-1.7.0-build39-windows-x64-20261008.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.7.0.1`** / x64 |
+| EXE SHA-256 | `E51781C41824690BBBEFED0520AAA0E7537C0FB23A732CF94BC7F67328A73891` |
+| ZIP SHA-256 | `B784C4CB5A45CC920BD5DDACF19E55CCC01436F15E5C56E5397CCE7451221009` |
+| MSIX SHA-256 | `0AEE095E107EE9FC58F844E62105A0D8690B63373B960F72AEEB2C129FEEEF50` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
 | MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN`，指纹 `9E157ECE535D16A224593CA39C084705A4FD3C13` |
 | 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器、安装说明、`SHA-256.txt` 齐全；ZIP **35 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`／诊断日志；`data/flutter_assets` 之外**无用户图片** |
 | 隐私 | `.pfx` 与私钥**不进版本库也不进交付包**：签名按**指纹**从当前用户证书库选取（`signtool_options`），密码不出现在任何文件或命令里 |
-| Release Notes | `docs/release/1.7.0-release-notes.md`（叙述版）· `docs/release/1.7.0-github-release-body.md`（**可直接粘贴的 GitHub Release 正文**）· `docs/release/1.7.0-build38-user-guide.md`（使用教程） |
+| Release Notes | `docs/release/1.7.0-release-notes.md`（叙述版）· `docs/release/1.7.0-github-release-body.md`（**可直接粘贴的 GitHub Release 正文**）· `docs/release/1.7.0-build39-user-guide.md`（使用教程） |
+
+### ⚠️ 同版本号重建的代价（2026-10-08 实测，必须记住）
+
+重建时我把 MSIX 版本**保持为 `1.7.0.0`**，而它与先前那次构建是**同一个版本号**。
+后果：Windows 认为"没有更新"，`Add-AppxPackage` 变成一次空操作，**用户机器上仍是旧文件**。
+用户因此报告"装了新版却看不到修复"——而包本身是正确的。
+
+**判定方法**（比看版本号可靠）：比对**已安装副本**与构建产物的 `data/app.so` 指纹。
+EXE 的哈希在重建前后可能相同（它只是启动器），只看 EXE 会误判"没重新构建"。
+
+```powershell
+$pkg = Get-AppxPackage -Name "ShuoZhuang.PersonalPlanner"
+Get-FileHash (Join-Path $pkg.InstallLocation "data\app.so") -Algorithm SHA256
+```
+
+**规则**：**内容变了就抬号。** 抬构建号 `+N`，同时抬 MSIX 第四段（`1.7.0.0` → `1.7.0.1`），
+否则新包无法覆盖已装的同版本包。这条已写进 `version_consistency_test.dart` 的 reason 里。
+
 
 ### 重建记录（2026-10-08，首次构建之后并入的修复）
 

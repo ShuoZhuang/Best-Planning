@@ -104,8 +104,11 @@ void main() {
     WidgetTester tester, {
     RecurringTaskService? service,
     void Function(String templateId)? onOpenRecurring,
+    // **默认取一个偏窄偏矮的窗口**：分组在小窗口里被挤到看不见，正是"看不到周期目标"
+    // 最可能的解释。用 1100×900 那种宽裕画布去测，等于把这个风险测没了。
+    Size size = const Size(900, 600),
   }) async {
-    await tester.binding.setSurfaceSize(const Size(1100, 900));
+    await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
