@@ -28,7 +28,7 @@
 | MSIX SHA-256 | `FE3D74F5526A1A3DB5AD9472FEE15866737BDCEFAA45445320F2D1CC2D9DA978` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
 | MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN`，指纹 `9E157ECE535D16A224593CA39C084705A4FD3C13` |
-| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器、安装说明、`SHA-256.txt` 齐全；ZIP **35 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`／诊断日志；`data/flutter_assets` 之外**无用户图片** | 
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器、安装说明、`SHA-256.txt` 齐全；ZIP **35 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`／诊断日志；`data/flutter_assets` 之外**无用户图片** |
 | 隐私 | `.pfx` 与私钥**不进版本库也不进交付包**：签名按**指纹**从当前用户证书库选取（`signtool_options`），密码不出现在任何文件或命令里 |
 | Release Notes | `docs/release/1.7.0-release-notes.md`（**内容定稿**，等发布登记） |
 
