@@ -30,6 +30,11 @@ final class _Tasks implements TaskRepository {
 
   final Map<String, PlannerTask> tasks;
 
+  /// 全量监听；这个替身没有数据库，因此"全部"与"未结束"共用一份数据。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() =>
+      Stream.value(tasks.values.toList());
+
   @override
   Stream<List<PlannerTask>> watchOpenTasks() =>
       Stream.value(tasks.values.toList());

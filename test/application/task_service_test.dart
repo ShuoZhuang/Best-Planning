@@ -210,6 +210,10 @@ final class MemoryTaskRepository implements TaskRepository {
   @override
   Future<void> save(PlannerTask task) async => saved.add(task);
 
+  /// 全量监听；这个替身没有数据库，因此"全部"与"未结束"共用一份数据。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() => Stream.value(saved);
+
   @override
   Stream<List<PlannerTask>> watchOpenTasks() => Stream.value(saved);
 }

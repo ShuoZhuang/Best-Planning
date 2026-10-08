@@ -46,6 +46,11 @@ final class DriftTaskRepository implements TaskRepository {
     (rows) => rows.map(_toDomain).toList(growable: false),
   );
 
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() => _dao.watchAll().map(
+    (rows) => rows.map(_toDomain).toList(growable: false),
+  );
+
   PlannerTask _toDomain(db.Task row) => PlannerTask(
     id: row.id,
     projectId: row.projectId,
