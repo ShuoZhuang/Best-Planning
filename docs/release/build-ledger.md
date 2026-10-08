@@ -21,16 +21,34 @@
 | 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：**451 文件 0 改动**，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**1572 项通过**，退出码 0 |
 | Windows Release | `flutter build windows --release --no-pub` 成功（69.0s）；EXE 文件版本与产品版本均为 `1.7.0+38` |
 | Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.7.0-build38-windows-x64-20261008` |
-| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.7.0-build38-windows-x64-20261008.zip`（34726312 字节，**35 条目**） |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.7.0-build38-windows-x64-20261008.zip`（**34740171 字节**，**35 条目**） |
 | MSIX | 同目录内 `PersonalPlanner-1.7.0-build38-windows-x64-20261008.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.7.0.0`** / x64 |
 | EXE SHA-256 | `DE8073EA21EBA70797DDDF39B92E62F276FB40001E67F176A1EA7BEF5AE08995` |
-| ZIP SHA-256 | `AD0A4F6769425B464984047D764ABC6107527DB97BA5CF470763D38DD55BAF0D` |
-| MSIX SHA-256 | `FE3D74F5526A1A3DB5AD9472FEE15866737BDCEFAA45445320F2D1CC2D9DA978` |
+| ZIP SHA-256 | `75A8C9AD3A32DA40CFBCFBE0CC451882873C2A650DC8488E2CB8914E99F90883` |
+| MSIX SHA-256 | `6D7CC70FD4B1EEFE58D4E52C093DD393C5852A3D431FFD2FF7FAB7CDB795074C` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
 | MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN`，指纹 `9E157ECE535D16A224593CA39C084705A4FD3C13` |
 | 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器、安装说明、`SHA-256.txt` 齐全；ZIP **35 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`／诊断日志；`data/flutter_assets` 之外**无用户图片** |
 | 隐私 | `.pfx` 与私钥**不进版本库也不进交付包**：签名按**指纹**从当前用户证书库选取（`signtool_options`），密码不出现在任何文件或命令里 |
-| Release Notes | `docs/release/1.7.0-release-notes.md`（**内容定稿**，等发布登记） |
+| Release Notes | `docs/release/1.7.0-release-notes.md`（叙述版）· `docs/release/1.7.0-github-release-body.md`（**可直接粘贴的 GitHub Release 正文**）· `docs/release/1.7.0-build38-user-guide.md`（使用教程） |
+
+### 重建记录（2026-10-08，首次构建之后并入的修复）
+
+首次构建（同日早先）之后，人工验收报了三条缺陷、另提了一条新需求，全部修好后**重建**了候选。
+因此上面那些哈希对应的是**重建后**的产物，首次构建的产物已删除。
+
+| 提交 | 内容 | 为什么算发布阻断 |
+| --- | --- | --- |
+| `5c2d2b78` | **保存周期目标后重新规划，计划里不显示它** | 生成"本周实例"的 `ensureCycles` 只在启动时跑过一次，而排程输入只读实例、读不到就静默跳过——会话中途新建的周期目标必须**重启程序**才生效。这是本批次主功能的"操作完成了但结果要重启"缺陷 |
+| `c8c2b02f` | **周期目标不在任何列表里，无法管理** | 列表页只订阅普通任务，而周期目标在另一张表；其管理动作入口全在详情页，没有列表就没有入口——用户建完**再也回不去** |
+| `dee15321` | 新增：**课后十分钟缓冲**（用户需求） | 不是阻断，是用户明确提出的新需求；只对课表导入的课生效 |
+| `789f7ae5` | 课后缓冲**可在设置页改／关** | 补上 `dee15321` 留下的缺口：规则生效但用户无法调整 |
+| `f87274bd` | 今日页**「延后本次」**（并行 agent 产出，本次提交收拢） | 不是阻断；补齐"这一块现在做不了就往后挪一刻钟" |
+
+重建后的验证：`flutter test` **1593 通过 / 0 失败**；`flutter analyze --no-pub` **0 问题**；
+`dart format --set-exit-if-changed` **455 文件 0 改动**；MSIX `Get-AuthenticodeSignature` = `Valid`，
+且 MSIX 的构建时刻**晚于** `data/app.so`（确认包内含最新代码）。
+
 
 ### 与 `1.6.2+37` 相比，本批次的三处**用户可见的实质变化**
 
