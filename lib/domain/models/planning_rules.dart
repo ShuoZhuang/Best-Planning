@@ -152,6 +152,7 @@ final class PlanningRulesPatch {
     this.minChunkMinutes,
     this.maxChunkMinutes,
     this.granularityMinutes,
+    this.courseTransitionMinutes,
   });
 
   final List<EnergyWindow>? energyWindows;
@@ -165,6 +166,7 @@ final class PlanningRulesPatch {
   final int? minChunkMinutes;
   final int? maxChunkMinutes;
   final int? granularityMinutes;
+  final int? courseTransitionMinutes;
 
   PlanningRules applyTo(PlanningRules base) => base.copyWith(
     energyWindows: energyWindows,
@@ -178,6 +180,7 @@ final class PlanningRulesPatch {
     minChunkMinutes: minChunkMinutes,
     maxChunkMinutes: maxChunkMinutes,
     granularityMinutes: granularityMinutes,
+    courseTransitionMinutes: courseTransitionMinutes,
   );
 
   PlanningRulesPatch copyWith({
@@ -192,6 +195,7 @@ final class PlanningRulesPatch {
     int? minChunkMinutes,
     int? maxChunkMinutes,
     int? granularityMinutes,
+    int? courseTransitionMinutes,
   }) => PlanningRulesPatch(
     energyWindows: energyWindows ?? this.energyWindows,
     protectedTimes: protectedTimes ?? this.protectedTimes,
@@ -206,6 +210,8 @@ final class PlanningRulesPatch {
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
     maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
     granularityMinutes: granularityMinutes ?? this.granularityMinutes,
+    courseTransitionMinutes:
+        courseTransitionMinutes ?? this.courseTransitionMinutes,
   );
 }
 

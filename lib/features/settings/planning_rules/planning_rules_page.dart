@@ -120,6 +120,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     _setInt('minimum-sleep-minutes', rules.minimumSleepMinutes);
     _setInt('default-focus-minutes', rules.defaultFocusMinutes);
     _setInt('break-minutes', rules.breakMinutes);
+    _setInt('course-transition-minutes', rules.courseTransitionMinutes);
     _setInt('min-chunk-minutes', rules.minChunkMinutes);
     _setInt('max-chunk-minutes', rules.maxChunkMinutes);
     _setInt('weekday-daily-limit', rules.dailyMovableTaskLimitMinutes);
@@ -215,6 +216,9 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     final minimumSleep = _positive('minimum-sleep-minutes', errors);
     final focus = _positive('default-focus-minutes', errors);
     final breakMinutes = _nonNegative('break-minutes', errors);
+    // 与 `breakMinutes` 同样是"非负"而不是"正"：`0` 是**合法的关闭方式**
+    // （用户 2026-10-08 明确要能让课后缓冲为 0）。用 `_positive` 会让关闭选项不可用。
+    final courseTransition = _nonNegative('course-transition-minutes', errors);
     final minChunk = _positive('min-chunk-minutes', errors);
     final maxChunk = _positive('max-chunk-minutes', errors);
     final weekdayLimit = _dailyLimit('weekday-daily-limit', errors);
@@ -244,6 +248,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
             minimumSleepMinutes: minimumSleep,
             defaultFocusMinutes: focus,
             breakMinutes: breakMinutes,
+            courseTransitionMinutes: courseTransition,
             minChunkMinutes: minChunk,
             maxChunkMinutes: maxChunk,
             weeklyLifeQuotaMinutes: lifeQuota,
@@ -408,6 +413,11 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
                       _numberField('片段间休息（分钟）', 'break-minutes'),
                       _numberField('最短片段（分钟）', 'min-chunk-minutes'),
                       _numberField('最长片段（分钟）', 'max-chunk-minutes'),
+                      // 用户 2026-10-08 需求："课表课程后十分钟不安排计划，我上完课要离开教室，
+                      // 肯定不可能直接接续啊。"**只对课表导入的课生效**，自己建的会议不受影响
+                      // ——这一点必须写在标签里，否则用户会以为它对所有日程都加了缓冲。
+                      // `0` 表示关闭。
+                      _numberField('课后缓冲（分钟，仅课表）', 'course-transition-minutes'),
                     ],
                   ),
                 ),

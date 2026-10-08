@@ -229,4 +229,71 @@ void main() {
     );
     expect(find.byKey(const Key('open-rules')), findsOneWidget);
   });
+
+  // 用户 2026-10-08 需求："课表课程后十分钟不安排计划，我上完课要离开教室。"
+  //
+  // 规则本身（只对课表导入的课、只加在结束后）由 `test/scheduling/course_transition_test.dart`
+  // 的 9 条用例守着。这里只钉**界面这一层**：数值能不能改、能不能关、关了会不会被当成非法输入。
+  group('课后缓冲（用户 2026-10-08）', () {
+    Future<SettingsService> pump(WidgetTester tester) async {
+      final service = SettingsService(repository: MemorySettingsRepository());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PlanningRulesPage(
+              service: service,
+              localDate: DateTime(2026, 10, 2),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return service;
+    }
+
+    testWidgets('默认 10 分钟，且输入框在"专注与任务片段"那一组里', (tester) async {
+      final service = await pump(tester);
+
+      final field = find.byKey(const Key('course-transition-minutes'));
+      await tester.ensureVisible(field);
+      expect(field, findsOneWidget);
+      // 标签必须写明**只对课表**，否则用户会以为所有日程都被加了缓冲。
+      expect(find.text('课后缓冲（分钟，仅课表）'), findsOneWidget);
+
+      final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+      expect(resolved.rules.courseTransitionMinutes, 10);
+    });
+
+    testWidgets('改成 20 能保存并落库', (tester) async {
+      final service = await pump(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('course-transition-minutes')),
+        '20',
+      );
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+      expect(resolved.rules.courseTransitionMinutes, 20);
+    });
+
+    testWidgets('**填 0 是合法的关闭方式**，不报"必须大于 0"', (tester) async {
+      final service = await pump(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('course-transition-minutes')),
+        '0',
+      );
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+
+      final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+      expect(
+        resolved.rules.courseTransitionMinutes,
+        0,
+        reason: '0 表示关闭这条规则；用 _positive 校验会让"关闭"变成非法输入',
+      );
+    });
+  });
 }

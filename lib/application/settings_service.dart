@@ -322,6 +322,11 @@ final class SettingsService {
     if (patch.breakMinutes case final value? when value < 0) {
       errors['breakMinutes'] = '不能小于 0';
     }
+    // 与 `breakMinutes` 同为**非负**：`0` 是合法的关闭方式（用户 2026-10-08 明确要能关掉
+    // 课后缓冲）。用正数校验会让"关闭"变成一条非法输入。
+    if (patch.courseTransitionMinutes case final value? when value < 0) {
+      errors['courseTransitionMinutes'] = '不能小于 0';
+    }
     if (patch.weeklyLifeQuotaMinutes case final value? when value < 0) {
       errors['weeklyLifeQuotaMinutes'] = '不能小于 0';
     }
@@ -393,6 +398,8 @@ Map<String, Object?> _patchToJson(PlanningRulesPatch patch) => {
   if (patch.defaultFocusMinutes != null)
     'defaultFocusMinutes': patch.defaultFocusMinutes,
   if (patch.breakMinutes != null) 'breakMinutes': patch.breakMinutes,
+  if (patch.courseTransitionMinutes != null)
+    'courseTransitionMinutes': patch.courseTransitionMinutes,
   if (patch.dailyMovableTaskLimitMinutes != null)
     'dailyMovableTaskLimitMinutes': patch.dailyMovableTaskLimitMinutes,
   if (patch.weeklyLifeQuotaMinutes != null)
@@ -427,6 +434,9 @@ PlanningRulesPatch _patchFromJson(Object? raw) {
     minimumSleepMinutes: value['minimumSleepMinutes'] as int?,
     defaultFocusMinutes: value['defaultFocusMinutes'] as int?,
     breakMinutes: value['breakMinutes'] as int?,
+    // **缺键时给 `null` 而不是 `10`**：`null` 表示"这个覆盖没有提到它"，于是
+    // `applyTo` 会保留基线的值。写死 10 会让一条本该保留基线（用户改过）的覆盖把它压回默认。
+    courseTransitionMinutes: value['courseTransitionMinutes'] as int?,
     dailyMovableTaskLimitMinutes: value['dailyMovableTaskLimitMinutes'] as int?,
     weeklyLifeQuotaMinutes: value['weeklyLifeQuotaMinutes'] as int?,
     minChunkMinutes: value['minChunkMinutes'] as int?,
