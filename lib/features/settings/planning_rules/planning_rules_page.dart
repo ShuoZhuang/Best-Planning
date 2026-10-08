@@ -38,8 +38,60 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
   };
   String? _status;
 
+  /// **载入完成那一刻的快照**，用来判断"用户是不是改了东西还没保存"（M8，§12）。
+  ///
+  /// 为什么需要快照而不是一个 `_dirty` 布尔：这一页的 20 多个输入框在 `_load()` 里
+  /// 被程序填入初值，而 `TextEditingController` 的分不清"程序填的"与"用户敲的"——
+  /// 只看"有没有变过"会把载入本身当成一次编辑，于是**每次进这一页再返回都会弹确认框**，
+  /// 那比不提示更烦人。
+  ///
+  /// 存"载入后的值"、再与"当前值"比较，才是用户视角的"我改过"。
+  /// 比较的是**控件的文本**（而不是解析后的数字）：用户把 `50` 改成 `50 `（多个空格）
+  /// 也算改过——他确实动了，而保存时会被重新解析。
+  final Map<String, String> _loadedText = {};
+  final Map<ProtectedTimeKind, bool> _loadedProtectedEnabled = {};
+  bool? _loadedTrustAutoAdjust;
+  bool? _loadedTaskStartEnabled;
+  bool? _loadedCalendarStartEnabled;
+  bool? _loadedDeadlineEnabled;
+  bool? _loadedConflictEnabled;
+
+  bool get _hasUnsavedChanges {
+    // 还没载入完就退出：不算"有未保存的修改"（用户根本没看到内容）。
+    if (_loading || _saving) return false;
+    for (final entry in _controllers.entries) {
+      if (_loadedText[entry.key] != entry.value.text) return true;
+    }
+    for (final kind in ProtectedTimeKind.values) {
+      if (_loadedProtectedEnabled[kind] != _protectedEnabled[kind]) return true;
+    }
+    return _loadedTrustAutoAdjust != _trustAutoAdjust ||
+        _loadedTaskStartEnabled != _taskStartEnabled ||
+        _loadedCalendarStartEnabled != _calendarStartEnabled ||
+        _loadedDeadlineEnabled != _deadlineEnabled ||
+        _loadedConflictEnabled != _conflictEnabled;
+  }
+
   TextEditingController _controller(String key) =>
-      _controllers.putIfAbsent(key, TextEditingController.new);
+      _controllers.putIfAbsent(key, () {
+        final controller = TextEditingController();
+        // **必须监听**（M8）。`PopScope` 的 `canPop` 是**构建时**算出来的一个值，
+        // 而用户在输入框里打字只改 `TextEditingController` 的文本、**不会重建这一页**。
+        // 没有这个监听，框架手里一直是"载入那一刻的 canPop = true"，
+        // 于是返回时**直接放行**、`onPopInvokedWithResult` 收到的 `didPop` 也是 `true`
+        // （实测过：dirty 明明为 true，`didPop` 仍然为 true，确认框根本不出现）。
+        //
+        // 这个坑很隐蔽：`_hasUnsavedChanges` 算得**完全正确**，错的只是"没人告诉框架它变了"。
+        controller.addListener(_onFieldChanged);
+        return controller;
+      });
+
+  /// 输入框内容变化时重建一次，好让 `PopScope` 拿到最新的 `canPop`。
+  ///
+  /// 不在这个回调里改任何状态：它只负责触发重建，判断仍然由 [_hasUnsavedChanges] 做。
+  void _onFieldChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
@@ -91,7 +143,26 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     _deadlineEnabled = notifications.deadlineEnabled;
     _conflictEnabled = notifications.conflictEnabled;
     widget.autoAdjustStore?.setEnabled(_trustAutoAdjust);
+    // **载入完成后才拍快照**（M8）：此后任何差异都是用户改的。
+    _snapshotLoadedValues();
     if (mounted) setState(() => _loading = false);
+  }
+
+  /// 记下"载入后的值"，供 [_hasUnsavedChanges] 比较。见那个 getter 上的说明。
+  void _snapshotLoadedValues() {
+    _loadedText
+      ..clear()
+      ..addEntries(
+        _controllers.entries.map((e) => MapEntry(e.key, e.value.text)),
+      );
+    _loadedProtectedEnabled
+      ..clear()
+      ..addAll(_protectedEnabled);
+    _loadedTrustAutoAdjust = _trustAutoAdjust;
+    _loadedTaskStartEnabled = _taskStartEnabled;
+    _loadedCalendarStartEnabled = _calendarStartEnabled;
+    _loadedDeadlineEnabled = _deadlineEnabled;
+    _loadedConflictEnabled = _conflictEnabled;
   }
 
   void _setInt(String key, int value) =>
@@ -207,6 +278,10 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
         setState(() {
           _errors = const {};
           _status = '设置已保存';
+          // **存成功后重新拍快照**（M8）：改动已经落库，"未保存"的状态到此结束。
+          // 不重拍的话，保存完再返回仍会弹"还有未保存的修改"——而那时根本没有未保存的东西，
+          // 用户只能莫名其妙地点一次"放弃修改"。
+          _snapshotLoadedValues();
         });
       }
     } on SettingsValidationException catch (error) {
@@ -224,6 +299,53 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    // **离开时确认未保存的修改**（M8，§12："所有子页面……也不静默丢弃未保存内容"）。
+    //
+    // 这一页此前**没有任何拦截**：改动只在点「保存」时落库，而返回、点侧边导航或关窗口
+    // 都会**静默丢掉**刚才的编辑。§12 把"静默丢弃"单独列出来，正是因为这类丢失
+    // 没有任何反馈——用户以为改好了，下次进来发现还是老值。
+    //
+    // 用 `PopScope` 而不是给每个入口加钩子：它同时覆盖系统返回、返回按钮、
+    // 以及路由层发出的 pop。用户点「放弃修改」才真的丢，点「继续编辑」留在原页。
+    return PopScope<Object?>(
+      canPop: !_hasUnsavedChanges,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final discard = await _confirmDiscard();
+        if (!mounted || !discard) return;
+        if (context.mounted) Navigator.of(context).pop();
+      },
+      child: _body(context),
+    );
+  }
+
+  /// 问一次"要不要放弃未保存的修改"。默认选**继续编辑**（不丢东西的那一侧）。
+  Future<bool> _confirmDiscard() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('planning-rules-unsaved-dialog'),
+        title: const Text('还有未保存的修改'),
+        content: const Text('离开这一页会丢掉刚才的改动。'),
+        actions: [
+          TextButton(
+            key: const Key('planning-rules-keep-editing'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          TextButton(
+            key: const Key('planning-rules-discard'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    // 点外面关掉对话框按"继续编辑"处理：中断的动作不该等于同意丢弃。
+    return result ?? false;
+  }
+
+  Widget _body(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

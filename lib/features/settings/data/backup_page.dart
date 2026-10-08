@@ -4,6 +4,53 @@ import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/windows/app_restart.dart';
 
+/// 操作失败时给用户看的那句话（M9 补）。
+///
+/// **修的是什么**：这里原来是 `'操作失败：$error'` —— 把异常对象**原样**打进界面。
+/// `BackupService` 自己抛的都是结构化的 `BackupValidationException`（只有 `code`，没有路径），
+/// 那条分支是安全的；但**兜底分支**接的是任意异常：文件被占用、磁盘满、路径无权限这类问题
+/// 会以 `FileSystemException` / `PathAccessException` 的形式冒出来，而 Dart 这些异常的
+/// `toString()` **带着完整路径**，例如
+/// `FileSystemException: Cannot open file, path = 'F:\Documents\personal_planner.sqlite' (OS Error: 拒绝访问。, errno = 5)`。
+/// 那句话会连同用户的目录结构一起出现在界面上——**导出页已经刻意避免这件事**
+/// （`ExportWriteException` 干脆不带任何字段），备份页此前没有。
+///
+/// **做法**：把绝对路径从消息里替换成人话占位，其余信息保留（用户仍能看出是"拒绝访问"还是
+/// "磁盘空间不足"）。这样既不再泄漏路径，也不像"操作失败，请重试"那样把有用信息一起丢掉。
+String backupFailureMessage(Object error) {
+  final sanitized = _redactPaths('$error');
+  return '操作失败：$sanitized';
+}
+
+/// 带引号的绝对路径（Dart 异常的常见写法：`path = '...'` 或 `copy from '...'`）。
+///
+/// **为什么单独一条**：路径里的空格无法与"路径结束后的普通文字"区分开
+/// （`'C:\a b\x' failed` 里 ` failed` 到底算不算路径？），因此带引号的形式**以引号为界**，
+/// 拿到的是最准确的结果。替换时**连引号一起换掉**，否则会剩下两个孤零零的引号。
+final _quotedPath = RegExp("(?:[A-Za-z]:\\\\|\\\\\\\\)[^']*'");
+
+/// 不带引号的绝对路径：盘符（`C:\`）或 UNC（`\\server\share`）开头，
+/// 后面接一个**不含分号、不含引号**的片段。
+///
+/// **为什么按分号断开**：`C:\a\b;C:\c\d` 是"两个路径"，而 `C:\a b\c` 是"一个带空格的路径"。
+/// 用分号（以及逗号、右括号）当分隔符是两者之间最稳的折中：宁可少吞一点，
+/// 也不要把用户目录后面那句解释性文字一起删掉。
+final _barePath = RegExp(
+  r'(?:[A-Za-z]:\\|\\\\)[^;,()'
+  '\r\n]*',
+);
+
+String _redactPaths(String message) {
+  var result = message.replaceAll(_quotedPath, '（用户选择的文件）');
+  result = result.replaceAll(_barePath, '（用户选择的位置）');
+  // 路径被拿掉之后会出现连续空格与悬空的标点，收一下：
+  // `copy from  to  failed` → `copy from to failed`。
+  return result
+      .replaceAll(RegExp(r'\s{2,}'), ' ')
+      .replaceAll(RegExp(r'\s+([,.;])'), r'$1')
+      .trim();
+}
+
 final class BackupPage extends StatefulWidget {
   const BackupPage({
     required this.backups,
@@ -48,7 +95,7 @@ final class _BackupPageState extends State<BackupPage> {
     } on BackupValidationException catch (error) {
       if (mounted) setState(() => _error = '备份验证失败：${error.code}');
     } catch (error) {
-      if (mounted) setState(() => _error = '操作失败：$error');
+      if (mounted) setState(() => _error = backupFailureMessage(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

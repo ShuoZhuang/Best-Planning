@@ -83,6 +83,14 @@ final class TaskService {
   );
 
   final TaskRepository _repository;
+
+  /// 任务仓储本体。
+  ///
+  /// **为什么公开**：M8 的"从设置重新打开首次引导"那一页只需要回答一个问题——
+  /// **用户是否曾经创建过任何任务**（决定首页写"创建第一个任务"还是"再创建一个任务"）。
+  /// 为这一个布尔新增一个服务方法不划算；而 `SettingsService.repository` 早就是公开的，
+  /// 这里与它对称。
+  TaskRepository get repository => _repository;
   final WorkspaceRepository? _workspace;
   final Clock _clock;
   final IdGenerator _idGenerator;
@@ -103,6 +111,12 @@ final class TaskService {
   final void Function(ScheduleInputChange change)? _onScheduleInputChanged;
 
   Stream<List<PlannerTask>> watchOpenTasks() => _repository.watchOpenTasks();
+
+  /// 全部任务的监听流，供任务清单按状态筛选使用。
+  ///
+  /// 与 [watchOpenTasks] 并列暴露，而不是把后者加宽：`watchOpenTasks` 仍是今日页、
+  /// 周视图与排程输入的口径（"未结束"），任务清单则要看得到已完成与已取消的任务。
+  Stream<List<PlannerTask>> watchAllTasks() => _repository.watchAllTasks();
 
   /// 按 id 读取单个任务，不存在时返回 `null`。
   ///

@@ -4,6 +4,9 @@
 // 提醒"预告过这件事。这里把"导航回到 6 项"与"入口页列出已装配的子页"钉住——它们是这一项
 // 的实质，而不只是"多了一个页面"。
 import 'package:flutter/material.dart';
+
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/native.dart';
@@ -330,4 +333,196 @@ void main() {
       reason: '该页装着通知设置；入口不提通知，用户就找不到它',
     );
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // M8（路线图 §12「设置整理」）：按四组分组 + 每个入口展示当前关键值。
+  // 规格：`docs/superpowers/specs/2026-10-07-m8-onboarding-and-settings.md`
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('M8 设置首页按 §12 的四组分组，顺序与原文一致', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: const [
+            SettingsHubEntry(
+              title: '规划项',
+              subtitle: '说明',
+              group: SettingsGroup.planning,
+              onOpen: _noop,
+            ),
+            SettingsHubEntry(
+              title: '外观项',
+              subtitle: '说明',
+              group: SettingsGroup.appearance,
+              onOpen: _noop,
+            ),
+            SettingsHubEntry(
+              title: '隐私项',
+              subtitle: '说明',
+              group: SettingsGroup.notification,
+              onOpen: _noop,
+            ),
+            SettingsHubEntry(
+              title: '数据项',
+              subtitle: '说明',
+              group: SettingsGroup.data,
+              onOpen: _noop,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // §12 原文顺序：规划与时间、外观与交互、通知与隐私、数据与帮助。
+    const expected = ['规划与时间', '外观与交互', '通知与隐私', '数据与帮助'];
+    final positions = [
+      for (final title in expected) tester.getTopLeft(find.text(title)).dy,
+    ];
+    for (var index = 1; index < positions.length; index++) {
+      expect(
+        positions[index],
+        greaterThan(positions[index - 1]),
+        reason: '「${expected[index]}」必须排在「${expected[index - 1]}」下面',
+      );
+    }
+    for (final title in expected) {
+      expect(find.text(title), findsOneWidget, reason: '「$title」这一组标题要在');
+    }
+  });
+
+  testWidgets('M8 没有条目的分组整组不渲染（不留空标题）', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: const [
+            SettingsHubEntry(
+              title: '只有外观',
+              subtitle: '说明',
+              group: SettingsGroup.appearance,
+              onOpen: _noop,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('外观与交互'), findsOneWidget);
+    for (final empty in const ['规划与时间', '通知与隐私', '数据与帮助']) {
+      expect(
+        find.text(empty),
+        findsNothing,
+        reason: '「$empty」里没有任何入口，不该留一个空标题',
+      );
+    }
+  });
+
+  testWidgets('M8 每个入口展示当前关键值（§12 举的例子就是"默认专注 50 分钟"）', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(
+              title: '规划规则与默认值',
+              subtitle: '作息、精力区间……',
+              group: SettingsGroup.planning,
+              // §12 原文举的例子。
+              currentValue: () async => '默认专注 50 分钟',
+              onOpen: _noop,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('默认专注 50 分钟'),
+      findsOneWidget,
+      reason: '设置页的意义就是"不用点进去也能看到现状"',
+    );
+  });
+
+  testWidgets('M8 当前值异步读到：首帧不卡加载态，读到后补上', (tester) async {
+    final completer = Completer<String?>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(
+              title: '外观与材质',
+              subtitle: '切换玻璃强度',
+              group: SettingsGroup.appearance,
+              currentValue: () => completer.future,
+              onOpen: _noop,
+            ),
+          ],
+        ),
+      ),
+    );
+    // 只 pump 一帧：副标题与入口必须**已经可见**，不能为了一个提示把整页卡在加载态。
+    await tester.pump();
+    expect(find.text('切换玻璃强度'), findsOneWidget);
+    expect(find.textContaining('材质：'), findsNothing);
+
+    completer.complete('材质：克制');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('材质：克制'), findsOneWidget);
+  });
+
+  testWidgets('M8 当前值为空时只显示副标题，不显示占位文案', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(
+              title: '窗口与后台',
+              subtitle: '关闭窗口后的行为',
+              group: SettingsGroup.appearance,
+              currentValue: () async => null,
+              onOpen: _noop,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('关闭窗口后的行为'), findsOneWidget);
+    // 「未设置」「未知」这类占位对用户没有用——与本仓库既有的"没有值就不渲染"同一口径。
+    for (final placeholder in const ['未设置', '未知', 'null']) {
+      expect(find.textContaining(placeholder), findsNothing);
+    }
+  });
+
+  testWidgets('M8 读取当前值失败时入口照常可用、不崩', (tester) async {
+    var opened = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsHubPage(
+          entries: [
+            SettingsHubEntry(
+              title: '规划规则与默认值',
+              subtitle: '作息与默认值',
+              group: SettingsGroup.planning,
+              currentValue: () async => throw StateError('设置读不出来'),
+              onOpen: () => opened++,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 与"设置写失败不崩"同一取舍：读不出当前值只是少一行提示，
+    // 不该让整个设置页打不开——那会把一个小故障放大成用不了。
+    expect(tester.takeException(), isNull);
+    expect(find.text('作息与默认值'), findsOneWidget);
+    await tester.tap(find.text('规划规则与默认值'));
+    await tester.pumpAndSettle();
+    expect(opened, 1);
+  });
 }
+
+void _noop() {}

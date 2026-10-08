@@ -13,6 +13,7 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
@@ -46,6 +47,8 @@ import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
+import 'package:personal_planner/application/onboarding_progress.dart';
+import 'package:personal_planner/features/onboarding/onboarding_home_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
@@ -98,6 +101,10 @@ final class PlannerApp extends StatefulWidget {
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
+
+    /// 「跳过本次」产生的待处理跳过（M4，2026-10-07 用户定义）。
+    /// 为空即该入口不显示（测试与未装配排程时）——与 [pendingMoves] 同一口径。
+    this.pendingSkips,
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
     // 本地时间（作息、日界、"今天"是哪一天），而在别的时区只表现为"时间算错"、不报错。
@@ -220,6 +227,10 @@ final class PlannerApp extends StatefulWidget {
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingMoveDrafts? pendingMoves;
 
+  /// 「跳过本次」的落点（M4）。组合根把**同一个实例**也交给
+  /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
+  final PendingSkipDrafts? pendingSkips;
+
   final TimeZoneDatabase? zones;
 
   /// IANA 时区标识。目前由调用方显式给出；自动识别本机时区见偏差登记 R11。
@@ -237,6 +248,28 @@ final class _PlannerAppState extends State<PlannerApp> {
   late final GoRouter _router;
   late final Future<bool> _onboardingRequired;
   bool _onboardingCompleted = false;
+
+  /// M8：引导进度（用户 2026-10-07 定案的四状态）。
+  late final OnboardingProgressStore _onboardingProgress;
+
+  /// M8：启动时读一次"用户是否曾经创建过任何任务"（决定首页文案）。
+  late final Future<bool> _hasExistingTasks;
+
+  /// M8：引导状态的 future。
+  ///
+  /// **不是 `final`**：「跳过引导」之后必须重新解析它。`FutureBuilder` 一旦拿到
+  /// 解析过的值就不会再问，只 `setState` 的话界面会一直显示旧的"进行中"——
+  /// 首页留在屏幕上（实测症状：状态写成 `skipped` 了，界面没动）。
+  late Future<OnboardingProgress> _onboardingState;
+
+  /// M8：进行中时，用户在询问框里选了「继续引导」。
+  bool _onboardingResumeRequested = false;
+
+  /// M8：询问框本次已处理（选了「暂时跳过」），不再显示。
+  bool _onboardingPromptDismissed = false;
+
+  /// M8：用户点了「了解主要界面」，本次要看教程。
+  bool _learnUiRequested = false;
 
   /// 是否该提示新手教程。与 `_onboardingRequired` 同一套路（设置键 + 版本比较）。
   late final Future<bool> _tutorialRequired;
@@ -307,8 +340,36 @@ final class _PlannerAppState extends State<PlannerApp> {
       fallback: widget.appearanceFallback,
     )..addListener(_onAppearanceChanged);
     _appearanceReady = _appearance.load();
+    // ── M8：操作式引导（用户 2026-10-07 定案）────────────────────────────
+    // 四个状态：未开始／进行中／已完成／已跳过。**退出不得冒充完成**——
+    // 因此这里读的是独立于 schemaVersion 的进度键（见 onboarding_progress.dart）。
+    _onboardingProgress = OnboardingProgressStore(
+      settings: _settingsRepository,
+    );
+    _onboardingState = _onboardingProgress.load();
+    // 首页文案要用"是否曾经创建过任何任务"（含已完成／已取消）：
+    // 只看未完成会把"把任务都做完了"的老用户叫成第一次使用。
+    _hasExistingTasks = () async {
+      // 用 `watchAllTasks()`（**全部**任务，不过滤状态）而不是 `watchOpenTasks()`：
+      // 判据是"曾经创建过任何任务"。一个把任务都做完的老用户同样是老用户，
+      // 只看未完成的会把他叫成"创建**第一个**任务"——那正是用户要避免的那句话。
+      // 取第一帧即可：引导首页只需要一个布尔。
+      try {
+        return (await _repository.watchAllTasks().first).isNotEmpty;
+      } on Object {
+        // 读不出来就当没有：只影响一句文案，不该让引导打不开。
+        return false;
+      }
+    }();
+
     _onboardingRequired = () async {
       await _appearanceReady;
+      // **这个布尔只表达一件事：关键默认值还需不需要确认。**
+      //
+      // 原来它只问 schema 版本；中途我一度把"引导还在进行中"也折进来，那是个错误——
+      // 折进来之后 `required` 在确认默认值后**仍然是 true**，于是下面
+      // "首页要排在默认值之后"的判断永远不成立，首页再也出不来（实测症状）。
+      // **一个布尔只承担一个含义**，引导进度由 `_onboardingState` 单独管。
       final value = await _settingsRepository.read(
         OnboardingPage.schemaVersionKey,
       );
@@ -363,6 +424,9 @@ final class _PlannerAppState extends State<PlannerApp> {
               planning: widget.planningService!,
             ),
       autoAdjustStore: widget.autoAdjustStore ?? MemoryAutoAdjustStore(),
+      // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
+      // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。
+      pendingSkips: widget.planningService == null ? null : widget.pendingSkips,
       todayStartUtc: todayStartUtc,
       zones: zones,
       timeZoneId: widget.timeZoneId,
@@ -472,6 +536,55 @@ final class _PlannerAppState extends State<PlannerApp> {
         ),
       );
     }
+    // ── M8：先分派引导状态（用户 2026-10-07 定案）────────────────────────────
+    //
+    // 四个状态各有不同表现，**而"退出不冒充完成"这条最容易在分派里写错**：
+    // 若只用一个 "required?" 布尔，进行中与未开始就没有区别，
+    // 于是"退出后重启"会看起来像"从没开始"，把用户的进度抹掉。
+    return FutureBuilder<OnboardingProgress>(
+      future: _onboardingState,
+      builder: (context, stateSnapshot) {
+        final progress = stateSnapshot.data;
+        if (progress == null) {
+          return _shell(
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
+          );
+        }
+        if (progress.state == OnboardingState.inProgress &&
+            progress.step != _stepGuidedHome &&
+            !_onboardingResumeRequested &&
+            !_onboardingPromptDismissed) {
+          return _shell(
+            _ResumeOnboardingPrompt(
+              // 「继续引导」：接着上次那一步走。
+              onResume: () async {
+                setState(() => _onboardingResumeRequested = true);
+              },
+              // 「重新开始」：**只重置引导进度**。任务、课程与已确认计划都不动
+              // ——它们不在 SettingsRepository 里，`restart()` 也不越界写别的键。
+              onRestart: () async {
+                await _onboardingProgress.restart();
+                if (mounted) {
+                  setState(() => _onboardingResumeRequested = true);
+                }
+              },
+              // 「暂时跳过」：只跳过本次。状态**保持进行中**，下次启动仍会问。
+              onSnooze: () async {
+                await _onboardingProgress.snooze();
+                if (mounted) {
+                  setState(() => _onboardingPromptDismissed = true);
+                }
+              },
+            ),
+          );
+        }
+        return _buildGate(context, progress);
+      },
+    );
+  }
+
+  /// 引导状态分派之后的闸门：关键默认值 → 操作式引导 → 新手教程。
+  Widget _buildGate(BuildContext context, OnboardingProgress progress) {
     return FutureBuilder<bool>(
       future: _onboardingRequired,
       builder: (context, snapshot) {
@@ -488,7 +601,76 @@ final class _PlannerAppState extends State<PlannerApp> {
           return _shell(
             OnboardingPage(
               repository: _settingsRepository,
-              onComplete: () => setState(() => _onboardingCompleted = true),
+              onComplete: () async {
+                // **确认关键默认值 ≠ 引导走完了**（M8，用户 2026-10-07 定案）。
+                // 这一步之后还有"操作式引导"（建任务／导入课表／看界面），
+                // 因此把进度记成**进行中**并落到 `guidedHome`，而不是直接标完成。
+                // 若只记 `_onboardingCompleted`，重启后状态仍是 notStarted，
+                // 用户会被要求"再确认一次默认值"。
+                await _onboardingProgress.advanceTo(_stepGuidedHome);
+                if (mounted) {
+                  setState(() => _onboardingCompleted = true);
+                }
+              },
+            ),
+          );
+        }
+        // ── M8：操作式引导首页（用户 2026-10-07 定案）────────────────────────
+        //
+        // 只在**进行中且关键默认值已确认**时出现。已完成／已跳过都直接进主界面——
+        // 这就是用户要的"跳过不会反复打扰"。
+        //
+        // **为什么必须带上 `!required`**：`required` 为真表示"关键默认值还没确认"，
+        // 那一步排在首页**之前**（用户顺序：先定值，再讲用法）。
+        // 少了这一条，`notStarted`（默认值还没确认）会被当成"可以开始操作了"
+        // 而跳到首页或主界面，默认值页被整个跳过——实测就是这个症状。
+        if (!required && progress.state == OnboardingState.inProgress) {
+          return FutureBuilder<bool>(
+            future: _hasExistingTasks,
+            builder: (context, tasksSnapshot) {
+              if (tasksSnapshot.data == null) {
+                return _shell(
+                  const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  ),
+                );
+              }
+              return _shell(
+                OnboardingHomePage(
+                  hasExistingTasks: tasksSnapshot.data!,
+                  onCreateTask: () => _router.go('/tasks/new'),
+                  onImportTimetable: () => _router.go('/calendar/import'),
+                  onLearnUi: () => setState(() => _learnUiRequested = true),
+                  onSkip: () async {
+                    await _onboardingProgress.skip();
+                    if (!mounted) return;
+                    // **必须重建那个 future**：`_onboardingState` 是 `late final`，
+                    // 一旦解析就不会再变。只 `setState` 的话 `FutureBuilder` 仍然拿着
+                    // 旧的 `completed` 值，首页会**留在屏幕上**——实测就是这个症状
+                    // （点了跳过、状态也写成 skipped，但界面没动）。
+                    setState(() {
+                      _onboardingState = _onboardingProgress.load();
+                    });
+                  },
+                ),
+              );
+            },
+          );
+        }
+        // 「了解主要界面」＝既有的截图教程。**不删除任何现有帮助材料**：
+        // 它同时也是设置里的"随时重看"入口。
+        if (_learnUiRequested && !_tutorialCompleted) {
+          return _shell(
+            TutorialPage(
+              onComplete: () async {
+                await _markTutorialSeen();
+                if (mounted) {
+                  setState(() {
+                    _tutorialCompleted = true;
+                    _learnUiRequested = false;
+                  });
+                }
+              },
             ),
           );
         }
@@ -592,12 +774,25 @@ final class _MemoryTaskRepository implements TaskRepository {
     } else {
       _tasks[index] = task;
     }
-    _changes.add(List.unmodifiable(_openTasks()));
+    // 发**全量**任务：两个监听流各自过滤。此前这里发的是已过滤的未结束任务，
+    // 于是任何"要看到已完成任务"的消费者都拿不到它们——那种过滤只在生产 DAO 里
+    // 由 SQL 承担，内存实现必须自己保持同一份语义。
+    _changes.add(List.unmodifiable(_tasks));
   }
 
   @override
   Stream<List<PlannerTask>> watchOpenTasks() async* {
     yield List.unmodifiable(_openTasks());
+    yield* _changes.stream.map(
+      (tasks) =>
+          List.unmodifiable(tasks.where((task) => !task.status.isClosed)),
+    );
+  }
+
+  /// 与生产 `TaskDao.watchAll` 同一口径：**不做任何状态过滤**。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() async* {
+    yield List.unmodifiable(_tasks);
     yield* _changes.stream;
   }
 
@@ -649,4 +844,86 @@ final class _MemoryWorkspaceRepository implements WorkspaceRepository {
       _projects[index] = project;
     }
   }
+}
+
+/// M8：引导首页那一步的步骤标识。
+///
+/// 存字符串（不是枚举）是刻意的：步骤会在实现里增删，枚举会让"旧值不再存在"
+/// 变成一次读取失败，而字符串不认识就当没存过。
+const _stepGuidedHome = 'guidedHome';
+
+/// M8「上次的新手引导还没有完成」询问框（用户 2026-10-07 定案）。
+///
+/// 用户给的界面就是这三颗按钮：
+/// ```
+/// [继续引导] [重新开始] [暂时跳过]
+/// ```
+///
+/// **三个动作的语义必须分清**（这是本页唯一容易做错的地方）：
+/// · **继续引导** —— 接着上次那一步走；
+/// · **重新开始** —— 只重置**引导进度**，回到第一步。任务、课程与已确认计划都不动；
+/// · **暂时跳过** —— 只跳过**这一次**，状态保持「进行中」，下次启动仍会问。
+///   它与引导里的「跳过引导」（改为「已跳过」、以后不再自动弹）**不是一回事**。
+final class _ResumeOnboardingPrompt extends StatelessWidget {
+  const _ResumeOnboardingPrompt({
+    required this.onResume,
+    required this.onRestart,
+    required this.onSnooze,
+  });
+
+  final Future<void> Function() onResume;
+  final Future<void> Function() onRestart;
+  final Future<void> Function() onSnooze;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(
+                Icons.play_circle_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '上次的新手引导还没有完成',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '「重新开始」只会重置引导进度，已经建好的任务、导入的课表和已确认的计划都会保留。',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 28),
+              FilledButton(
+                key: const Key('onboarding-resume'),
+                onPressed: onResume,
+                child: const Text('继续引导'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                key: const Key('onboarding-restart'),
+                onPressed: onRestart,
+                child: const Text('重新开始'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                key: const Key('onboarding-snooze'),
+                onPressed: onSnooze,
+                child: const Text('暂时跳过'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
