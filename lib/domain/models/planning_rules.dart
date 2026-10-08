@@ -57,6 +57,7 @@ final class PlanningRules {
     this.minChunkMinutes = 30,
     this.maxChunkMinutes = 90,
     this.granularityMinutes = 5,
+    this.courseTransitionMinutes = 10,
   }) : energyWindows = UnmodifiableListView(energyWindows),
        protectedTimes = UnmodifiableListView(protectedTimes) {
     _requirePositive(minimumSleepMinutes, 'minimumSleepMinutes');
@@ -73,6 +74,7 @@ final class PlanningRules {
       throw ArgumentError('Minimum chunk cannot exceed maximum chunk.');
     }
     _requirePositive(granularityMinutes, 'granularityMinutes');
+    _requireNonNegative(courseTransitionMinutes, 'courseTransitionMinutes');
     if (dailyMovableTaskLimitMinutes > LocalTimeRange.minutesPerDay) {
       throw ArgumentError('The daily movable task limit cannot exceed a day.');
     }
@@ -90,6 +92,21 @@ final class PlanningRules {
   final int maxChunkMinutes;
   final int granularityMinutes;
 
+  /// **课表课程结束后留出的缓冲分钟**（用户 2026-10-08 提出）。
+  ///
+  /// 用户原话："课表课程后十分钟不安排计划，我上完课要离开教室，肯定不可能直接接续啊。"
+  ///
+  /// **只对 `CalendarEventSourceKind.timetableImport` 的事件生效**——这是用户明确要求的范围：
+  /// 课表导入的课要留移动时间，自己建的会议不用。两者的区别在数据里本来就有
+  /// （`CalendarEvent.sourceKind` / `importBatchId` / `logicalCourseId`），因此不需要新增字段，
+  /// 也不需要让用户逐个日程去填。
+  ///
+  /// **只加在课程结束后，不加在开始前**：用户明确说"课与课之间不需要考虑，因为课表本身就会
+  /// 留出时间"。加在两侧会让两节课之间叠加成 20 分钟，而真实体感是一次移动。
+  ///
+  /// 默认 10 分钟；`0` 表示关闭。上界由 `_requireNonNegative` 保证非负。
+  final int courseTransitionMinutes;
+
   PlanningRules copyWith({
     List<EnergyWindow>? energyWindows,
     List<ProtectedTimeRule>? protectedTimes,
@@ -102,6 +119,7 @@ final class PlanningRules {
     int? minChunkMinutes,
     int? maxChunkMinutes,
     int? granularityMinutes,
+    int? courseTransitionMinutes,
   }) => PlanningRules(
     energyWindows: energyWindows ?? this.energyWindows,
     protectedTimes: protectedTimes ?? this.protectedTimes,
@@ -116,6 +134,8 @@ final class PlanningRules {
     minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
     maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
     granularityMinutes: granularityMinutes ?? this.granularityMinutes,
+    courseTransitionMinutes:
+        courseTransitionMinutes ?? this.courseTransitionMinutes,
   );
 }
 

@@ -18,6 +18,7 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/scheduling/course_transition.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -187,12 +188,13 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         if (!schedulableIds.contains(block.taskId)) continue;
         final move = drafts.forBlock(block.id);
         if (move == null) continue;
-        final target = _sameLocalClockOn(
-          move.localDate,
-          block.range,
-          zones,
-          timeZoneId,
-        );
+        final targetStartUtc = move.targetStartUtc;
+        final target = targetStartUtc == null
+            ? _sameLocalClockOn(move.localDate!, block.range, zones, timeZoneId)
+            : TimeRange(
+                startUtc: targetStartUtc,
+                endUtc: targetStartUtc.add(block.range.duration),
+              );
         if (target == null) continue;
         pinnedByBlockId[block.id] = PlannedBlock(
           id: block.id,
@@ -230,7 +232,16 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 剩余时长也不在这里动——已专注的部分由既有的专注重算扣减，不重算。
       tasks: schedulable,
       fixedIntervals: [
-        for (final occurrence in occurrences)
+        // 课表课程结束后留缓冲（用户 2026-10-08 需求）：把课的结束时间往后推
+        // `courseTransitionMinutes`，于是那几分钟变成"被占用"，排程器不会把计划块紧贴在
+        // 下课那一刻——用户上完课要离开教室，不可能直接接续。
+        //
+        // 只对 `timetableImport` 来源的事件生效；自己建的会议不受影响（用户明确划的范围）。
+        // 判定与边界见 `lib/scheduling/course_transition.dart` 与它的 9 条用例。
+        for (final occurrence in applyCourseTransition(
+          occurrences,
+          transitionMinutes: resolvedRules.courseTransitionMinutes,
+        ))
           BusyInterval(id: occurrence.eventId, range: occurrence.range),
       ],
       protectedIntervals: protectedTimes.expand(
