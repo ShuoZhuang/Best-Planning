@@ -49,6 +49,28 @@ final class AvailabilityBuilder {
 
   final TimeZoneDatabase _zones;
 
+  /// 构造规划窗口内的**全部真实空闲区间**，按本地日期切片。
+  ///
+  /// ## 不再按每日上限截断候选时间轴（1.7.1 修复，计划 §2.4 / Task 2）
+  ///
+  /// 此前这里把 `dailyMovableTaskLimitMinutes` 当成"最多保留多少分钟空闲候选"，
+  /// 从清晨开始依次消费：一天上限 360 分钟时，前 360 分钟空闲被保留，**后面的空闲区间
+  /// 直接不进入候选集**。
+  ///
+  /// 三条理由说明那不是这条规则的含义：
+  ///
+  /// 1. **上限约束的是最终结果，不是可见性。** 它的语义是"这一天最终安排的可移动任务总时长
+  ///    不超过 N"，而 `PlanValidator` 早就是这条约束的最终防线（按未锁定块汇总）。
+  ///    在构造阶段把它当预算花掉，等于用"少看见一些空档"来实现一条本该在结果上校验的规则。
+  /// 2. **候选可见性会依赖空档顺序。** 同样是一天 540 分钟空闲，拆成"早中晚三段各 180"
+  ///    与"一整段 540"，旧实现给出的候选集完全不同——而真实可用时间是一样的。
+  /// 3. **用户看到的空闲与引擎能选的空闲必须一致。** 界面按真实空闲画，引擎按截断后的候选
+  ///    排，于是"这块明明空着，为什么排不进去"就成了无法解释的现象。
+  ///
+  /// 因此现在只做四件事：规划窗口裁剪、固定/保护/睡眠/锁定区间扣除、粒度对齐、本地日期切片。
+  ///
+  /// **注意 `chargedMovableBlocks` 仍然扣除**：它们占住时间（候选不会压上去），而它们计入
+  /// 每日上限的事由 `ScheduleEngine` 与 `PlanValidator` 负责——见 `AvailabilityInput` 的说明。
   List<AvailabilitySlot> build(AvailabilityInput input) {
     final busy = _merge(
       [
@@ -63,19 +85,6 @@ final class AvailabilityBuilder {
     );
 
     final output = <AvailabilitySlot>[];
-    // 已占住时间、但落地为未锁定的块先记到它们**起点所在**的本地日上，与
-    // `PlanValidator` 的统计口径逐字一致（同样取起点本地日、同样算整段时长）。
-    final chargedByLocalDate = <String, int>{};
-    for (final range in input.chargedMovableBlocks) {
-      final localDate = _dateOnly(
-        _zones.toLocal(range.startUtc, input.timeZoneId),
-      );
-      chargedByLocalDate.update(
-        _dateKey(localDate),
-        (value) => value + range.durationMinutes,
-        ifAbsent: () => range.durationMinutes,
-      );
-    }
     var localDate = _dateOnly(
       _zones.toLocal(input.planningWindow.startUtc, input.timeZoneId),
     );
@@ -85,6 +94,7 @@ final class AvailabilityBuilder {
         input.timeZoneId,
       ),
     );
+    final granularity = input.rules.granularityMinutes;
 
     while (!localDate.isAfter(lastLocalDate)) {
       final dayStart = _zones.localMidnightToUtc(localDate, input.timeZoneId);
@@ -99,29 +109,21 @@ final class AvailabilityBuilder {
             .map((range) => _intersection(range, dayWindow))
             .nonNulls
             .toList();
-        final free = _complement(dayWindow, dayBusy);
-        var remaining =
-            input.rules.dailyMovableTaskLimitMinutes -
-            (chargedByLocalDate[_dateKey(localDate)] ?? 0);
-        for (final range in free) {
-          if (remaining <= 0) break;
+        for (final range in _complement(dayWindow, dayBusy)) {
+          // 粒度对齐只缩短**尾部**：空闲区间的起点不动，因此候选起点仍然落在真实空闲内。
+          // 对齐后不足一个粒度的碎片直接丢弃——它连最小片段都放不下。
           final alignedMinutes =
-              (range.durationMinutes ~/ input.rules.granularityMinutes) *
-              input.rules.granularityMinutes;
-          final usedMinutes = alignedMinutes < remaining
-              ? alignedMinutes
-              : remaining;
-          if (usedMinutes <= 0) continue;
+              (range.durationMinutes ~/ granularity) * granularity;
+          if (alignedMinutes <= 0) continue;
           output.add(
             AvailabilitySlot(
               localDate: localDate,
               range: TimeRange(
                 startUtc: range.startUtc,
-                endUtc: range.startUtc.add(Duration(minutes: usedMinutes)),
+                endUtc: range.startUtc.add(Duration(minutes: alignedMinutes)),
               ),
             ),
           );
-          remaining -= usedMinutes;
         }
       }
       localDate = nextDate;
@@ -222,7 +224,3 @@ TimeRange? _intersection(TimeRange a, TimeRange b) {
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
-
-/// 与 `PlanValidator` 的每日上限统计用的键保持同一形状。
-String _dateKey(DateTime localDate) =>
-    '${localDate.year}-${localDate.month}-${localDate.day}';

@@ -243,6 +243,17 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
               );
               continue;
             }
+            if (_exceedsMovableDailyLimit(problem, candidate, blocks)) {
+              recordRejection(
+                task.id,
+                UnscheduledReason(
+                  code: UnscheduledReasonCode.dailyLimitReached,
+                  requiredMinutes: candidate.durationMinutes,
+                  availableMinutes: problem.rules.dailyMovableTaskLimitMinutes,
+                ),
+              );
+              continue;
+            }
             if (_violatesRestGap(problem, task, candidate, blocks)) {
               recordRejection(
                 task.id,
@@ -591,6 +602,48 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     return planned + candidate.durationMinutes > quota;
   }
 
+  /// **每日可移动任务上限的统一判定**（1.7.1 计划 §2.4 / Task 2 Step 4）。
+  ///
+  /// 这条规则此前只由两处间接实现：`AvailabilityBuilder` 把上限当成"最多保留多少分钟候选"
+  /// 从清晨开始消费（已删除），以及 `PlanValidator` 在整份提案上做最终校验。前者用"少看见一些
+  /// 空档"来实现一条本该在**结果**上校验的规则，于是候选可见性依赖空档顺序，且用户看到的空闲
+  /// 与引擎能选的空闲不一致。
+  ///
+  /// 现在在**选块时**检查它，初次放置与局部改进共用同一个函数——两处各写一遍必然会漂移，
+  /// 而漂移的后果是"初次遵守、改进后超限"。
+  ///
+  /// ## 口径必须与 `PlanValidator` 一致
+  ///
+  /// 按候选起点所属**本地日期**汇总，与 `PlanValidator` 逐个字段对齐：
+  /// - 只算**未锁定**块；
+  /// - 但生成过程中为了固定位置而临时标成 `locked`、且 id 位于
+  ///   `problem.pinnedUnlockedBlockIds` 的块**仍然计入**——否则会出现
+  ///   "引擎认为没超、恢复 `locked: false` 后 `PlanValidator` 报 `dailyLimitExceeded`"，
+  ///   把一次合法提案判为无效。
+  bool _exceedsMovableDailyLimit(
+    ScheduleProblem problem,
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks,
+  ) {
+    final limit = problem.rules.dailyMovableTaskLimitMinutes;
+    if (limit >= LocalTimeRange.minutesPerDay) return false;
+    final zoneId = problem.timeZoneId;
+    final localDate = candidate.localDate;
+    var planned = 0;
+    for (final block in blocks) {
+      final movable =
+          !block.locked || problem.pinnedUnlockedBlockIds.contains(block.id);
+      if (!movable) continue;
+      final local = _zones.toLocal(block.startUtc, zoneId);
+      if (local.year == localDate.year &&
+          local.month == localDate.month &&
+          local.day == localDate.day) {
+        planned += block.durationMinutes;
+      }
+    }
+    return planned + candidate.durationMinutes > limit;
+  }
+
   /// 同一任务在该候选所在本地日是否已有其它片段。
   /// 设计 §9.4 的"同一任务片段的连续性"：把同一任务的片段聚合在同一天内，
   /// 比分散到多天更利于连续推进。注意本规则与片段间休息并不冲突——休息要求
@@ -823,6 +876,10 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         if (operations++ >= localImprovementOperationBudget) break;
         if (_overlapsAny(candidate.range, others)) continue;
         if (_violatesRestGap(problem, task, candidate, others)) continue;
+        // 局部改进也必须守每日可移动上限：`others` **已经排除了当前这一块本身**，
+        // 因此这里问的正是"把它搬到候选位置后，那一天会不会超限"。
+        // 少了这一条，初次放置摊开的结果会在改进阶段被重新堆回同一天。
+        if (_exceedsMovableDailyLimit(problem, candidate, others)) continue;
         final score = _scoreCandidate(
           problem,
           task,
