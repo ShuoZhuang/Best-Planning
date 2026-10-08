@@ -12,7 +12,7 @@ part 'app_database.g.dart';
 /// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
 /// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
 /// 已经打开的连接之后。放在这里让两处共用同一个数字。
-const int plannerSchemaVersion = 7;
+const int plannerSchemaVersion = 8;
 
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
@@ -95,7 +95,7 @@ class AppDatabase extends _$AppDatabase {
   /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
   /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -122,6 +122,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 7 && to >= 7) {
         await _upgradeToV7(migrator);
       }
+      if (from < 8 && to >= 8) {
+        await _upgradeToV8();
+      }
     },
     beforeOpen: (details) async {
       if (enforceForeignKeys) {
@@ -143,6 +146,55 @@ class AppDatabase extends _$AppDatabase {
     await migrator.createTable(recurringTaskTemplates);
     await migrator.createTable(recurringTaskCycles);
     await _createRecurringTaskIndexes();
+  }
+
+  /// v8：修复**存量的非法片段设置**（路线图 Task 12A Step 4）。
+  ///
+  /// 缺陷来源已由服务层堵住（`TaskService._normalizeChunks` 在保存时夹紧），但那管不到**已经
+  /// 存进库里**的行。v7 及以前，`TaskDraft` 收什么存什么，而 `PlannerTask` 只校验
+  /// `min > 0` 且 `min <= max`——它不知道任务总时长。于是库里可能存在两类自相矛盾的记录：
+  ///
+  /// 1. `min_chunk_minutes > max_chunk_minutes`（用户把两个框填反后保存成功）；
+  /// 2. 片段上下限**超过任务总时长**（把预计时长从 120 分钟改成 15 分钟后，片段仍是 30–90）。
+  ///
+  /// 第 2 类会让候选生成一个片段都产不出来，任务于是既出现在"新增"里又出现在"未安排"里。
+  ///
+  /// **只夹紧片段两列，别的一律不动。** 任务的剩余时长、截止时间、开始时间、优先级、标题与备注
+  /// 全部保持原值——这次迁移的正当理由只有一条："片段范围本身自相矛盾"。顺手改写"还剩多少工作"
+  /// 或用户文本会让一次数据结构修复变成一次静默的数据变更，那是用户无从察觉的损失。
+  /// `schema_migration_test` 里有逐列比对守着这一点。
+  ///
+  /// 夹紧规则与 `TaskService._normalizeChunks` 一致，并且**先修 min > max 再夹上限**：
+  /// 先夹上限会让 `min > max` 的行得到 `min > 夹过的 max`，第二步又得再夹一次 min。
+  ///
+  /// 对 `recurring_task_templates` 用 `target_minutes` 作上限（那是模板的"总时长"）。
+  /// 周期模板的片段范围同样是矛盾的来源，且它比任务更早——模板是生成任务的输入。
+  Future<void> _upgradeToV8() async {
+    // 1) 上限不得小于下限（把两列填反的行扶正）。
+    await customStatement(
+      'UPDATE tasks SET max_chunk_minutes = min_chunk_minutes '
+      'WHERE max_chunk_minutes < min_chunk_minutes',
+    );
+    await customStatement(
+      'UPDATE recurring_task_templates SET max_chunk_minutes = min_chunk_minutes '
+      'WHERE max_chunk_minutes < min_chunk_minutes',
+    );
+    // 2) 两列都不得超过总时长。`estimated_minutes` / `target_minutes` 恒为正
+    //    （建表时就有 CHECK），因此这里不需要处理"总时长为 0"的除零式边界。
+    await customStatement(
+      'UPDATE tasks SET '
+      'min_chunk_minutes = MIN(min_chunk_minutes, estimated_minutes), '
+      'max_chunk_minutes = MIN(max_chunk_minutes, estimated_minutes) '
+      'WHERE min_chunk_minutes > estimated_minutes '
+      '   OR max_chunk_minutes > estimated_minutes',
+    );
+    await customStatement(
+      'UPDATE recurring_task_templates SET '
+      'min_chunk_minutes = MIN(min_chunk_minutes, target_minutes), '
+      'max_chunk_minutes = MIN(max_chunk_minutes, target_minutes) '
+      'WHERE min_chunk_minutes > target_minutes '
+      '   OR max_chunk_minutes > target_minutes',
+    );
   }
 
   /// 周期目标表的索引。

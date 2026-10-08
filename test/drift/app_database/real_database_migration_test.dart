@@ -102,7 +102,7 @@ void main() {
     }
   });
 
-  group('路线图 §12：真实 v6 数据升级到 v7', () {
+  group('路线图 §12：真实 v6 数据升级到最新 schema', () {
     late Directory scratch;
 
     setUp(() async {
@@ -123,7 +123,7 @@ void main() {
       expect(
         _scalarInt(executor, 'PRAGMA user_version'),
         6,
-        reason: '前置条件：真实备份必须是 v6，否则这条用例证明不了 v6 → v7',
+        reason: '前置条件：真实备份必须是 v6，否则这条用例证明不了 v6 → 最新版',
       );
       // 防空跑：一个空的 v6 库也能"迁移成功"，却什么也没证明。
       expect(
@@ -176,7 +176,7 @@ void main() {
       );
     });
 
-    test('真实 v6 库打开后升到 v7：一行不少、外键干净、新表可用', () async {
+    test('真实 v6 库打开后升到最新 schema：一行不少、外键干净、新表可用', () async {
       if (backup == null) {
         markTestSkipped('找不到 planner-backup.zip');
         return;
@@ -210,8 +210,8 @@ void main() {
 
       expect(
         _scalarInt(after, 'PRAGMA user_version'),
-        7,
-        reason: '迁移后磁盘上的 user_version 必须是 7',
+        plannerSchemaVersion,
+        reason: '迁移后磁盘上的 user_version 必须等于当前 schema 版本',
       );
 
       // ① **一张表都没少**，且每张旧表的行数逐个相等。用 map 相等而不是只比总数：
@@ -261,14 +261,14 @@ void main() {
       expect(readBack.read<int>('target_minutes'), 180);
     });
 
-    test('已经升到 v7 的库不会重复迁移，也不会再生成快照', () async {
+    test('已经升到最新 schema 的库不会重复迁移，也不会再生成快照', () async {
       if (backup == null) {
         markTestSkipped('找不到 planner-backup.zip');
         return;
       }
       final source = await _extractBackupDatabase(backup, scratch);
 
-      // 第一次：v6 → v7。
+      // 第一次：v6 → 最新 schema（本应用是 v8，链式两步）。
       final first = AppDatabase.openDefault(
         databasePath: source.path,
         // 显式给出临时目录：默认实现会去问 path_provider（另一个 MethodChannel），
@@ -306,7 +306,7 @@ void main() {
       final after = _openReadOnly(source.path);
       addTearDown(after.close);
       expect(_rowCounts(after), countsBefore, reason: '重复打开不得改动数据');
-      expect(_scalarInt(after, 'PRAGMA user_version'), 7);
+      expect(_scalarInt(after, 'PRAGMA user_version'), plannerSchemaVersion);
     });
   });
 }

@@ -79,8 +79,12 @@ void main() {
     );
   });
 
-  test('v7 及更高版本的库不再重复备份', () async {
-    final path = await writeDatabaseAtVersion(7);
+  test('已经是最新 schema 版本的库不再备份（没有升级可保护）', () async {
+    // **这条原先写死 `writeDatabaseAtVersion(7)`**：当时 v7 恰好就是目标版本，于是"已是最新"
+    // 与"v7"是同一个集合，用例读起来像是在测"v7 不备份"。v8 一来它就失败了——而生产逻辑
+    // 从来没变过（`currentVersion >= targetSchemaVersion` 返回 null）。所以这里改成直接表达
+    // 那条**不变量**：版本已经到目标时，没有升级可保护，因此不生成快照。
+    final path = await writeDatabaseAtVersion(plannerSchemaVersion);
     expect(
       await createPreMigrationSnapshotIfNeeded(
         path,
@@ -90,7 +94,7 @@ void main() {
       isNull,
     );
 
-    final newer = await writeDatabaseAtVersion(9);
+    final newer = await writeDatabaseAtVersion(plannerSchemaVersion + 2);
     expect(
       await createPreMigrationSnapshotIfNeeded(
         newer,
@@ -212,6 +216,6 @@ void main() {
     // 两处必须是同一个数字：装配层在**打开连接之前**问不到实例，只能读常量；
     // 常量与 `schemaVersion` 漂移的后果是"该备份时不备份"，而那条规则正是本文件守护的。
     expect(database.schemaVersion, plannerSchemaVersion);
-    expect(plannerSchemaVersion, 7);
+    expect(plannerSchemaVersion, 8);
   });
 }

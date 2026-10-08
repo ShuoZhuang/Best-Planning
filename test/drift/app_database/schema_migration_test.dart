@@ -51,9 +51,9 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('generated schema includes weekly-goal version 7', () {
-    expect(GeneratedHelper.versions.last, 7);
-    expect(plannerSchemaVersion, 7);
+  test('generated schema includes the chunk-range repair version 8', () {
+    expect(GeneratedHelper.versions.last, 8);
+    expect(plannerSchemaVersion, 8);
   });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
