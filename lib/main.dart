@@ -7,6 +7,7 @@ import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/analytics_chart_preference_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
+import 'package:personal_planner/application/app_version_provider.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
@@ -153,10 +154,19 @@ Future<void> main() async {
     rethrow;
   }
   // 数据备份页所需的服务（W3 的最后一条缺失路由）。它依赖真实的数据库路径，因此在这里装。
+  //
+  // `versions` 是**运行时版本的真实来源**（1.7，路线图 §3.6 / Task 10）：清单里记的应该是
+  // "用户装的这个构建"报出来的号，而不是源码里抄的一行。读不出来时装配层自己回落到常量。
+  final appVersions = const PackageInfoAppVersionProvider();
   final backups = await buildBackupService(
     database: database,
     clock: clock,
     databasePath: databasePath,
+    versions: () async {
+      final version = await appVersions.currentVersion();
+      // 读不出来时返回空串，由装配层回落到常量——**不在这里编一个号**。
+      return version?.toString() ?? '';
+    },
   );
   final taskRepository = DriftTaskRepository(database.taskDao);
   final calendarRepository = DriftCalendarRepository(database);

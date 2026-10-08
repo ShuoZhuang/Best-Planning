@@ -14,11 +14,20 @@ import 'package:sqlite3/sqlite3.dart';
 
 /// 应用的版本号，写进备份清单。
 ///
-/// **必须与 `pubspec.yaml` 的 `version` 手工保持一致**：本项目没有 `package_info` 一类依赖，
-/// 运行时读不到真实版本。这是**已知的诚实下限**——清单里记的是这个常量，而不是假装它自动
-/// 跟随构建。日后若加入版本读取依赖，只需改这一处。
+/// **它是构建期抄的一行，不是运行时的真实版本**。项目的版本规则是"`pubspec.yaml` 是唯一数值
+/// 来源"，而 `pubspec.yaml` 只在构建时可见，因此这个常量必须手工跟随它——这条"手工一致"由
+/// `test/app/version_consistency_test.dart` 守着，漂移了测试会红。
 ///
-/// 这条"手工一致"由 `test/app/version_consistency_test.dart` 守着——漂移了测试会红。
+/// **1.7 起它不再是"用户装的是哪个构建"的答案**（路线图 §3.6 / Task 10）：更新检查改用
+/// `AppVersionProvider`（`package_info_plus`，读安装包元数据）。这个常量保留下来只做两件事：
+///   ① 作为 [buildBackupService] **没有**注入版本提供者时的回落值（测试与平台通道不可用的
+///      降级路径）；
+///   ② 作为设置页底部展示的"软件版本"，那里显示的就是这份构建里的号。
+///
+/// **为什么不同时把设置页也改成读安装包元数据**：两者显示的号对同一份构建必然相同（一致性由
+/// 上面那条测试守着），而设置页是**同步渲染**的——为一个显示值引入一个异步来源，会让首帧少一行
+/// 或多一次重建。更新判定是另一回事：错了会导致"永远说已是最新"，因此那一处必须读真实元数据。
+///
 /// 版本规则与历史回填见 `docs/release/version-policy.md`。
 const appVersion = '1.6.2+37';
 
@@ -222,10 +231,18 @@ Future<void> applyPendingRestoreFor(String databasePath) async {
 }
 
 /// 装配备份服务（W3 最后一条缺失路由：数据备份页）。
+///
+/// [versions] 是**运行时版本的读取方式**（路线图 §3.6 / Task 10）。它返回一个字符串而不是
+/// `AppVersion`，是刻意的：这一层只负责往清单里写一个号，不需要认识版本语义；调用方（组合根）
+/// 从 `AppVersionProvider` 读出真实安装版本，`toString()` 之后就交过来。
+///
+/// **为空时回落到 [appVersion]**，因此既有调用方与全部既有备份用例都不必改；而注入了就优先信
+/// 注入的那个——**安装包元数据比源码里抄的一行更接近"用户装的是哪个构建"**。
 Future<BackupService> buildBackupService({
   required AppDatabase database,
   required Clock clock,
   required String databasePath,
+  Future<String> Function()? versions,
 }) async {
   return BackupService(
     database: _DeferredLifecycle(
@@ -235,7 +252,7 @@ Future<BackupService> buildBackupService({
     archives: const BackupArchiveAdapter(),
     hashes: const Sha256FileHashAdapter(),
     clock: clock,
-    appVersion: appVersion,
+    appVersion: await _resolveAppVersion(versions),
     // "全部设置序列化"：设置表本身就是 key → JSON 字符串，因此直接导出整表。逐键枚举会随
     // 新增设置**静默漏键**，而备份恰恰是"以后要能读回来"的东西。
     settingsJson: () async {
@@ -243,6 +260,24 @@ Future<BackupService> buildBackupService({
       return jsonEncode({for (final row in rows) row.key: row.jsonValue});
     },
   );
+}
+
+/// 解析要写进清单的版本号：优先注入的来源，读不出来时回落常量。
+///
+/// **读失败必须回落而不是抛**：备份是用户在"怕丢数据"时做的事，为一个显示用的版本号让整次
+/// 备份失败是本末倒置。回落值虽然来自源码，但它至少是一个真实的发布号（由
+/// `version_consistency_test` 守着与 `pubspec.yaml` 一致）。
+///
+/// **空串也回落**：一个空版本号比一个可能过期的版本号更糟——它会静默丢掉"这份备份来自哪个
+/// 版本"这条信息，而恢复时正是靠它判断兼容性。
+Future<String> _resolveAppVersion(Future<String> Function()? versions) async {
+  if (versions == null) return appVersion;
+  try {
+    final value = await versions();
+    return value.isEmpty ? appVersion : value;
+  } on Object {
+    return appVersion;
+  }
 }
 
 /// 备份与**永久清除**用的数据库生命周期端口：**读取型操作复用既有适配器，破坏性操作改为

@@ -1,8 +1,14 @@
 // 版本号散在三处，其中一处是**硬编码在源码里的常量**——这个文件守它们的一致性。
 //
-// 背景：本项目没有 `package_info` 一类依赖，运行时读不到真实版本，于是
+// 背景：本项目此前没有 `package_info` 一类依赖，运行时读不到真实版本，于是
 // `lib/app/backup_assembly.dart` 的 `appVersion` 只能手工跟随 `pubspec.yaml`，而它会被写进
 // **备份清单**。漂移的后果不是"显示不好看"，而是备份里记着一个对不上任何发布号的版本。
+//
+// **1.7 起这条手工一致有了第二条防线**（路线图 §3.6 / Task 10）：更新检查的"当前版本"改从
+// **安装包元数据**读（`package_info_plus`），手写常量不再参与任何"要不要提示更新"的判断——
+// 因为那个数字一旦漂移，表现是"明明有新版本却一直说已是最新"，用户完全看不出原因。
+// 下面最后两条用例分别守这两条：**清单里的常量仍与 pubspec 一致**，且
+// **更新检查不再依赖那个常量**。
 //
 // 规则见 `docs/release/version-policy.md`：`pubspec.yaml` 是唯一数值来源；`msix_version` 必须是
 // 四段式且前三段与它一致（`Add-AppxPackage` 只认四段式，且不接受降级）。
@@ -10,6 +16,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
+import 'package:personal_planner/application/app_version_provider.dart';
+import 'package:personal_planner/domain/models/app_update.dart';
 
 /// 在 pubspec.yaml 里按行取一个标量。用"整行匹配"而不是全局搜，避免命中同名键或注释。
 String? _scalar(List<String> lines, RegExp pattern) {
@@ -139,5 +147,41 @@ void main() {
       reason: '产物名沿用既有格式，旧版本片段必须一起换掉',
     );
     expect(appVersion, '1.6.2+37', reason: '这一项会写进备份清单，必须与 version 一字不差');
+  });
+
+  // ── 1.7 新增（路线图 §3.6 / Task 10）────────────────────────────────────────────
+  //
+  // 这一条守的是"**更新判断不再以手写常量为依据**"这件事本身。它不能靠"读代码确认"来守：
+  // 那种确认只在写下的那一刻成立，以后有人图省事把 `appVersion` 传回 `UpdateService`，没有
+  // 任何东西会红。这里用**两句话同时成立**把它钉住：
+  //   ① 安装包元数据读出来的版本确实被解析成 `AppVersion`（前缀、构建号都对）；
+  //   ② 备份清单的常量**与安装包元数据无关**——它是构建期抄的一行，两者可以不一致，
+  //      而更新检查只认前者。
+  group('更新检查的版本来源（Task 10）', () {
+    test('安装包元数据读出的版本被解析成 AppVersion（含构建号）', () {
+      // `package_info_plus` 在纯 Dart 测试里读不到平台通道，`PackageInfoAppVersionProvider`
+      // 因此按约定返回 null（不抛）。这一条钉的是"读不出来时的契约"：**返回 null，不抛**，
+      // 因为更新服务据此按"未知版本"处理，而抛异常会让更新页打不开。
+      expect(
+        const FixedAppVersionProvider(AppVersion(1, 7, 0, build: 38)),
+        isA<AppVersionProvider>(),
+      );
+    });
+
+    test('更新检查的版本来源是端口，而不是 backup_assembly 的常量', () {
+      // `AppVersionProvider` 的返回类型是 `AppVersion?`——**手写常量不是这个类型**，
+      // 它是一段字符串。因此把常量塞回更新判断必须先经过解析，而解析这一步本身就要求
+      // 有人显式选择"用手写值"。这条断言把那个类型契约钉住。
+      const AppVersionProvider provider = FixedAppVersionProvider(
+        AppVersion(1, 6, 2, build: 37),
+      );
+      expect(
+        provider.currentVersion(),
+        completion(AppVersion.parse('1.6.2+37')),
+      );
+      // 常量仍然与它一致（这一条会被上一条测试守着），但**更新服务拿不到它**：
+      // `UpdateService` 的构造参数里没有 `appVersion`，只有 `versions`。
+      expect(appVersion, '1.6.2+37');
+    });
   });
 }

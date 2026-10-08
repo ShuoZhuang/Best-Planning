@@ -74,6 +74,25 @@ dependencies:
   # pubspec.lock 中锁定为 2.1.6），这里提升为直接依赖以便按同一条规则算出路径。
   path_provider: ^2.1.6
 
+  # ── 更新检查（路线图 §3.6 / Task 10）────────────────────────────────────────────
+  #
+  # **这三个包此前被 `test/architecture/no_network_test.dart` 明令禁止**（那条门禁守着
+  # "本应用不上传任何数据"），因此加它们不是一次普通的依赖变更，而是**对一条产品承诺开了
+  # 一个口子**。开口子的依据与收口方式都写在那个测试的注释里，三条要点：
+  #   ① 唯一的用途是读取 `ShuoZhuang/Best-Planning` 的**公开 Release 元数据**；
+  #   ② 请求只发生在 `lib/platform/update/` 这一个文件里，且只发版本信息，不带任何本地数据；
+  #   ③ 用户可关闭（默认开启的开关在设置里），关掉后不再有任何自动请求。
+  #
+  # `http` 只用于那一次 GET：换成 `dart:io` 的 `HttpClient` 会绕开门禁，那样"只有一个出网口"
+  # 就变成靠自觉，而不是靠测试。
+  http: ^1.6.0
+  # 运行时版本**从安装包元数据读**（§3.6 最后一条），取代 `backup_assembly.dart` 里的手写常量
+  # 作为更新判定的依据。手写常量漂移过一次的风险已有记录：备份清单里记的版本会与真实安装版本
+  # 不符，而界面又拿它去和 GitHub 上的 tag 比大小。
+  package_info_plus: ^10.0.0
+  # 打开 GitHub Release 页面。**只打开浏览器**，不在应用内下载、不执行安装包（§3.6）。
+  url_launcher: ^6.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

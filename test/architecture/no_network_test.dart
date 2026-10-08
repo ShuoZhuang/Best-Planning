@@ -6,9 +6,24 @@
 // 测试：只要有人引入网络依赖或在 `lib/` 里发起网络调用，它立刻红。
 //
 // **它检查两件事，缺一不可**：
-//   1. `pubspec.yaml` 的直接依赖里没有网络／分析类包；
+//   1. `pubspec.yaml` 的直接依赖里没有网络／分析类包（唯一的例外见下）；
 //   2. `lib/` 的源码里没有网络调用（`HttpClient`／`Socket`／`WebSocket`／`HttpServer`／
-//      `InternetAddress`）与网络包的 import。
+//      `InternetAddress`）与网络包的 import（唯一的例外见下）。
+//
+// ── 2026-10-08 的唯一例外：更新检查（路线图 §3.6 / Task 10）────────────────────────
+//
+// 路线图 §1.2 明确把"设置里的立即检查更新与默认开启的自动检查更新"纳入 `1.7.0`，而 §3.6 把
+// 边界写死为：**只请求 `ShuoZhuang/Best-Planning` 的公开 GitHub Releases 元数据，忽略 draft
+// 与 prerelease**。因此 `http` 与 `url_launcher` 成为直接依赖，`package:http/` 成为允许的
+// import——**但只在一个文件里**，而这个例外由两条断言同时钉住：
+//   · 这里把 `http` 与 `url_launcher` 从禁用清单里**按名字**放行（不是整类放行：
+//     `firebase`／`sentry`／`dio` 这些依然禁止）；
+//   · `update_network_boundary_test.dart` 断言 `lib/` 里**恰好一个文件** import 网络包
+//     （`lib/platform/update/github_release_client.dart`），且它只对写死的 HTTPS 仓库地址发
+//     请求、不发 cookie／授权头、不带任何本地数据。
+//
+// **为什么放行名单要写在这个文件里而不是删掉整条门禁**：删掉之后，任何文件都能发请求，
+// "只有一个出网口"就退化成一句注释。现在改动的每一处都留下了解释，而不是把一条承诺悄悄删掉。
 //
 // **刻意不做的事**：不禁止 `dart:io` 本身——`File`／`Directory`／`Platform` 是本地存储与
 // 平台判断所必需的，一刀切会让这条门禁变成噪音，最后被人加 ignore 绕过去。
@@ -42,7 +57,17 @@ const _forbiddenPackages = <String>[
   'adjust',
 ];
 
+/// **唯一被批准的联网用途**：更新检查（路线图 §3.6）。
+///
+/// `http` 是那一次 GET 用的客户端；`url_launcher` 只用来在系统浏览器里打开 Release 页面
+/// （**应用内不下载、不安装**）。两者都不传输本地数据，且它们的用法由
+/// `update_network_boundary_test.dart` 与 `test/platform/update/` 下的用例逐条守着。
+const _approvedNetworkPackages = <String>{'http', 'url_launcher'};
+
 /// `lib/` 里出现即失败的网络调用符号。
+///
+/// `package:http/` 不在其中（见 [_approvedNetworkPackages]）：它的 import 由
+/// `update_network_boundary_test.dart` 按**文件**限制，比在这里按符号一刀切更精确。
 const _forbiddenSymbols = <String>[
   'HttpClient(',
   'HttpServer.bind',
@@ -51,7 +76,6 @@ const _forbiddenSymbols = <String>[
   'WebSocket.connect',
   'InternetAddress.lookup',
   'RawDatagramSocket.bind',
-  'package:http/',
   'package:dio/',
   'package:web_socket_channel/',
   'package:grpc/',
@@ -96,16 +120,29 @@ void main() {
     final offending = [
       for (final name in declared)
         for (final banned in _forbiddenPackages)
-          if (name == banned || name.startsWith('${banned}_')) name,
+          if ((name == banned || name.startsWith('${banned}_')) &&
+              !_approvedNetworkPackages.contains(name))
+            name,
     ];
     expect(
       offending,
       isEmpty,
       reason:
           '出现网络／分析类依赖：$offending。本应用承诺不上传任何数据；'
-          '若确有需要（例如将来做云同步），必须先更新需求 §14.4 与手工清单 9.7，'
+          '唯一被批准的联网用途是更新检查（${_approvedNetworkPackages.join('、')}，路线图 §3.6）。'
+          '若确有别的需要（例如将来做云同步），必须先更新需求 §14.4 与手工清单 9.7，'
           '而不是悄悄加一个包。',
     );
+
+    // **防空跑的另一半**：放行名单本身写错时（例如包名拼错），上面那条会退化成"什么都没放行"，
+    // 而这一条会立刻红——它要求放行的包**确实在声明里出现过**。
+    for (final approved in _approvedNetworkPackages) {
+      expect(
+        declared,
+        contains(approved),
+        reason: '放行名单里的 $approved 并不在直接依赖里——名单已经过期，请一并清理',
+      );
+    }
   });
 
   test('lib/ 的源码里没有网络调用或网络包 import', () {
