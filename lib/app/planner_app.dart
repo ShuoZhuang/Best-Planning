@@ -21,6 +21,8 @@ import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/update_check_scheduler.dart';
+import 'package:personal_planner/application/update_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
@@ -105,6 +107,18 @@ final class PlannerApp extends StatefulWidget {
     /// 「跳过本次」产生的待处理跳过（M4，2026-10-07 用户定义）。
     /// 为空即该入口不显示（测试与未装配排程时）——与 [pendingMoves] 同一口径。
     this.pendingSkips,
+
+    /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。为空时设置入口页不显示「检查更新」。
+    this.updateService,
+
+    /// 启动约 10 秒后的那一次自动检查（§3.6）。
+    ///
+    /// **由组合根构造并交给这里**，因为它的生命周期必须跟着应用：`initState` 里 `start()`、
+    /// `dispose()` 里 `dispose()`。不在这里 new 是因为它需要一个已经装配好的 `UpdateService`，
+    /// 而那属于组合根的活。为 `null` 时（测试、未装配）不做任何调度——**绝不会**因此改用
+    /// 一个默认实例去联网。
+    this.updateCheckScheduler,
+
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
     // 本地时间（作息、日界、"今天"是哪一天），而在别的时区只表现为"时间算错"、不报错。
@@ -230,6 +244,12 @@ final class PlannerApp extends StatefulWidget {
   /// 「跳过本次」的落点（M4）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingSkipDrafts? pendingSkips;
+
+  /// 更新检查（§3.6）。为空时设置页不显示该入口，直达路由会说明服务未装配。
+  final UpdateService? updateService;
+
+  /// 启动后的那一次自动检查。由组合根构造，**生命周期跟着这一层**。
+  final UpdateCheckScheduler? updateCheckScheduler;
 
   final TimeZoneDatabase? zones;
 
@@ -462,7 +482,14 @@ final class _PlannerAppState extends State<PlannerApp> {
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
+      updateService: widget.updateService,
     );
+    // ── M8：启动后的自动更新检查（§3.6）──────────────────────────────────────
+    //
+    // **必须在这里 start、在 dispose 里 dispose**：§3.6 要求"程序关闭后不运行定时器"，
+    // 而 `PlannerApp` 就是"应用还开着"这件事的唯一权威。放在组合根里 start 也能跑，但
+    // 没有对应的释放点——那正是"关掉窗口后还在联网"的成因。
+    widget.updateCheckScheduler?.start();
     // FR-NOTIFY-04：点击通知后按 payload 里已经写好的去处导航。路径由本应用的写入端
     // 生成并写在 payload 中（见 `NotificationPayload`），读取端不自行拼路径，因此这里
     // 直接用；`route` 指向的任务若已被删除，详情页会明确说明而不是崩溃。
@@ -495,6 +522,9 @@ final class _PlannerAppState extends State<PlannerApp> {
   void dispose() {
     final listener = _replanListener;
     if (listener != null) widget.replanOutcome?.removeListener(listener);
+    // 先释放调度器再拆别的：它是唯一持有**定时器**的东西，晚一步释放就意味着"应用已经在关了，
+    // 那一发请求还在路上"。`dispose()` 是幂等的，重复释放不会出错。
+    widget.updateCheckScheduler?.dispose();
     _appearance.removeListener(_onAppearanceChanged);
     _appearance.dispose();
     _router.dispose();

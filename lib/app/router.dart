@@ -23,6 +23,7 @@ import 'package:personal_planner/application/week_view_preference_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/update_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -60,6 +61,7 @@ import 'package:personal_planner/features/settings/preferences/preferences_page.
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_reopen_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
+import 'package:personal_planner/features/settings/update/update_page.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
@@ -160,6 +162,12 @@ GoRouter createPlannerRouter({
   TimetableImportService? timetableImport,
   TimetableImagePicker? timetableImagePicker,
   DateTime? nowUtc,
+
+  /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。
+  ///
+  /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
+  /// 与本仓库既有的"不给一个点了才知道没装的入口"同一条约定。
+  UpdateService? updateService,
 }) => GoRouter(
   initialLocation: '/today',
   routes: [
@@ -810,6 +818,25 @@ GoRouter createPlannerRouter({
                   subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
                   onOpen: () => context.go('/settings/backup'),
                 ),
+              // M8（路线图 §3.6）：更新检查的入口。
+              //
+              // **放在「通知与隐私」这一组**：它是本应用唯一会联网的功能，用户想知道"这个程序
+              // 什么时候会联网"时应该在这一组里找得到它，而不是埋在数据备份旁边。
+              //
+              // 入口右侧展示自动检查的开关状态（§12「每个入口展示一项当前关键值」）：用户不点
+              // 进去就能看出"它到底会不会自己联网"——而这正是这一项最需要被一眼看到的信息。
+              if (updateService != null)
+                SettingsHubEntry(
+                  key: const ValueKey<String>('settings-update'),
+                  title: '检查更新',
+                  group: SettingsGroup.notification,
+                  subtitle: '查看当前版本，手动检查或关闭自动检查（只请求版本信息）',
+                  currentValue: () async =>
+                      (await updateService.loadSettings()).autoCheckEnabled
+                      ? '自动检查已开启'
+                      : '自动检查已关闭',
+                  onOpen: () => context.go('/settings/update'),
+                ),
               // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
               //
               // 用户的原话："我怎么从引导首页点进去啊，这个的前提是我没有装软件吧"——
@@ -963,6 +990,31 @@ GoRouter createPlannerRouter({
             service: settingsService,
             autoAdjustStore: autoAdjustStore,
           ),
+        ),
+        GoRoute(
+          // M8（路线图 §3.6 / Task 11）：更新设置页。
+          //
+          // 未装配时给出说明而不是空白页：深链接（通知 payload、用户手改地址）可能直接落在这里。
+          path: '/settings/update',
+          builder: (context, state) {
+            final service = updateService;
+            if (service == null) {
+              return const _UnavailablePage(
+                title: '检查更新',
+                message: '更新服务未装配，暂无法检查更新。',
+              );
+            }
+            return UpdatePage(
+              // **控制器在这里建、在这里交给页面**：页面只认 `UpdatePageController`
+              // （见 `update_page.dart` 的说明），因此六种状态都能脱离真服务测试。
+              //
+              // 每进入一次新建一个：控制器是有状态的（上次结论、最后一次是谁触发的），
+              // 复用同一个实例会让"上一次的失败原因"出现在这一次的页面上。既然是在这里 new 的，
+              // 释放也交给页面（`disposeController`）——这一层没有别的持有者。
+              controller: ServiceUpdatePageController.production(service),
+              disposeController: true,
+            );
+          },
         ),
         GoRoute(
           // 应用锁必须可达，否则它只能"被开启"却无法被开启：启动门控已经存在，但设置

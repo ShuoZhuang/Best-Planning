@@ -10,8 +10,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// 允许 import `package:http` 的**唯一**文件。
-const _sanctionedClient = 'lib/platform/update/github_release_client.dart';
+/// 允许 import 网络包的**唯一**两个文件，各自只做一件事：
+///   · `github_release_client.dart` —— 唯一 import `package:http` 的地方，也是唯一发请求的地方；
+///   · `url_launcher_adapter.dart` —— 只把**已经验证过**的 Release 地址交给系统浏览器。
+const _sanctionedHttpClient = 'lib/platform/update/github_release_client.dart';
+const _sanctionedLauncher = 'lib/platform/update/url_launcher_adapter.dart';
 
 /// 生产代码里被检查的目录。与 `no_network_test.dart` 一致，因此两个门禁看的是同一片地方。
 const _scannedDirectory = 'lib';
@@ -26,7 +29,7 @@ List<File> _dartSources() =>
         .toList();
 
 void main() {
-  test('整个 lib/ 里只有更新客户端一个文件 import 网络包', () {
+  test('整个 lib/ 里只有两个被批准的文件 import 网络包', () {
     final files = _dartSources();
     // **防空跑**：路径写错时下面一次都不执行，而测试照样绿。
     expect(
@@ -36,15 +39,19 @@ void main() {
     );
 
     final offenders = <String>[];
-    var sanctionedSeen = false;
+    final sanctionedSeen = <String>{};
     for (final file in files) {
       final path = file.path.replaceAll(r'\', '/');
-      final importsHttp = file.readAsLinesSync().any(
-        (line) => line.startsWith('import ') && line.contains('package:http/'),
+      final importsNetwork = file.readAsLinesSync().any(
+        (line) =>
+            line.startsWith('import ') &&
+            (line.contains('package:http/') ||
+                line.contains('package:url_launcher/')),
       );
-      if (!importsHttp) continue;
-      if (path.endsWith(_sanctionedClient)) {
-        sanctionedSeen = true;
+      if (!importsNetwork) continue;
+      if (path.endsWith(_sanctionedHttpClient) ||
+          path.endsWith(_sanctionedLauncher)) {
+        sanctionedSeen.add(path);
         continue;
       }
       offenders.add(path);
@@ -54,20 +61,21 @@ void main() {
       offenders,
       isEmpty,
       reason:
-          '这些文件也 import 了 package:http：$offenders。'
-          '本应用只有一个出网口（$_sanctionedClient），'
+          '这些文件也 import 了网络包：$offenders。'
+          '本应用只有两个出网相关的文件（$_sanctionedHttpClient、$_sanctionedLauncher），'
           '新增一个就等于把"数据不出本机"变成一句没人守的注释。',
     );
-    // **反向断言**：如果那个文件不再 import http（例如换成了 dart:io），这条门禁就变成空跑。
+    // **反向断言**：允许名单里的文件若不再 import 网络包（例如换成 dart:io），这条门禁会变成
+    // 空跑——那比没有门禁更糟。
     expect(
       sanctionedSeen,
-      isTrue,
-      reason: '在那份允许名单里没找到 $_sanctionedClient——允许名单本身失效了',
+      containsAll(<String>[_sanctionedHttpClient, _sanctionedLauncher]),
+      reason: '允许名单本身失效了：只看到 $sanctionedSeen',
     );
   });
 
   test('出网口只对固定的 HTTPS 仓库地址发请求', () {
-    final source = File(_sanctionedClient).readAsStringSync();
+    final source = File(_sanctionedHttpClient).readAsStringSync();
 
     // 请求地址是**常量**而不是参数：做成参数就有第二个地方能把它指向别的仓库。
     expect(
@@ -87,11 +95,26 @@ void main() {
     expect(source, contains('User-Agent'));
   });
 
+  test('外链只交给系统浏览器，且不在应用内下载', () {
+    final launcher = File(_sanctionedLauncher).readAsStringSync();
+    // `externalApplication`：更新页要打开的是用户需要自己判断、自己下载的页面，
+    // 塞进应用内 WebView 只会让人以为"应用在跟我的下载行为打交道"。
+    expect(launcher, contains('LaunchMode.externalApplication'));
+    // §3.6：**不静默下载、不静默安装**。这条断言守的是"没有人往这个文件里加下载代码"。
+    for (final forbidden in const ['download', 'HttpClient', 'Process.start']) {
+      expect(
+        launcher.contains(forbidden),
+        isFalse,
+        reason: '外链适配器里不该出现 $forbidden——它只负责打开浏览器',
+      );
+    }
+  });
+
   test('出网口不发任何本地数据：没有 cookie、授权头，也没有带参数的查询串', () {
     // **先去掉行注释再扫**：这个文件里有大量"**不发 cookie**"这样的说明，朴素的子串扫描会把
     // 说明本身当成违规（`no_network_test.dart` 开头也处理过同一个坑）。这里扫的是**代码**。
     final source = _stripLineComments(
-      File(_sanctionedClient).readAsStringSync(),
+      File(_sanctionedHttpClient).readAsStringSync(),
     );
     for (final forbidden in const [
       'cookie',

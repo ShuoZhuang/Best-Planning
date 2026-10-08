@@ -27,6 +27,8 @@ import 'package:personal_planner/application/repository_schedule_problem_source.
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/update_check_scheduler.dart';
+import 'package:personal_planner/application/update_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -60,6 +62,7 @@ import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
 import 'package:personal_planner/platform/notifications/diagnostic_notification_port.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/ocr/windows_timetable_ocr.dart';
+import 'package:personal_planner/platform/update/github_release_client.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -203,6 +206,25 @@ Future<void> main() async {
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
+
+  // ── 更新检查（M8，路线图 §3.6 / Task 10／11）────────────────────────────────
+  //
+  // **这是本应用唯一的出网口**（见 `github_release_client.dart` 与
+  // `test/architecture/update_network_boundary_test.dart`）。三件事在此定下：
+  //   ① 版本来源是**安装包元数据**（`appVersions`），不是 `backup_assembly.dart` 的手写常量；
+  //   ② 自动检查由 `UpdateCheckScheduler` 在**启动约 10 秒后**跑一次，生命周期跟着
+  //      `PlannerApp`（`start()`／`dispose()`），**不建计划任务、不建常驻服务**；
+  //   ③ GitHub 匿名额度按 IP 共用，因此 10 秒延迟 + 24 小时窗口是必要的克制。
+  final updateService = UpdateService(
+    client: GithubReleaseClientImpl(),
+    clock: clock,
+    settings: settingsRepository,
+    versions: appVersions,
+  );
+  final updateCheckScheduler = UpdateCheckScheduler(
+    service: updateService,
+    clock: clock,
+  );
 
   final settingsService = SettingsService(repository: settingsRepository);
   // 关闭窗口的行为：设置存在 Dart 侧（`window.closeBehavior.v1`），宿主窗口只负责执行。
@@ -606,6 +628,9 @@ Future<void> main() async {
         ),
         backups: backups,
         erasure: erasure,
+        // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
+        updateService: updateService,
+        updateCheckScheduler: updateCheckScheduler,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),
