@@ -13,6 +13,7 @@
 //   ③ **"查看下载"只打开已验证的仓库 Release 地址**：验证发生在这一页，`openUrl` 端口拿到的
 //      一定是 `https://github.com/ShuoZhuang/Best-Planning/releases/...`。
 import 'package:flutter/material.dart';
+import 'package:personal_planner/design/planner_action_feedback.dart';
 import 'package:personal_planner/application/update_service.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/domain/models/app_update.dart';
@@ -70,6 +71,12 @@ abstract interface class UpdatePageController implements Listenable {
   /// 最近一次检查是谁发起的；还没检查过时为 `null`。
   CheckTrigger? get lastCheckTrigger;
 
+  /// 用户关过的长期提示（§11 Task 12 Step 2）。
+  ///
+  /// **按 id 记而不是记一个 bool**：新的版本号就是新的 id，因此用户关掉 1.7.0 的提示之后，
+  /// 1.7.1 出现时仍然会被提醒。记 bool 会让他永久错过后续每一条。
+  DismissedBannerStore get dismissedBanners;
+
   Future<void> load();
 
   Future<void> checkNow();
@@ -126,6 +133,11 @@ final class ServiceUpdatePageController extends ChangeNotifier
 
   final UpdateService service;
   final UpdateAutoCheckStore autoCheck;
+
+  /// 关过的长期提示。存在控制器上而不是页面 State 里：页面重建（例如切走再回来）不该
+  /// 让用户刚关掉的提示又冒出来。
+  @override
+  final DismissedBannerStore dismissedBanners = DismissedBannerStore();
 
   UpdatePageState _status = UpdatePageState.loading;
   AppVersion? _currentAppVersion;
@@ -308,6 +320,9 @@ final class _UpdatePageState extends State<UpdatePage> {
             const SizedBox(height: 20),
             _settingsCard(context),
             const SizedBox(height: 20),
+            // 有更新时的**长期提示**（§11 Task 12 Step 2）。放在状态区之前：它是这一页最重要
+            // 的一件事，不该等用户滑下去才看到。
+            ..._updateBanner(context),
             _statusSection(context),
             const SizedBox(height: 24),
             _privacyNote(context),
@@ -316,6 +331,61 @@ final class _UpdatePageState extends State<UpdatePage> {
       ),
     ),
   );
+
+  /// 能打开的下载地址；任一条件不成立时为 `null`（此时不渲染"查看下载"按钮）。
+  ///
+  /// 单独抽出来是为了**只算一次**：`primaryAction` 与 `primaryActionLabel` 都要用同一个判断，
+  /// 写两遍会在某次改动后让"有标签没动作"或"有动作没标签"变成可能。
+  Uri? _downloadUriFor(ReleaseInfo release, UpdateUrlOpener? opener) {
+    if (opener == null) return null;
+    final raw = release.htmlUrl;
+    if (raw == null) return null;
+    final uri = Uri.tryParse(raw);
+    if (uri == null || !uri.hasScheme) return null;
+    return uri;
+  }
+
+  /// 有更新时的长期提示；没有更新、或用户关过这个版本时为**空列表**。
+  ///
+  /// **bannerId 用版本号**：这正是"关了 1.7.0 的提示，1.7.1 出现时仍会提醒"的实现——
+  /// 见 [DismissedBannerStore] 与 `PlannerPersistentBanner.bannerId` 的说明。
+  ///
+  /// 返回列表而不是 `Widget?` 是为了让它能直接摊进 `ListView.children`（`...` 展开），
+  /// 不必在调用处写 `if (banner != null) banner!`。
+  List<Widget> _updateBanner(BuildContext context) {
+    final controller = widget.controller;
+    final release = controller.availableRelease;
+    if (controller.status != UpdatePageState.updateAvailable ||
+        release == null) {
+      return const [];
+    }
+    final bannerId = 'update-${release.version}';
+    if (controller.dismissedBanners.contains(bannerId)) return const [];
+    return [
+      PlannerPersistentBanner(
+        bannerId: bannerId,
+        title: '有新版本 ${release.version}',
+        message: release.notes.trim().isEmpty ? null : release.notes.trim(),
+        icon: Icons.system_update_alt,
+        // 「查看下载」只在**两个条件都成立**时给：装配了打开链接的端口，且这个 Release 真的有
+        // 页面地址。`ReleaseInfo.htmlUrl` 的注释写明了"为 null 时界面不显示查看下载"——
+        // 宁可少一个按钮，也不给一个打不开的。
+        //
+        // 顺手在这里把字符串解析成 `Uri` 并**在解析失败时不给按钮**：`UpdateUrlOpener` 收的是
+        // `Uri`，而 `htmlUrl` 是字符串。一个非法的 URL 会让"查看下载"点了没反应，那与死入口同病。
+        primaryAction: _downloadUriFor(release, widget.openUrl) == null
+            ? null
+            : () => widget.openUrl!(_downloadUriFor(release, widget.openUrl)!),
+        primaryActionLabel: _downloadUriFor(release, widget.openUrl) == null
+            ? null
+            : '查看下载',
+        onDismiss: () {
+          controller.dismissedBanners.dismiss(bannerId);
+          setState(() {});
+        },
+      ),
+    ];
+  }
 
   /// 版本、更新源、自动检查开关。
   Widget _settingsCard(BuildContext context) {

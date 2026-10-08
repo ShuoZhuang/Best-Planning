@@ -8,6 +8,7 @@
 //   ④ "查看下载"只打开**已验证的仓库 Release 地址**——一个能被注入的 URL 就是一个钓鱼入口。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/design/planner_action_feedback.dart';
 import 'package:personal_planner/domain/models/app_update.dart';
 import 'package:personal_planner/features/settings/update/update_page.dart';
 
@@ -46,6 +47,11 @@ final class _FakeController extends ChangeNotifier
 
   @override
   CheckTrigger? get lastCheckTrigger => lastTrigger;
+
+  /// 关过的长期提示（§11 Task 12 Step 2）。**每个替身一份**：用例之间不共享状态，
+  /// 否则"关过之后不再出现"会被上一条用例的关闭动作污染。
+  @override
+  final DismissedBannerStore dismissedBanners = DismissedBannerStore();
 
   /// 把替身切到另一个状态，并真的通知监听者。
   void transition({
@@ -477,5 +483,78 @@ void main() {
     await tester.tap(find.byKey(const Key('update-check-now')));
     await tester.pumpAndSettle();
     expect(controller.checks, 1);
+  });
+
+  // ── §11 Task 12 Step 2：长期提示的关闭与"新版本可以再次出现" ────────────────
+  //
+  // 这一组钉住的是**id 而不是 bool**：关掉 1.7.0 的提示之后，1.7.1 出现时仍要被提醒。
+  // 记 bool 会让用户永久错过后续每一条更新——那正是这一步存在的理由。
+  group('有更新时的长期提示（Task 12 Step 2）', () {
+    _FakeController withRelease(String tag, AppVersion version) =>
+        _FakeController(state: UpdatePageState.updateAvailable)
+          ..release = ReleaseInfo(
+            tagName: tag,
+            version: version,
+            notes: '修好了几处让人困惑的地方。',
+            htmlUrl:
+                'https://github.com/ShuoZhuang/Best-Planning/releases/tag/$tag',
+          );
+
+    testWidgets('有更新 ⇒ 提示出现，且带 liveRegion（读屏会主动播报）', (tester) async {
+      final controller = withRelease('v1.7.0', const AppVersion(1, 7, 0));
+      await pump(tester, controller);
+
+      expect(
+        find.byKey(const Key('planner-banner-update-1.7.0')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('有新版本'), findsOneWidget);
+    });
+
+    testWidgets('**关掉之后不再出现**（"已是最新"的页面不该还挂着它）', (tester) async {
+      final controller = withRelease('v1.7.0', const AppVersion(1, 7, 0));
+      await pump(tester, controller);
+      expect(find.textContaining('有新版本'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('不再显示这条提示'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('有新版本'), findsNothing);
+      expect(controller.dismissedBanners.contains('update-1.7.0'), isTrue);
+    });
+
+    testWidgets('**新版本可以再次出现**（这是 id 而非 bool 的全部意义）', (tester) async {
+      final controller = withRelease('v1.7.0', const AppVersion(1, 7, 0));
+      await pump(tester, controller);
+      await tester.tap(find.byTooltip('不再显示这条提示'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('有新版本'), findsNothing);
+
+      // 换一个更新的版本：新的 tag 就是新的 bannerId。
+      controller
+        ..release = ReleaseInfo(
+          tagName: 'v1.7.1',
+          version: const AppVersion(1, 7, 1),
+          notes: '又一次更新。',
+          htmlUrl:
+              'https://github.com/ShuoZhuang/Best-Planning/releases/tag/v1.7.1',
+        )
+        ..transition(next: UpdatePageState.updateAvailable);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('有新版本'),
+        findsOneWidget,
+        reason: '关掉 1.7.0 的提示不该让用户错过 1.7.1',
+      );
+    });
+
+    testWidgets('没有更新时不出现提示', (tester) async {
+      final controller = _FakeController(state: UpdatePageState.upToDate)
+        ..release = null;
+      await pump(tester, controller);
+
+      expect(find.textContaining('有新版本'), findsNothing);
+    });
   });
 }
