@@ -82,7 +82,7 @@ void main() {
     String templateId, {
     void Function(String taskId)? onStartFocus,
     void Function(RecurringTaskTemplate template)? onEdit,
-    void Function(RecurringTaskTemplate template)? onDelete,
+    Future<void> Function(RecurringTaskTemplate template)? onDelete,
     double textScale = 1.0,
   }) async {
     tester.view.physicalSize = const Size(1280, 1000);
@@ -259,7 +259,7 @@ void main() {
 
   testWidgets('编辑与删除都写明影响范围', (tester) async {
     final template = await seed();
-    await pump(tester, template.id, onEdit: (_) {}, onDelete: (_) {});
+    await pump(tester, template.id, onEdit: (_) {}, onDelete: (_) async {});
 
     await scrollTo(tester, find.byKey(const Key('recurring-detail-edit')));
     expect(find.text('影响：从下周开始；本周实例保持原样。'), findsOneWidget);
@@ -273,6 +273,28 @@ void main() {
     expect(find.byKey(const Key('recurring-delete-dialog')), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('删除失败时留在详情页并显示错误，不能静默假装成功', (tester) async {
+    final template = await seed();
+    await pump(
+      tester,
+      template.id,
+      onDelete: (_) async => throw StateError('FOREIGN KEY constraint failed'),
+    );
+
+    await scrollTo(tester, find.byKey(const Key('recurring-detail-delete')));
+    await tester.tap(find.byKey(const Key('recurring-detail-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('recurring-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('recurring-detail-title')), findsOneWidget);
+    expect(find.textContaining('操作失败'), findsOneWidget);
+    expect(
+      find.textContaining('FOREIGN KEY constraint failed'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('停止以后生成写明"以后所有周"，并真的变成归档', (tester) async {

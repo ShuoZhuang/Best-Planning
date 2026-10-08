@@ -45,7 +45,7 @@ final class RecurringTaskDetailPage extends StatefulWidget {
   final void Function(RecurringTaskTemplate template)? onEdit;
 
   /// 删除（连同本周记录）。为 `null` 时不渲染。
-  final void Function(RecurringTaskTemplate template)? onDelete;
+  final Future<void> Function(RecurringTaskTemplate template)? onDelete;
 
   @override
   State<RecurringTaskDetailPage> createState() =>
@@ -549,7 +549,7 @@ final class _RecurringTaskDetailPageState
       ),
     );
     if (confirmed != true) return;
-    widget.onDelete!(template);
+    await _run(() => widget.onDelete!(template));
   }
 }
 

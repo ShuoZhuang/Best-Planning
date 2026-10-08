@@ -129,8 +129,9 @@ abstract interface class RecurringTaskRepository {
   /// `time_entries.task_id → tasks.id` 的外键不允许留下孤儿行，而"只删一半"会留下
   /// 一批再也访问不到、却仍占着空间并可能被统计读到的记录。
   ///
-  /// 顺序：专注记录 → 任务与修正记录 → 周期 → 模板。前两步复用 [deleteCycleAndTask]
-  /// 的清理逻辑，避免同一件事写两遍（两处各写一遍迟早会在外键顺序上漂移）。
+  /// 顺序：专注记录 → 修正记录 → 标签关系与计划块 → 任务与周期 → 模板。前几步复用
+  /// [deleteCycleAndTask] 的清理逻辑，避免同一件事写两遍（两处各写一遍迟早会在外键
+  /// 顺序上漂移）。
   ///
   /// **只删这个模板的东西**：`time_entries` 与 `task_corrections` 里其它任务的行不能碰。
   Future<void> deleteTemplate({required EntityId templateId});

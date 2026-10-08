@@ -273,12 +273,13 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
   Future<void> saveTask(PlannerTask task) =>
       _database.into(_database.tasks).insertOnConflictUpdate(_taskToRow(task));
 
-  /// 删除某个周期实例和它的普通任务（连带该任务的专注记录与修正记录）。
+  /// 删除某个周期实例和它的普通任务（连带该任务的计划块、标签关系、专注记录与修正记录）。
   ///
   /// **为什么要一起删**：`recurring_task_cycles.task_id` 是指向 `tasks` 的外键，而
-  /// `time_entries.task_id` 与 `task_corrections.task_id` 又指向任务。只删任务会被外键
-  /// 拒绝（连接上开了 `PRAGMA foreign_keys`），而"先删周期行、再删任务"会把这一周的
-  /// 完成分钟变成孤儿——所以三张表在**同一个事务**里按依赖顺序清干净。
+  /// `schedule_blocks.task_id`、`task_tags.task_id`、`time_entries.task_id` 与
+  /// `task_corrections.task_id` 又都指向任务。只删任务会被外键拒绝（连接上开了
+  /// `PRAGMA foreign_keys`），而"先删周期行、再删任务"会留下一批孤儿事实——所以所有
+  /// 直接依赖都在**同一个事务**里按外键顺序清干净。
   ///
   /// **删除是用户显式动作**（详情页的"删除本周记录"），因此这里不设"只允许删本周"这类
   /// 业务限制：范围判断在服务层与界面层，仓储只负责一致地落库。
@@ -297,6 +298,12 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     )..where((row) => row.taskId.equals(cycle.taskId))).go();
     await (_database.delete(
       _database.taskCorrections,
+    )..where((row) => row.taskId.equals(cycle.taskId))).go();
+    await (_database.delete(
+      _database.taskTags,
+    )..where((row) => row.taskId.equals(cycle.taskId))).go();
+    await (_database.delete(
+      _database.scheduleBlocks,
     )..where((row) => row.taskId.equals(cycle.taskId))).go();
     await (_database.delete(_database.recurringTaskCycles)..where(
           (row) =>

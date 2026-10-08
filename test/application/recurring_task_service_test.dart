@@ -580,6 +580,72 @@ void main() {
   //
   // 下面钉住"真的删干净"这件事，以及它与"归档"的分工。
   group('删除周期目标（用户 2026-10-08）', () {
+    test('已经排进计划的周期任务也能删除，且对应计划块一起消失', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      final cycles = await repository.listCyclesForTemplate('template-1');
+      final taskId = cycles.first.taskId;
+      await database
+          .into(database.planVersions)
+          .insert(
+            db.PlanVersionsCompanion.insert(
+              id: 'confirmed-plan',
+              createdAtUtc: 1,
+              inputHash: 'input',
+              algorithmVersion: 'test',
+              status: 'confirmed',
+              summaryJson: '{}',
+            ),
+          );
+      await database
+          .into(database.scheduleBlocks)
+          .insert(
+            db.ScheduleBlocksCompanion.insert(
+              id: 'scheduled-recurring-task',
+              planVersionId: 'confirmed-plan',
+              taskId: taskId,
+              startAtUtc: DateTime.utc(2026, 10, 8, 2).microsecondsSinceEpoch,
+              endAtUtc: DateTime.utc(2026, 10, 8, 3).microsecondsSinceEpoch,
+              explanationCode: 'recurring_goal',
+            ),
+          );
+
+      await service.deleteTemplate('template-1');
+
+      expect(await repository.findTemplate('template-1'), isNull);
+      expect(
+        await (database.select(
+          database.scheduleBlocks,
+        )..where((row) => row.taskId.equals(taskId))).get(),
+        isEmpty,
+        reason: '真实数据里的周期任务已经排进计划；不先删计划块，任务外键会让整笔删除回滚',
+      );
+    });
+
+    test('带标签的周期任务也能删除，且任务标签关系一起消失', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      final cycles = await repository.listCyclesForTemplate('template-1');
+      final taskId = cycles.first.taskId;
+      await database
+          .into(database.tags)
+          .insert(db.TagsCompanion.insert(id: 'tag-1', name: '算法'));
+      await database
+          .into(database.taskTags)
+          .insert(db.TaskTagsCompanion.insert(taskId: taskId, tagId: 'tag-1'));
+
+      await service.deleteTemplate('template-1');
+
+      expect(await repository.findTemplate('template-1'), isNull);
+      expect(
+        await (database.select(
+          database.taskTags,
+        )..where((row) => row.taskId.equals(taskId))).get(),
+        isEmpty,
+        reason: '永久删除任务时不能留下任务与标签的关联行',
+      );
+    });
+
     test('删掉模板：模板、全部周期、以及它们的普通任务一起消失', () async {
       await repository.saveTemplate(template());
       await ensure();
