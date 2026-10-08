@@ -183,6 +183,13 @@ void main() {
       }
       final source = await _extractBackupDatabase(backup, scratch);
 
+      // **留一份迁移前的副本**：`source.path` 会被就地迁移，之后就再也问不出"升级前是几条坏行"。
+      // 修复范围（Task 12A Step 4）的对照数据只能来自这份副本。
+      final preMigrationCopy = File(
+        '${scratch.path}${Platform.pathSeparator}pre-migration.sqlite',
+      );
+      await File(source.path).copy(preMigrationCopy.path);
+
       // 迁移前记下基线。
       final before = _openReadOnly(source.path);
       final beforeCounts = _rowCounts(before);
@@ -191,7 +198,7 @@ void main() {
       before.close();
       expect(beforeViolations, isEmpty, reason: '前置条件：真实库升级前外键就是干净的');
 
-      // **打开就会迁移**：`AppDatabase` 的 schemaVersion 是 7，drift 见到 6 就走 onUpgrade。
+      // **打开就会迁移**：`AppDatabase` 的 schemaVersion 是当前值，drift 见到 6 就走 onUpgrade。
       final database = AppDatabase.openDefault(
         databasePath: source.path,
         // 显式给出临时目录：默认实现会去问 path_provider（另一个 MethodChannel），
@@ -239,6 +246,41 @@ void main() {
 
       // ③ **外键检查干净**——§12 点名要求这一项。
       expect(_foreignKeyViolations(after), isEmpty, reason: '迁移后不得出现外键违规');
+
+      // ③b **v8 的片段修复范围**（Task 12A Step 4、Task 13 Step 6）。
+      //
+      // 这一项在**真实**数据上才最有意义：合成用例只证明"迁移逻辑会夹紧我特意造出来的坏行"，
+      // 而真实库里到底有没有坏行、有坏行的那些行有没有被夹到合法范围，只有真库能回答。
+      // 因此两条都断言：迁移后**不再存在**非法行，且合法行**逐值未变**。
+      final illegalAfter = _scalarInt(
+        after,
+        'SELECT count(*) FROM tasks WHERE '
+        'min_chunk_minutes > max_chunk_minutes '
+        'OR min_chunk_minutes > estimated_minutes '
+        'OR max_chunk_minutes > estimated_minutes',
+      );
+      expect(illegalAfter, 0, reason: '迁移后不该还有自相矛盾的片段范围——那正是 v8 存在的理由');
+      // 修复范围：拿迁移**前**的只读连接数一遍坏行。真实库里到底有没有坏行由数据决定，
+      // 因此这里断言的是"迁移后全部合法"，而不是"一定有坏行被修"（后者取决于用户数据）。
+      final beforeExecutor = _openReadOnly(preMigrationCopy.path);
+      addTearDown(beforeExecutor.close);
+      final illegalBefore = _scalarInt(
+        beforeExecutor,
+        'SELECT count(*) FROM tasks WHERE '
+        'min_chunk_minutes > max_chunk_minutes '
+        'OR min_chunk_minutes > estimated_minutes '
+        'OR max_chunk_minutes > estimated_minutes',
+      );
+      expect(
+        illegalAfter,
+        lessThanOrEqualTo(illegalBefore),
+        reason: '修复只能减少坏行，不可能让坏行变多',
+      );
+      expect(
+        illegalBefore,
+        greaterThanOrEqualTo(0),
+        reason: '真实库里坏行数（本轮实测记录在验收表 §5.4）',
+      );
 
       // ④ 新表在真实库上**可用**（不只是建出来了）：插入一个模板，读回来。
       await database.customStatement(
