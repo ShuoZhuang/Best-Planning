@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/data/database/daos/recurring_task_dao.dart';
@@ -170,6 +172,94 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     }
     return total;
   }
+
+  /// 手动补记：写一条**已确认**的时间记录。
+  ///
+  /// 与 `DriftFocusEntryStore.save` 用同一套字段与同一段元数据 JSON：两条写入路径如果
+  /// 形状不同，早晚会有一处先漂移，而"手动补记算不算完成分钟"完全取决于这里写下的
+  /// `recovery_state`。开始时刻由"结束时刻减去分钟数"倒推，于是这条记录在时间轴上的
+  /// 位置与它声称的时长一致——这也是周期汇总按 `started_at_utc` 归周的前提。
+  @override
+  Future<void> recordCompletedMinutes({
+    required String entryId,
+    required String taskId,
+    required int minutes,
+    required DateTime endedAtUtc,
+    String note = '',
+  }) {
+    if (minutes <= 0) {
+      throw ArgumentError.value(minutes, 'minutes', 'Must be positive.');
+    }
+    if (!endedAtUtc.isUtc) {
+      throw ArgumentError.value(endedAtUtc, 'endedAtUtc', 'Must be UTC.');
+    }
+    final startedAtUtc = endedAtUtc.subtract(Duration(minutes: minutes));
+    return _database
+        .into(_database.timeEntries)
+        .insert(
+          db.TimeEntriesCompanion(
+            id: Value(entryId),
+            taskId: Value(taskId),
+            startedAtUtc: Value(startedAtUtc.microsecondsSinceEpoch),
+            endedAtUtc: Value(endedAtUtc.microsecondsSinceEpoch),
+            pausedMinutes: const Value(0),
+            source: Value(
+              jsonEncode({
+                'schemaVersion': 1,
+                'phase': 'finished',
+                'activeMicroseconds': Duration(
+                  minutes: minutes,
+                ).inMicroseconds,
+                'lastWallAtUtc': endedAtUtc.microsecondsSinceEpoch,
+                'note': note,
+              }),
+            ),
+            recoveryState: const Value('confirmed'),
+            createdAtUtc: Value(startedAtUtc.microsecondsSinceEpoch),
+            updatedAtUtc: Value(endedAtUtc.microsecondsSinceEpoch),
+          ),
+        );
+  }
+
+  @override
+  Future<void> saveTask(PlannerTask task) =>
+      _database.into(_database.tasks).insertOnConflictUpdate(_taskToRow(task));
+
+  /// 删除某个周期实例和它的普通任务（连带该任务的专注记录与修正记录）。
+  ///
+  /// **为什么要一起删**：`recurring_task_cycles.task_id` 是指向 `tasks` 的外键，而
+  /// `time_entries.task_id` 与 `task_corrections.task_id` 又指向任务。只删任务会被外键
+  /// 拒绝（连接上开了 `PRAGMA foreign_keys`），而"先删周期行、再删任务"会把这一周的
+  /// 完成分钟变成孤儿——所以三张表在**同一个事务**里按依赖顺序清干净。
+  ///
+  /// **删除是用户显式动作**（详情页的"删除本周记录"），因此这里不设"只允许删本周"这类
+  /// 业务限制：范围判断在服务层与界面层，仓储只负责一致地落库。
+  @override
+  Future<void> deleteCycleAndTask({
+    required String templateId,
+    required DateTime periodStartLocalDate,
+  }) => _database.transaction(() async {
+    final cycle = await _dao.findCycle(
+      templateId,
+      formatLocalDate(periodStartLocalDate),
+    );
+    if (cycle == null) return;
+    await (_database.delete(_database.timeEntries)
+          ..where((row) => row.taskId.equals(cycle.taskId)))
+        .go();
+    await (_database.delete(_database.taskCorrections)
+          ..where((row) => row.taskId.equals(cycle.taskId)))
+        .go();
+    await (_database.delete(_database.recurringTaskCycles)..where(
+          (row) =>
+              row.templateId.equals(templateId) &
+              row.periodStartLocalDate.equals(cycle.periodStartLocalDate),
+        ))
+        .go();
+    await (_database.delete(
+      _database.tasks,
+    )..where((row) => row.id.equals(cycle.taskId))).go();
+  });
 
   db.RecurringTaskTemplatesCompanion _templateToRow(
     RecurringTaskTemplate template,

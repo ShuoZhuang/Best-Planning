@@ -74,4 +74,29 @@ abstract interface class RecurringTaskRepository {
     DateTime periodStartUtc,
     DateTime periodEndUtc,
   );
+
+  /// 手动补记一段已完成的分钟（路线图 §3.3"专注计时和手动补记都计入本周进度"）。
+  ///
+  /// **写进现有 `time_entries`**，不建第二张表、也不加第二套分钟口径（§4.2 最后一句）。
+  /// 落库形状与 `DriftFocusEntryStore.save` 完全一致：`recovery_state = 'confirmed'`、
+  /// `ended_at_utc` 非空，因此它会被 `recordedMinutesForTask` 与专注记录一视同仁地汇总。
+  Future<void> recordCompletedMinutes({
+    required EntityId entryId,
+    required EntityId taskId,
+    required int minutes,
+    required DateTime endedAtUtc,
+    String note = '',
+  });
+
+  /// 更新周期实例对应的普通任务（结算后会重算它的预计与剩余时长）。
+  Future<void> saveTask(PlannerTask task);
+
+  /// 删除某个周期实例以及它的普通任务（连带该任务的专注记录与修正记录）。
+  ///
+  /// 三张表在同一个事务里按依赖顺序清干净：外键（`time_entries.task_id` →
+  /// `tasks.id`）不允许留下孤儿行，而"只删一半"会让这一周的进度凭空消失或让删除失败。
+  Future<void> deleteCycleAndTask({
+    required EntityId templateId,
+    required DateTime periodStartLocalDate,
+  });
 }
