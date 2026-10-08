@@ -7,6 +7,7 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 
 final class TaskDraft {
@@ -56,7 +57,12 @@ final class TaskSaveResult {
   bool get isSuccess => task != null;
 }
 
-final class TaskService {
+/// 任务服务，同时是 [TaskTitleLookup] 的实现（Task 12A Step 6）。
+///
+/// **为什么由它实现**：标题的来源就是任务仓库，而它已经持有 `TaskRepository`。另写一个只做
+/// 标题查询的适配器会让同一份数据多一条装配路径，而端口本身保持不变——装配层照样只依赖
+/// `TaskTitleLookup` 这个接口，将来换成别的数据源不需要改调用方。
+final class TaskService implements TaskTitleLookup {
   const TaskService({
     required TaskRepository repository,
     WorkspaceRepository? workspace,
@@ -123,6 +129,31 @@ final class TaskService {
   /// 详情页与通知点击都需要它：`watchOpenTasks` 只返回未结束的任务，而提醒可能指向
   /// 一个已经完成或被取消的任务——用列表去找会把"任务存在但已结束"误判成"任务不存在"。
   Future<PlannerTask?> findById(String taskId) => _repository.getById(taskId);
+
+  /// 单个标题查询（`TaskTitleLookup`）。查不到时返回 `null`，由调用方补"未命名任务"。
+  @override
+  Future<String?> titleFor(String taskId) async =>
+      (await _repository.getById(taskId))?.title;
+
+  /// 批量标题查询（`TaskTitleLookup`）。
+  ///
+  /// **一次读全表再挑**，而不是对每个 id 调一次 `getById`：预览要为一整份提案里的所有未安排
+  /// 任务取标题，逐条查询就是 N 次数据库往返。任务表是本地 SQLite 上的小表，全读一次比 N 次
+  /// 按主键查询更快，也少一次"查询次数随数据量增长"的隐患。
+  ///
+  /// `watchAllTasks().first` 而不是 `watchOpenTasks()`：**已完成的任务也可能出现在未安排列表里**
+  /// （提案是针对未来时段生成的）。用只返回未结束任务的口径去查，那些任务会被误判成"不存在"，
+  /// 于是用户看到一个本该有名字的任务叫"未命名任务"。
+  @override
+  Future<Map<String, String>> titlesFor(Iterable<String> taskIds) async {
+    final wanted = taskIds.toSet();
+    if (wanted.isEmpty) return const {};
+    final all = await _repository.watchAllTasks().first;
+    return {
+      for (final task in all)
+        if (wanted.contains(task.id)) task.id: task.title,
+    };
+  }
 
   /// 把草稿里的片段范围夹进**合法范围**（路线图 Task 12A Step 3）。
   ///

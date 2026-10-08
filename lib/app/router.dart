@@ -37,6 +37,7 @@ import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -1410,6 +1411,7 @@ GoRouter createPlannerRouter({
               application: planApplication,
               plans: plans,
               planHistory: planHistory,
+              taskTitles: taskService,
               // M6（§3.4）：缺口卡片的四个动作需要周期服务（改模板、放宽期望时段）与
               // 设置服务（临时放宽每日上限）。
               recurring: recurringTasks,
@@ -1878,8 +1880,13 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.planHistory,
     this.recurring,
     this.settings,
+    this.taskTitles,
     super.key,
   });
+
+  /// 标题查询端口（Task 12A Step 6）。为空时预览回落到"未命名任务"——
+  /// **绝不回落成裸 UUID**。
+  final TaskTitleLookup? taskTitles;
 
   final String proposalId;
   final AutoAdjustStore autoAdjustStore;
@@ -1932,6 +1939,20 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     // M6（§3.4）：容量缺口。**与提案来自同一次生成**，因此这里不重新排程，只把"排不下的
     // 那些周期目标"翻译成用户能读懂、能处置的一条缺口。
     final shortfalls = await planning.shortfallsFor(proposal);
+    // ── 标题与结构化原因（Task 12A Step 6）──────────────────────────────────
+    //
+    // **标题由这一层查，不放进 `UnscheduledTask`**：引擎的东西以 id 为准，标题可能被用户随时
+    // 改；固化进引擎输出就成了一份旧快照。查不到时回落到"未命名任务"，**绝不显示裸 UUID**。
+    final lookup = widget.taskTitles;
+    final displayInfos = lookup == null
+        ? const <TaskDisplayInfo>[]
+        : await resolveTaskDisplayInfos(lookup, [
+            for (final task in proposal.unscheduled) task.taskId,
+          ]);
+    final titleByTaskId = {
+      for (final info in displayInfos) info.taskId: info.title,
+    };
+    String titleOf(String taskId) => titleByTaskId[taskId] ?? unnamedTaskLabel;
 
     return PlanPreviewModel(
       proposalId: widget.proposalId,
@@ -1956,17 +1977,23 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
           ),
         // §8 的「未安排」是**独立一类**：提案没排下的任务不在 `diff.changes` 里
         // （diff 只比较两侧都有的计划块），因此必须单独取 `proposal.unscheduled`。
+        //
+        // 文案按 Task 12A Step 6 第 5 条：主行是「标题 + 还缺多少分钟」，`reason` 是引擎给的
+        // **结构化主原因**翻成的一句人话。此前这里写的是 `'${task.taskId} 还缺 …'` 加一句
+        // 笼统的"可用时间不足"——用户看到一串 UUID，也不知道该改什么。
         for (final task in proposal.unscheduled)
           PreviewChange(
             kind: PreviewChangeKind.unplanned,
-            title: '${task.taskId} 还缺 ${task.shortageMinutes} 分钟',
-            reason: '可用时间不足，这一版没有排进去',
+            title: '${titleOf(task.taskId)} 还缺 ${task.shortageMinutes} 分钟',
+            reason: unscheduledReasonLabel(task.primaryReason),
           ),
       ],
       conflicts: [
         for (final conflict in proposal.conflicts) conflictLabel(conflict.code),
+        // 冲突那一组也带上标题：同一条缺口在两组里出现时，两处必须叫同一个名字，
+        // 否则用户会以为是两件事。
         for (final task in proposal.unscheduled)
-          '「${task.taskId}」还缺 ${task.shortageMinutes} 分钟',
+          '「${titleOf(task.taskId)}」还缺 ${task.shortageMinutes} 分钟',
       ],
       isStale: false,
       shortfalls: shortfalls,

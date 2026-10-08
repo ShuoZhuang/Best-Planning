@@ -4,6 +4,111 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
+import 'package:personal_planner/scheduling/schedule_proposal.dart';
+
+/// 预览里一个事项的可读名字（Task 12A Step 6）。
+///
+/// **它存在的唯一理由是不让裸 UUID 出现在用户眼前。** 排程引擎的输出以 id 为准（那是它的主键
+/// 语言），而界面必须显示名字；`TaskDisplayInfo` 是这两者之间的那一层，由预览装配层用
+/// [TaskTitleLookup] 填好。
+final class TaskDisplayInfo {
+  const TaskDisplayInfo({required this.taskId, required this.title});
+
+  final String taskId;
+  final String title;
+}
+
+/// 查不到标题时的兜底名。
+///
+/// **刻意不是空串、更不是 id**：空串在界面上是一片空白，用户不知道那里本该有字；id 是一串
+/// UUID，对用户毫无意义。两者都比"未命名任务"更糟——后者至少说明"这里有一个任务，只是它的
+/// 名字取不到"，用户仍能据缺口分钟数判断该怎么办。
+const String unnamedTaskLabel = '未命名任务';
+
+/// 为一批 id 解析可读名字。空的（或只有空白的）标题同样回落到 [unnamedTaskLabel]。
+///
+/// 单独抽成函数是为了能**脱离界面测试**：这几条回落规则是"绝不显示裸 UUID"的实际内容，
+/// 而它们在 widget 测试里很难穷举（要分别构造查不到、空标题、空白标题三种数据）。
+Future<List<TaskDisplayInfo>> resolveTaskDisplayInfos(
+  TaskTitleLookup lookup,
+  Iterable<String> taskIds,
+) async {
+  final ids = taskIds.toSet().toList();
+  if (ids.isEmpty) return const [];
+  final titles = await lookup.titlesFor(ids);
+  return [
+    for (final id in ids)
+      TaskDisplayInfo(
+        taskId: id,
+        title: (titles[id]?.trim().isNotEmpty ?? false)
+            ? titles[id]!.trim()
+            : unnamedTaskLabel,
+      ),
+  ];
+}
+
+/// 把引擎给出的结构化原因翻译成一句用户能据以行动的话（Task 12A Step 6 第 5 条）。
+///
+/// **这里只翻译，不判断。** 归因由引擎负责（`UnscheduledReasonCode`），本函数不得据任务属性
+/// 反过来猜原因——那正是这一步要消灭的东西。因此这个函数的签名收的是 [UnscheduledReason]，
+/// 而不是任务或提案。
+///
+/// 有 `requiredMinutes` / `availableMinutes` 的原因尽量把两个数写进句子里：用户据此才知道
+/// "差多少"，而这决定了他是该调目标还是改截止时间。
+String unscheduledReasonLabel(UnscheduledReason reason) =>
+    switch (reason.code) {
+      UnscheduledReasonCode.availableTimeNotReached =>
+        reason.constraintLabel == null
+            ? '还没到这件事可以开始的时间。'
+            : '还没到这件事可以开始的时间（${reason.constraintLabel}）。',
+      UnscheduledReasonCode.deadlineWindowTooShort => _withNumbers(
+        '截止时间之前装不下一个片段',
+        required: reason.requiredMinutes,
+        available: reason.availableMinutes,
+        tail: '。',
+      ),
+      UnscheduledReasonCode.continuousGapTooShort => _withNumbers(
+        '这件事需要一次做完',
+        required: reason.requiredMinutes,
+        available: reason.availableMinutes,
+        tail: '，但最长的一段空档不够长。',
+      ),
+      UnscheduledReasonCode.minimumChunkTooLarge => _withNumbers(
+        '剩下的时间不够一个最短片段',
+        required: reason.requiredMinutes,
+        available: reason.availableMinutes,
+        tail: '。',
+      ),
+      UnscheduledReasonCode.dailyLimitReached => '已经达到这一天能安排的上限，剩下的时间排不进去了。',
+      UnscheduledReasonCode.protectedTimeOccupied => '保护时间占住了这些时段，引擎不会挤占它。',
+      UnscheduledReasonCode.fixedScheduleOccupied => '固定日程占住了这些时段。',
+      UnscheduledReasonCode.lockedPlanOccupied =>
+        reason.constraintLabel == null
+            ? '这些时段已经被别的计划块占住了。'
+            : '这些时段已经被${reason.constraintLabel}占住了。',
+      UnscheduledReasonCode.requiredBreakUnavailable =>
+        '排满就没有片段之间的休息时间，因此没有排进去。',
+      UnscheduledReasonCode.insufficientCapacity => _withNumbers(
+        '可用时间不足',
+        required: reason.requiredMinutes,
+        available: reason.availableMinutes,
+        tail: '。',
+      ),
+    };
+
+String _withNumbers(
+  String lead, {
+  required int? required,
+  required int? available,
+  required String tail,
+}) {
+  if (required != null && available != null) {
+    return '$lead：需要 $required 分钟，可用 $available 分钟$tail';
+  }
+  if (required != null) return '$lead：需要 $required 分钟$tail';
+  return '$lead$tail';
+}
 
 /// 预览里的一条变更。
 ///
