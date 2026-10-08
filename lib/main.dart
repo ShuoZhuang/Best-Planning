@@ -132,6 +132,35 @@ Future<void> main() async {
     debugPrint('未能精确匹配本机时区：${resolvedZone.diagnostic}');
   }
 
+  // ── schema v7 升级前快照（路线图 §4.3 / Task 5）──────────────────────────────
+  //
+  // **位置就是这条规则的全部要点**：必须在这里——路径已经解析出来、而 `openDefault()`
+  // 还**没有**打开连接。放到打开之后就只能依赖一个需要活连接的备份服务，而那一刻
+  // drift 的 `onUpgrade` 可能已经在改写用户的库了，"升级前"这个前提当场失效。
+  //
+  // 失败时**直接中止启动**（异常带可操作的中文提示）：迁移前的那份库是用户唯一的
+  // 一份数据，宁可这次打不开，也不要带病迁过去。
+  try {
+    final snapshot = await createPreMigrationSnapshotIfNeeded(
+      databasePath,
+      plannerSchemaVersion,
+    );
+    diagnostics.write(
+      snapshot == null
+          ? 'schema 升级前快照：无需创建'
+                '（user_version >= $plannerSchemaVersion 或库尚未建立）'
+          : 'schema 升级前快照已创建：$snapshot',
+    );
+  } on PlannerPreMigrationBackupException catch (error, stackTrace) {
+    diagnostics.write(
+      'schema 升级前快照失败，已中止升级：${error.databasePath}\n$stackTrace',
+    );
+    // 这一句才是用户能照着做的那一条。Release 里 debugPrint 抓不到，因此上面的诊断
+    // 文件是真正的现场；这里保留它是为了让附带控制台启动时能立刻看见。
+    debugPrint(error.userMessage);
+    rethrow;
+  }
+
   final database = AppDatabase.openDefault(databasePath: databasePath);
   // 启动阶段就做一次真实事务写入，并在同一事务内删掉探针行。目录探针只能证明普通文件可写，
   // 这一步才证明 Drift 打开的**确实是解析后的库**、SQLite 也能创建 WAL 并提交事务。

@@ -40,6 +40,160 @@ String pendingRestorePath(String databasePath) =>
 /// 与 [pendingRestorePath] 完全对称——两件事都必须发生在**没有运行中的连接**的时候。
 String pendingErasurePath(String databasePath) => '$databasePath.erase-pending';
 
+/// 升级前快照失败。
+///
+/// **它必须让启动停下来**（路线图 §4.3 最后一条："备份失败则中止升级并向用户显示可操作
+/// 错误，绝不带病继续迁移"）。做成一个独立类型而不是复用一个通用异常，是为了让组合根能
+/// 把"备份写不进去"与"数据库本身打不开"分开——两者的处置完全不同，而用户看到的
+/// 提示必须能指向真正要修的那件事（磁盘空间／权限／路径）。
+final class PlannerPreMigrationBackupException implements Exception {
+  const PlannerPreMigrationBackupException({
+    required this.databasePath,
+    required this.snapshotPath,
+    required this.cause,
+  });
+
+  final String databasePath;
+  final String snapshotPath;
+  final Object cause;
+
+  /// 面向用户的可操作提示。**不含堆栈、不含内部实现**：用户要做的是腾出磁盘空间、
+  /// 或者把文件移出受保护的目录，而不是读一段栈。
+  String get userMessage =>
+      '数据库需要升级到新版本，但升级前的备份无法写入：\n'
+      '  $snapshotPath\n'
+      '请检查该位置的剩余空间与写入权限后重新启动；'
+      '在备份成功之前，程序不会改动原数据库。';
+
+  @override
+  String toString() =>
+      'PlannerPreMigrationBackupException($databasePath → $snapshotPath): $cause';
+}
+
+/// 在**打开 Drift 连接之前**为一次 schema 升级创建快照（路线图 §4.3）。
+///
+/// 返回快照文件路径；不需要或无法创建时返回 `null`。
+///
+/// 三条规则都是刻意的：
+/// - **只在磁盘上的 `PRAGMA user_version < [targetSchemaVersion]` 时创建**。
+///   `user_version = 0` 表示这是一个**还没被任何连接创建过**的空文件／不存在的文件，
+///   它将要走的是 `onCreate` 而不是迁移，没有旧数据可保，因此不备份——否则每次全新安装
+///   都会在用户的文档目录里留下一个空快照。
+/// - **读库用只读模式**：这一步只回答问题，不该让任何东西被写入。用 `sqlite3.open` 的
+///   `OpenMode.readOnly` 就是这条保证本身。
+/// - **失败必须抛**，不能返回 `null` 假装"不需要备份"。调用方（组合根）在得到异常后
+///   中止启动：迁移前的库是用户唯一的一份数据，"先迁了再说"的代价是不可逆的。
+///
+/// **文件名包含原 schema 版本与 UTC 时间**：前者回答"这份快照能不能直接换回去"（换回去
+/// 就是旧版本的库），后者让同一台机器上多次失败的升级各自留下证据，而不是互相覆盖。
+Future<String?> createPreMigrationSnapshotIfNeeded(
+  String databasePath,
+  int targetSchemaVersion, {
+  Future<Directory> Function()? snapshotDirectory,
+}) async {
+  final databaseFile = File(databasePath);
+  if (!await databaseFile.exists() || await databaseFile.length() == 0) {
+    return null;
+  }
+
+  final currentVersion = _readSchemaVersion(databasePath);
+  if (currentVersion == null || currentVersion <= 0) return null;
+  if (currentVersion >= targetSchemaVersion) return null;
+
+  final directory = await _resolveSnapshotDirectory(
+    databasePath,
+    snapshotDirectory,
+  );
+  final stamp = DateTime.now()
+      .toUtc()
+      .toIso8601String()
+      .replaceAll(':', '')
+      .replaceAll('-', '');
+  final snapshotPath =
+      '${directory.path}${Platform.pathSeparator}'
+      '${_snapshotBaseName(databasePath)}'
+      '.v$currentVersion.pre-upgrade-$stamp.bak';
+  try {
+    await directory.create(recursive: true);
+  } on Object catch (error) {
+    // **建目录失败也走同一个异常类型**：它同样会写出一份"升级前快照不存在"的状态，
+    // 调用方要做的处置完全相同（停下来，让用户修磁盘／权限）。让两种失败长得不一样，
+    // 只会让组合根多一条没人测过的分支。
+    throw PlannerPreMigrationBackupException(
+      databasePath: databasePath,
+      snapshotPath: snapshotPath,
+      cause: error,
+    );
+  }
+
+  Database? source;
+  Database? target;
+  try {
+    source = sqlite3.open(databasePath, mode: OpenMode.readOnly);
+    // **SQLite backup API 而不是复制文件**：原库可能带着 `-wal`，此时文件本身缺少尚未
+    // checkpoint 的内容；`backup` 拿到的是**逻辑一致**的副本，与
+    // `SqliteDatabaseLifecycleAdapter.createConsistentSnapshot` 用的是同一条路径。
+    target = sqlite3.open(snapshotPath);
+    await source.backup(target, nPage: -1).drain<void>();
+  } on Object catch (error) {
+    // 半成品快照必须删掉：留下一个能被"恢复"到的残缺文件，比没有快照更危险。
+    try {
+      if (await File(snapshotPath).exists()) {
+        await File(snapshotPath).delete();
+      }
+    } on Object {
+      // 清理失败不改变"备份失败"这个结论。
+    }
+    throw PlannerPreMigrationBackupException(
+      databasePath: databasePath,
+      snapshotPath: snapshotPath,
+      cause: error,
+    );
+  } finally {
+    target?.close();
+    source?.close();
+  }
+  return snapshotPath;
+}
+
+int? _readSchemaVersion(String databasePath) {
+  Database? database;
+  try {
+    database = sqlite3.open(databasePath, mode: OpenMode.readOnly);
+    return database.select('PRAGMA user_version').single.values.first as int?;
+  } on Object {
+    // 打不开（被占用、不是 SQLite 文件）时**返回 null 而不是抛**：接下来的
+    // `openDefault()` 会给出准确得多的错误（它知道自己在做什么），在这里抢先报错只会
+    // 掩盖真正的原因。
+    return null;
+  } finally {
+    database?.close();
+  }
+}
+
+String _snapshotBaseName(String databasePath) {
+  final name = databasePath.split(Platform.pathSeparator).last;
+  final dot = name.lastIndexOf('.');
+  return dot <= 0 ? name : name.substring(0, dot);
+}
+
+/// 快照放哪。
+///
+/// **默认开在数据库旁边的 `pre-upgrade-backups` 子目录**，而不是系统临时目录：
+/// 用户在"升级把数据弄坏了"之后要找的是**这份快照**，而临时目录会被系统清理，也不会
+/// 出现在他熟悉的那个文件夹里。数据库所在目录已经由 `preparePlannerDatabase` 的真实
+/// 写入探针证明可写，因此这是唯一一个"确定写得进去"的位置。
+Future<Directory> _resolveSnapshotDirectory(
+  String databasePath,
+  Future<Directory> Function()? override,
+) async {
+  if (override != null) return override();
+  return Directory(
+    '${File(databasePath).parent.path}'
+    '${Platform.pathSeparator}pre-upgrade-backups',
+  );
+}
+
 /// 解析数据库文件路径，并在打开数据库**之前**应用待生效的清除与恢复。
 ///
 /// **路径必须按 `drift_flutter` 的同一条规则算出**：包内默认是

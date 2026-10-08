@@ -25,6 +25,7 @@
 // drift exports its own `isNull` expression helper, which would shadow the
 // matcher of the same name used by the assertions below.
 import 'package:drift/drift.dart' hide isNull;
+import 'package:drift/native.dart';
 import 'package:drift_dev/api/migrations_native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/data/database/app_database.dart';
@@ -34,6 +35,7 @@ import 'generated/schema_v1.dart' as v1;
 import 'generated/schema_v3.dart' as v3;
 import 'generated/schema_v4.dart' as v4;
 import 'generated/schema_v5.dart' as v5;
+import 'generated/schema_v6.dart' as v6;
 
 /// Fixed so that the backfilled values can be asserted exactly. The codebase
 /// stores instants as microseconds since the Unix epoch, so the migration
@@ -49,8 +51,9 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('generated schema includes timetable-import version 6', () {
-    expect(GeneratedHelper.versions.last, 6);
+  test('generated schema includes weekly-goal version 7', () {
+    expect(GeneratedHelper.versions.last, 7);
+    expect(plannerSchemaVersion, 7);
   });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
@@ -590,7 +593,363 @@ void main() {
       schema.close();
     },
   );
+
+  // v6 → v7 的三条路径（路线图 §4.3 最后两条）：空库、v6 带外键数据、以及"只新增"。
+  //
+  // 第三条是本组用例真正要证明的事：**既有三张表一个字段都不许动**。所以这里不只断言
+  // "两张新表在不在"，还把迁移前的任务、日程、设置、计划块逐值抄下来比对，并跑一次
+  // `PRAGMA foreign_key_check`——只比表结构的话，"迁移顺手改了一列"这种缺陷看不出来。
+
+  test('空库建到 v7，两张周期目标表可用且索引存在', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+
+    final tables = await database
+        .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .get();
+    expect(
+      tables.map((row) => row.read<String>('name')).toSet(),
+      containsAll(<String>[
+        'recurring_task_templates',
+        'recurring_task_cycles',
+      ]),
+    );
+    final indexes = await database
+        .customSelect("SELECT name FROM sqlite_master WHERE type = 'index'")
+        .get();
+    expect(
+      indexes.map((row) => row.read<String>('name')),
+      containsAll(<String>[
+        'idx_recurring_cycles_period_start',
+        'idx_time_entries_task_started',
+      ]),
+    );
+    // 外键在全新库里同样生效：指向不存在的模板会被拒。
+    await expectLater(
+      database.customInsert(
+        'INSERT INTO recurring_task_cycles ('
+        'template_id, period_start_local_date, task_id, base_target_minutes, '
+        'carry_in_minutes, status, created_at_utc, updated_at_utc'
+        ") VALUES ('missing', '2026-10-05', 't', 180, 0, 'open', 1, 1)",
+      ),
+      throwsA(isA<Exception>()),
+    );
+  });
+
+  test('v6 带数据升级到 v7：既有记录逐值不变，外键干净，新表可用', () async {
+    final schema = await verifier.schemaAt(6);
+    final old = v6.DatabaseAtV6(schema.newConnection());
+
+    await old
+        .into(old.areas)
+        .insert(
+          v6.AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 17,
+            sortOrder: 0,
+          ),
+        );
+    await old
+        .into(old.projects)
+        .insert(
+          v6.ProjectsCompanion.insert(
+            id: 'project-algorithm',
+            areaId: 'area-study',
+            name: '算法课',
+          ),
+        );
+    await old
+        .into(old.tasks)
+        .insert(
+          v6.TasksCompanion.insert(
+            id: 'task-1',
+            projectId: const Value('project-algorithm'),
+            areaId: const Value('area-study'),
+            title: '算法作业',
+            priority: 'high',
+            estimatedMinutes: 120,
+            remainingMinutes: 90,
+            energyLevel: 'high',
+            splitMode: 'splittable',
+            minChunkMinutes: 30,
+            maxChunkMinutes: 60,
+            preferredStartMinute: const Value(1200),
+            preferredEndMinute: const Value(1320),
+            status: 'open',
+            createdAtUtc: 1000,
+            updatedAtUtc: 2000,
+          ),
+        );
+    await old
+        .into(old.calendarEvents)
+        .insert(
+          v6.CalendarEventsCompanion.insert(
+            id: 'event-1',
+            title: '算法课',
+            startAtUtc: 3000,
+            endAtUtc: 4000,
+            timeZoneId: 'Asia/Shanghai',
+            areaId: const Value('area-study'),
+            sourceKind: const Value('timetableImport'),
+            updatedAtUtc: 5000,
+          ),
+        );
+    await old
+        .into(old.settings)
+        .insert(
+          v6.SettingsCompanion.insert(
+            key: 'theme',
+            jsonValue: '"dark"',
+            updatedAtUtc: 6000,
+          ),
+        );
+    await old
+        .into(old.planVersions)
+        .insert(
+          v6.PlanVersionsCompanion.insert(
+            id: 'plan-1',
+            createdAtUtc: 7000,
+            inputHash: 'hash',
+            algorithmVersion: '9',
+            status: 'confirmed',
+            summaryJson: '{}',
+          ),
+        );
+    await old
+        .into(old.scheduleBlocks)
+        .insert(
+          v6.ScheduleBlocksCompanion.insert(
+            id: 'block-1',
+            planVersionId: 'plan-1',
+            taskId: 'task-1',
+            startAtUtc: 8000,
+            endAtUtc: 9000,
+            explanationCode: 'fits_energy_window',
+          ),
+        );
+    await old
+        .into(old.timeEntries)
+        .insert(
+          v6.TimeEntriesCompanion.insert(
+            id: 'entry-1',
+            taskId: 'task-1',
+            startedAtUtc: 8000,
+            endedAtUtc: const Value(9000),
+            source: 'user',
+            recoveryState: 'confirmed',
+          ),
+        );
+    await old.close();
+
+    final db = AppDatabase(
+      schema.newConnection(),
+      now: () => _migrationInstant,
+    );
+    await verifier.migrateAndValidate(db, 7);
+
+    // ① 记录数量逐个核对。
+    expect(await db.select(db.areas).get(), hasLength(1));
+    expect(await db.select(db.projects).get(), hasLength(1));
+    expect(await db.select(db.tasks).get(), hasLength(1));
+    expect(await db.select(db.calendarEvents).get(), hasLength(1));
+    expect(await db.select(db.settings).get(), hasLength(1));
+    expect(await db.select(db.planVersions).get(), hasLength(1));
+    expect(await db.select(db.scheduleBlocks).get(), hasLength(1));
+    expect(await db.select(db.timeEntries).get(), hasLength(1));
+
+    // ② 逐值不变：包括 v4/v5/v6 加进来的字段，一个都不许被这次迁移碰到。
+    final task = await db.select(db.tasks).getSingle();
+    expect(task.id, 'task-1');
+    expect(task.projectId, 'project-algorithm');
+    expect(task.areaId, 'area-study');
+    expect(task.title, '算法作业');
+    expect(task.estimatedMinutes, 120);
+    expect(task.remainingMinutes, 90);
+    expect(task.preferredStartMinute, 1200);
+    expect(task.preferredEndMinute, 1320);
+    expect(task.createdAtUtc, 1000);
+    expect(task.updatedAtUtc, 2000);
+
+    final event = await db.select(db.calendarEvents).getSingle();
+    expect(event.title, '算法课');
+    expect(event.areaId, 'area-study');
+    expect(event.sourceKind, 'timetableImport');
+    expect(event.startAtUtc, 3000);
+    expect(event.updatedAtUtc, 5000);
+
+    final entry = await db.select(db.timeEntries).getSingle();
+    expect(entry.startedAtUtc, 8000);
+    expect(entry.endedAtUtc, 9000);
+    expect(entry.recoveryState, 'confirmed');
+
+    final setting = await db.select(db.settings).getSingle();
+    expect(setting.jsonValue, '"dark"');
+    expect((await db.select(db.scheduleBlocks).getSingle()).startAtUtc, 8000);
+
+    // ③ 外键检查结果必须干净（带数据的 v6 → v7 是 §12 明确要求的一条）。
+    final violations = await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(violations, isEmpty);
+
+    // ④ 新表此时存在、可写，而且外键与联合唯一键都真的生效。
+    expect(await db.select(db.recurringTaskTemplates).get(), isEmpty);
+    expect(await db.select(db.recurringTaskCycles).get(), isEmpty);
+    await db
+        .into(db.recurringTaskTemplates)
+        .insert(
+          RecurringTaskTemplatesCompanion.insert(
+            id: 'template-1',
+            title: '每周英语',
+            targetMinutes: 180,
+            priority: 'medium',
+            energyLevel: 'medium',
+            splitMode: 'splittable',
+            minChunkMinutes: 25,
+            maxChunkMinutes: 90,
+            pace: 'even',
+            startsOnLocalDate: '2026-10-05',
+            timeZoneId: 'Asia/Shanghai',
+            createdAtUtc: 10000,
+            updatedAtUtc: 10000,
+          ),
+        );
+    await db
+        .into(db.recurringTaskCycles)
+        .insert(
+          RecurringTaskCyclesCompanion.insert(
+            templateId: 'template-1',
+            periodStartLocalDate: '2026-10-05',
+            taskId: 'task-1',
+            baseTargetMinutes: 180,
+            createdAtUtc: 10000,
+            updatedAtUtc: 10000,
+          ),
+        );
+    // 同一个 (模板, 周期) 再来一次必须被联合主键拒绝——"连续启动十次只有一个实例"
+    // （§7.2 第一条）就是靠这一条约束落地的。
+    await expectLater(
+      db
+          .into(db.recurringTaskCycles)
+          .insert(
+            RecurringTaskCyclesCompanion.insert(
+              templateId: 'template-1',
+              periodStartLocalDate: '2026-10-05',
+              taskId: 'task-1',
+              baseTargetMinutes: 180,
+              createdAtUtc: 11000,
+              updatedAtUtc: 11000,
+            ),
+          ),
+      throwsA(isA<Exception>()),
+    );
+    // 一个任务只能属于一个周期实例。
+    await expectLater(
+      db
+          .into(db.recurringTaskCycles)
+          .insert(
+            RecurringTaskCyclesCompanion.insert(
+              templateId: 'template-1',
+              periodStartLocalDate: '2026-10-12',
+              taskId: 'task-1',
+              baseTargetMinutes: 180,
+              createdAtUtc: 12000,
+              updatedAtUtc: 12000,
+            ),
+          ),
+      throwsA(isA<Exception>()),
+    );
+
+    await db.close();
+    schema.close();
+  });
+
+  test('v6 迁移后旧表结构完全未变（无新增列）', () async {
+    final schema = await verifier.schemaAt(6);
+    final old = v6.DatabaseAtV6(schema.newConnection());
+    await old.close();
+
+    final db = AppDatabase(
+      schema.newConnection(),
+      now: () => _migrationInstant,
+    );
+    await verifier.migrateAndValidate(db, 7);
+
+    for (final table in ['tasks', 'time_entries', 'calendar_events']) {
+      final columns = await db.customSelect('PRAGMA table_info($table)').get();
+      expect(
+        columns.map((row) => row.read<String>('name')).toList(),
+        _v6ColumnsOf(table),
+        reason: '$table 的列集合必须与 v6 一致：v7 只准新增表',
+      );
+    }
+
+    await db.close();
+    schema.close();
+  });
 }
+
+/// v6 三张核心表的列清单，**按迁移后磁盘上 `PRAGMA table_info` 的真实顺序**。
+///
+/// 顺序不是随手抄的：v4 用 `ALTER TABLE ADD COLUMN` 追加了 `area_id` 与
+/// `available_from_utc`，而 SQLite 把新列一律加在**末尾**，因此这两列在迁移后的库里
+/// 紧跟在 `project_id` 与 `due_at_utc` 之后、而不是像 `planner_tables.dart` 里声明的那样
+/// 排在末尾。写成字面量（而不是从 v6 的生成类推导）是刻意的：这条用例要回答的正是
+/// "**磁盘上的表**与 v6 相比有没有变"，用同一个来源比对等于把被测对象抄一遍。
+const Map<String, List<String>> _v6TableColumns = {
+  'tasks': [
+    'id',
+    'project_id',
+    'area_id',
+    'title',
+    'notes',
+    'priority',
+    'estimated_minutes',
+    'remaining_minutes',
+    'due_at_utc',
+    'available_from_utc',
+    'energy_level',
+    'split_mode',
+    'min_chunk_minutes',
+    'max_chunk_minutes',
+    'preferred_start_minute',
+    'preferred_end_minute',
+    'status',
+    'created_at_utc',
+    'updated_at_utc',
+  ],
+  'time_entries': [
+    'id',
+    'task_id',
+    'started_at_utc',
+    'ended_at_utc',
+    'paused_minutes',
+    'source',
+    'recovery_state',
+    'created_at_utc',
+    'updated_at_utc',
+  ],
+  'calendar_events': [
+    'id',
+    'title',
+    'start_at_utc',
+    'end_at_utc',
+    'time_zone_id',
+    'recurrence_rule_id',
+    'exception_of_id',
+    'locked',
+    'area_id',
+    'project_id',
+    'location',
+    'notes',
+    'source_kind',
+    'import_batch_id',
+    'logical_course_id',
+    'created_at_utc',
+    'updated_at_utc',
+  ],
+};
+
+List<String> _v6ColumnsOf(String table) => _v6TableColumns[table]!;
 
 v3.TasksCompanion _v3Task({required String id, String? projectId}) =>
     v3.TasksCompanion.insert(

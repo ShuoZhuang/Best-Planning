@@ -10232,6 +10232,1882 @@ class ChangeLogCompanion extends UpdateCompanion<ChangeLogData> {
   }
 }
 
+class $RecurringTaskTemplatesTable extends RecurringTaskTemplates
+    with TableInfo<$RecurringTaskTemplatesTable, RecurringTaskTemplate> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RecurringTaskTemplatesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _areaIdMeta = const VerificationMeta('areaId');
+  @override
+  late final GeneratedColumn<String> areaId = GeneratedColumn<String>(
+    'area_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES areas (id)',
+    ),
+  );
+  static const VerificationMeta _projectIdMeta = const VerificationMeta(
+    'projectId',
+  );
+  @override
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES projects (id)',
+    ),
+  );
+  static const VerificationMeta _targetMinutesMeta = const VerificationMeta(
+    'targetMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> targetMinutes = GeneratedColumn<int>(
+    'target_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL CHECK (target_minutes > 0)',
+  );
+  static const VerificationMeta _priorityMeta = const VerificationMeta(
+    'priority',
+  );
+  @override
+  late final GeneratedColumn<String> priority = GeneratedColumn<String>(
+    'priority',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _energyLevelMeta = const VerificationMeta(
+    'energyLevel',
+  );
+  @override
+  late final GeneratedColumn<String> energyLevel = GeneratedColumn<String>(
+    'energy_level',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _splitModeMeta = const VerificationMeta(
+    'splitMode',
+  );
+  @override
+  late final GeneratedColumn<String> splitMode = GeneratedColumn<String>(
+    'split_mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _minChunkMinutesMeta = const VerificationMeta(
+    'minChunkMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> minChunkMinutes = GeneratedColumn<int>(
+    'min_chunk_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _maxChunkMinutesMeta = const VerificationMeta(
+    'maxChunkMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> maxChunkMinutes = GeneratedColumn<int>(
+    'max_chunk_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _preferredStartMinuteMeta =
+      const VerificationMeta('preferredStartMinute');
+  @override
+  late final GeneratedColumn<int> preferredStartMinute = GeneratedColumn<int>(
+    'preferred_start_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _preferredEndMinuteMeta =
+      const VerificationMeta('preferredEndMinute');
+  @override
+  late final GeneratedColumn<int> preferredEndMinute = GeneratedColumn<int>(
+    'preferred_end_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _paceMeta = const VerificationMeta('pace');
+  @override
+  late final GeneratedColumn<String> pace = GeneratedColumn<String>(
+    'pace',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _allowedWeekdaysMaskMeta =
+      const VerificationMeta('allowedWeekdaysMask');
+  @override
+  late final GeneratedColumn<int> allowedWeekdaysMask = GeneratedColumn<int>(
+    'allowed_weekdays_mask',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints:
+        'NOT NULL DEFAULT 127 CHECK (allowed_weekdays_mask BETWEEN 1 AND 127)',
+    defaultValue: const CustomExpression('127'),
+  );
+  static const VerificationMeta _carryOverUnfinishedMeta =
+      const VerificationMeta('carryOverUnfinished');
+  @override
+  late final GeneratedColumn<bool> carryOverUnfinished = GeneratedColumn<bool>(
+    'carry_over_unfinished',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("carry_over_unfinished" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _startsOnLocalDateMeta = const VerificationMeta(
+    'startsOnLocalDate',
+  );
+  @override
+  late final GeneratedColumn<String> startsOnLocalDate =
+      GeneratedColumn<String>(
+        'starts_on_local_date',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _endsOnLocalDateMeta = const VerificationMeta(
+    'endsOnLocalDate',
+  );
+  @override
+  late final GeneratedColumn<String> endsOnLocalDate = GeneratedColumn<String>(
+    'ends_on_local_date',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pausedUntilLocalDateMeta =
+      const VerificationMeta('pausedUntilLocalDate');
+  @override
+  late final GeneratedColumn<String> pausedUntilLocalDate =
+      GeneratedColumn<String>(
+        'paused_until_local_date',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _timeZoneIdMeta = const VerificationMeta(
+    'timeZoneId',
+  );
+  @override
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('active'),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    title,
+    notes,
+    areaId,
+    projectId,
+    targetMinutes,
+    priority,
+    energyLevel,
+    splitMode,
+    minChunkMinutes,
+    maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
+    pace,
+    allowedWeekdaysMask,
+    carryOverUnfinished,
+    startsOnLocalDate,
+    endsOnLocalDate,
+    pausedUntilLocalDate,
+    timeZoneId,
+    status,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recurring_task_templates';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RecurringTaskTemplate> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('area_id')) {
+      context.handle(
+        _areaIdMeta,
+        areaId.isAcceptableOrUnknown(data['area_id']!, _areaIdMeta),
+      );
+    }
+    if (data.containsKey('project_id')) {
+      context.handle(
+        _projectIdMeta,
+        projectId.isAcceptableOrUnknown(data['project_id']!, _projectIdMeta),
+      );
+    }
+    if (data.containsKey('target_minutes')) {
+      context.handle(
+        _targetMinutesMeta,
+        targetMinutes.isAcceptableOrUnknown(
+          data['target_minutes']!,
+          _targetMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_targetMinutesMeta);
+    }
+    if (data.containsKey('priority')) {
+      context.handle(
+        _priorityMeta,
+        priority.isAcceptableOrUnknown(data['priority']!, _priorityMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_priorityMeta);
+    }
+    if (data.containsKey('energy_level')) {
+      context.handle(
+        _energyLevelMeta,
+        energyLevel.isAcceptableOrUnknown(
+          data['energy_level']!,
+          _energyLevelMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_energyLevelMeta);
+    }
+    if (data.containsKey('split_mode')) {
+      context.handle(
+        _splitModeMeta,
+        splitMode.isAcceptableOrUnknown(data['split_mode']!, _splitModeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_splitModeMeta);
+    }
+    if (data.containsKey('min_chunk_minutes')) {
+      context.handle(
+        _minChunkMinutesMeta,
+        minChunkMinutes.isAcceptableOrUnknown(
+          data['min_chunk_minutes']!,
+          _minChunkMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_minChunkMinutesMeta);
+    }
+    if (data.containsKey('max_chunk_minutes')) {
+      context.handle(
+        _maxChunkMinutesMeta,
+        maxChunkMinutes.isAcceptableOrUnknown(
+          data['max_chunk_minutes']!,
+          _maxChunkMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_maxChunkMinutesMeta);
+    }
+    if (data.containsKey('preferred_start_minute')) {
+      context.handle(
+        _preferredStartMinuteMeta,
+        preferredStartMinute.isAcceptableOrUnknown(
+          data['preferred_start_minute']!,
+          _preferredStartMinuteMeta,
+        ),
+      );
+    }
+    if (data.containsKey('preferred_end_minute')) {
+      context.handle(
+        _preferredEndMinuteMeta,
+        preferredEndMinute.isAcceptableOrUnknown(
+          data['preferred_end_minute']!,
+          _preferredEndMinuteMeta,
+        ),
+      );
+    }
+    if (data.containsKey('pace')) {
+      context.handle(
+        _paceMeta,
+        pace.isAcceptableOrUnknown(data['pace']!, _paceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_paceMeta);
+    }
+    if (data.containsKey('allowed_weekdays_mask')) {
+      context.handle(
+        _allowedWeekdaysMaskMeta,
+        allowedWeekdaysMask.isAcceptableOrUnknown(
+          data['allowed_weekdays_mask']!,
+          _allowedWeekdaysMaskMeta,
+        ),
+      );
+    }
+    if (data.containsKey('carry_over_unfinished')) {
+      context.handle(
+        _carryOverUnfinishedMeta,
+        carryOverUnfinished.isAcceptableOrUnknown(
+          data['carry_over_unfinished']!,
+          _carryOverUnfinishedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('starts_on_local_date')) {
+      context.handle(
+        _startsOnLocalDateMeta,
+        startsOnLocalDate.isAcceptableOrUnknown(
+          data['starts_on_local_date']!,
+          _startsOnLocalDateMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_startsOnLocalDateMeta);
+    }
+    if (data.containsKey('ends_on_local_date')) {
+      context.handle(
+        _endsOnLocalDateMeta,
+        endsOnLocalDate.isAcceptableOrUnknown(
+          data['ends_on_local_date']!,
+          _endsOnLocalDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('paused_until_local_date')) {
+      context.handle(
+        _pausedUntilLocalDateMeta,
+        pausedUntilLocalDate.isAcceptableOrUnknown(
+          data['paused_until_local_date']!,
+          _pausedUntilLocalDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('time_zone_id')) {
+      context.handle(
+        _timeZoneIdMeta,
+        timeZoneId.isAcceptableOrUnknown(
+          data['time_zone_id']!,
+          _timeZoneIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_timeZoneIdMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RecurringTaskTemplate map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecurringTaskTemplate(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      )!,
+      areaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}area_id'],
+      ),
+      projectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}project_id'],
+      ),
+      targetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_minutes'],
+      )!,
+      priority: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}priority'],
+      )!,
+      energyLevel: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}energy_level'],
+      )!,
+      splitMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}split_mode'],
+      )!,
+      minChunkMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}min_chunk_minutes'],
+      )!,
+      maxChunkMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_chunk_minutes'],
+      )!,
+      preferredStartMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_start_minute'],
+      ),
+      preferredEndMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_end_minute'],
+      ),
+      pace: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pace'],
+      )!,
+      allowedWeekdaysMask: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}allowed_weekdays_mask'],
+      )!,
+      carryOverUnfinished: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}carry_over_unfinished'],
+      )!,
+      startsOnLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}starts_on_local_date'],
+      )!,
+      endsOnLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}ends_on_local_date'],
+      ),
+      pausedUntilLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}paused_until_local_date'],
+      ),
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $RecurringTaskTemplatesTable createAlias(String alias) {
+    return $RecurringTaskTemplatesTable(attachedDatabase, alias);
+  }
+}
+
+class RecurringTaskTemplate extends DataClass
+    implements Insertable<RecurringTaskTemplate> {
+  final String id;
+  final String title;
+  final String notes;
+  final String? areaId;
+  final String? projectId;
+  final int targetMinutes;
+  final String priority;
+  final String energyLevel;
+  final String splitMode;
+  final int minChunkMinutes;
+  final int maxChunkMinutes;
+  final int? preferredStartMinute;
+  final int? preferredEndMinute;
+  final String pace;
+  final int allowedWeekdaysMask;
+  final bool carryOverUnfinished;
+  final String startsOnLocalDate;
+  final String? endsOnLocalDate;
+  final String? pausedUntilLocalDate;
+  final String timeZoneId;
+  final String status;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const RecurringTaskTemplate({
+    required this.id,
+    required this.title,
+    required this.notes,
+    this.areaId,
+    this.projectId,
+    required this.targetMinutes,
+    required this.priority,
+    required this.energyLevel,
+    required this.splitMode,
+    required this.minChunkMinutes,
+    required this.maxChunkMinutes,
+    this.preferredStartMinute,
+    this.preferredEndMinute,
+    required this.pace,
+    required this.allowedWeekdaysMask,
+    required this.carryOverUnfinished,
+    required this.startsOnLocalDate,
+    this.endsOnLocalDate,
+    this.pausedUntilLocalDate,
+    required this.timeZoneId,
+    required this.status,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['title'] = Variable<String>(title);
+    map['notes'] = Variable<String>(notes);
+    if (!nullToAbsent || areaId != null) {
+      map['area_id'] = Variable<String>(areaId);
+    }
+    if (!nullToAbsent || projectId != null) {
+      map['project_id'] = Variable<String>(projectId);
+    }
+    map['target_minutes'] = Variable<int>(targetMinutes);
+    map['priority'] = Variable<String>(priority);
+    map['energy_level'] = Variable<String>(energyLevel);
+    map['split_mode'] = Variable<String>(splitMode);
+    map['min_chunk_minutes'] = Variable<int>(minChunkMinutes);
+    map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes);
+    if (!nullToAbsent || preferredStartMinute != null) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute);
+    }
+    if (!nullToAbsent || preferredEndMinute != null) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute);
+    }
+    map['pace'] = Variable<String>(pace);
+    map['allowed_weekdays_mask'] = Variable<int>(allowedWeekdaysMask);
+    map['carry_over_unfinished'] = Variable<bool>(carryOverUnfinished);
+    map['starts_on_local_date'] = Variable<String>(startsOnLocalDate);
+    if (!nullToAbsent || endsOnLocalDate != null) {
+      map['ends_on_local_date'] = Variable<String>(endsOnLocalDate);
+    }
+    if (!nullToAbsent || pausedUntilLocalDate != null) {
+      map['paused_until_local_date'] = Variable<String>(pausedUntilLocalDate);
+    }
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['status'] = Variable<String>(status);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  RecurringTaskTemplatesCompanion toCompanion(bool nullToAbsent) {
+    return RecurringTaskTemplatesCompanion(
+      id: Value(id),
+      title: Value(title),
+      notes: Value(notes),
+      areaId: areaId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(areaId),
+      projectId: projectId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(projectId),
+      targetMinutes: Value(targetMinutes),
+      priority: Value(priority),
+      energyLevel: Value(energyLevel),
+      splitMode: Value(splitMode),
+      minChunkMinutes: Value(minChunkMinutes),
+      maxChunkMinutes: Value(maxChunkMinutes),
+      preferredStartMinute: preferredStartMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredStartMinute),
+      preferredEndMinute: preferredEndMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredEndMinute),
+      pace: Value(pace),
+      allowedWeekdaysMask: Value(allowedWeekdaysMask),
+      carryOverUnfinished: Value(carryOverUnfinished),
+      startsOnLocalDate: Value(startsOnLocalDate),
+      endsOnLocalDate: endsOnLocalDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endsOnLocalDate),
+      pausedUntilLocalDate: pausedUntilLocalDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pausedUntilLocalDate),
+      timeZoneId: Value(timeZoneId),
+      status: Value(status),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory RecurringTaskTemplate.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecurringTaskTemplate(
+      id: serializer.fromJson<String>(json['id']),
+      title: serializer.fromJson<String>(json['title']),
+      notes: serializer.fromJson<String>(json['notes']),
+      areaId: serializer.fromJson<String?>(json['areaId']),
+      projectId: serializer.fromJson<String?>(json['projectId']),
+      targetMinutes: serializer.fromJson<int>(json['targetMinutes']),
+      priority: serializer.fromJson<String>(json['priority']),
+      energyLevel: serializer.fromJson<String>(json['energyLevel']),
+      splitMode: serializer.fromJson<String>(json['splitMode']),
+      minChunkMinutes: serializer.fromJson<int>(json['minChunkMinutes']),
+      maxChunkMinutes: serializer.fromJson<int>(json['maxChunkMinutes']),
+      preferredStartMinute: serializer.fromJson<int?>(
+        json['preferredStartMinute'],
+      ),
+      preferredEndMinute: serializer.fromJson<int?>(json['preferredEndMinute']),
+      pace: serializer.fromJson<String>(json['pace']),
+      allowedWeekdaysMask: serializer.fromJson<int>(
+        json['allowedWeekdaysMask'],
+      ),
+      carryOverUnfinished: serializer.fromJson<bool>(
+        json['carryOverUnfinished'],
+      ),
+      startsOnLocalDate: serializer.fromJson<String>(json['startsOnLocalDate']),
+      endsOnLocalDate: serializer.fromJson<String?>(json['endsOnLocalDate']),
+      pausedUntilLocalDate: serializer.fromJson<String?>(
+        json['pausedUntilLocalDate'],
+      ),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'title': serializer.toJson<String>(title),
+      'notes': serializer.toJson<String>(notes),
+      'areaId': serializer.toJson<String?>(areaId),
+      'projectId': serializer.toJson<String?>(projectId),
+      'targetMinutes': serializer.toJson<int>(targetMinutes),
+      'priority': serializer.toJson<String>(priority),
+      'energyLevel': serializer.toJson<String>(energyLevel),
+      'splitMode': serializer.toJson<String>(splitMode),
+      'minChunkMinutes': serializer.toJson<int>(minChunkMinutes),
+      'maxChunkMinutes': serializer.toJson<int>(maxChunkMinutes),
+      'preferredStartMinute': serializer.toJson<int?>(preferredStartMinute),
+      'preferredEndMinute': serializer.toJson<int?>(preferredEndMinute),
+      'pace': serializer.toJson<String>(pace),
+      'allowedWeekdaysMask': serializer.toJson<int>(allowedWeekdaysMask),
+      'carryOverUnfinished': serializer.toJson<bool>(carryOverUnfinished),
+      'startsOnLocalDate': serializer.toJson<String>(startsOnLocalDate),
+      'endsOnLocalDate': serializer.toJson<String?>(endsOnLocalDate),
+      'pausedUntilLocalDate': serializer.toJson<String?>(pausedUntilLocalDate),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'status': serializer.toJson<String>(status),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  RecurringTaskTemplate copyWith({
+    String? id,
+    String? title,
+    String? notes,
+    Value<String?> areaId = const Value.absent(),
+    Value<String?> projectId = const Value.absent(),
+    int? targetMinutes,
+    String? priority,
+    String? energyLevel,
+    String? splitMode,
+    int? minChunkMinutes,
+    int? maxChunkMinutes,
+    Value<int?> preferredStartMinute = const Value.absent(),
+    Value<int?> preferredEndMinute = const Value.absent(),
+    String? pace,
+    int? allowedWeekdaysMask,
+    bool? carryOverUnfinished,
+    String? startsOnLocalDate,
+    Value<String?> endsOnLocalDate = const Value.absent(),
+    Value<String?> pausedUntilLocalDate = const Value.absent(),
+    String? timeZoneId,
+    String? status,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => RecurringTaskTemplate(
+    id: id ?? this.id,
+    title: title ?? this.title,
+    notes: notes ?? this.notes,
+    areaId: areaId.present ? areaId.value : this.areaId,
+    projectId: projectId.present ? projectId.value : this.projectId,
+    targetMinutes: targetMinutes ?? this.targetMinutes,
+    priority: priority ?? this.priority,
+    energyLevel: energyLevel ?? this.energyLevel,
+    splitMode: splitMode ?? this.splitMode,
+    minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
+    maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+    preferredStartMinute: preferredStartMinute.present
+        ? preferredStartMinute.value
+        : this.preferredStartMinute,
+    preferredEndMinute: preferredEndMinute.present
+        ? preferredEndMinute.value
+        : this.preferredEndMinute,
+    pace: pace ?? this.pace,
+    allowedWeekdaysMask: allowedWeekdaysMask ?? this.allowedWeekdaysMask,
+    carryOverUnfinished: carryOverUnfinished ?? this.carryOverUnfinished,
+    startsOnLocalDate: startsOnLocalDate ?? this.startsOnLocalDate,
+    endsOnLocalDate: endsOnLocalDate.present
+        ? endsOnLocalDate.value
+        : this.endsOnLocalDate,
+    pausedUntilLocalDate: pausedUntilLocalDate.present
+        ? pausedUntilLocalDate.value
+        : this.pausedUntilLocalDate,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    status: status ?? this.status,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  RecurringTaskTemplate copyWithCompanion(
+    RecurringTaskTemplatesCompanion data,
+  ) {
+    return RecurringTaskTemplate(
+      id: data.id.present ? data.id.value : this.id,
+      title: data.title.present ? data.title.value : this.title,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      areaId: data.areaId.present ? data.areaId.value : this.areaId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      targetMinutes: data.targetMinutes.present
+          ? data.targetMinutes.value
+          : this.targetMinutes,
+      priority: data.priority.present ? data.priority.value : this.priority,
+      energyLevel: data.energyLevel.present
+          ? data.energyLevel.value
+          : this.energyLevel,
+      splitMode: data.splitMode.present ? data.splitMode.value : this.splitMode,
+      minChunkMinutes: data.minChunkMinutes.present
+          ? data.minChunkMinutes.value
+          : this.minChunkMinutes,
+      maxChunkMinutes: data.maxChunkMinutes.present
+          ? data.maxChunkMinutes.value
+          : this.maxChunkMinutes,
+      preferredStartMinute: data.preferredStartMinute.present
+          ? data.preferredStartMinute.value
+          : this.preferredStartMinute,
+      preferredEndMinute: data.preferredEndMinute.present
+          ? data.preferredEndMinute.value
+          : this.preferredEndMinute,
+      pace: data.pace.present ? data.pace.value : this.pace,
+      allowedWeekdaysMask: data.allowedWeekdaysMask.present
+          ? data.allowedWeekdaysMask.value
+          : this.allowedWeekdaysMask,
+      carryOverUnfinished: data.carryOverUnfinished.present
+          ? data.carryOverUnfinished.value
+          : this.carryOverUnfinished,
+      startsOnLocalDate: data.startsOnLocalDate.present
+          ? data.startsOnLocalDate.value
+          : this.startsOnLocalDate,
+      endsOnLocalDate: data.endsOnLocalDate.present
+          ? data.endsOnLocalDate.value
+          : this.endsOnLocalDate,
+      pausedUntilLocalDate: data.pausedUntilLocalDate.present
+          ? data.pausedUntilLocalDate.value
+          : this.pausedUntilLocalDate,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      status: data.status.present ? data.status.value : this.status,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringTaskTemplate(')
+          ..write('id: $id, ')
+          ..write('title: $title, ')
+          ..write('notes: $notes, ')
+          ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('targetMinutes: $targetMinutes, ')
+          ..write('priority: $priority, ')
+          ..write('energyLevel: $energyLevel, ')
+          ..write('splitMode: $splitMode, ')
+          ..write('minChunkMinutes: $minChunkMinutes, ')
+          ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
+          ..write('pace: $pace, ')
+          ..write('allowedWeekdaysMask: $allowedWeekdaysMask, ')
+          ..write('carryOverUnfinished: $carryOverUnfinished, ')
+          ..write('startsOnLocalDate: $startsOnLocalDate, ')
+          ..write('endsOnLocalDate: $endsOnLocalDate, ')
+          ..write('pausedUntilLocalDate: $pausedUntilLocalDate, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    title,
+    notes,
+    areaId,
+    projectId,
+    targetMinutes,
+    priority,
+    energyLevel,
+    splitMode,
+    minChunkMinutes,
+    maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
+    pace,
+    allowedWeekdaysMask,
+    carryOverUnfinished,
+    startsOnLocalDate,
+    endsOnLocalDate,
+    pausedUntilLocalDate,
+    timeZoneId,
+    status,
+    createdAtUtc,
+    updatedAtUtc,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecurringTaskTemplate &&
+          other.id == this.id &&
+          other.title == this.title &&
+          other.notes == this.notes &&
+          other.areaId == this.areaId &&
+          other.projectId == this.projectId &&
+          other.targetMinutes == this.targetMinutes &&
+          other.priority == this.priority &&
+          other.energyLevel == this.energyLevel &&
+          other.splitMode == this.splitMode &&
+          other.minChunkMinutes == this.minChunkMinutes &&
+          other.maxChunkMinutes == this.maxChunkMinutes &&
+          other.preferredStartMinute == this.preferredStartMinute &&
+          other.preferredEndMinute == this.preferredEndMinute &&
+          other.pace == this.pace &&
+          other.allowedWeekdaysMask == this.allowedWeekdaysMask &&
+          other.carryOverUnfinished == this.carryOverUnfinished &&
+          other.startsOnLocalDate == this.startsOnLocalDate &&
+          other.endsOnLocalDate == this.endsOnLocalDate &&
+          other.pausedUntilLocalDate == this.pausedUntilLocalDate &&
+          other.timeZoneId == this.timeZoneId &&
+          other.status == this.status &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class RecurringTaskTemplatesCompanion
+    extends UpdateCompanion<RecurringTaskTemplate> {
+  final Value<String> id;
+  final Value<String> title;
+  final Value<String> notes;
+  final Value<String?> areaId;
+  final Value<String?> projectId;
+  final Value<int> targetMinutes;
+  final Value<String> priority;
+  final Value<String> energyLevel;
+  final Value<String> splitMode;
+  final Value<int> minChunkMinutes;
+  final Value<int> maxChunkMinutes;
+  final Value<int?> preferredStartMinute;
+  final Value<int?> preferredEndMinute;
+  final Value<String> pace;
+  final Value<int> allowedWeekdaysMask;
+  final Value<bool> carryOverUnfinished;
+  final Value<String> startsOnLocalDate;
+  final Value<String?> endsOnLocalDate;
+  final Value<String?> pausedUntilLocalDate;
+  final Value<String> timeZoneId;
+  final Value<String> status;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const RecurringTaskTemplatesCompanion({
+    this.id = const Value.absent(),
+    this.title = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.targetMinutes = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.energyLevel = const Value.absent(),
+    this.splitMode = const Value.absent(),
+    this.minChunkMinutes = const Value.absent(),
+    this.maxChunkMinutes = const Value.absent(),
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
+    this.pace = const Value.absent(),
+    this.allowedWeekdaysMask = const Value.absent(),
+    this.carryOverUnfinished = const Value.absent(),
+    this.startsOnLocalDate = const Value.absent(),
+    this.endsOnLocalDate = const Value.absent(),
+    this.pausedUntilLocalDate = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecurringTaskTemplatesCompanion.insert({
+    required String id,
+    required String title,
+    this.notes = const Value.absent(),
+    this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    required int targetMinutes,
+    required String priority,
+    required String energyLevel,
+    required String splitMode,
+    required int minChunkMinutes,
+    required int maxChunkMinutes,
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
+    required String pace,
+    this.allowedWeekdaysMask = const Value.absent(),
+    this.carryOverUnfinished = const Value.absent(),
+    required String startsOnLocalDate,
+    this.endsOnLocalDate = const Value.absent(),
+    this.pausedUntilLocalDate = const Value.absent(),
+    required String timeZoneId,
+    this.status = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       title = Value(title),
+       targetMinutes = Value(targetMinutes),
+       priority = Value(priority),
+       energyLevel = Value(energyLevel),
+       splitMode = Value(splitMode),
+       minChunkMinutes = Value(minChunkMinutes),
+       maxChunkMinutes = Value(maxChunkMinutes),
+       pace = Value(pace),
+       startsOnLocalDate = Value(startsOnLocalDate),
+       timeZoneId = Value(timeZoneId),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<RecurringTaskTemplate> custom({
+    Expression<String>? id,
+    Expression<String>? title,
+    Expression<String>? notes,
+    Expression<String>? areaId,
+    Expression<String>? projectId,
+    Expression<int>? targetMinutes,
+    Expression<String>? priority,
+    Expression<String>? energyLevel,
+    Expression<String>? splitMode,
+    Expression<int>? minChunkMinutes,
+    Expression<int>? maxChunkMinutes,
+    Expression<int>? preferredStartMinute,
+    Expression<int>? preferredEndMinute,
+    Expression<String>? pace,
+    Expression<int>? allowedWeekdaysMask,
+    Expression<bool>? carryOverUnfinished,
+    Expression<String>? startsOnLocalDate,
+    Expression<String>? endsOnLocalDate,
+    Expression<String>? pausedUntilLocalDate,
+    Expression<String>? timeZoneId,
+    Expression<String>? status,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (title != null) 'title': title,
+      if (notes != null) 'notes': notes,
+      if (areaId != null) 'area_id': areaId,
+      if (projectId != null) 'project_id': projectId,
+      if (targetMinutes != null) 'target_minutes': targetMinutes,
+      if (priority != null) 'priority': priority,
+      if (energyLevel != null) 'energy_level': energyLevel,
+      if (splitMode != null) 'split_mode': splitMode,
+      if (minChunkMinutes != null) 'min_chunk_minutes': minChunkMinutes,
+      if (maxChunkMinutes != null) 'max_chunk_minutes': maxChunkMinutes,
+      if (preferredStartMinute != null)
+        'preferred_start_minute': preferredStartMinute,
+      if (preferredEndMinute != null)
+        'preferred_end_minute': preferredEndMinute,
+      if (pace != null) 'pace': pace,
+      if (allowedWeekdaysMask != null)
+        'allowed_weekdays_mask': allowedWeekdaysMask,
+      if (carryOverUnfinished != null)
+        'carry_over_unfinished': carryOverUnfinished,
+      if (startsOnLocalDate != null) 'starts_on_local_date': startsOnLocalDate,
+      if (endsOnLocalDate != null) 'ends_on_local_date': endsOnLocalDate,
+      if (pausedUntilLocalDate != null)
+        'paused_until_local_date': pausedUntilLocalDate,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (status != null) 'status': status,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecurringTaskTemplatesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? title,
+    Value<String>? notes,
+    Value<String?>? areaId,
+    Value<String?>? projectId,
+    Value<int>? targetMinutes,
+    Value<String>? priority,
+    Value<String>? energyLevel,
+    Value<String>? splitMode,
+    Value<int>? minChunkMinutes,
+    Value<int>? maxChunkMinutes,
+    Value<int?>? preferredStartMinute,
+    Value<int?>? preferredEndMinute,
+    Value<String>? pace,
+    Value<int>? allowedWeekdaysMask,
+    Value<bool>? carryOverUnfinished,
+    Value<String>? startsOnLocalDate,
+    Value<String?>? endsOnLocalDate,
+    Value<String?>? pausedUntilLocalDate,
+    Value<String>? timeZoneId,
+    Value<String>? status,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return RecurringTaskTemplatesCompanion(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      notes: notes ?? this.notes,
+      areaId: areaId ?? this.areaId,
+      projectId: projectId ?? this.projectId,
+      targetMinutes: targetMinutes ?? this.targetMinutes,
+      priority: priority ?? this.priority,
+      energyLevel: energyLevel ?? this.energyLevel,
+      splitMode: splitMode ?? this.splitMode,
+      minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
+      maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+      preferredStartMinute: preferredStartMinute ?? this.preferredStartMinute,
+      preferredEndMinute: preferredEndMinute ?? this.preferredEndMinute,
+      pace: pace ?? this.pace,
+      allowedWeekdaysMask: allowedWeekdaysMask ?? this.allowedWeekdaysMask,
+      carryOverUnfinished: carryOverUnfinished ?? this.carryOverUnfinished,
+      startsOnLocalDate: startsOnLocalDate ?? this.startsOnLocalDate,
+      endsOnLocalDate: endsOnLocalDate ?? this.endsOnLocalDate,
+      pausedUntilLocalDate: pausedUntilLocalDate ?? this.pausedUntilLocalDate,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      status: status ?? this.status,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (areaId.present) {
+      map['area_id'] = Variable<String>(areaId.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (targetMinutes.present) {
+      map['target_minutes'] = Variable<int>(targetMinutes.value);
+    }
+    if (priority.present) {
+      map['priority'] = Variable<String>(priority.value);
+    }
+    if (energyLevel.present) {
+      map['energy_level'] = Variable<String>(energyLevel.value);
+    }
+    if (splitMode.present) {
+      map['split_mode'] = Variable<String>(splitMode.value);
+    }
+    if (minChunkMinutes.present) {
+      map['min_chunk_minutes'] = Variable<int>(minChunkMinutes.value);
+    }
+    if (maxChunkMinutes.present) {
+      map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes.value);
+    }
+    if (preferredStartMinute.present) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute.value);
+    }
+    if (preferredEndMinute.present) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute.value);
+    }
+    if (pace.present) {
+      map['pace'] = Variable<String>(pace.value);
+    }
+    if (allowedWeekdaysMask.present) {
+      map['allowed_weekdays_mask'] = Variable<int>(allowedWeekdaysMask.value);
+    }
+    if (carryOverUnfinished.present) {
+      map['carry_over_unfinished'] = Variable<bool>(carryOverUnfinished.value);
+    }
+    if (startsOnLocalDate.present) {
+      map['starts_on_local_date'] = Variable<String>(startsOnLocalDate.value);
+    }
+    if (endsOnLocalDate.present) {
+      map['ends_on_local_date'] = Variable<String>(endsOnLocalDate.value);
+    }
+    if (pausedUntilLocalDate.present) {
+      map['paused_until_local_date'] = Variable<String>(
+        pausedUntilLocalDate.value,
+      );
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringTaskTemplatesCompanion(')
+          ..write('id: $id, ')
+          ..write('title: $title, ')
+          ..write('notes: $notes, ')
+          ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('targetMinutes: $targetMinutes, ')
+          ..write('priority: $priority, ')
+          ..write('energyLevel: $energyLevel, ')
+          ..write('splitMode: $splitMode, ')
+          ..write('minChunkMinutes: $minChunkMinutes, ')
+          ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
+          ..write('pace: $pace, ')
+          ..write('allowedWeekdaysMask: $allowedWeekdaysMask, ')
+          ..write('carryOverUnfinished: $carryOverUnfinished, ')
+          ..write('startsOnLocalDate: $startsOnLocalDate, ')
+          ..write('endsOnLocalDate: $endsOnLocalDate, ')
+          ..write('pausedUntilLocalDate: $pausedUntilLocalDate, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RecurringTaskCyclesTable extends RecurringTaskCycles
+    with TableInfo<$RecurringTaskCyclesTable, RecurringTaskCycle> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RecurringTaskCyclesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _templateIdMeta = const VerificationMeta(
+    'templateId',
+  );
+  @override
+  late final GeneratedColumn<String> templateId = GeneratedColumn<String>(
+    'template_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES recurring_task_templates (id)',
+    ),
+  );
+  static const VerificationMeta _periodStartLocalDateMeta =
+      const VerificationMeta('periodStartLocalDate');
+  @override
+  late final GeneratedColumn<String> periodStartLocalDate =
+      GeneratedColumn<String>(
+        'period_start_local_date',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _taskIdMeta = const VerificationMeta('taskId');
+  @override
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'UNIQUE REFERENCES tasks (id)',
+    ),
+  );
+  static const VerificationMeta _baseTargetMinutesMeta = const VerificationMeta(
+    'baseTargetMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> baseTargetMinutes = GeneratedColumn<int>(
+    'base_target_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL CHECK (base_target_minutes > 0)',
+  );
+  static const VerificationMeta _carryInMinutesMeta = const VerificationMeta(
+    'carryInMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> carryInMinutes = GeneratedColumn<int>(
+    'carry_in_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0 CHECK (carry_in_minutes >= 0)',
+    defaultValue: const CustomExpression('0'),
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('open'),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    templateId,
+    periodStartLocalDate,
+    taskId,
+    baseTargetMinutes,
+    carryInMinutes,
+    status,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recurring_task_cycles';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RecurringTaskCycle> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('template_id')) {
+      context.handle(
+        _templateIdMeta,
+        templateId.isAcceptableOrUnknown(data['template_id']!, _templateIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_templateIdMeta);
+    }
+    if (data.containsKey('period_start_local_date')) {
+      context.handle(
+        _periodStartLocalDateMeta,
+        periodStartLocalDate.isAcceptableOrUnknown(
+          data['period_start_local_date']!,
+          _periodStartLocalDateMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_periodStartLocalDateMeta);
+    }
+    if (data.containsKey('task_id')) {
+      context.handle(
+        _taskIdMeta,
+        taskId.isAcceptableOrUnknown(data['task_id']!, _taskIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_taskIdMeta);
+    }
+    if (data.containsKey('base_target_minutes')) {
+      context.handle(
+        _baseTargetMinutesMeta,
+        baseTargetMinutes.isAcceptableOrUnknown(
+          data['base_target_minutes']!,
+          _baseTargetMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_baseTargetMinutesMeta);
+    }
+    if (data.containsKey('carry_in_minutes')) {
+      context.handle(
+        _carryInMinutesMeta,
+        carryInMinutes.isAcceptableOrUnknown(
+          data['carry_in_minutes']!,
+          _carryInMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {templateId, periodStartLocalDate};
+  @override
+  RecurringTaskCycle map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecurringTaskCycle(
+      templateId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}template_id'],
+      )!,
+      periodStartLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}period_start_local_date'],
+      )!,
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      )!,
+      baseTargetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}base_target_minutes'],
+      )!,
+      carryInMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}carry_in_minutes'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $RecurringTaskCyclesTable createAlias(String alias) {
+    return $RecurringTaskCyclesTable(attachedDatabase, alias);
+  }
+}
+
+class RecurringTaskCycle extends DataClass
+    implements Insertable<RecurringTaskCycle> {
+  final String templateId;
+  final String periodStartLocalDate;
+  final String taskId;
+  final int baseTargetMinutes;
+  final int carryInMinutes;
+  final String status;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const RecurringTaskCycle({
+    required this.templateId,
+    required this.periodStartLocalDate,
+    required this.taskId,
+    required this.baseTargetMinutes,
+    required this.carryInMinutes,
+    required this.status,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['template_id'] = Variable<String>(templateId);
+    map['period_start_local_date'] = Variable<String>(periodStartLocalDate);
+    map['task_id'] = Variable<String>(taskId);
+    map['base_target_minutes'] = Variable<int>(baseTargetMinutes);
+    map['carry_in_minutes'] = Variable<int>(carryInMinutes);
+    map['status'] = Variable<String>(status);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  RecurringTaskCyclesCompanion toCompanion(bool nullToAbsent) {
+    return RecurringTaskCyclesCompanion(
+      templateId: Value(templateId),
+      periodStartLocalDate: Value(periodStartLocalDate),
+      taskId: Value(taskId),
+      baseTargetMinutes: Value(baseTargetMinutes),
+      carryInMinutes: Value(carryInMinutes),
+      status: Value(status),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory RecurringTaskCycle.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecurringTaskCycle(
+      templateId: serializer.fromJson<String>(json['templateId']),
+      periodStartLocalDate: serializer.fromJson<String>(
+        json['periodStartLocalDate'],
+      ),
+      taskId: serializer.fromJson<String>(json['taskId']),
+      baseTargetMinutes: serializer.fromJson<int>(json['baseTargetMinutes']),
+      carryInMinutes: serializer.fromJson<int>(json['carryInMinutes']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'templateId': serializer.toJson<String>(templateId),
+      'periodStartLocalDate': serializer.toJson<String>(periodStartLocalDate),
+      'taskId': serializer.toJson<String>(taskId),
+      'baseTargetMinutes': serializer.toJson<int>(baseTargetMinutes),
+      'carryInMinutes': serializer.toJson<int>(carryInMinutes),
+      'status': serializer.toJson<String>(status),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  RecurringTaskCycle copyWith({
+    String? templateId,
+    String? periodStartLocalDate,
+    String? taskId,
+    int? baseTargetMinutes,
+    int? carryInMinutes,
+    String? status,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => RecurringTaskCycle(
+    templateId: templateId ?? this.templateId,
+    periodStartLocalDate: periodStartLocalDate ?? this.periodStartLocalDate,
+    taskId: taskId ?? this.taskId,
+    baseTargetMinutes: baseTargetMinutes ?? this.baseTargetMinutes,
+    carryInMinutes: carryInMinutes ?? this.carryInMinutes,
+    status: status ?? this.status,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  RecurringTaskCycle copyWithCompanion(RecurringTaskCyclesCompanion data) {
+    return RecurringTaskCycle(
+      templateId: data.templateId.present
+          ? data.templateId.value
+          : this.templateId,
+      periodStartLocalDate: data.periodStartLocalDate.present
+          ? data.periodStartLocalDate.value
+          : this.periodStartLocalDate,
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      baseTargetMinutes: data.baseTargetMinutes.present
+          ? data.baseTargetMinutes.value
+          : this.baseTargetMinutes,
+      carryInMinutes: data.carryInMinutes.present
+          ? data.carryInMinutes.value
+          : this.carryInMinutes,
+      status: data.status.present ? data.status.value : this.status,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringTaskCycle(')
+          ..write('templateId: $templateId, ')
+          ..write('periodStartLocalDate: $periodStartLocalDate, ')
+          ..write('taskId: $taskId, ')
+          ..write('baseTargetMinutes: $baseTargetMinutes, ')
+          ..write('carryInMinutes: $carryInMinutes, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    templateId,
+    periodStartLocalDate,
+    taskId,
+    baseTargetMinutes,
+    carryInMinutes,
+    status,
+    createdAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecurringTaskCycle &&
+          other.templateId == this.templateId &&
+          other.periodStartLocalDate == this.periodStartLocalDate &&
+          other.taskId == this.taskId &&
+          other.baseTargetMinutes == this.baseTargetMinutes &&
+          other.carryInMinutes == this.carryInMinutes &&
+          other.status == this.status &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class RecurringTaskCyclesCompanion extends UpdateCompanion<RecurringTaskCycle> {
+  final Value<String> templateId;
+  final Value<String> periodStartLocalDate;
+  final Value<String> taskId;
+  final Value<int> baseTargetMinutes;
+  final Value<int> carryInMinutes;
+  final Value<String> status;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const RecurringTaskCyclesCompanion({
+    this.templateId = const Value.absent(),
+    this.periodStartLocalDate = const Value.absent(),
+    this.taskId = const Value.absent(),
+    this.baseTargetMinutes = const Value.absent(),
+    this.carryInMinutes = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecurringTaskCyclesCompanion.insert({
+    required String templateId,
+    required String periodStartLocalDate,
+    required String taskId,
+    required int baseTargetMinutes,
+    this.carryInMinutes = const Value.absent(),
+    this.status = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : templateId = Value(templateId),
+       periodStartLocalDate = Value(periodStartLocalDate),
+       taskId = Value(taskId),
+       baseTargetMinutes = Value(baseTargetMinutes),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<RecurringTaskCycle> custom({
+    Expression<String>? templateId,
+    Expression<String>? periodStartLocalDate,
+    Expression<String>? taskId,
+    Expression<int>? baseTargetMinutes,
+    Expression<int>? carryInMinutes,
+    Expression<String>? status,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (templateId != null) 'template_id': templateId,
+      if (periodStartLocalDate != null)
+        'period_start_local_date': periodStartLocalDate,
+      if (taskId != null) 'task_id': taskId,
+      if (baseTargetMinutes != null) 'base_target_minutes': baseTargetMinutes,
+      if (carryInMinutes != null) 'carry_in_minutes': carryInMinutes,
+      if (status != null) 'status': status,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecurringTaskCyclesCompanion copyWith({
+    Value<String>? templateId,
+    Value<String>? periodStartLocalDate,
+    Value<String>? taskId,
+    Value<int>? baseTargetMinutes,
+    Value<int>? carryInMinutes,
+    Value<String>? status,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return RecurringTaskCyclesCompanion(
+      templateId: templateId ?? this.templateId,
+      periodStartLocalDate: periodStartLocalDate ?? this.periodStartLocalDate,
+      taskId: taskId ?? this.taskId,
+      baseTargetMinutes: baseTargetMinutes ?? this.baseTargetMinutes,
+      carryInMinutes: carryInMinutes ?? this.carryInMinutes,
+      status: status ?? this.status,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (templateId.present) {
+      map['template_id'] = Variable<String>(templateId.value);
+    }
+    if (periodStartLocalDate.present) {
+      map['period_start_local_date'] = Variable<String>(
+        periodStartLocalDate.value,
+      );
+    }
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (baseTargetMinutes.present) {
+      map['base_target_minutes'] = Variable<int>(baseTargetMinutes.value);
+    }
+    if (carryInMinutes.present) {
+      map['carry_in_minutes'] = Variable<int>(carryInMinutes.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringTaskCyclesCompanion(')
+          ..write('templateId: $templateId, ')
+          ..write('periodStartLocalDate: $periodStartLocalDate, ')
+          ..write('taskId: $taskId, ')
+          ..write('baseTargetMinutes: $baseTargetMinutes, ')
+          ..write('carryInMinutes: $carryInMinutes, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -10266,6 +12142,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $ChangeLogTable changeLog = $ChangeLogTable(this);
+  late final $RecurringTaskTemplatesTable recurringTaskTemplates =
+      $RecurringTaskTemplatesTable(this);
+  late final $RecurringTaskCyclesTable recurringTaskCycles =
+      $RecurringTaskCyclesTable(this);
   late final TaskDao taskDao = TaskDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -10292,6 +12172,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     preferenceEvidence,
     preferenceRules,
     changeLog,
+    recurringTaskTemplates,
+    recurringTaskCycles,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -10381,6 +12263,31 @@ final class $$AreasTableReferences
     ).filter((f) => f.areaId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_calendarEventsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $RecurringTaskTemplatesTable,
+    List<RecurringTaskTemplate>
+  >
+  _recurringTaskTemplatesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.recurringTaskTemplates,
+        aliasName: 'areas__id__recurring_task_templates__area_id',
+      );
+
+  $$RecurringTaskTemplatesTableProcessedTableManager
+  get recurringTaskTemplatesRefs {
+    final manager = $$RecurringTaskTemplatesTableTableManager(
+      $_db,
+      $_db.recurringTaskTemplates,
+    ).filter((f) => f.areaId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _recurringTaskTemplatesRefsTable($_db),
+    );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -10502,6 +12409,32 @@ class $$AreasTableFilterComposer extends Composer<_$AppDatabase, $AreasTable> {
                 $removeJoinBuilderFromRootComposer,
           ),
     );
+    return f(composer);
+  }
+
+  Expression<bool> recurringTaskTemplatesRefs(
+    Expression<bool> Function($$RecurringTaskTemplatesTableFilterComposer f) f,
+  ) {
+    final $$RecurringTaskTemplatesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.areaId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableFilterComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
     return f(composer);
   }
 }
@@ -10659,6 +12592,32 @@ class $$AreasTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> recurringTaskTemplatesRefs<T extends Object>(
+    Expression<T> Function($$RecurringTaskTemplatesTableAnnotationComposer a) f,
+  ) {
+    final $$RecurringTaskTemplatesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.areaId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$AreasTableTableManager
@@ -10678,6 +12637,7 @@ class $$AreasTableTableManager
             bool projectsRefs,
             bool tasksRefs,
             bool calendarEventsRefs,
+            bool recurringTaskTemplatesRefs,
           })
         > {
   $$AreasTableTableManager(_$AppDatabase db, $AreasTable table)
@@ -10744,6 +12704,7 @@ class $$AreasTableTableManager
                 projectsRefs = false,
                 tasksRefs = false,
                 calendarEventsRefs = false,
+                recurringTaskTemplatesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -10751,6 +12712,7 @@ class $$AreasTableTableManager
                     if (projectsRefs) db.projects,
                     if (tasksRefs) db.tasks,
                     if (calendarEventsRefs) db.calendarEvents,
+                    if (recurringTaskTemplatesRefs) db.recurringTaskTemplates,
                   ],
                   addJoins: null,
                   getPrefetchedDataCallback: (items) async {
@@ -10806,6 +12768,27 @@ class $$AreasTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (recurringTaskTemplatesRefs)
+                        await $_getPrefetchedData<
+                          Area,
+                          $AreasTable,
+                          RecurringTaskTemplate
+                        >(
+                          currentTable: table,
+                          referencedTable: $$AreasTableReferences
+                              ._recurringTaskTemplatesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$AreasTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recurringTaskTemplatesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.areaId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -10830,6 +12813,7 @@ typedef $$AreasTableProcessedTableManager =
         bool projectsRefs,
         bool tasksRefs,
         bool calendarEventsRefs,
+        bool recurringTaskTemplatesRefs,
       })
     >;
 typedef $$ProjectsTableCreateCompanionBuilder = ProjectsCompanion Function({
@@ -10904,6 +12888,31 @@ final class $$ProjectsTableReferences
     ).filter((f) => f.projectId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_calendarEventsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $RecurringTaskTemplatesTable,
+    List<RecurringTaskTemplate>
+  >
+  _recurringTaskTemplatesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.recurringTaskTemplates,
+        aliasName: 'projects__id__recurring_task_templates__project_id',
+      );
+
+  $$RecurringTaskTemplatesTableProcessedTableManager
+  get recurringTaskTemplatesRefs {
+    final manager = $$RecurringTaskTemplatesTableTableManager(
+      $_db,
+      $_db.recurringTaskTemplates,
+    ).filter((f) => f.projectId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _recurringTaskTemplatesRefsTable($_db),
+    );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
     );
@@ -11014,6 +13023,32 @@ class $$ProjectsTableFilterComposer
                 $removeJoinBuilderFromRootComposer,
           ),
     );
+    return f(composer);
+  }
+
+  Expression<bool> recurringTaskTemplatesRefs(
+    Expression<bool> Function($$RecurringTaskTemplatesTableFilterComposer f) f,
+  ) {
+    final $$RecurringTaskTemplatesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.projectId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableFilterComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
     return f(composer);
   }
 }
@@ -11178,6 +13213,32 @@ class $$ProjectsTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> recurringTaskTemplatesRefs<T extends Object>(
+    Expression<T> Function($$RecurringTaskTemplatesTableAnnotationComposer a) f,
+  ) {
+    final $$RecurringTaskTemplatesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.projectId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$ProjectsTableTableManager
@@ -11197,6 +13258,7 @@ class $$ProjectsTableTableManager
             bool areaId,
             bool tasksRefs,
             bool calendarEventsRefs,
+            bool recurringTaskTemplatesRefs,
           })
         > {
   $$ProjectsTableTableManager(_$AppDatabase db, $ProjectsTable table)
@@ -11259,12 +13321,14 @@ class $$ProjectsTableTableManager
                 areaId = false,
                 tasksRefs = false,
                 calendarEventsRefs = false,
+                recurringTaskTemplatesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
                     if (tasksRefs) db.tasks,
                     if (calendarEventsRefs) db.calendarEvents,
+                    if (recurringTaskTemplatesRefs) db.recurringTaskTemplates,
                   ],
                   addJoins:
                       <
@@ -11340,6 +13404,27 @@ class $$ProjectsTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (recurringTaskTemplatesRefs)
+                        await $_getPrefetchedData<
+                          Project,
+                          $ProjectsTable,
+                          RecurringTaskTemplate
+                        >(
+                          currentTable: table,
+                          referencedTable: $$ProjectsTableReferences
+                              ._recurringTaskTemplatesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$ProjectsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recurringTaskTemplatesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.projectId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -11364,6 +13449,7 @@ typedef $$ProjectsTableProcessedTableManager =
         bool areaId,
         bool tasksRefs,
         bool calendarEventsRefs,
+        bool recurringTaskTemplatesRefs,
       })
     >;
 typedef $$TasksTableCreateCompanionBuilder = TasksCompanion Function({
@@ -11518,6 +13604,30 @@ final class $$TasksTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _taskCorrectionsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $RecurringTaskCyclesTable,
+    List<RecurringTaskCycle>
+  >
+  _recurringTaskCyclesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.recurringTaskCycles,
+        aliasName: 'tasks__id__recurring_task_cycles__task_id',
+      );
+
+  $$RecurringTaskCyclesTableProcessedTableManager get recurringTaskCyclesRefs {
+    final manager = $$RecurringTaskCyclesTableTableManager(
+      $_db,
+      $_db.recurringTaskCycles,
+    ).filter((f) => f.taskId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _recurringTaskCyclesRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -11755,6 +13865,31 @@ class $$TasksTableFilterComposer extends Composer<_$AppDatabase, $TasksTable> {
           }) => $$TaskCorrectionsTableFilterComposer(
             $db: $db,
             $table: $db.taskCorrections,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> recurringTaskCyclesRefs(
+    Expression<bool> Function($$RecurringTaskCyclesTableFilterComposer f) f,
+  ) {
+    final $$RecurringTaskCyclesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recurringTaskCycles,
+      getReferencedColumn: (t) => t.taskId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecurringTaskCyclesTableFilterComposer(
+            $db: $db,
+            $table: $db.recurringTaskCycles,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -12131,6 +14266,32 @@ class $$TasksTableAnnotationComposer
     );
     return f(composer);
   }
+
+  Expression<T> recurringTaskCyclesRefs<T extends Object>(
+    Expression<T> Function($$RecurringTaskCyclesTableAnnotationComposer a) f,
+  ) {
+    final $$RecurringTaskCyclesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskCycles,
+          getReferencedColumn: (t) => t.taskId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskCyclesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.recurringTaskCycles,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$TasksTableTableManager
@@ -12153,6 +14314,7 @@ class $$TasksTableTableManager
             bool scheduleBlocksRefs,
             bool timeEntriesRefs,
             bool taskCorrectionsRefs,
+            bool recurringTaskCyclesRefs,
           })
         > {
   $$TasksTableTableManager(_$AppDatabase db, $TasksTable table)
@@ -12270,6 +14432,7 @@ class $$TasksTableTableManager
                 scheduleBlocksRefs = false,
                 timeEntriesRefs = false,
                 taskCorrectionsRefs = false,
+                recurringTaskCyclesRefs = false,
               }) {
                 return PrefetchHooks(
                   db: db,
@@ -12278,6 +14441,7 @@ class $$TasksTableTableManager
                     if (scheduleBlocksRefs) db.scheduleBlocks,
                     if (timeEntriesRefs) db.timeEntries,
                     if (taskCorrectionsRefs) db.taskCorrections,
+                    if (recurringTaskCyclesRefs) db.recurringTaskCycles,
                   ],
                   addJoins:
                       <
@@ -12398,6 +14562,27 @@ class $$TasksTableTableManager
                               ),
                           typedResults: items,
                         ),
+                      if (recurringTaskCyclesRefs)
+                        await $_getPrefetchedData<
+                          Task,
+                          $TasksTable,
+                          RecurringTaskCycle
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TasksTableReferences
+                              ._recurringTaskCyclesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TasksTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recurringTaskCyclesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.taskId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
                     ];
                   },
                 );
@@ -12425,6 +14610,7 @@ typedef $$TasksTableProcessedTableManager =
         bool scheduleBlocksRefs,
         bool timeEntriesRefs,
         bool taskCorrectionsRefs,
+        bool recurringTaskCyclesRefs,
       })
     >;
 typedef $$TagsTableCreateCompanionBuilder = TagsCompanion Function({
@@ -18717,6 +20903,1406 @@ typedef $$ChangeLogTableProcessedTableManager =
       ChangeLogData,
       PrefetchHooks Function()
     >;
+typedef $$RecurringTaskTemplatesTableCreateCompanionBuilder =
+    RecurringTaskTemplatesCompanion Function({
+      required String id,
+      required String title,
+      Value<String> notes,
+      Value<String?> areaId,
+      Value<String?> projectId,
+      required int targetMinutes,
+      required String priority,
+      required String energyLevel,
+      required String splitMode,
+      required int minChunkMinutes,
+      required int maxChunkMinutes,
+      Value<int?> preferredStartMinute,
+      Value<int?> preferredEndMinute,
+      required String pace,
+      Value<int> allowedWeekdaysMask,
+      Value<bool> carryOverUnfinished,
+      required String startsOnLocalDate,
+      Value<String?> endsOnLocalDate,
+      Value<String?> pausedUntilLocalDate,
+      required String timeZoneId,
+      Value<String> status,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$RecurringTaskTemplatesTableUpdateCompanionBuilder =
+    RecurringTaskTemplatesCompanion Function({
+      Value<String> id,
+      Value<String> title,
+      Value<String> notes,
+      Value<String?> areaId,
+      Value<String?> projectId,
+      Value<int> targetMinutes,
+      Value<String> priority,
+      Value<String> energyLevel,
+      Value<String> splitMode,
+      Value<int> minChunkMinutes,
+      Value<int> maxChunkMinutes,
+      Value<int?> preferredStartMinute,
+      Value<int?> preferredEndMinute,
+      Value<String> pace,
+      Value<int> allowedWeekdaysMask,
+      Value<bool> carryOverUnfinished,
+      Value<String> startsOnLocalDate,
+      Value<String?> endsOnLocalDate,
+      Value<String?> pausedUntilLocalDate,
+      Value<String> timeZoneId,
+      Value<String> status,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$RecurringTaskTemplatesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $RecurringTaskTemplatesTable,
+          RecurringTaskTemplate
+        > {
+  $$RecurringTaskTemplatesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $AreasTable _areaIdTable(_$AppDatabase db) =>
+      db.areas.createAlias('recurring_task_templates__area_id__areas__id');
+
+  $$AreasTableProcessedTableManager? get areaId {
+    final $_column = $_itemColumn<String>('area_id');
+    if ($_column == null) return null;
+    final manager = $$AreasTableTableManager(
+      $_db,
+      $_db.areas,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_areaIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $ProjectsTable _projectIdTable(_$AppDatabase db) => db.projects
+      .createAlias('recurring_task_templates__project_id__projects__id');
+
+  $$ProjectsTableProcessedTableManager? get projectId {
+    final $_column = $_itemColumn<String>('project_id');
+    if ($_column == null) return null;
+    final manager = $$ProjectsTableTableManager(
+      $_db,
+      $_db.projects,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_projectIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $RecurringTaskCyclesTable,
+    List<RecurringTaskCycle>
+  >
+  _recurringTaskCyclesRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.recurringTaskCycles,
+        aliasName:
+            'recurring_task_templates__id__recurring_task_cycles__template_id',
+      );
+
+  $$RecurringTaskCyclesTableProcessedTableManager get recurringTaskCyclesRefs {
+    final manager = $$RecurringTaskCyclesTableTableManager(
+      $_db,
+      $_db.recurringTaskCycles,
+    ).filter((f) => f.templateId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _recurringTaskCyclesRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$RecurringTaskTemplatesTableFilterComposer
+    extends Composer<_$AppDatabase, $RecurringTaskTemplatesTable> {
+  $$RecurringTaskTemplatesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get targetMinutes => $composableBuilder(
+    column: $table.targetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get priority => $composableBuilder(
+    column: $table.priority,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get energyLevel => $composableBuilder(
+    column: $table.energyLevel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get splitMode => $composableBuilder(
+    column: $table.splitMode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get minChunkMinutes => $composableBuilder(
+    column: $table.minChunkMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get maxChunkMinutes => $composableBuilder(
+    column: $table.maxChunkMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pace => $composableBuilder(
+    column: $table.pace,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get allowedWeekdaysMask => $composableBuilder(
+    column: $table.allowedWeekdaysMask,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get carryOverUnfinished => $composableBuilder(
+    column: $table.carryOverUnfinished,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get startsOnLocalDate => $composableBuilder(
+    column: $table.startsOnLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get endsOnLocalDate => $composableBuilder(
+    column: $table.endsOnLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pausedUntilLocalDate => $composableBuilder(
+    column: $table.pausedUntilLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$AreasTableFilterComposer get areaId {
+    final $$AreasTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableFilterComposer(
+            $db: $db,
+            $table: $db.areas,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProjectsTableFilterComposer get projectId {
+    final $$ProjectsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableFilterComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> recurringTaskCyclesRefs(
+    Expression<bool> Function($$RecurringTaskCyclesTableFilterComposer f) f,
+  ) {
+    final $$RecurringTaskCyclesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.recurringTaskCycles,
+      getReferencedColumn: (t) => t.templateId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RecurringTaskCyclesTableFilterComposer(
+            $db: $db,
+            $table: $db.recurringTaskCycles,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$RecurringTaskTemplatesTableOrderingComposer
+    extends Composer<_$AppDatabase, $RecurringTaskTemplatesTable> {
+  $$RecurringTaskTemplatesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetMinutes => $composableBuilder(
+    column: $table.targetMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get priority => $composableBuilder(
+    column: $table.priority,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get energyLevel => $composableBuilder(
+    column: $table.energyLevel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get splitMode => $composableBuilder(
+    column: $table.splitMode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get minChunkMinutes => $composableBuilder(
+    column: $table.minChunkMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get maxChunkMinutes => $composableBuilder(
+    column: $table.maxChunkMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pace => $composableBuilder(
+    column: $table.pace,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get allowedWeekdaysMask => $composableBuilder(
+    column: $table.allowedWeekdaysMask,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get carryOverUnfinished => $composableBuilder(
+    column: $table.carryOverUnfinished,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get startsOnLocalDate => $composableBuilder(
+    column: $table.startsOnLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get endsOnLocalDate => $composableBuilder(
+    column: $table.endsOnLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pausedUntilLocalDate => $composableBuilder(
+    column: $table.pausedUntilLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$AreasTableOrderingComposer get areaId {
+    final $$AreasTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableOrderingComposer(
+            $db: $db,
+            $table: $db.areas,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProjectsTableOrderingComposer get projectId {
+    final $$ProjectsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableOrderingComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecurringTaskTemplatesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RecurringTaskTemplatesTable> {
+  $$RecurringTaskTemplatesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<int> get targetMinutes => $composableBuilder(
+    column: $table.targetMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get priority =>
+      $composableBuilder(column: $table.priority, builder: (column) => column);
+
+  GeneratedColumn<String> get energyLevel => $composableBuilder(
+    column: $table.energyLevel,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get splitMode =>
+      $composableBuilder(column: $table.splitMode, builder: (column) => column);
+
+  GeneratedColumn<int> get minChunkMinutes => $composableBuilder(
+    column: $table.minChunkMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get maxChunkMinutes => $composableBuilder(
+    column: $table.maxChunkMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get preferredStartMinute => $composableBuilder(
+    column: $table.preferredStartMinute,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get preferredEndMinute => $composableBuilder(
+    column: $table.preferredEndMinute,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pace =>
+      $composableBuilder(column: $table.pace, builder: (column) => column);
+
+  GeneratedColumn<int> get allowedWeekdaysMask => $composableBuilder(
+    column: $table.allowedWeekdaysMask,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get carryOverUnfinished => $composableBuilder(
+    column: $table.carryOverUnfinished,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get startsOnLocalDate => $composableBuilder(
+    column: $table.startsOnLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get endsOnLocalDate => $composableBuilder(
+    column: $table.endsOnLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pausedUntilLocalDate => $composableBuilder(
+    column: $table.pausedUntilLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get timeZoneId => $composableBuilder(
+    column: $table.timeZoneId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  $$AreasTableAnnotationComposer get areaId {
+    final $$AreasTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.areaId,
+      referencedTable: $db.areas,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$AreasTableAnnotationComposer(
+            $db: $db,
+            $table: $db.areas,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$ProjectsTableAnnotationComposer get projectId {
+    final $$ProjectsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.projectId,
+      referencedTable: $db.projects,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ProjectsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.projects,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> recurringTaskCyclesRefs<T extends Object>(
+    Expression<T> Function($$RecurringTaskCyclesTableAnnotationComposer a) f,
+  ) {
+    final $$RecurringTaskCyclesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.recurringTaskCycles,
+          getReferencedColumn: (t) => t.templateId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskCyclesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.recurringTaskCycles,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$RecurringTaskTemplatesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RecurringTaskTemplatesTable,
+          RecurringTaskTemplate,
+          $$RecurringTaskTemplatesTableFilterComposer,
+          $$RecurringTaskTemplatesTableOrderingComposer,
+          $$RecurringTaskTemplatesTableAnnotationComposer,
+          $$RecurringTaskTemplatesTableCreateCompanionBuilder,
+          $$RecurringTaskTemplatesTableUpdateCompanionBuilder,
+          (RecurringTaskTemplate, $$RecurringTaskTemplatesTableReferences),
+          RecurringTaskTemplate,
+          PrefetchHooks Function({
+            bool areaId,
+            bool projectId,
+            bool recurringTaskCyclesRefs,
+          })
+        > {
+  $$RecurringTaskTemplatesTableTableManager(
+    _$AppDatabase db,
+    $RecurringTaskTemplatesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RecurringTaskTemplatesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$RecurringTaskTemplatesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$RecurringTaskTemplatesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> notes = const Value.absent(),
+                Value<String?> areaId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
+                Value<int> targetMinutes = const Value.absent(),
+                Value<String> priority = const Value.absent(),
+                Value<String> energyLevel = const Value.absent(),
+                Value<String> splitMode = const Value.absent(),
+                Value<int> minChunkMinutes = const Value.absent(),
+                Value<int> maxChunkMinutes = const Value.absent(),
+                Value<int?> preferredStartMinute = const Value.absent(),
+                Value<int?> preferredEndMinute = const Value.absent(),
+                Value<String> pace = const Value.absent(),
+                Value<int> allowedWeekdaysMask = const Value.absent(),
+                Value<bool> carryOverUnfinished = const Value.absent(),
+                Value<String> startsOnLocalDate = const Value.absent(),
+                Value<String?> endsOnLocalDate = const Value.absent(),
+                Value<String?> pausedUntilLocalDate = const Value.absent(),
+                Value<String> timeZoneId = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RecurringTaskTemplatesCompanion(
+                id: id,
+                title: title,
+                notes: notes,
+                areaId: areaId,
+                projectId: projectId,
+                targetMinutes: targetMinutes,
+                priority: priority,
+                energyLevel: energyLevel,
+                splitMode: splitMode,
+                minChunkMinutes: minChunkMinutes,
+                maxChunkMinutes: maxChunkMinutes,
+                preferredStartMinute: preferredStartMinute,
+                preferredEndMinute: preferredEndMinute,
+                pace: pace,
+                allowedWeekdaysMask: allowedWeekdaysMask,
+                carryOverUnfinished: carryOverUnfinished,
+                startsOnLocalDate: startsOnLocalDate,
+                endsOnLocalDate: endsOnLocalDate,
+                pausedUntilLocalDate: pausedUntilLocalDate,
+                timeZoneId: timeZoneId,
+                status: status,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String title,
+                Value<String> notes = const Value.absent(),
+                Value<String?> areaId = const Value.absent(),
+                Value<String?> projectId = const Value.absent(),
+                required int targetMinutes,
+                required String priority,
+                required String energyLevel,
+                required String splitMode,
+                required int minChunkMinutes,
+                required int maxChunkMinutes,
+                Value<int?> preferredStartMinute = const Value.absent(),
+                Value<int?> preferredEndMinute = const Value.absent(),
+                required String pace,
+                Value<int> allowedWeekdaysMask = const Value.absent(),
+                Value<bool> carryOverUnfinished = const Value.absent(),
+                required String startsOnLocalDate,
+                Value<String?> endsOnLocalDate = const Value.absent(),
+                Value<String?> pausedUntilLocalDate = const Value.absent(),
+                required String timeZoneId,
+                Value<String> status = const Value.absent(),
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => RecurringTaskTemplatesCompanion.insert(
+                id: id,
+                title: title,
+                notes: notes,
+                areaId: areaId,
+                projectId: projectId,
+                targetMinutes: targetMinutes,
+                priority: priority,
+                energyLevel: energyLevel,
+                splitMode: splitMode,
+                minChunkMinutes: minChunkMinutes,
+                maxChunkMinutes: maxChunkMinutes,
+                preferredStartMinute: preferredStartMinute,
+                preferredEndMinute: preferredEndMinute,
+                pace: pace,
+                allowedWeekdaysMask: allowedWeekdaysMask,
+                carryOverUnfinished: carryOverUnfinished,
+                startsOnLocalDate: startsOnLocalDate,
+                endsOnLocalDate: endsOnLocalDate,
+                pausedUntilLocalDate: pausedUntilLocalDate,
+                timeZoneId: timeZoneId,
+                status: status,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $RecurringTaskTemplatesTable,
+                    RecurringTaskTemplate
+                  >(table),
+                  $$RecurringTaskTemplatesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                areaId = false,
+                projectId = false,
+                recurringTaskCyclesRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (recurringTaskCyclesRefs) db.recurringTaskCycles,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (areaId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.areaId,
+                            referencedTable:
+                                $$RecurringTaskTemplatesTableReferences
+                                    ._areaIdTable(db),
+                            referencedColumn:
+                                $$RecurringTaskTemplatesTableReferences
+                                    ._areaIdTable(db)
+                                    .id,
+                          ) as T;
+                        }
+                        if (projectId) {
+                          state = state.withJoin(
+                            currentTable: table,
+                            currentColumn: table.projectId,
+                            referencedTable:
+                                $$RecurringTaskTemplatesTableReferences
+                                    ._projectIdTable(db),
+                            referencedColumn:
+                                $$RecurringTaskTemplatesTableReferences
+                                    ._projectIdTable(db)
+                                    .id,
+                          ) as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (recurringTaskCyclesRefs)
+                        await $_getPrefetchedData<
+                          RecurringTaskTemplate,
+                          $RecurringTaskTemplatesTable,
+                          RecurringTaskCycle
+                        >(
+                          currentTable: table,
+                          referencedTable:
+                              $$RecurringTaskTemplatesTableReferences
+                                  ._recurringTaskCyclesRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$RecurringTaskTemplatesTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).recurringTaskCyclesRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.templateId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$RecurringTaskTemplatesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RecurringTaskTemplatesTable,
+      RecurringTaskTemplate,
+      $$RecurringTaskTemplatesTableFilterComposer,
+      $$RecurringTaskTemplatesTableOrderingComposer,
+      $$RecurringTaskTemplatesTableAnnotationComposer,
+      $$RecurringTaskTemplatesTableCreateCompanionBuilder,
+      $$RecurringTaskTemplatesTableUpdateCompanionBuilder,
+      (RecurringTaskTemplate, $$RecurringTaskTemplatesTableReferences),
+      RecurringTaskTemplate,
+      PrefetchHooks Function({
+        bool areaId,
+        bool projectId,
+        bool recurringTaskCyclesRefs,
+      })
+    >;
+typedef $$RecurringTaskCyclesTableCreateCompanionBuilder =
+    RecurringTaskCyclesCompanion Function({
+      required String templateId,
+      required String periodStartLocalDate,
+      required String taskId,
+      required int baseTargetMinutes,
+      Value<int> carryInMinutes,
+      Value<String> status,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$RecurringTaskCyclesTableUpdateCompanionBuilder =
+    RecurringTaskCyclesCompanion Function({
+      Value<String> templateId,
+      Value<String> periodStartLocalDate,
+      Value<String> taskId,
+      Value<int> baseTargetMinutes,
+      Value<int> carryInMinutes,
+      Value<String> status,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int> rowid,
+    });
+
+final class $$RecurringTaskCyclesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $RecurringTaskCyclesTable,
+          RecurringTaskCycle
+        > {
+  $$RecurringTaskCyclesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $RecurringTaskTemplatesTable _templateIdTable(_$AppDatabase db) =>
+      db.recurringTaskTemplates.createAlias(
+        'recurring_task_cycles__template_id__recurring_task_templates__id',
+      );
+
+  $$RecurringTaskTemplatesTableProcessedTableManager get templateId {
+    final $_column = $_itemColumn<String>('template_id')!;
+
+    final manager = $$RecurringTaskTemplatesTableTableManager(
+      $_db,
+      $_db.recurringTaskTemplates,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_templateIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $TasksTable _taskIdTable(_$AppDatabase db) =>
+      db.tasks.createAlias('recurring_task_cycles__task_id__tasks__id');
+
+  $$TasksTableProcessedTableManager get taskId {
+    final $_column = $_itemColumn<String>('task_id')!;
+
+    final manager = $$TasksTableTableManager(
+      $_db,
+      $_db.tasks,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_taskIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$RecurringTaskCyclesTableFilterComposer
+    extends Composer<_$AppDatabase, $RecurringTaskCyclesTable> {
+  $$RecurringTaskCyclesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get periodStartLocalDate => $composableBuilder(
+    column: $table.periodStartLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baseTargetMinutes => $composableBuilder(
+    column: $table.baseTargetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get carryInMinutes => $composableBuilder(
+    column: $table.carryInMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$RecurringTaskTemplatesTableFilterComposer get templateId {
+    final $$RecurringTaskTemplatesTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.templateId,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableFilterComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$TasksTableFilterComposer get taskId {
+    final $$TasksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableFilterComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecurringTaskCyclesTableOrderingComposer
+    extends Composer<_$AppDatabase, $RecurringTaskCyclesTable> {
+  $$RecurringTaskCyclesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get periodStartLocalDate => $composableBuilder(
+    column: $table.periodStartLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baseTargetMinutes => $composableBuilder(
+    column: $table.baseTargetMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get carryInMinutes => $composableBuilder(
+    column: $table.carryInMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$RecurringTaskTemplatesTableOrderingComposer get templateId {
+    final $$RecurringTaskTemplatesTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.templateId,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableOrderingComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$TasksTableOrderingComposer get taskId {
+    final $$TasksTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableOrderingComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecurringTaskCyclesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RecurringTaskCyclesTable> {
+  $$RecurringTaskCyclesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get periodStartLocalDate => $composableBuilder(
+    column: $table.periodStartLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baseTargetMinutes => $composableBuilder(
+    column: $table.baseTargetMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get carryInMinutes => $composableBuilder(
+    column: $table.carryInMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  $$RecurringTaskTemplatesTableAnnotationComposer get templateId {
+    final $$RecurringTaskTemplatesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.templateId,
+          referencedTable: $db.recurringTaskTemplates,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$RecurringTaskTemplatesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.recurringTaskTemplates,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$TasksTableAnnotationComposer get taskId {
+    final $$TasksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.taskId,
+      referencedTable: $db.tasks,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TasksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.tasks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$RecurringTaskCyclesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RecurringTaskCyclesTable,
+          RecurringTaskCycle,
+          $$RecurringTaskCyclesTableFilterComposer,
+          $$RecurringTaskCyclesTableOrderingComposer,
+          $$RecurringTaskCyclesTableAnnotationComposer,
+          $$RecurringTaskCyclesTableCreateCompanionBuilder,
+          $$RecurringTaskCyclesTableUpdateCompanionBuilder,
+          (RecurringTaskCycle, $$RecurringTaskCyclesTableReferences),
+          RecurringTaskCycle,
+          PrefetchHooks Function({bool templateId, bool taskId})
+        > {
+  $$RecurringTaskCyclesTableTableManager(
+    _$AppDatabase db,
+    $RecurringTaskCyclesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RecurringTaskCyclesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RecurringTaskCyclesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$RecurringTaskCyclesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> templateId = const Value.absent(),
+                Value<String> periodStartLocalDate = const Value.absent(),
+                Value<String> taskId = const Value.absent(),
+                Value<int> baseTargetMinutes = const Value.absent(),
+                Value<int> carryInMinutes = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RecurringTaskCyclesCompanion(
+                templateId: templateId,
+                periodStartLocalDate: periodStartLocalDate,
+                taskId: taskId,
+                baseTargetMinutes: baseTargetMinutes,
+                carryInMinutes: carryInMinutes,
+                status: status,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String templateId,
+                required String periodStartLocalDate,
+                required String taskId,
+                required int baseTargetMinutes,
+                Value<int> carryInMinutes = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => RecurringTaskCyclesCompanion.insert(
+                templateId: templateId,
+                periodStartLocalDate: periodStartLocalDate,
+                taskId: taskId,
+                baseTargetMinutes: baseTargetMinutes,
+                carryInMinutes: carryInMinutes,
+                status: status,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$RecurringTaskCyclesTable, RecurringTaskCycle>(
+                    table,
+                  ),
+                  $$RecurringTaskCyclesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({templateId = false, taskId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (templateId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.templateId,
+                        referencedTable: $$RecurringTaskCyclesTableReferences
+                            ._templateIdTable(db),
+                        referencedColumn: $$RecurringTaskCyclesTableReferences
+                            ._templateIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+                    if (taskId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.taskId,
+                        referencedTable: $$RecurringTaskCyclesTableReferences
+                            ._taskIdTable(db),
+                        referencedColumn: $$RecurringTaskCyclesTableReferences
+                            ._taskIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$RecurringTaskCyclesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RecurringTaskCyclesTable,
+      RecurringTaskCycle,
+      $$RecurringTaskCyclesTableFilterComposer,
+      $$RecurringTaskCyclesTableOrderingComposer,
+      $$RecurringTaskCyclesTableAnnotationComposer,
+      $$RecurringTaskCyclesTableCreateCompanionBuilder,
+      $$RecurringTaskCyclesTableUpdateCompanionBuilder,
+      (RecurringTaskCycle, $$RecurringTaskCyclesTableReferences),
+      RecurringTaskCycle,
+      PrefetchHooks Function({bool templateId, bool taskId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -18763,4 +22349,11 @@ class $AppDatabaseManager {
       $$PreferenceRulesTableTableManager(_db, _db.preferenceRules);
   $$ChangeLogTableTableManager get changeLog =>
       $$ChangeLogTableTableManager(_db, _db.changeLog);
+  $$RecurringTaskTemplatesTableTableManager get recurringTaskTemplates =>
+      $$RecurringTaskTemplatesTableTableManager(
+        _db,
+        _db.recurringTaskTemplates,
+      );
+  $$RecurringTaskCyclesTableTableManager get recurringTaskCycles =>
+      $$RecurringTaskCyclesTableTableManager(_db, _db.recurringTaskCycles);
 }

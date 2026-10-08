@@ -5,6 +5,15 @@ import 'package:personal_planner/data/database/tables/planner_tables.dart';
 
 part 'app_database.g.dart';
 
+/// 当前 schema 版本。
+///
+/// **必须是一个能在打开连接之前就读到的常量**：路线图 §4.3 要求升级前快照发生在
+/// `AppDatabase.openDefault()` **之前**，而那一刻还没有任何 `AppDatabase` 实例可以问
+/// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
+/// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
+/// 已经打开的连接之后。放在这里让两处共用同一个数字。
+const int plannerSchemaVersion = 7;
+
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
 @DriftDatabase(
@@ -29,6 +38,8 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     PreferenceEvidence,
     PreferenceRules,
     ChangeLog,
+    RecurringTaskTemplates,
+    RecurringTaskCycles,
   ],
   daos: [TaskDao],
 )
@@ -63,12 +74,20 @@ class AppDatabase extends _$AppDatabase {
   /// so that migration tests can assert an exact value instead of a range.
   final DateTime Function() now;
 
+  /// **必须是字面量**：`drift_dev make-migrations` 与 `drift_dev schema generate` 是**读源码**
+  /// 的静态工具，它们解析不了 `=> plannerSchemaVersion` 这样的间接引用，会直接报
+  /// "Could not read schema version"。上一行的常量因此多了一句"与这里保持一致"的义务，
+  /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
+  /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (migrator) => migrator.createAll(),
+    onCreate: (migrator) async {
+      await migrator.createAll();
+      await _createRecurringTaskIndexes();
+    },
     onUpgrade: (migrator, from, to) async {
       if (from < 2 && to >= 2) {
         await _upgradeToV2(migrator);
@@ -85,11 +104,61 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6 && to >= 6) {
         await _upgradeToV6(migrator);
       }
+      if (from < 7 && to >= 7) {
+        await _upgradeToV7(migrator);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
+      // **索引要在每次打开时都补**：v7 迁移里建过一次，但 `onCreate`（全新库）走的是
+      // 另一条分支，两条分支各建一次索引就是两处需要同步维护的 SQL。`IF NOT EXISTS`
+      // 让这里成为唯一一份定义——迁移与全新库都靠它。
+      await _createRecurringTaskIndexes();
     },
   );
+
+  /// v7 新增两张周期目标表与它们的索引（路线图 §4.3）。
+  ///
+  /// **刻意只新增**：`tasks`、`time_entries`、`calendar_events` 一个字段都不动。这两张表
+  /// 的存在与否不影响任何既有查询，因此 v6 用户升级后他的任务、课表、计划、设置必须**逐值
+  /// 不变**——§4.3 第一条与 §12 的"记录数量、外键和数据库文件保持有效"说的就是这件事。
+  Future<void> _upgradeToV7(Migrator migrator) async {
+    await migrator.createTable(recurringTaskTemplates);
+    await migrator.createTable(recurringTaskCycles);
+    await _createRecurringTaskIndexes();
+  }
+
+  /// 周期目标表的索引。
+  ///
+  /// 两条查询各自需要一条：
+  /// - `listCyclesInRange` 按 `period_start_local_date` 扫一个日期区间。联合主键是
+  ///   `(template_id, period_start_local_date)`，**前导列是模板**，因此按日期查用不上它；
+  /// - `recordedMinutesForTask` 按 `task_id` 汇总 `time_entries`。`time_entries` 上只有
+  ///   主键索引，而这条查询每周都会为每个周期目标跑一次。
+  ///
+  /// `task_id` 的 UNIQUE 约束会自带索引，所以这里不重复建。
+  ///
+  /// **表不存在时安静跳过**。它会在 `beforeOpen` 里被调用，而 `drift_dev` 的迁移测试
+  /// （`SchemaVerifier.migrateAndValidate`）会**逐个中间版本**打开同一个类——v1→v2 时
+  /// 这两张表当然还不存在，此时索引语句会以 `no such table` 失败。索引是在 v7 才有的东西，
+  /// 为它加一个"只在 v7 存在"的分支比在每次打开时判断版本更简单，也照样保证**全新库与
+  /// v7 迁移后的库都有索引**（见 `_createRecurringTaskIndexes` 的两个调用点）。
+  Future<void> _createRecurringTaskIndexes() async {
+    const statements = [
+      'CREATE INDEX IF NOT EXISTS idx_recurring_cycles_period_start '
+          'ON recurring_task_cycles (period_start_local_date)',
+      'CREATE INDEX IF NOT EXISTS idx_time_entries_task_started '
+          'ON time_entries (task_id, started_at_utc)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 只有"目标表还不存在"会走到这里；其它失败（磁盘只读等）会在紧随其后的真实
+        // 查询上以更准确的形式暴露，不该在这里被猜成索引问题。
+      }
+    }
+  }
 
   /// v2 adds custom tags, the task preferred-time window, the area life flag,
   /// and the FR-DATA-08 creation and modification timestamps that were missing

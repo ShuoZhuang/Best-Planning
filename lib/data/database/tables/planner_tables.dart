@@ -337,3 +337,85 @@ class ChangeLog extends Table {
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
+
+/// 周期目标模板（路线图 §4.1）。
+///
+/// 与 `recurrence_rules`（固定日程的重复规则）**刻意分开**：两者语义不同——固定日程是
+/// "每周三 09:00 上课"，时间是钉死的；周期目标是"这周一共做 180 分钟"，具体什么时候做
+/// 由排程器决定（§1.3 明确要求两套语义不互相改写）。
+///
+/// `allowed_weekdays_mask` 用 7 位整数而不是七列布尔：它是**一个**取值（"允许星期集合"），
+/// 不是七个独立开关；位运算也让"这周允许哪几天"在一次比较里算完。默认 127 即周一至周日。
+///
+/// 日期一律存 `YYYY-MM-DD` 文本（与 `academic_terms.first_week_monday_local_date`、
+/// `recurrence_rules.valid_from_local_date` 同一口径）：日期不是时刻，存成整数时间戳会在
+/// 时区与夏令时上被重新解释，而周期主键恰恰是"本地周一那一天"。
+class RecurringTaskTemplates extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get notes => text().withDefault(const Constant(''))();
+  TextColumn get areaId => text().nullable().references(Areas, #id)();
+  TextColumn get projectId => text().nullable().references(Projects, #id)();
+  IntColumn get targetMinutes =>
+      integer().customConstraint('NOT NULL CHECK (target_minutes > 0)')();
+  TextColumn get priority => text()();
+  TextColumn get energyLevel => text()();
+  TextColumn get splitMode => text()();
+  IntColumn get minChunkMinutes => integer()();
+  IntColumn get maxChunkMinutes => integer()();
+  IntColumn get preferredStartMinute => integer().nullable()();
+  IntColumn get preferredEndMinute => integer().nullable()();
+  TextColumn get pace => text()();
+  IntColumn get allowedWeekdaysMask => integer().customConstraint(
+    'NOT NULL DEFAULT 127 CHECK (allowed_weekdays_mask BETWEEN 1 AND 127)',
+  )();
+  BoolColumn get carryOverUnfinished =>
+      boolean().withDefault(const Constant(false))();
+  TextColumn get startsOnLocalDate => text()();
+  TextColumn get endsOnLocalDate => text().nullable()();
+  TextColumn get pausedUntilLocalDate => text().nullable()();
+  TextColumn get timeZoneId => text()();
+  TextColumn get status => text().withDefault(const Constant('active'))();
+  IntColumn get createdAtUtc => integer()();
+  IntColumn get updatedAtUtc => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+
+  @override
+  List<String> get customConstraints => [
+    "CHECK (status IN ('active', 'archived'))",
+    'CHECK (min_chunk_minutes > 0 AND max_chunk_minutes >= min_chunk_minutes)',
+    'CHECK ((preferred_start_minute IS NULL) = (preferred_end_minute IS NULL))',
+  ];
+}
+
+/// 某一周的周期实例（路线图 §4.2）。
+///
+/// **联合主键 `(template_id, period_start_local_date)` 就是"连续启动十次只有一个实例"
+/// 的实现依据**——唯一性由数据库保证，而不是靠启动代码里的判断。`task_id` 另加 UNIQUE：
+/// 一个普通任务只能属于一个周期实例，否则"这个任务算哪一周的进度"会有两个答案。
+///
+/// 完成分钟**不在这张表里**：它从现有 `time_entries` 汇总（§4.2 最后一句）。多存一列
+/// "已完成分钟"会立刻产生两个事实来源——专注计时写完一处、忘了另一处，进度就会撒谎。
+class RecurringTaskCycles extends Table {
+  TextColumn get templateId => text().references(RecurringTaskTemplates, #id)();
+  TextColumn get periodStartLocalDate => text()();
+  TextColumn get taskId => text().references(Tasks, #id).unique()();
+  IntColumn get baseTargetMinutes =>
+      integer().customConstraint('NOT NULL CHECK (base_target_minutes > 0)')();
+  IntColumn get carryInMinutes => integer().customConstraint(
+    'NOT NULL DEFAULT 0 CHECK (carry_in_minutes >= 0)',
+  )();
+  TextColumn get status => text().withDefault(const Constant('open'))();
+  IntColumn get createdAtUtc => integer()();
+  IntColumn get updatedAtUtc => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {templateId, periodStartLocalDate};
+
+  @override
+  List<String> get customConstraints => [
+    "CHECK (status IN ('open', 'met', 'missed', 'skipped'))",
+  ];
+}
