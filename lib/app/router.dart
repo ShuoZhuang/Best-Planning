@@ -524,6 +524,16 @@ GoRouter createPlannerRouter({
                       planApplication,
                       autoAdjustStore,
                     ),
+              // 周期目标的入口（用户 2026-10-08 报告："看不到新建的周期目标，也无法正常管理"）。
+              // 周期目标存在另一张表，本页原先只订阅普通任务，因此它从头到尾不在任何列表里；
+              // 而它的管理动作入口全在周期详情页——**没有列表就没有入口**，用户建完就再也回不去。
+              //
+              // 未装配周期服务时两个端口都传 null，页面据此整组不渲染（不给死入口）。
+              recurringTasks: recurringTasks,
+              onOpenRecurringTask: recurringTasks == null
+                  ? null
+                  : (templateId) => context.go('/tasks/recurring/$templateId'),
+
               // FR-TASK-03 的"批量调整"最后一环。整批共用同一天，因此**只换算一次**；
               // 页面不认识时区，本地日期到 UTC 的换算在此完成（与"设置截止时间"同一模式）。
               onSetDueDateForSelection: (taskIds, localDate, minute) async {

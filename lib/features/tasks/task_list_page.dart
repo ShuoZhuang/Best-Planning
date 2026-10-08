@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_pickers.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/tasks/task_list_filter.dart';
@@ -17,6 +19,8 @@ final class TaskListPage extends StatefulWidget {
     this.timeZoneId,
     this.onSetDueDateForSelection,
     this.onGeneratePlan,
+    this.recurringTasks,
+    this.onOpenRecurringTask,
     super.key,
   });
   final TaskService service;
@@ -33,6 +37,14 @@ final class TaskListPage extends StatefulWidget {
   /// 刻意收 `PlanRepository` 而不是新建一套计划服务：`current()` 已经是"当前确认计划"
   /// 的既有出口，再开一个来源就等于给同一个事实建两个出口。
   final PlanRepository? plans;
+
+  /// 周期目标的来源（用户 2026-10-08 报告）。为空时列表页不显示"周期目标"分组——
+  /// 那种装配下根本没有模板可列。
+  final RecurringTaskService? recurringTasks;
+
+  /// 打开某个周期目标详情。为空时同样不渲染那一组：**列出来点不开是死入口**，
+  /// 比看不到更糟（与 onGeneratePlan、openBreakdown 同一口径）。
+  final void Function(String templateId)? onOpenRecurringTask;
 
   /// 用于把计划块与截止时间换算成用户读的本地钟点。为空时退回系统时区。
   ///
@@ -192,6 +204,7 @@ final class _TaskListPageState extends State<TaskListPage> {
             Text(_batchMessage!),
           ],
           const SizedBox(height: 12),
+          _buildRecurringSection(),
           Expanded(
             child: StreamBuilder<List<PlannerTask>>(
               stream: widget.service.watchAllTasks(),
@@ -231,6 +244,67 @@ final class _TaskListPageState extends State<TaskListPage> {
         ],
       ),
     );
+  }
+
+  /// 周期目标的入口分组（用户 2026-10-08 报告："看不到新建的周期目标，也无法正常管理"）。
+  ///
+  /// **它补的是"创建即失联"**：周期目标存在 `recurring_task_templates`（另一张表），
+  /// 而本页原先只订阅 `TaskService.watchAllTasks()`——普通任务。于是周期目标从头到尾不在任何
+  /// 列表里；而它的管理动作（编辑、暂停、跳过本周、停止以后生成）入口全在周期详情页
+  /// （`/tasks/recurring/:templateId`），**没有列表就没有入口**，用户建完之后再也回不去。
+  ///
+  /// **两个端口任一为空就整组不渲染**：
+  /// - 没装配 `RecurringTaskService` 时根本没有模板可列；
+  /// - 没装配 `onOpenRecurringTask` 时列出来也点不开——那是死入口，比看不到更糟。
+  ///
+  /// 同理，一个模板都没有时也不渲染：一个空分组只是噪音。
+  Widget _buildRecurringSection() {
+    final service = widget.recurringTasks;
+    final open = widget.onOpenRecurringTask;
+    if (service == null || open == null) return const SizedBox.shrink();
+    return FutureBuilder<List<RecurringTaskTemplate>>(
+      // 每次重建都重新读一次：周期目标的增删改都发生在别的页面，回到本页时必须看到最新状态。
+      // 模板数量是个位数到几十条，一次全读的代价远小于维护一套监听流（仓库层没有 `watch`）。
+      future: service.repository.listTemplates(),
+      builder: (context, snapshot) {
+        final templates = snapshot.data ?? const <RecurringTaskTemplate>[];
+        if (templates.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('周期目标', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            for (final template in templates)
+              ListTile(
+                key: Key('recurring-row-${template.id}'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.repeat),
+                title: Text(template.title),
+                subtitle: Text(
+                  '每周 ${template.targetMinutes} 分钟'
+                  '${_recurringStatusSuffix(template)}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => open(template.id),
+              ),
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 模板状态后缀。**只在非默认状态时追加**：正常在跑的模板不需要一句"进行中"，
+  /// 那是噪音；而暂停与已停止必须写出来，否则用户会以为它还在生成。
+  String _recurringStatusSuffix(RecurringTaskTemplate template) {
+    if (template.status == RecurringTemplateStatus.archived) return '（已停止生成）';
+    final pausedUntil = template.pausedUntilLocalDate;
+    if (pausedUntil != null) {
+      return '（暂停到 ${pausedUntil.year}-${pausedUntil.month}-${pausedUntil.day}）';
+    }
+    return '';
   }
 
   /// 筛选栏（§3）：搜索框下方、任务列表上方。
