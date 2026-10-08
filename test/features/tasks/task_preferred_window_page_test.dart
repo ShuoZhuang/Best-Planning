@@ -36,6 +36,12 @@ final class _Tasks implements TaskRepository {
   @override
   Future<void> save(PlannerTask task) async => tasks[task.id] = task;
 
+  /// 全量监听；这个替身没有数据库，因此"全部"与"未结束"共用一份数据。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() async* {
+    yield tasks.values.toList();
+  }
+
   @override
   Stream<List<PlannerTask>> watchOpenTasks() async* {
     yield tasks.values.toList();
