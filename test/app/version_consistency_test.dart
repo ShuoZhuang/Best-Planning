@@ -127,26 +127,29 @@ void main() {
   // **这条测试的存在意义**：让"静默改号"无法通过。抬版本时**故意**改这一段就是流程本身，
   // 必须与 `docs/release/version-policy.md` 第 4 节、`docs/release/build-ledger.md`
   // 的新条目一起改。
-  test('当前候选批次是 1.6.2+37 / MSIX 1.6.2.0（M9 收口）', () {
+  test('当前候选批次是 1.7.0+38 / MSIX 1.7.0.0（1.7 收口）', () {
     expect(
       pubspecVersion(),
-      '1.6.2+37',
-      reason: 'M9 收口：第二段固定 1.6，抬第 3 段到 1.6.2，构建号递增到 37',
+      '1.7.0+38',
+      reason:
+          '本轮是 `1.7.0` 的首个候选，抬的是**第 2 段**（`1.6` → `1.7`）：'
+          '`1.7` 批次含用户可感知的新功能（统计复盘重做、周期目标、更新检查），'
+          '按版本规则的兼容性判据属于新功能发布线；构建号全局单调递增，`+37` 之后是 `+38`，'
+          '**不随版本号归零**',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}msix_version:\s*(\S+)\s*$')),
-      '1.6.2.0',
+      '1.7.0.0',
       reason:
-          'MSIX 前三段必须与 version 一致；第四段 `1` = **同批次重打包**'
-          '（收口之后又改掉一处缺陷：备份页会把异常里的完整路径打到界面上），'
-          '而不是抬第三段',
+          'MSIX 前三段必须与 version 一致；第四段 `0` = 本批次的**首次**打包'
+          '（重打包而代码未变时才抬第四段，如 `1.7.0.1`）',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}output_name:\s*(\S+)\s*$')),
-      'personal_planner_1.6.2.0_x64',
+      'personal_planner_1.7.0.0_x64',
       reason: '产物名沿用既有格式，旧版本片段必须一起换掉',
     );
-    expect(appVersion, '1.6.2+37', reason: '这一项会写进备份清单，必须与 version 一字不差');
+    expect(appVersion, '1.7.0+38', reason: '这一项会写进备份清单，必须与 version 一字不差');
   });
 
   // ── 1.7 新增（路线图 §3.6 / Task 10）────────────────────────────────────────────
@@ -173,15 +176,17 @@ void main() {
       // 它是一段字符串。因此把常量塞回更新判断必须先经过解析，而解析这一步本身就要求
       // 有人显式选择"用手写值"。这条断言把那个类型契约钉住。
       const AppVersionProvider provider = FixedAppVersionProvider(
-        AppVersion(1, 6, 2, build: 37),
+        AppVersion(1, 7, 0, build: 38),
       );
       expect(
         provider.currentVersion(),
-        completion(AppVersion.parse('1.6.2+37')),
+        completion(AppVersion.parse('1.7.0+38')),
       );
-      // 常量仍然与它一致（这一条会被上一条测试守着），但**更新服务拿不到它**：
+      // 常量此刻恰好也是这个值（上一条测试守着它），但**更新服务拿不到它**：
       // `UpdateService` 的构造参数里没有 `appVersion`，只有 `versions`。
-      expect(appVersion, '1.6.2+37');
+      // 换句话说这条用例证明的是"来源是端口"，而不是"两者相等"——它们可以不一致，
+      // 因为常量只是构建期抄下的一行。
+      expect(appVersion, '1.7.0+38');
     });
   });
 }
