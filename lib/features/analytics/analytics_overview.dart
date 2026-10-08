@@ -16,13 +16,32 @@ import 'package:personal_planner/features/analytics/analytics_drilldown_sheet.da
 
 /// 四项摘要。`onOpenSource` 为 `null` 时卡片不可点（端口未装配时不显示死入口）。
 final class AnalyticsOverview extends StatelessWidget {
-  const AnalyticsOverview({required this.report, this.onOpenSource, super.key});
+  const AnalyticsOverview({
+    required this.report,
+    this.onOpenSource,
+    this.onGeneratePlan,
+    this.onOpenRestRules,
+    super.key,
+  });
 
   final AnalyticsReport report;
 
   /// 点某一项时打开它的来源明细。参数是这一项的稳定标识（见
   /// `analyticsBreakdownFor`），由页面负责翻译成底部面板。
   final ValueChanged<AnalyticsSummarySlot>? onOpenSource;
+
+  /// 空状态里的**下一步操作**（路线图 §11 Task 12 Step 3："为无统计、无确认计划、周期未安排、
+  /// 无更新和数据不足提供下一步操作"）。
+  ///
+  /// **为什么空状态需要动作**：`计划总时长 0 分钟` 配一句"所选范围里还没有已确认的计划块"
+  /// 只解释了现状，用户下一步该做什么得自己猜——而他能做的其实只有一件事：去生成计划。
+  /// 一句说明加一个按钮，比两句说明有用。
+  ///
+  /// 为 `null` 时**不渲染按钮**：没装配排程服务就没有"生成计划"可去，给按钮等于给死入口。
+  final VoidCallback? onGeneratePlan;
+
+  /// 保护时间没设置时的下一步（去规划规则页设置睡眠与用餐时间）。
+  final VoidCallback? onOpenRestRules;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +69,10 @@ final class AnalyticsOverview extends StatelessWidget {
           onTap: onOpenSource == null
               ? null
               : () => onOpenSource!(AnalyticsSummarySlot.plannedMinutes),
+          // 没有任何计划时给出下一步：唯一能改变这个数字的动作就是去生成计划。
+          // 端口为空时不给按钮（没装配排程服务就没有"生成计划"可去）。
+          actionLabel: totalPlanned == 0 ? '去生成计划' : null,
+          onAction: totalPlanned == 0 ? onGeneratePlan : null,
         ),
         _SummaryCard(
           cardKey: const Key('analytics-summary-completion'),
@@ -79,6 +102,13 @@ final class AnalyticsOverview extends StatelessWidget {
           onTap: onOpenSource == null
               ? null
               : () => onOpenSource!(AnalyticsSummarySlot.restProtection),
+          // 没有保护时间时给出下一步：去规划规则页设置睡眠与用餐时间。
+          actionLabel: rest == null || rest.totalMinutes == 0
+              ? '去设置保护时间'
+              : null,
+          onAction: rest == null || rest.totalMinutes == 0
+              ? onOpenRestRules
+              : null,
         ),
         _SummaryCard(
           cardKey: const Key('analytics-summary-issue'),
@@ -124,6 +154,8 @@ final class _SummaryCard extends StatelessWidget {
     required this.value,
     required this.detail,
     this.onTap,
+    this.actionLabel,
+    this.onAction,
   });
 
   final Key cardKey;
@@ -132,6 +164,12 @@ final class _SummaryCard extends StatelessWidget {
   final String value;
   final String detail;
   final VoidCallback? onTap;
+
+  /// 空状态里的下一步动作文案。为 `null`（或 [onAction] 为 `null`）时不渲染按钮。
+  final String? actionLabel;
+
+  /// 下一步动作。**与 [onTap] 是两件事**：`onTap` 是"看这个数字的来源"，本项是"去改变它"。
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +225,21 @@ final class _SummaryCard extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
+                // 空状态的下一步动作（§11 Task 12 Step 3）。只在**两个端口都非空**时渲染：
+                // 有文案没动作是死入口，有动作没文案用户不知道点了会去哪。
+                if (actionLabel != null && onAction != null) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    key: Key('${cardKey.toString()}-action'),
+                    onPressed: onAction,
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(actionLabel!),
+                  ),
+                ],
               ],
             ),
           ),

@@ -37,6 +37,8 @@ final class AnalyticsPage extends StatefulWidget {
     this.openBreakdownTarget,
     this.recurringGoals,
     this.onOpenRecurringGoals,
+    this.onGeneratePlan,
+    this.onOpenRestRules,
     super.key,
   });
 
@@ -90,6 +92,13 @@ final class AnalyticsPage extends StatefulWidget {
 
   /// 点周期目标摘要里的入口时的去向。为空时不给入口。
   final VoidCallback? onOpenRecurringGoals;
+
+  /// 空状态里的下一步操作（§11 Task 12 Step 3）。
+  ///
+  /// **为空时那两处不渲染按钮**：没装配对应服务就没有可去之处，给一个点了没反应的入口
+  /// 比没有入口更糟（与这个应用其它端口同一口径）。
+  final VoidCallback? onGeneratePlan;
+  final VoidCallback? onOpenRestRules;
 
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
@@ -551,6 +560,9 @@ final class _AnalyticsPageState extends State<AnalyticsPage>
                       // 摘要卡变成不可点的死入口——而内置面板（`showAnalyticsBreakdown`）本来
                       // 就能处理这种情况，一行代码就能自证。
                       onOpenSource: (slot) => _openBreakdown(report, slot),
+                      // 空状态的下一步动作（§11 Task 12 Step 3）。为空时那两处不渲染按钮。
+                      onGeneratePlan: widget.onGeneratePlan,
+                      onOpenRestRules: widget.onOpenRestRules,
                     ),
                     // ── 周期目标摘要（§3.1 最后一条、§11 Task 9）──────────────────
                     //

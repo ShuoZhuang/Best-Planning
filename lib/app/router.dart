@@ -1380,6 +1380,17 @@ GoRouter createPlannerRouter({
                 // 选择只在本次会话内生效，而不是让整页不可用。
                 loadChartKinds: chartPreferences?.load,
                 saveChartKind: chartPreferences?.save,
+                // 空状态的下一步动作（§11 Task 12 Step 3）。两个端口都只在对应服务装配时传，
+                // 页面据此决定是否渲染按钮——给一个点了没反应的入口比没有入口更糟。
+                onGeneratePlan: planningService == null
+                    ? null
+                    : () => _generatePlan(
+                        context,
+                        planningService,
+                        planApplication,
+                        autoAdjustStore,
+                      ),
+                onOpenRestRules: () => context.go('/settings/rules'),
               );
             },
           ),
