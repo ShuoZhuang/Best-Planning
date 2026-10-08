@@ -1,13 +1,18 @@
+import 'dart:math' as math;
+
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/recurring_period.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
@@ -50,6 +55,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.snapshots = const InputSnapshotBuilder(),
     this.pendingMoves,
     this.pendingSkips,
+    this.recurring,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
 
@@ -74,6 +80,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   /// 为空即"没有跳过"，行为与从前完全一致。语义见 `pending_skips.dart`：
   /// **只放弃这一个块**，任务仍在 `tasks` 里继续参与重排。
   final PendingSkipDrafts? pendingSkips;
+
+  /// 周期目标的生成与进度（M6）。**为空时行为与从前完全一致**：周期实例仍会作为普通任务
+  /// 参与排程（它本来就在 `tasks` 里），只是不带"本周视角"的截止时间与剩余量。
+  final RecurringTaskService? recurring;
 
   @override
   Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
@@ -112,6 +122,32 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         ),
     ];
     final schedulableIds = {for (final task in schedulable) task.id};
+
+    // ── 周期目标进排程（M6，§3.4 / §11 Task 8）────────────────────────────────
+    //
+    // **周期实例本身就是一件普通任务**，因此它已经在 `openTasks` 里；这里要做的是把它
+    // 那份"普通任务"的排程输入**换成周期视角的那一份**：截止时间＝本周末（或按节奏提前）、
+    // 只送还差的部分、`selectedWeekdays` 拆成按天窗口。没有新约束类型、没有第二个排程器。
+    //
+    // **过滤掉而不是重复添加**：同一个 id 出现两次会让引擎把同一份剩余时长安排两遍。
+    final recurringInputs = await _recurringInputs(nowUtc);
+    if (recurringInputs.isNotEmpty) {
+      final recurringTaskIds = {
+        for (final input in recurringInputs) input.cycle.taskId,
+      };
+      schedulable.removeWhere((task) => recurringTaskIds.contains(task.id));
+      for (final input in recurringInputs) {
+        final expanded = recurringSchedulableTasks(input: input, zones: zones);
+        for (final task in expanded) {
+          // 只在与普通任务同 id 的那一份已经被移除后才加入；同时处理"同一 id 的多个窗口"
+          // （selectedWeekdays）——它们**必须都留下**，否则只有第一天能被安排。
+          schedulable.add(task);
+        }
+      }
+      schedulableIds
+        ..clear()
+        ..addAll({for (final task in schedulable) task.id});
+    }
 
     // FR-CAL-05：把手动拖动落成排程输入。拖动的粒度是"块"，而 `ScheduleProblem` 是任务级
     // 模型，因此这里**按块把该块钉到目标位置**：时间取"保留原来的本地钟点、换到目标本地日"，
@@ -205,6 +241,202 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
 
     return withCurrentInputHash(problem, snapshots);
   }
+
+  /// 收集窗口内**参与排程**的周期实例及其本周视角。
+  ///
+  /// 三个过滤各自都有理由：
+  /// - 没有实例的模板跳过（还没到开始日／已归档）；
+  /// - 暂停期内的跳过（§3.3：暂停期间不生成，自然也不安排）；
+  /// - 剩余为 0 的跳过（已达标）：继续送进去会让引擎为一件已经做完的事占位。
+  Future<List<RecurringScheduleInput>> _recurringInputs(DateTime nowUtc) async {
+    final service = recurring;
+    if (service == null) return const [];
+    final templates = await service.repository.listTemplates(
+      includeArchived: false,
+    );
+    if (templates.isEmpty) return const [];
+    final period = service.periodContaining(nowUtc);
+    final inputs = <RecurringScheduleInput>[];
+    for (final template in templates) {
+      final cycle = await service.repository.findCycle(
+        template.id,
+        period.startLocalDate,
+      );
+      if (cycle == null) continue;
+      final progress = await service.progressForCycle(
+        template.id,
+        period.startLocalDate,
+      );
+      if (progress.remainingMinutes <= 0) continue;
+      inputs.add(
+        RecurringScheduleInput(
+          template: template,
+          cycle: cycle,
+          progress: progress,
+          period: period,
+          planningStartUtc: nowUtc.isAfter(period.startUtc)
+              ? nowUtc
+              : period.startUtc,
+        ),
+      );
+    }
+    // **按模板 id 排序**：结果不得依赖数据库返回顺序（§7.2 最后一条）。这里排一次，
+    // 引擎内部的 `_compareTasks` 再排一次，两道都不依赖顺序。
+    inputs.sort((a, b) => a.template.id.compareTo(b.template.id));
+    return inputs;
+  }
+}
+
+/// 周期目标实例的排程输入（M6，路线图 §3.4 / §11 Task 8）。
+///
+/// **它把"这一周该做多少"翻译成一件普通任务，而不是另写一个排程器**：周期实例在生成时
+/// 就已经是一件普通任务（见 `RecurringTaskService._taskFor`），这里补的是三件只有排程层
+/// 才知道的事：
+///
+/// ① **截止时间＝这一周的结束**（选了 `early` 就提前）。引擎自带的
+///    `PressureCalculator` 会按"本周剩余容量 ÷ 到截止为止的总容量"算出本周该推进多少，
+///    因此"均匀分布不会把 180 分钟全堆到周日"（§7.2）**不需要新算法**，只需要把正确的
+///    截止时间交进去。
+/// ② **允许星期**（`selectedWeekdays`）：拆成"每一天一个窗口"，每个窗口的截止时间就是
+///    那一天的结束。**没有新的约束类型**——引擎本来就用 `dueAtUtc` 与 `availableFromUtc`
+///    夹住候选，因此这一条只是把"仅周三"表达成"周三 00:00 到周四 00:00 之间、且周四
+///    00:00 前必须做完"。
+/// ③ **只送还差的部分**（已完成 80 / 目标 180 ⇒ 只送 100，§7.2 第二条）。
+///
+/// **绝不触碰保护时间**：这里只产出任务与截止时间；保护时间由 `protectedTimes.expand`
+/// 独立产出，两者在 `ScheduleProblem` 里各占一个字段。容量不够时引擎返回
+/// `unscheduled` 与 `insufficientCapacity` 冲突，缺口由 `CapacityShortfall` 汇报。
+final class RecurringScheduleInput {
+  const RecurringScheduleInput({
+    required this.template,
+    required this.cycle,
+    required this.progress,
+    required this.period,
+    required this.planningStartUtc,
+  });
+
+  final RecurringTaskTemplate template;
+  final RecurringTaskCycle cycle;
+  final RecurringProgress progress;
+  final WeeklyPeriod period;
+  final DateTime planningStartUtc;
+}
+
+/// 把一个周期实例展开成排程输入（见 [RecurringScheduleInput] 的说明）。
+///
+/// 单独抽成顶层函数是为了能**脱离数据库**测试：§11 Task 8 的三条验收（均匀分布、不依赖
+/// 返回顺序、精确缺口）都可以直接在纯函数层面钉住，而真实库只用来验证接线。
+List<SchedulableTask> recurringSchedulableTasks({
+  required RecurringScheduleInput input,
+  required TimeZoneDatabase zones,
+}) {
+  final remaining = input.progress.remainingMinutes;
+  if (remaining <= 0) return const [];
+  // 已跳过的这一周**不产生任何排程输入**：跳过是"这周不想做"，继续安排会与用户的动作相悖。
+  if (input.cycle.status == RecurringCycleStatus.skipped) return const [];
+  final template = input.template;
+
+  SchedulableTask base({
+    required int requiredMinutes,
+    required DateTime? dueAtUtc,
+    required DateTime? availableFromUtc,
+    int allowedWeekdaysMask = recurringAllWeekdaysMask,
+    int? maxMinutesPerLocalDay,
+  }) => SchedulableTask(
+    id: input.cycle.taskId,
+    requiredMinutes: requiredMinutes,
+    splitMode: template.splitMode,
+    minChunkMinutes: template.minChunkMinutes,
+    maxChunkMinutes: template.maxChunkMinutes,
+    dueAtUtc: dueAtUtc,
+    availableFromUtc: availableFromUtc,
+    priority: template.priority,
+    energyLevel: template.energyLevel,
+    preferredWindow: template.preferredWindow,
+    allowedWeekdaysMask: allowedWeekdaysMask,
+    maxMinutesPerLocalDay: maxMinutesPerLocalDay,
+  );
+
+  switch (template.pace) {
+    case RecurringPace.even:
+      return [
+        base(
+          requiredMinutes: remaining,
+          dueAtUtc: input.period.endUtc,
+          availableFromUtc: null,
+          maxMinutesPerLocalDay: _dailyQuota(
+            input: input,
+            allowedWeekdaysMask: recurringAllWeekdaysMask,
+            zones: zones,
+          ),
+        ),
+      ];
+    case RecurringPace.deadlineWeighted:
+      return [
+        base(
+          requiredMinutes: remaining,
+          dueAtUtc: input.period.endUtc,
+          availableFromUtc: null,
+        ),
+      ];
+    case RecurringPace.early:
+      // **尽早完成**：把截止时间提前到"本周开始 + 2 天"（不早于窗口终点时才提前），
+      // 于是同一个 `PressureCalculator` 会算出更高的近期推进量。窗口不足两天时保持原样。
+      final earlyDue = input.period.startUtc.add(const Duration(days: 2));
+      return [
+        base(
+          requiredMinutes: remaining,
+          dueAtUtc: earlyDue.isBefore(input.period.endUtc)
+              ? earlyDue
+              : input.period.endUtc,
+          availableFromUtc: null,
+        ),
+      ];
+    case RecurringPace.selectedWeekdays:
+      final weekdays = template.allowedWeekdays;
+      final mask = weekdayMaskOf(weekdays);
+      return [
+        base(
+          requiredMinutes: remaining,
+          dueAtUtc: input.period.endUtc,
+          availableFromUtc: input.period.startUtc,
+          allowedWeekdaysMask: mask,
+          maxMinutesPerLocalDay: _dailyQuota(
+            input: input,
+            allowedWeekdaysMask: mask,
+            zones: zones,
+          ),
+        ),
+      ];
+  }
+}
+
+int _dailyQuota({
+  required RecurringScheduleInput input,
+  required int allowedWeekdaysMask,
+  required TimeZoneDatabase zones,
+}) {
+  final startLocal = zones.toLocal(
+    input.planningStartUtc,
+    input.period.timeZoneId,
+  );
+  var cursor = DateTime(startLocal.year, startLocal.month, startLocal.day);
+  final end = input.period.endLocalDate;
+  var eligibleDays = 0;
+  while (cursor.isBefore(end)) {
+    if (allowedWeekdaysMask & (1 << (cursor.weekday - DateTime.monday)) != 0) {
+      eligibleDays++;
+    }
+    cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
+  }
+  if (eligibleDays <= 1) return input.progress.remainingMinutes;
+  final raw =
+      (input.progress.remainingMinutes + eligibleDays - 1) ~/ eligibleDays;
+  final minimum = input.template.minChunkMinutes;
+  if (input.progress.remainingMinutes <= minimum) {
+    return input.progress.remainingMinutes;
+  }
+  return math.max(raw, minimum);
 }
 
 /// 把 [original] 的区间搬到 [targetLocalDate] 的同一天，**保留原来的本地钟点与时长**。

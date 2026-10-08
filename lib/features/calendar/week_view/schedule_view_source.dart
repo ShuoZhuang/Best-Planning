@@ -1,4 +1,5 @@
 import 'package:personal_planner/application/planning_rule_resolver.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -35,6 +36,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     required this.timeZoneId,
     required this.history,
     Clock? clock,
+    this.recurring,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        _clock = clock ?? const SystemClock();
 
@@ -46,6 +48,10 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   final TimeZoneDatabase zones;
   final String timeZoneId;
   final ProtectedTimeExpander protectedTimes;
+
+  /// 周期目标（M6）。为空时卡片照常渲染，只是没有那一行进度徽标——
+  /// 与"这不是周期目标的条目"是同一种显示结果。
+  final RecurringTaskService? recurring;
 
   /// 历史计划块（含已被取代的版本）。过去几天当时排了什么只在那里。
   final PlanBlockHistory history;
@@ -229,6 +235,39 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           block.taskId,
         for (final block in historicalPast) block.taskId,
       };
+
+      // M6（§3.3 最后一条）：**周期目标实例的进度徽标**。
+      //
+      // 只在装配了周期服务时查；查的顺序与上面补查任务一样，逐条按需查（周期目标通常只有
+      // 一两个，而"每次刷新都把所有模板 × 所有历史周都读一遍"是另一个量级）。
+      final badges = <String, RecurringGoalBadge>{};
+      final recurring = this.recurring;
+      if (recurring != null) {
+        final period = recurring.periodContaining(_clock.nowUtc());
+        for (final taskId in referenced) {
+          final cycle = await recurring.repository.findCycleByTaskId(taskId);
+          // 只给**本周**的实例挂徽标：历史周的进度在周期详情页里看，挂在日程卡片上会让
+          // 用户以为"这周只做了 20 分钟"。
+          if (cycle == null ||
+              cycle.periodStartLocalDate != period.startLocalDate) {
+            continue;
+          }
+          final template = await recurring.repository.findTemplate(
+            cycle.templateId,
+          );
+          if (template == null) continue;
+          final progress = await recurring.progressForCycle(
+            cycle.templateId,
+            cycle.periodStartLocalDate,
+          );
+          badges[taskId] = RecurringGoalBadge(
+            templateId: template.id,
+            title: template.title,
+            recordedMinutes: progress.recordedMinutes,
+            targetMinutes: progress.targetMinutes,
+          );
+        }
+      }
       for (final taskId in referenced) {
         if (titles.containsKey(taskId)) continue;
         final task = await tasks.getById(taskId);
@@ -260,6 +299,9 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
             // 找到任务。这里本来就有 `block.taskId`，直接带出去，省得页面去拆 `id` 前缀。
             taskId: block.taskId,
             isCompleted: completedIds.contains(block.taskId),
+            // M6（§3.3 最后一条）：周期目标的卡片要显示这一周的进度，且**安排与完成用不同
+            // 文案**。数据在这里查一次，页面只负责画。
+            recurringGoal: badges[block.taskId],
           ),
         );
       }

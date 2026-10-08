@@ -58,6 +58,12 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
   }
 
   @override
+  Future<RecurringTaskCycle?> findCycleByTaskId(String taskId) async {
+    final row = await _dao.findCycleByTaskId(taskId);
+    return row == null ? null : _cycleToDomain(row);
+  }
+
+  @override
   Future<List<RecurringTaskCycle>> listCyclesInRange(
     DateTime fromLocalDate,
     DateTime toLocalDate,

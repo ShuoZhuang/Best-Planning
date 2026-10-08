@@ -31,7 +31,9 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
@@ -185,6 +187,106 @@ Widget _recurringDetailRoute(
   onEdit: (template) => context.go('/tasks/recurring/${template.id}/edit'),
   onDelete: (template) => context.go('/tasks'),
 );
+
+/// 处理一条容量缺口（M6，路线图 §3.4）。
+///
+/// 四个动作与 §3.4 列出的四条**一一对应**，而且各自落在正确的层：
+/// - **调低本周目标** → `updateTemplate(..., scope: thisCycle)`：只改**这一周**的实例，
+///   下周仍然按原目标重新开始。改模板会让"这周只是排不下"变成"以后都做少一点"，
+///   那是用户没有要求过的改变。
+/// - **放宽期望时段** → 去掉模板上的期望时段（`entireSeries`）：期望时段本来就是软约束，
+///   去掉它让排程器有更多落点，而不动任何硬约束。
+/// - **临时放宽每日上限** → `SettingsService.saveDateOverride`：**只影响今天**，
+///   不写进长期设置。这正是"临时"两个字的落点。
+/// - **允许本周不完全安排** → 不改任何东西，只回报一句说明：用户接受缺口，
+///   缺口卡片因此不再出现（重新生成时那条目标仍然排不下，但这是用户已知并接受的状态）。
+Future<void> _handleShortfall(
+  BuildContext context, {
+  required RecurringTaskService recurring,
+  required SettingsService? settings,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+  required CapacityShortfall shortfall,
+  required ShortfallAction action,
+}) async {
+  final template = await recurring.repository.findTemplate(
+    shortfall.templateId,
+  );
+  if (template == null) {
+    if (context.mounted) {
+      showPlannerMessage(context, message: '这个周期目标已经不存在了');
+    }
+    return;
+  }
+  final now = DateTime.now().toUtc();
+  String message;
+  switch (action) {
+    case ShortfallAction.lowerTarget:
+      await recurring.updateTemplate(
+        template.id,
+        (current) => current.copyWith(
+          targetMinutes: shortfall.schedulableMinutes > 0
+              ? shortfall.schedulableMinutes
+              : current.targetMinutes,
+        ),
+        scope: RecurringEditScope.thisCycle,
+        nowUtc: now,
+      );
+      message =
+          '已把「${template.title}」本周目标调低到 ${shortfall.schedulableMinutes} 分钟';
+    case ShortfallAction.relaxPreferredWindow:
+      await recurring.updateTemplate(
+        template.id,
+        (current) => current.copyWith(
+          preferredStartMinute: null,
+          preferredEndMinute: null,
+        ),
+        nowUtc: now,
+      );
+      message = '已放宽「${template.title}」的期望时段，请重新生成计划';
+    case ShortfallAction.relaxDailyLimit:
+      final saveOverride = settings?.saveDateOverride;
+      if (saveOverride == null) {
+        if (context.mounted) {
+          showPlannerMessage(context, message: '当前未装配设置服务，无法放宽每日上限');
+        }
+        return;
+      }
+      // **只对今天生效**：`PlanningRulesPatch` 的每日上限是"整窗口唯一"的字段，
+      // 因此这里按今天的本地日期写一条例外，而不是把长期设置改大。
+      final localToday = zones.toLocal(now, timeZoneId);
+      final localDate = DateTime(
+        localToday.year,
+        localToday.month,
+        localToday.day,
+      );
+      await saveOverride(
+        localDate,
+        PlanningRulesPatch(
+          dailyMovableTaskLimitMinutes: _relaxedDailyLimit(
+            template.targetMinutes,
+            shortfall.shortfallMinutes,
+          ),
+        ),
+      );
+      message = '已把今天可安排的任务上限临时放宽，请重新生成计划';
+    case ShortfallAction.allowPartialWeek:
+      message = '已保留本周现状：不再为这个目标自动重排';
+  }
+  if (context.mounted) showPlannerMessage(context, message: message);
+}
+
+/// 放宽后的每日上限。
+///
+/// **取"模板目标"，而不是"缺口"**：缺口的单位是"整周少多少分钟"，而每日上限的单位是
+/// "一天最多排多少分钟任务"。把缺口直接塞进每日上限会得到一个远小于现状的数字——那不是
+/// 放宽，是收紧。用模板的周目标当一天的上限，是一个明确偏松、且与用户意图一致的取值。
+int _relaxedDailyLimit(int targetMinutes, int shortfallMinutes) {
+  final candidate = targetMinutes > shortfallMinutes
+      ? targetMinutes
+      : shortfallMinutes;
+  return candidate > 0 ? candidate : 60;
+}
 
 GoRouter createPlannerRouter({
   required TaskService taskService,
@@ -1308,6 +1410,10 @@ GoRouter createPlannerRouter({
               application: planApplication,
               plans: plans,
               planHistory: planHistory,
+              // M6（§3.4）：缺口卡片的四个动作需要周期服务（改模板、放宽期望时段）与
+              // 设置服务（临时放宽每日上限）。
+              recurring: recurringTasks,
+              settings: settingsService,
               autoAdjustStore: autoAdjustStore,
               zones: zones,
               timeZoneId: timeZoneId,
@@ -1770,6 +1876,8 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.application,
     this.plans,
     this.planHistory,
+    this.recurring,
+    this.settings,
     super.key,
   });
 
@@ -1781,6 +1889,12 @@ final class _PlanPreviewLoader extends StatefulWidget {
   final PlanApplicationService? application;
   final PlanRepository? plans;
   final PlanHistoryRepository? planHistory;
+
+  /// 周期目标（M6）：缺口卡片据此改模板、放宽期望时段与写入"临时放宽每日上限"。
+  final RecurringTaskService? recurring;
+
+  /// 与设置页共用同一个服务（"临时放宽每日上限"是**设置**，不在这里另造一份）。
+  final SettingsService? settings;
 
   @override
   State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
@@ -1815,6 +1929,9 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       current?.blocks ?? const <PlannedBlock>[],
       proposal.blocks,
     );
+    // M6（§3.4）：容量缺口。**与提案来自同一次生成**，因此这里不重新排程，只把"排不下的
+    // 那些周期目标"翻译成用户能读懂、能处置的一条缺口。
+    final shortfalls = await planning.shortfallsFor(proposal);
 
     return PlanPreviewModel(
       proposalId: widget.proposalId,
@@ -1852,6 +1969,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
           '「${task.taskId}」还缺 ${task.shortageMinutes} 分钟',
       ],
       isStale: false,
+      shortfalls: shortfalls,
     );
   }
 
@@ -1867,6 +1985,19 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         model: model,
         autoAdjustStore: widget.autoAdjustStore,
         onConfirm: () => _confirm(context, model),
+        // M6（§3.4）：缺口的四个处理动作。**为空时四个按钮都不渲染**——没装配周期服务
+        // 就没有"调低本周目标"可改，给出按钮等于给一个点了没反应的入口。
+        onHandleShortfall: widget.recurring == null
+            ? null
+            : (shortfall, action) => _handleShortfall(
+                context,
+                recurring: widget.recurring!,
+                settings: widget.settings,
+                zones: widget.zones,
+                timeZoneId: widget.timeZoneId,
+                shortfall: shortfall,
+                action: action,
+              ),
         // 时序图 `else stale` 分支的 `request recalculation`：复用顶层的 `_generatePlan`
         // ——它已经是"生成提案 → 按信任设置决定是否直接应用 → 导航到预览"的既有路径，因此这里
         // 不另写一套。未装配排程服务时传 null，页面据此不显示按钮（那种情况下根本无法重新生成）。

@@ -202,6 +202,9 @@ final class _TodayPageState extends State<TodayPage> {
                         taskId: item.taskId,
                         isCompleted: item.isCompleted,
                         areaId: item.areaId,
+                        // M6（§3.3 最后一条）：同一类缺陷的第三次——副本漏字段的症状是
+                        // "这一页永远看不到周期进度"，而条目本身明明有。
+                        recurringGoal: item.recurringGoal,
                         range: TimeRange(
                           startUtc: item.range.startUtc.isBefore(widget.day)
                               ? widget.day
@@ -473,9 +476,15 @@ final class _TimelineItem extends StatelessWidget {
       key: ValueKey('today-schedule-${item.id}'),
       label:
           '${item.title}，${item.categoryLabel}，${item.kind.label}，${formatTime(item.range.startUtc)}到${formatTime(item.range.endUtc)}'
-          '${item.isCompleted ? '，已完成' : ''}',
+          '${item.isCompleted ? '，已完成' : ''}'
+          // 读屏也要能听到周期进度：徽标是视觉信息，而"这周做了多少"是内容。
+          '${item.recurringGoal == null ? '' : '，${item.recurringGoal!.label}'}',
       child: SizedBox(
-        height: 82,
+        // **固定高度必须跟着文字缩放走**：`82` 是按 100% 缩放下"标题 + 时间 + 状态行"
+        // 量出来的。M6 在状态行里加了周期进度之后，150%/200% 缩放下那一行会多占 8 像素并
+        // 直接报 `RenderFlex overflowed`（实测）。用 `MediaQuery.textScaler` 只放大与文字
+        // 有关的那部分（82 − 2×11 是文字区，上下各留 11），避免整行一起放大而浪费高度。
+        height: 22 + 60 * MediaQuery.textScalerOf(context).scale(1),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -617,6 +626,22 @@ final class _TimelineItem extends StatelessWidget {
                                   ),
                                   size: 16,
                                   color: PlannerPalette.textMuted,
+                                ),
+                              ],
+                              // M6（§3.3 最后一条）：周期目标这一周的进度。
+                              // **措辞区分"已完成"与"已安排"**：这里的数字来自 time_entries，
+                              // 是真正记录下来的投入；排进日历的分钟是另一回事。
+                              if (item.recurringGoal case final goal?) ...[
+                                const SizedBox(width: 8),
+                                Text(
+                                  goal.label,
+                                  key: ValueKey(
+                                    'today-schedule-recurring-${item.id}',
+                                  ),
+                                  style: const TextStyle(
+                                    color: PlannerPalette.textSecondary,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                               // M4（路线图 §8）：卡片上的执行动作。

@@ -35,6 +35,39 @@ final class ScheduleAreaOption {
 /// 两套界面。此前两处都是 0，卡片彼此紧贴，扫读时容易把上一条的时间读成下一条的。
 const double scheduleItemGap = 10;
 
+/// 周期目标卡片上那一行进度（M6，路线图 §3.3 最后一条）。
+///
+/// **"本周已完成"与"本段"必须分开写，而且不能用"已安排"这个词**：前者是 `time_entries`
+/// 里真实记录下来的投入，后者是排进日历的分钟。§3.3 明确要求"不能把已安排误写成已完成"
+/// ——两者的数字在用户眼里几乎一样，措辞是唯一能区分它们的东西。
+///
+/// 数据由 `RepositoryScheduleViewSource` 从周期服务取（那里有模板与本周实例），页面只负责画。
+final class RecurringGoalBadge {
+  const RecurringGoalBadge({
+    required this.templateId,
+    required this.title,
+    required this.recordedMinutes,
+    required this.targetMinutes,
+  });
+
+  final String templateId;
+  final String title;
+
+  /// 本周已记录分钟（专注 ＋ 手动补记）。
+  final int recordedMinutes;
+
+  /// 本周有效目标（含结转）。
+  final int targetMinutes;
+
+  /// 达标文案：**不同的措辞表达"做到了"与"排进了"**。
+  bool get isMet => recordedMinutes >= targetMinutes;
+
+  /// 卡片上那一行字。达成与未达成分开写，让用户一眼看出这一周到底做没做到。
+  String get label => isMet
+      ? '本周已完成 $recordedMinutes/$targetMinutes 分钟（已达标）'
+      : '本周已完成 $recordedMinutes/$targetMinutes 分钟';
+}
+
 final class ScheduleViewItem {
   const ScheduleViewItem({
     required this.id,
@@ -49,6 +82,7 @@ final class ScheduleViewItem {
     this.areaId,
     this.taskId,
     this.isCompleted = false,
+    this.recurringGoal,
   });
 
   final String id;
@@ -68,6 +102,12 @@ final class ScheduleViewItem {
   /// 分类「无领域任务」，看起来像"勾完之后任务变成了另一个分类"。现在这类块照常显示真实标题与
   /// 领域色，只多一个"已完成"标记。
   final bool isCompleted;
+
+  /// 这一条属于某个**周期目标**那一周的实例时的展示数据（M6，§3.3 最后一条）。
+  ///
+  /// 为空表示"这不是周期目标的条目"，此时今日页与周视图的卡片保持原样——因此这个字段
+  /// 是**纯增量**的，不会改变固定日程与保护时间的显示。
+  final RecurringGoalBadge? recurringGoal;
 
   Color get categoryColor => Color(categoryColorArgb);
 

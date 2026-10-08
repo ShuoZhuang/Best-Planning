@@ -274,6 +274,29 @@ Future<void> main() async {
   // "记录的落点"（今日页经 PlannerApp）与"消费的通道"（下面的排程输入来源）**。
   // 只给一侧就会变成"点了没用"或"记了没人看"。
   final pendingSkips = PendingSkipDrafts();
+
+  // ── 周期目标（M4～M6，路线图 §3.3 / §11 Task 5～7）────────────────────────────
+  //
+  // **必须在 `onScheduleInputChange` 赋值之前构造、在之后使用**：它发出的"排程输入变了"
+  // 要走与任务、日历**同一个** lambda（否则统计的"重排原因"会缺一整类，重排也不会被触发），
+  // 而那个 lambda 只在被调用时读取变量，因此这里的 `late` 安全——与 `calendarService`
+  // 的 `onScheduleInputChanged` 是同一条约定。
+  final recurringTaskRepository = DriftRecurringTaskRepository(
+    database,
+    RecurringTaskDao(database),
+  );
+  final recurringTasks = RecurringTaskService(
+    repository: recurringTaskRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+    zones: zones,
+    timeZoneId: timeZoneId,
+    // 与任务详情页共用同一个任务仓储：周期实例**就是**一件普通任务，它的剩余时长也是
+    // 排程输入，因此必须是同一个写入口。
+    tasks: taskRepository,
+    onScheduleInputChanged: (change) => onScheduleInputChange(change),
+  );
+
   final problemSource = RepositoryScheduleProblemSource(
     tasks: taskRepository,
     lifeAreas: DriftLifeAreaLookup(database),
@@ -285,6 +308,8 @@ Future<void> main() async {
     zones: zones,
     pendingMoves: pendingMoves,
     pendingSkips: pendingSkips,
+    // M6（§3.4）：周期实例以"本周视角"进排程（截止＝本周末、只送剩余、允许星期）。
+    recurring: recurringTasks,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -581,31 +606,6 @@ Future<void> main() async {
     unawaited(resyncNotifications());
   };
 
-  // ── 周期目标（M4～M6，路线图 §3.3 / §11 Task 5～7）────────────────────────────
-  //
-  // **装配位置是刻意的**：它在 `onScheduleInputChange` 赋值**之后**构造并用它发原因，
-  // 因此周期目标带来的变化与任务、日历走**同一个** lambda——否则统计的"重排原因"会缺
-  // 一整类，重排也不会被触发。
-  //
-  // **为什么手动补记不直接复用 `FocusService`**：补录的是"某一段已完成的时间"，与"某一周
-  // 属于哪个模板"无关；周期服务要保证的是"补记之后这一周的剩余时长立刻同步"。两者都写
-  // `time_entries`（同一张表、同一口径），因此进度只有一个来源。
-  final recurringTaskRepository = DriftRecurringTaskRepository(
-    database,
-    RecurringTaskDao(database),
-  );
-  final recurringTasks = RecurringTaskService(
-    repository: recurringTaskRepository,
-    clock: clock,
-    idGenerator: UuidIdGenerator(),
-    zones: zones,
-    timeZoneId: timeZoneId,
-    // 与任务详情页共用同一个任务仓储：周期实例**就是**一件普通任务，它的剩余时长也是
-    // 排程输入，因此必须是同一个写入口。
-    tasks: taskRepository,
-    onScheduleInputChanged: (change) => onScheduleInputChange(change),
-  );
-
   // 启动即生成"本周 + 下周"的周期实例并结算已经结束的那些。
   //
   // **不 await**：周期目标不是启动的必要条件，且它的生成会触发一次重排（走上面的 lambda）。
@@ -745,6 +745,8 @@ Future<void> main() async {
           colors: scheduleColorService,
           zones: zones,
           timeZoneId: timeZoneId,
+          // M6（§3.3 最后一条）：卡片上那一行"本周已完成 x/y 分钟"。
+          recurring: recurringTasks,
         ),
       ),
     ),

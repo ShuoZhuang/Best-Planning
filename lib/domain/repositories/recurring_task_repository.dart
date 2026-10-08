@@ -37,6 +37,13 @@ abstract interface class RecurringTaskRepository {
     DateTime periodStartLocalDate,
   );
 
+  /// 按**生成的普通任务 id** 反查它属于哪一个周期实例。
+  ///
+  /// 排程层手里只有任务 id（`UnscheduledTask.taskId`），而缺口卡片要说的是"哪个周期目标
+  /// 差多少"。`recurring_task_cycles.task_id` 上的 UNIQUE 约束让这个反查最多命中一行，
+  /// 因此它可以安全地返回单值。
+  Future<RecurringTaskCycle?> findCycleByTaskId(EntityId taskId);
+
   /// 落在 `[fromLocalDate, toLocalDate]`（含两端）内的全部周期实例。
   Future<List<RecurringTaskCycle>> listCyclesInRange(
     DateTime fromLocalDate,

@@ -1,7 +1,10 @@
 import 'dart:isolate';
 
 import 'package:personal_planner/application/input_snapshot_builder.dart';
+import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -29,11 +32,20 @@ final class PlanningService implements ProposalCreator {
     required this.engine,
     this.snapshots = const InputSnapshotBuilder(),
     this.onProposalCreated,
+    this.recurring,
+    this.clock,
   });
 
   final ScheduleProblemSource source;
   final ScheduleEngine engine;
   final InputSnapshotBuilder snapshots;
+
+  /// 周期目标的当前周期与进度（M6）。为空时 [shortfallsFor] 返回空表——
+  /// 与"没有周期目标"是同一种结果，因此调用方不必分支。
+  final RecurringTaskService? recurring;
+
+  /// 判定"哪一周"用的时钟。为空时取系统当前时刻。
+  final Clock? clock;
 
   /// 每次生成提案后的通知回调（与 `FocusService.onFinished` 同型）。
   ///
@@ -70,6 +82,66 @@ final class PlanningService implements ProposalCreator {
   }
 
   ScheduleProposal? preview(String proposalId) => _previews[proposalId];
+
+  /// **周期目标的容量缺口**（M6，路线图 §3.4 / §11 Task 8）。
+  ///
+  /// 缺口＝"这一周还差多少" − "不占用保护时间的前提下还能安排多少"。
+  /// 两条纪律都在这个方法里兑现：
+  ///
+  /// - **不挤占保护时间**：`schedulableMinutes` 由 `problem.protectedIntervals`（以及固定
+  ///   日程与已锁定块）**扣减**得出，而保护区间本身**只被读取**。缺口的处置交给用户
+  ///   （§3.4 的四个动作），系统不会自己挪保护时间。
+  /// - **数字必须精确**：容量 120、目标 180 ⇒ 缺口正好 60（§7.2）。因此这里用的是
+  ///   "窗口内的空闲分钟"这个可复算的量，而不是"大概排不下"。
+  ///
+  /// 只有一个目标时报缺口；多个目标同时缺时**每个都报**，因为用户需要知道一共差多少——
+  /// 把它们合并成一个数字会掩盖"单独一个就已经排不下"这件事。
+  ///
+  /// [nowUtc] 只影响"哪一周"的判定；为空时用 `clock` 的当前时刻。
+  Future<List<CapacityShortfall>> shortfallsFor(
+    ScheduleProposal proposal,
+  ) async {
+    final recurring = this.recurring;
+    final now = clock?.nowUtc() ?? DateTime.now().toUtc();
+    if (recurring == null) return const [];
+    if (proposal.unscheduled.isEmpty) return const [];
+    final problem = await source.load(override: proposal.ruleOverride);
+    final period = recurring.periodContaining(now);
+    final shortfalls = <CapacityShortfall>[];
+    for (final task in proposal.unscheduled) {
+      final cycle = await recurring.repository.findCycleByTaskId(task.taskId);
+      if (cycle == null) continue;
+      final template = await recurring.repository.findTemplate(
+        cycle.templateId,
+      );
+      if (template == null) continue;
+      // 只报**当前这一周**的缺口：上一周的目标已经结算，为它报缺口会让用户去改一件
+      // 已经结束的事。
+      if (cycle.periodStartLocalDate != period.startLocalDate) continue;
+      final progress = await recurring.progressForCycle(
+        cycle.templateId,
+        cycle.periodStartLocalDate,
+      );
+      final shortfall = capacityShortfallForRecurringGoal(
+        templateId: template.id,
+        title: template.title,
+        periodStartLocalDate: cycle.periodStartLocalDate,
+        targetMinutes: progress.remainingMinutes,
+        window: problem.planningWindow,
+        fixedRanges: [for (final item in problem.fixedIntervals) item.range],
+        protectedRanges: [
+          for (final item in problem.protectedIntervals) item.range,
+        ],
+        lockedRanges: [for (final item in problem.lockedBlocks) item.range],
+        protectedConstraint: problem.rules.protectedTimes
+            .where((rule) => rule.enabled)
+            .map((rule) => rule.kind)
+            .firstOrNull,
+      );
+      if (shortfall != null) shortfalls.add(shortfall);
+    }
+    return List.unmodifiable(shortfalls);
+  }
 }
 
 ScheduleProblem withCurrentInputHash(

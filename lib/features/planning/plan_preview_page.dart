@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
+import 'package:personal_planner/domain/models/capacity_shortfall.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 
 /// 预览里的一条变更。
 ///
@@ -45,19 +47,38 @@ final class PreviewChange {
   final String? toLabel;
 }
 
+enum ShortfallAction {
+  /// 调低本周目标到"能安排的量"。
+  lowerTarget,
+
+  /// 放宽期望时段（去掉模板上的期望时段）。
+  relaxPreferredWindow,
+
+  /// 临时放宽每日上限（只影响今天，不写设置）。
+  relaxDailyLimit,
+
+  /// 允许本周不完全安排（本周就这样，不再自动重排）。
+  allowPartialWeek,
+}
+
 final class PlanPreviewModel {
   PlanPreviewModel({
     required this.proposalId,
     required List<PreviewChange> changes,
     required List<String> conflicts,
     required this.isStale,
+    List<CapacityShortfall> shortfalls = const [],
   }) : changes = UnmodifiableListView(List.of(changes)),
-       conflicts = UnmodifiableListView(List.of(conflicts));
+       conflicts = UnmodifiableListView(List.of(conflicts)),
+       shortfalls = UnmodifiableListView(List.of(shortfalls));
 
   final String proposalId;
   final List<PreviewChange> changes;
   final List<String> conflicts;
   final bool isStale;
+
+  /// 周期目标的容量缺口（M6，§3.4）。为空时那一组卡片不渲染。
+  final List<CapacityShortfall> shortfalls;
 }
 
 abstract interface class AutoAdjustStore {
@@ -88,12 +109,24 @@ final class PlanPreviewPage extends StatefulWidget {
     required this.onConfirm,
     this.onUndoPlan,
     this.onRecalculate,
+    this.onHandleShortfall,
     super.key,
   });
 
   final PlanPreviewModel model;
   final AutoAdjustStore autoAdjustStore;
   final Future<void> Function() onConfirm;
+
+  /// 处理一条容量缺口（M6，§3.4）。
+  ///
+  /// **页面只负责把用户的意图报出去**：真正的落点（改模板、去设置、重新生成计划）属于
+  /// 装配层。为 `null` 时**四个动作都不渲染**——当排程或周期服务没有装配时，给出一个
+  /// 点了没反应的按钮比不给更糟（与 [onUndoPlan] 同一条约定）。
+  final Future<void> Function(
+    CapacityShortfall shortfall,
+    ShortfallAction action,
+  )?
+  onHandleShortfall;
 
   /// 撤销上一次已确认的计划（FR-REPLAN-08）。返回 `true` 表示确实撤销了。
   ///
@@ -198,6 +231,11 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                     .where((change) => change.kind == kind)
                     .toList(),
               ),
+            if (widget.model.shortfalls.isNotEmpty)
+              _ShortfallGroup(
+                shortfalls: widget.model.shortfalls,
+                onHandle: widget.onHandleShortfall,
+              ),
             _ConflictGroup(conflicts: widget.model.conflicts),
             const Divider(height: 32),
             SwitchListTile(
@@ -244,6 +282,136 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
     );
   }
 }
+
+/// 容量缺口卡片（M6，路线图 §3.4）。
+///
+/// **为什么必须单独成组而不是塞进"冲突"里**：冲突说的是"计划内部有矛盾"，而缺口说的是
+/// "这一周的目标排不下"。两者的处置完全不同——冲突要用户挑一个让步，缺口要用户在四个
+/// 动作里选一个（调低目标／放宽期望时段／临时放宽每日上限／允许本周不完全安排）。
+///
+/// 文案把**目标、可安排、缺口**三个数字都写出来：只说"排不下"用户没法决定该改多少。
+final class _ShortfallGroup extends StatefulWidget {
+  const _ShortfallGroup({required this.shortfalls, required this.onHandle});
+
+  final List<CapacityShortfall> shortfalls;
+  final Future<void> Function(
+    CapacityShortfall shortfall,
+    ShortfallAction action,
+  )?
+  onHandle;
+
+  @override
+  State<_ShortfallGroup> createState() => _ShortfallGroupState();
+}
+
+final class _ShortfallGroupState extends State<_ShortfallGroup> {
+  String? _busyTemplateId;
+
+  Future<void> _run(CapacityShortfall shortfall, ShortfallAction action) async {
+    final handle = widget.onHandle;
+    if (handle == null) return;
+    setState(() => _busyTemplateId = shortfall.templateId);
+    try {
+      await handle(shortfall, action);
+    } finally {
+      if (mounted) setState(() => _busyTemplateId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: const Key('shortfall-group'),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('容量不足', style: Theme.of(context).textTheme.titleMedium),
+          ),
+          for (final shortfall in widget.shortfalls)
+            Padding(
+              key: Key('shortfall-${shortfall.templateId}'),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(shortfall.message),
+                  if (shortfall.protectedConstraint != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '保护时间不动；缺口是在「${_protectedLabel(shortfall.protectedConstraint!)}」'
+                        '等保护时段之外算出来的。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  if (widget.onHandle != null) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          key: Key('shortfall-lower-${shortfall.templateId}'),
+                          onPressed: _busyTemplateId != null
+                              ? null
+                              : () => _run(
+                                  shortfall,
+                                  ShortfallAction.lowerTarget,
+                                ),
+                          child: Text(
+                            '调低本周目标到 ${shortfall.schedulableMinutes} 分钟',
+                          ),
+                        ),
+                        OutlinedButton(
+                          key: Key('shortfall-relax-${shortfall.templateId}'),
+                          onPressed: _busyTemplateId != null
+                              ? null
+                              : () => _run(
+                                  shortfall,
+                                  ShortfallAction.relaxPreferredWindow,
+                                ),
+                          child: const Text('放宽期望时段'),
+                        ),
+                        OutlinedButton(
+                          key: Key('shortfall-daily-${shortfall.templateId}'),
+                          onPressed: _busyTemplateId != null
+                              ? null
+                              : () => _run(
+                                  shortfall,
+                                  ShortfallAction.relaxDailyLimit,
+                                ),
+                          child: const Text('临时放宽每日上限'),
+                        ),
+                        OutlinedButton(
+                          key: Key('shortfall-partial-${shortfall.templateId}'),
+                          onPressed: _busyTemplateId == null
+                              ? () => _run(
+                                  shortfall,
+                                  ShortfallAction.allowPartialWeek,
+                                )
+                              : null,
+                          child: const Text('允许本周不完全安排'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _protectedLabel(ProtectedTimeKind kind) => switch (kind) {
+  ProtectedTimeKind.lunch => '午餐',
+  ProtectedTimeKind.dinner => '晚餐',
+  ProtectedTimeKind.fixedRest => '固定休息',
+};
 
 final class _ChangeGroup extends StatelessWidget {
   const _ChangeGroup({required this.kind, required this.changes});

@@ -79,6 +79,15 @@ class RecurringTaskDao extends DatabaseAccessor<AppDatabase>
           ))
           .getSingleOrNull();
 
+  /// 按生成的普通任务 id 反查周期实例。
+  ///
+  /// `task_id` 上的 UNIQUE 约束保证最多命中一行，因此可以直接取单值。
+  Future<RecurringTaskCycle?> findCycleByTaskId(String taskId) =>
+      (select(recurringTaskCycles)
+            ..where((row) => row.taskId.equals(taskId))
+            ..limit(1))
+          .getSingleOrNull();
+
   Future<List<RecurringTaskCycle>> listCyclesInRange(
     String fromLocalDate,
     String toLocalDate,
