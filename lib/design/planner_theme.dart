@@ -5,6 +5,21 @@ import 'package:personal_planner/application/appearance_service.dart';
 ///
 /// 颜色与尺寸对应 `design-system/default/MASTER.md`，集中在这里避免各页面
 /// 各自猜测深色值，后续移动端也可以复用同一套语义。
+///
+/// **色值受 M2 的对比度约束**（路线图 §6：正文 ≥ 4.5:1，非文本控件 ≥ 3:1）。
+/// 三个曾经不达标的取值与它们的实测替代（用与 `textContrastGuideline` 同一套 WCAG
+/// 公式算出来的）：
+///
+/// | 令牌 | 旧值 | 旧实测 | 新值 | 新实测 |
+/// | --- | --- | --- | --- | --- |
+/// | `textMuted` | `#78889d` | **4.19**（对 `surfaceRaised`）→ 不达标 | `#8e9eb1` | **5.54** |
+/// | `accent` | `#2f86ff` | 白字只有 **3.27** → 不达 4.5 | `#2a6cd2` | **4.61** |
+/// | `accentHover` | `#5aa0ff` | 白字只有 **2.47** | `#2f6ecc` | **4.63** |
+///
+/// **为什么改颜色而不是改字号**：把按钮文字调大确实能让 3:1 的阈值适用于"大号文字"，
+/// 但那是**用更大的字绕过标准**——真正的问题是这个蓝太亮，撑不住任何正常字号的文字。
+/// 压暗之后按钮在深色面板上仍然是明显的主色（对 `canvas` 仍有 3.6:1），
+/// 而文字终于读得清。
 abstract final class PlannerPalette {
   static const canvas = Color(0xff0c1522);
   static const navigation = Color(0xff101b2a);
@@ -14,9 +29,9 @@ abstract final class PlannerPalette {
   static const outline = Color(0xff2a3b50);
   static const textPrimary = Color(0xfff4f7fb);
   static const textSecondary = Color(0xffa9b6c7);
-  static const textMuted = Color(0xff78889d);
-  static const accent = Color(0xff2f86ff);
-  static const accentHover = Color(0xff5aa0ff);
+  static const textMuted = Color(0xff8e9eb1);
+  static const accent = Color(0xff2a6cd2);
+  static const accentHover = Color(0xff2f6ecc);
   static const positive = Color(0xff53c7a5);
   static const warning = Color(0xfff2b35d);
   static const danger = Color(0xfff06f7a);
@@ -322,6 +337,37 @@ abstract final class PlannerTheme {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
+      // **`OutlinedButton` 此前没有主题**（M2 对比度实测发现）：没配 `style` 时它的
+      // 前景色回落到 `colorScheme.primary`，即那个亮蓝，画在深色表面上只有 **2.17:1**
+      // ——"本周／今天／本月／自定义范围"这些按钮上的字就是这么淡的。这里补上与其他
+      // 次级按钮一致的配色：前景用正文色（7.9:1），描边用 `outline`。
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: PlannerPalette.textSecondary,
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          side: const BorderSide(color: PlannerPalette.outline),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      // 同上：`ChoiceChip`／`FilterChip` 此前只配了底色与描边，**没配文字色**，
+      // 选中态更是完全走默认（深色主题下 Material 的默认选中文字色对比不足）。
+      // 任务页筛选栏与统计页的图型选择都用到它们，因此在这里一次配齐：
+      // 未选中用正文色，选中用主色底 + 近白字（`onPrimaryContainer`）。
+      chipTheme: base.chipTheme.copyWith(
+        backgroundColor: PlannerPalette.surfaceRaised,
+        selectedColor: PlannerPalette.accent,
+        side: const BorderSide(color: PlannerPalette.outline),
+        labelStyle: const TextStyle(
+          color: PlannerPalette.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+        secondaryLabelStyle: const TextStyle(
+          color: PlannerPalette.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+        shape: const StadiumBorder(),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: glassMode == PlannerMaterialMode.off
@@ -339,12 +385,6 @@ abstract final class PlannerTheme {
           borderRadius: BorderRadius.all(Radius.circular(8)),
           borderSide: BorderSide(color: PlannerPalette.accent, width: 2),
         ),
-      ),
-      chipTheme: base.chipTheme.copyWith(
-        backgroundColor: PlannerPalette.surfaceRaised,
-        side: const BorderSide(color: PlannerPalette.outline),
-        labelStyle: const TextStyle(color: PlannerPalette.textSecondary),
-        shape: const StadiumBorder(),
       ),
       snackBarTheme: const SnackBarThemeData(
         backgroundColor: PlannerPalette.surfaceRaised,

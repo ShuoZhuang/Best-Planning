@@ -206,7 +206,9 @@ final class _FocusPageState extends State<FocusPage> {
         const SizedBox(height: 8),
         Text('当前状态：${_session?.phase.name ?? '未开始'}'),
         Text('已专注：${_session?.activeMinutes ?? 0} 分钟'),
-        if (_error != null) Text(_error!),
+        if (_error != null)
+          // 与任务编辑器同一口径：错误必须进入语义播报（M2 §6）。
+          Semantics(liveRegion: true, child: Text(_error!)),
         const SizedBox(height: 16),
         Wrap(
           spacing: 8,

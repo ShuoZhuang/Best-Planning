@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/planner_app.dart';
+import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
@@ -86,7 +87,11 @@ void main() {
     final context = tester.element(find.byType(NavigationRail));
     final theme = Theme.of(context);
     expect(theme.brightness, Brightness.dark);
-    expect(theme.colorScheme.primary, const Color(0xff2f86ff));
+    // **按令牌断言，不写死十六进制**：这个值在 M2 因为对比度不达标被压暗过
+    // （`#2f86ff` → `#2a6cd2`，白字 3.27 → 4.61），写死就意味着每次调色都要改测试。
+    // 这条用例要守的是"主色来自调色板"，不是某个具体色号；色号本身由
+    // `test/design/contrast_test.dart` 按 WCAG 比值守着。
+    expect(theme.colorScheme.primary, PlannerPalette.accent);
     expect(theme.scaffoldBackgroundColor, Colors.transparent);
     expect(find.byKey(const Key('app-material-restrained')), findsOneWidget);
   });

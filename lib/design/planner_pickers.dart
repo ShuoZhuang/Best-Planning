@@ -51,14 +51,66 @@ ThemeData plannerPickerTheme(ThemeData base) {
       rangePickerHeaderBackgroundColor: surfaceHighlight,
       rangePickerHeaderForegroundColor: PlannerPalette.textPrimary,
       rangeSelectionBackgroundColor: PlannerPalette.surfaceHover,
+      // ── 日期格的前景／背景 ─────────────────────────────────────────────────────
+      //
+      // **两个真实缺陷（2026-10-07 用户两次反馈），根因都在这一块，且都是我先写错。**
+      //
+      // 这一版 Flutter 里真正渲染日期格的是 `calendar_date_picker.dart` 的 `_Day`
+      // （**不是** `date_picker.dart` 里那份——那里还有一段同名的旧实现，读错了就会得出
+      // 完全相反的结论，我就是这么错了两次）。它的关键是：
+      //
+      //   final decoration = widget.isToday
+      //       ? ShapeDecoration(color: dayBackgroundColor,   // ← 「今天」取的是 todayBackgroundColor
+      //                          shape: dayShape.copyWith(side: todayBorderSide))
+      //       : ShapeDecoration(color: dayBackgroundColor, shape: dayShape);
+      //
+      // 而 `dayForegroundColor`／`dayBackgroundColor` 的取色在这一版里**按 `isToday` 分流**：
+      //
+      //   widget.isToday ? theme?.todayForegroundColor : theme?.dayForegroundColor
+      //   widget.isToday ? theme?.todayBackgroundColor : theme?.dayBackgroundColor
+      //
+      // 于是：
+      //
+      // 1. 我曾把 `todayBackgroundColor` 写成 `transparent`，并在注释里断言"那个圆由
+      //    `_HighlightPainter` 画、一覆盖就抹掉"——**那个断言是错的**。圆就是
+      //    `dayBackgroundColor` 本身。结果：**今天那格被抹掉了圆**。
+      //    用户看到的现象是"点了别的日期，圆圈还是留在 7 号不动"——因为 7 号（今天）
+      //    根本不再显示选中圆，而表头确实变了，两者对不上。
+      //
+      // 2. 我曾把 `todayForegroundColor` 写成 accent。那让**未被选中的今天**用 accent 描边、
+      //    还算对；但"今天被选中"时数字也是 accent 色，画在深色面板上几乎看不见——
+      //    用户的原话是"图一不还是看不见，只有鼠标移过去看得见"（悬停那层 overlay 让它勉强可辨）。
+      //
+      // 修法：**照抄 Flutter 自己的 M3 默认结构**（`date_picker_theme.dart` 的
+      // `_DayThemeDefaultsM3`），只把颜色换成调色板里的值——
+      // 选中态 = accent 实心圆 + `textPrimary` 文字（对比度 **4.68:1**，满足 WCAG AA 4.5:1），
+      // 未选中态 = 无底色 + `textPrimary` 文字，今天额外用 accent 描一圈。
+      //
+      // **不要再靠"猜哪个属性管什么"来调**：改动前先读 `calendar_date_picker.dart` 的
+      // `_Day.build`，它就是唯一的事实来源。回归测试见
+      // `test/design/date_picker_selection_test.dart`。
       dayForegroundColor: const WidgetStatePropertyAll(
         PlannerPalette.textPrimary,
       ),
-      dayBackgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      dayBackgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+        if (states.contains(WidgetState.selected)) {
+          return PlannerPalette.accent;
+        }
+        return Colors.transparent;
+      }),
       dayOverlayColor: const WidgetStatePropertyAll(
         PlannerPalette.surfaceHover,
       ),
-      todayForegroundColor: const WidgetStatePropertyAll(PlannerPalette.accent),
+      todayForegroundColor: const WidgetStatePropertyAll(
+        PlannerPalette.textPrimary,
+      ),
+      // 「今天」被选中时必须有实心圆——这正是缺陷 1 丢掉的东西。
+      todayBackgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+        if (states.contains(WidgetState.selected)) {
+          return PlannerPalette.accent;
+        }
+        return Colors.transparent;
+      }),
       todayBorder: const BorderSide(color: PlannerPalette.accent),
       yearForegroundColor: const WidgetStatePropertyAll(
         PlannerPalette.textPrimary,

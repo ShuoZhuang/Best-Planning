@@ -418,10 +418,29 @@ final class _AreaRow extends StatelessWidget {
                   child: const Text('取消'),
                 ),
               ] else ...[
-                Switch(
-                  key: Key('area-life-${area.id}'),
-                  value: area.isLife,
-                  onChanged: onToggleLife,
+                // §7：**无文字开关改为「计入个人生活时间」**。
+                // 原来这里是一个光秃秃的 `Switch`：屏幕上只是一个没有文字的拨动件，
+                // 屏幕阅读器也只会念"开关、已关闭"，不说它在控制什么。
+                // 现在标签文字可见（不是只塞进语义树），并且同时带领域名——
+                // 一屏多个领域时，只念"计入个人生活时间"仍然分不清是哪一个。
+                Semantics(
+                  label: '${area.name}：计入个人生活时间',
+                  container: true,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '计入个人生活时间',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(width: 8),
+                      Switch(
+                        key: Key('area-life-${area.id}'),
+                        value: area.isLife,
+                        onChanged: onToggleLife,
+                      ),
+                    ],
+                  ),
                 ),
                 TextButton(
                   key: Key('area-rename-${area.id}'),

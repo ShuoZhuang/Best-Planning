@@ -377,6 +377,60 @@ void main() {
     );
     expect(find.text('领域与项目'), findsOneWidget);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // M3（路线图 §7）领域页：「无文字开关改为『计入个人生活时间』，颜色圆点改为带标签的
+  // 『颜色』按钮」。规格见 `docs/superpowers/specs/2026-10-07-m3-task-editor-hierarchy.md`。
+  // ───────────────────────────────────────────────────────────────────────────
+
+  testWidgets('M3 每个领域的生活开关都带「计入个人生活时间」的可读标签', (tester) async {
+    await pump(tester);
+
+    // 开关本身是有 key 的，但**光有 key 不等于对用户可读**：屏幕上它只是一个没有文字的
+    // 拨动件，屏幕阅读器也只会念"开关、已关闭"而不说它在控制什么。
+    // §7 要求把它改成带文字的「计入个人生活时间」。
+    final names = <String>[
+      for (final area in await service.listAreas()) area.name,
+    ];
+    expect(names, isNotEmpty, reason: '这条测试需要至少一个领域');
+
+    for (final name in names) {
+      final area = (await service.listAreas()).firstWhere(
+        (item) => item.name == name,
+      );
+      final switchFinder = find.byKey(Key('area-life-${area.id}'));
+      expect(switchFinder, findsOneWidget);
+
+      // 语义标签必须说明它在控制什么（领域名 + 这件事本身）。
+      final label = tester.getSemantics(switchFinder).label;
+      expect(
+        label,
+        contains('计入个人生活时间'),
+        reason: '「$name」的生活开关必须能被念出「计入个人生活时间」，实际标签="$label"',
+      );
+      expect(label, contains(name), reason: '标签里要带领域名，否则多个领域分不清，实际标签="$label"');
+    }
+  });
+
+  testWidgets('M3 每个领域的颜色控件都带「颜色」标签，不再只是无文字的圆点', (tester) async {
+    await pump(tester);
+
+    for (final area in await service.listAreas()) {
+      final colorFinder = find.byKey(Key('area-color-${area.id}'));
+      expect(colorFinder, findsOneWidget);
+
+      // §7：颜色圆点改为**带标签的**「颜色」按钮。
+      // 因此标签里除了领域名，还要出现"颜色"这两个字——只写"更换『学业』领域颜色"
+      // 也算带标签，但用户按 Tab 时听到的第一个词应当是"颜色"，与界面上的可见文字一致。
+      final label = tester.getSemantics(colorFinder).label;
+      expect(
+        label,
+        contains('颜色'),
+        reason: '「${area.name}」的颜色控件标签必须含「颜色」，实际标签="$label"',
+      );
+      expect(label, contains(area.name), reason: '颜色控件标签里要带领域名，实际标签="$label"');
+    }
+  });
 }
 
 final class _FailingWriteSettings implements SettingsRepository {
