@@ -90,13 +90,37 @@ final class CandidateGenerator {
           : const [];
     }
 
-    final minimum = _roundUp(task.minChunkMinutes, granularityMinutes);
+    // **有效最小片段 = min(配置的最小片段, 剩余量)**（用户写进路线图 Task 12A 的规则）。
+    //
+    // 修的是什么：原先 `minimum = roundUp(minChunk)`，而 `maximum = roundDown(min(maxChunk,
+    // requiredMinutes))`。一个 15 分钟的可拆分任务配上默认片段 30–90 分钟时 minimum=30 > maximum=15，
+    // `duration <= maximum` 直接不成立 ⇒ **一个候选都不生成** ⇒ 任务既出现在"新增"里又出现在
+    // "未安排"里。实测 `required=15 min=30 max=90 → scheduled=0 shortage=15`。
+    //
+    // 为什么宽免只针对这种情况：`requiredMinutes` 是**本次排程的剩余量**，不是任务的总时长
+    // （180 → 100 → 15）。所以"最后一段"是每次排程时才知道的事。当剩余量还凑得出一个最小片段时
+    // （100 分钟），下限必须照旧生效——否则每一次排入都会用一个短片段去满足最小片段约束，
+    // 那等于把这条约束取消掉。只有当剩余量**本身**短于最小片段时，它自己就是最后一段，
+    // 此时正确的处置是让这一段短于下限，而不是拒绝安排。
+    final effectiveMinimum = task.minChunkMinutes < task.requiredMinutes
+        ? task.minChunkMinutes
+        : task.requiredMinutes;
+    // **钳制过的那一支用 `_roundDown`，不钳制的那一支仍用 `_roundUp`**——两者方向相反是有理由的：
+    // · 配置的下限（30 分钟）向上取整到粒度，保证"至少 30 分钟"这条约束不被悄悄放松；
+    // · 取"剩余量本身"时**不能向上取整**：余 12 分钟、粒度 5 分钟，向上取成 15 会超过剩余量，
+    //   于是 `minimum > maximum` 又变成零候选（实测）。向下取整到 10 才是既合法又不超排的量。
+    final minimum = task.minChunkMinutes < task.requiredMinutes
+        ? _roundUp(effectiveMinimum, granularityMinutes)
+        : _roundDown(effectiveMinimum, granularityMinutes);
     final maximum = _roundDown(
       task.maxChunkMinutes < task.requiredMinutes
           ? task.maxChunkMinutes
           : task.requiredMinutes,
       granularityMinutes,
     );
+    // 剩余量不足一个粒度（例如 3 分钟、粒度 5 分钟）时 `maximum` 为 0：
+    // 这里**如实返回空**，由缺口机制汇报容量不足，而不是伪造一个片段。
+    if (maximum <= 0) return const [];
     return [
       for (
         var duration = minimum;

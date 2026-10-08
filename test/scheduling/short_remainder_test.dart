@@ -1,0 +1,220 @@
+// Task 12A（用户 2026-10-08 追加的发布阻断项）Steps 1、2 的失败测试。
+//
+// **要修的是什么**：候选生成里 `minimum = roundUp(minChunk)`、`maximum = roundDown(min(maxChunk,
+// requiredMinutes))`。一个 15 分钟的可拆分任务配上默认片段 30–90 分钟时，minimum=30 > maximum=15，
+// `duration <= maximum` 直接不成立 ⇒ **一个候选都不生成** ⇒ 任务同时出现在"新增"与"未安排"里。
+// 实测：`required=15 min=30 max=90 → scheduled=0 shortage=15`。
+//
+// 规则（用户写进路线图 §3.3 与 Task 12A 的 Interfaces）：
+// `effectiveMinChunk = min(configuredMinChunk, remainingMinutes)` —— **最后一段允许短于模板最小
+// 片段**，但不得小于排程粒度之外的实际剩余量。非最终片段继续遵守最小片段。
+//
+// 这条规则不能只写在候选生成里：`requiredMinutes` 会随着每周进度变化（180 → 100 → 15），
+// 所以"最后一段"是**每次排程时**才知道的事，而不是保存任务时能定死的属性。
+import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/preferences.dart';
+import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/candidate_generator.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
+import 'package:personal_planner/scheduling/schedule_problem.dart';
+
+void main() {
+  const generator = CandidateGenerator();
+  final start = DateTime.utc(2026, 10, 2, 9);
+
+  List<AvailabilitySlot> slots(int hours) => [
+    AvailabilitySlot(
+      range: TimeRange(
+        startUtc: start,
+        endUtc: start.add(Duration(hours: hours)),
+      ),
+      localDate: DateTime(2026, 10, 2),
+    ),
+  ];
+
+  SchedulableTask task({
+    required int requiredMinutes,
+    int minChunk = 30,
+    int maxChunk = 90,
+    TaskSplitMode splitMode = TaskSplitMode.splittable,
+  }) => SchedulableTask(
+    id: 'short',
+    requiredMinutes: requiredMinutes,
+    splitMode: splitMode,
+    minChunkMinutes: minChunk,
+    maxChunkMinutes: maxChunk,
+  );
+
+  group('Step 1／2：最终余量短于最小片段时仍要能安排', () {
+    test('15 分钟任务、片段 30–90 ⇒ **必须**产出候选（现在一个都没有）', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 15),
+        slots(2),
+      );
+
+      expect(
+        candidates,
+        isNotEmpty,
+        reason:
+            '15 分钟是全部剩余量，它自己就是"最后一段"。此时最小片段 30 分钟是一条'
+            '无法满足的约束，正确的处置是让这一段短于最小片段，而不是一个候选都不给',
+      );
+      expect(
+        candidates.map((item) => item.durationMinutes).toSet(),
+        contains(15),
+        reason: '唯一合理的时长就是那 15 分钟本身',
+      );
+    });
+
+    test('15 分钟任务不产出**长于**剩余量的候选（不能为了凑最小片段而超排）', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 15),
+        slots(2),
+      );
+
+      expect(
+        candidates.every((item) => item.durationMinutes <= 15),
+        isTrue,
+        reason: '允许短于最小片段，但绝不允许长于剩余量——那是排多了',
+      );
+    });
+
+    test('10 分钟剩余、粒度 5 分钟 ⇒ 取粒度下的 10 分钟', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 10),
+        slots(2),
+      );
+
+      expect(candidates.map((item) => item.durationMinutes).toSet(), {10});
+    });
+
+    test('剩余量不是粒度整数倍时向下取整，不越过剩余量', () {
+      // 12 分钟、粒度 5：向下取 10（向上取 15 会超过剩余量）。
+      final candidates = generator.generate(
+        task(requiredMinutes: 12),
+        slots(2),
+      );
+
+      expect(candidates.map((item) => item.durationMinutes).toSet(), {
+        10,
+      }, reason: '余量 12 分钟时唯一合法的候选是 10 分钟；15 分钟会超排');
+    });
+
+    test('剩余量不足一个粒度 ⇒ 没有可安排的片段（如实返回空，而不是硬塞）', () {
+      final candidates = generator.generate(task(requiredMinutes: 3), slots(2));
+
+      expect(
+        candidates,
+        isEmpty,
+        reason:
+            '3 分钟小于 5 分钟粒度，排不进任何合法片段。这是真实的容量不足，'
+            '应当由缺口机制如实汇报，而不是伪造一个片段',
+      );
+    });
+  });
+
+  group('非最终片段继续遵守最小片段（不能把宽免当成普遍放宽）', () {
+    test('100 分钟、片段 30–90 ⇒ 不产出小于 30 的普通片段', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 100),
+        slots(4),
+      );
+
+      expect(
+        candidates.every((item) => item.durationMinutes >= 30),
+        isTrue,
+        reason:
+            '100 分钟还剩得下 30 分钟以上的片段，因此最小片段必须照旧生效；'
+            '放宽只针对"连最小片段都凑不出"的最后一段',
+      );
+    });
+
+    test('45 分钟、片段 30–90 ⇒ 30 到 45 之间每个粒度步长都是合法候选', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 45),
+        slots(2),
+      );
+
+      // **这里我原本写成 {30, 45}，是错的**：候选时长是在 `[min, max]` 上按 5 分钟步长
+      // 枚举出来的，30/35/40/45 都合法。要断言的是"下限仍是 30"，不是把枚举结果背下来
+      // ——后者会在枚举方式变化时给出看不懂的失败。
+      expect(candidates.map((item) => item.durationMinutes).toSet(), {
+        30,
+        35,
+        40,
+        45,
+      });
+      expect(
+        candidates.every((item) => item.durationMinutes >= 30),
+        isTrue,
+        reason: '45 分钟凑得出 30 分钟以上的片段，因此下限照旧生效',
+      );
+    });
+
+    test('连续任务不受这条规则影响：仍是整段或零', () {
+      final candidates = generator.generate(
+        task(
+          requiredMinutes: 15,
+          splitMode: TaskSplitMode.continuous,
+          minChunk: 30,
+          maxChunk: 90,
+        ),
+        slots(2),
+      );
+
+      expect(
+        candidates.map((item) => item.durationMinutes).toSet(),
+        {15},
+        reason:
+            '连续任务本来就不看片段上下限（它的语义是"一次做完"），'
+            '15 分钟是粒度整数倍，因此整段可排',
+      );
+    });
+  });
+
+  group('端到端：引擎必须真的把它排进去', () {
+    /// 一整周的窗口，无固定日程、无保护时间——容量充足，唯一的阻碍只可能是片段规则。
+    ScheduleProblem problem(SchedulableTask t) => ScheduleProblem(
+      planningWindow: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5),
+        endUtc: DateTime.utc(2026, 10, 12),
+      ),
+      timeZoneId: 'UTC',
+      tasks: [t],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: PlanningRules(
+        energyWindows: const [],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'short-remainder',
+    );
+
+    test('15 分钟任务在容量充足的一周里**排得进去**，且不同时出现在未安排里', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 15);
+      final proposal = engine.generate(problem(t));
+
+      final scheduled = proposal.blocks
+          .where((block) => block.taskId == t.id)
+          .fold<int>(0, (sum, block) => sum + block.durationMinutes);
+      final shortage = proposal.unscheduled
+          .where((item) => item.taskId == t.id)
+          .fold<int>(0, (sum, item) => sum + item.shortageMinutes);
+
+      expect(scheduled, 15, reason: '容量充足却没排进去，正是那个发布阻断现象');
+      expect(shortage, 0, reason: '同一个块不能同时被归为"已新增"和"未安排"');
+    });
+  });
+}

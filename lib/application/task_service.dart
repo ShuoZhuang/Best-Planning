@@ -124,9 +124,63 @@ final class TaskService {
   /// 一个已经完成或被取消的任务——用列表去找会把"任务存在但已结束"误判成"任务不存在"。
   Future<PlannerTask?> findById(String taskId) => _repository.getById(taskId);
 
+  /// 把草稿里的片段范围夹进**合法范围**（路线图 Task 12A Step 3）。
+  ///
+  /// **为什么必须有这一步**：`TaskDraft` 收什么存什么，而 `PlannerTask` 只校验
+  /// `min > 0` 且 `min <= max`——它不知道任务总时长。于是"预计 15 分钟 + 片段 30–90"
+  /// 会被原样存下来，成为一条**自相矛盾的记录**：它声明"每段至少 30 分钟"，却总共只有
+  /// 15 分钟可做。候选生成在 `candidate_generator.dart` 里已经能兜住这种情况，但那是补救；
+  /// 正确的做法是根本不要存下无意义的设置。
+  ///
+  /// **为什么放在服务层**：界面、导入、以及将来任何新入口都从这里过。放在编辑器里就要求
+  /// 每个入口各自记得夹一次，漏一处就又能存进非法值——而"服务层与界面层得到同一结果"
+  /// 正是这条规则的字面要求。
+  ///
+  /// **只夹紧，不拒绝**：`min <= 0` 与 `max < min` 仍然由 `_validateDraft` 拒绝——那不是
+  /// "可以夹紧"的情况，是用户把输入填反或没填，夹紧只会把错误藏起来。
+  TaskDraft _normalizeChunks(TaskDraft draft) {
+    // 连续任务不看片段范围（两边都被设成整段时长），因此只需保证一个正数。
+    if (draft.splitMode == TaskSplitMode.continuous) return draft;
+
+    final ceiling = draft.estimatedMinutes;
+    if (ceiling <= 0) return draft;
+
+    // 上限先夹到总时长：这是"片段不长于总时长"的直接表达。
+    final maxChunk = draft.maxChunkMinutes > ceiling
+        ? ceiling
+        : draft.maxChunkMinutes;
+    // 下限同样不能超过总时长；但如果它超过了**夹紧后的上限**，说明用户原本就填反了，
+    // 此时保持原值交给 `_validateDraft` 去拒绝，而不是在这里悄悄把它改成合法值。
+    final minChunk = draft.minChunkMinutes > ceiling
+        ? ceiling
+        : draft.minChunkMinutes;
+    if (minChunk == draft.minChunkMinutes &&
+        maxChunk == draft.maxChunkMinutes) {
+      return draft;
+    }
+    return TaskDraft(
+      title: draft.title,
+      estimatedMinutes: draft.estimatedMinutes,
+      areaId: draft.areaId,
+      projectId: draft.projectId,
+      notes: draft.notes,
+      priority: draft.priority,
+      dueAtUtc: draft.dueAtUtc,
+      availableFromUtc: draft.availableFromUtc,
+      energyLevel: draft.energyLevel,
+      splitMode: draft.splitMode,
+      minChunkMinutes: minChunk,
+      maxChunkMinutes: maxChunk,
+      status: draft.status,
+      preferredWindow: draft.preferredWindow,
+    );
+  }
+
   Future<TaskSaveResult> saveDraft(TaskDraft draft) async {
-    final errors = await _validateDraft(draft);
+    final normalized = _normalizeChunks(draft);
+    final errors = await _validateDraft(normalized);
     if (errors.isNotEmpty) return TaskSaveResult.invalid(errors);
+    draft = normalized;
 
     final now = _clock.nowUtc();
     final task = PlannerTask(
@@ -168,8 +222,12 @@ final class TaskService {
   Future<TaskSaveResult> updateDraft(String taskId, TaskDraft draft) async {
     final existing = await _repository.getById(taskId);
     if (existing == null) return TaskSaveResult.invalid({'taskId': '任务不存在'});
-    final errors = await _validateDraft(draft);
+    // 与 `saveDraft` 同一条规范化：缩短预计时长是这条规则最常见的触发场景，
+    // 而两个入口各写一遍迟早会漂移。
+    final normalized = _normalizeChunks(draft);
+    final errors = await _validateDraft(normalized);
     if (errors.isNotEmpty) return TaskSaveResult.invalid(errors);
+    draft = normalized;
     final updated = existing.copyWith(
       title: draft.title,
       notes: draft.notes,
