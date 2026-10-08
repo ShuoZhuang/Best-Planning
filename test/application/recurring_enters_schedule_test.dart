@@ -40,6 +40,7 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 final _now = DateTime.utc(2026, 10, 8, 4); // 东八区 2026-10-08 12:00（周四）
 
@@ -162,7 +163,7 @@ void main() {
     );
   });
 
-  test('进排程的是**周期视角**那一份（只送剩余、带截止与单日配额）', () async {
+  test('进排程的是**周期视角**那一份（只送剩余、带截止与均分策略）', () async {
     final goal = await createWeeklyGoal();
     final problem = await source.load();
 
@@ -173,7 +174,15 @@ void main() {
       isNotNull,
       reason: '截止＝本周末，由 `RecurringPace.even` 的那份输入给出',
     );
-    expect(task.maxMinutesPerLocalDay, isNotNull, reason: '均匀分布带单日配额');
+    // **1.7.1 起不再写 `maxMinutesPerLocalDay`**（计划 Task 5 Step 2）：那个"剩余 ÷ 天数"的
+    // 单一配额会被引擎第二轮全局放开抵消，实测让一天堆到 125 分钟（计划 §2.1）。
+    // 现在由 `even` 策略 + 容量感知的均分器给出每日预算。
+    expect(task.maxMinutesPerLocalDay, isNull, reason: '均匀分布不再靠单日配额表达');
+    expect(
+      task.distributionPolicy,
+      TaskDistributionPolicy.even,
+      reason: '这是生产映射真的设上了策略的**端到端**验证——夹具里手写策略不算数',
+    );
   });
 
   test('**幂等**：连续两次 load() 不会把同一周生成两份实例', () async {

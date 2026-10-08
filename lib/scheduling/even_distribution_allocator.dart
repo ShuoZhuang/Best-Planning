@@ -142,8 +142,40 @@ EvenDistributionPlan allocateEvenDistribution(EvenDistributionInput input) {
     );
   }
 
+  // ── 参与日期的个数：**每个参与日期至少拿到 minChunk**（计划 §3.1 第 1 条）────────
+  //
+  // 这一条是被真实缺陷逼出来的。180 分钟、minChunk 30、窗口覆盖 **8** 个本地日时，
+  // 朴素水位分配给出 `25 × 4 + 20 × 4`——**每天都不足一个最小片段**，于是引擎一个候选都
+  // 用不上，`ranked` 为空，任务整周排不进去（实测 `candidates=1304` 却 `blocks=0`，
+  // 拒绝原因是 `dailyLimitReached` 且 `availableMinutes=25`）。
+  //
+  // "每天 25 分钟"不是"均匀"，那是**不可用的预算**。正确做法是让参与日期的个数 K 满足
+  // `K × minChunk ≤ target ≤ 这些日期的总余量`，并在其中取**最大**的 K（K 越大每天越少、
+  // 越均匀）。找不到这样的 K 时才退回尽量分配。
+  final minChunk = input.minChunkMinutes;
+  final byHeadroomDesc = [...active]
+    ..sort((a, b) {
+      final byRoom = headroom[b]!.compareTo(headroom[a]!);
+      return byRoom != 0 ? byRoom : a.compareTo(b);
+    });
+  var chosen = <DateTime>[];
+  for (var k = byHeadroomDesc.length; k >= 1; k--) {
+    final candidates = byHeadroomDesc.take(k).toList()..sort();
+    final room = candidates.fold<int>(0, (sum, date) => sum + headroom[date]!);
+    if (k * minChunk <= target && target <= room) {
+      chosen = candidates;
+      break;
+    }
+  }
+  // 没有任何 K 满足（例如总余量本身不足 K × minChunk）：退回全部有余量的日期，
+  // 由下面的水位分配尽量排，缺口如实汇报。
+  final participating = chosen.isEmpty ? active : chosen;
+  final participatingHeadroom = {
+    for (final date in participating) date: headroom[date]!,
+  };
+
   // 容量感知的水位分配：每轮把一个粒度分给"当前新增最少且仍有余量"的日期，
-  // 同量时取本地日期升序（`active` 已升序，因此只在严格更小时改写即可保证这一点）。
+  // 同量时取本地日期升序（`participating` 已升序，因此只在严格更小时改写即可保证这一点）。
   //
   // 步长是粒度；目标不是粒度整数倍时最后剩的余量**照旧分配**，否则会丢分钟。
   var remaining = target;
@@ -151,15 +183,15 @@ EvenDistributionPlan allocateEvenDistribution(EvenDistributionInput input) {
     final step = remaining < granularity ? remaining : granularity;
     DateTime? best;
     var bestAllocated = 0;
-    for (final date in active) {
+    for (final date in participating) {
       final allocatedHere = allocated[date]!;
-      if (allocatedHere + step > headroom[date]!) continue;
+      if (allocatedHere + step > participatingHeadroom[date]!) continue;
       if (best == null || allocatedHere < bestAllocated) {
         best = date;
         bestAllocated = allocatedHere;
       }
     }
-    if (best == null) break; // 所有日期都到顶：剩下的就是缺口。
+    if (best == null) break; // 所有参与日期都到顶：剩下的就是缺口。
     allocated[best] = allocated[best]! + step;
     remaining -= step;
   }

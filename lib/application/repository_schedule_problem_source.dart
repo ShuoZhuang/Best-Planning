@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
@@ -400,7 +398,8 @@ List<SchedulableTask> recurringSchedulableTasks({
     required DateTime? dueAtUtc,
     required DateTime? availableFromUtc,
     int allowedWeekdaysMask = recurringAllWeekdaysMask,
-    int? maxMinutesPerLocalDay,
+    TaskDistributionPolicy distributionPolicy =
+        TaskDistributionPolicy.unconstrained,
   }) => SchedulableTask(
     id: input.cycle.taskId,
     requiredMinutes: requiredMinutes,
@@ -413,9 +412,22 @@ List<SchedulableTask> recurringSchedulableTasks({
     energyLevel: template.energyLevel,
     preferredWindow: template.preferredWindow,
     allowedWeekdaysMask: allowedWeekdaysMask,
-    maxMinutesPerLocalDay: maxMinutesPerLocalDay,
+    distributionPolicy: distributionPolicy,
   );
 
+  // ── 节奏 → 排程策略（1.7.1 计划 Task 5 Step 1/2）─────────────────────────────
+  //
+  // `even` 与 `selectedWeekdays` 都映射为 `TaskDistributionPolicy.even`：前者的"均匀"是
+  // 跨全部允许星期，后者的"均匀"是**先按星期掩码过滤日期、再在被选日期间均分**
+  // （计划 §3.4）。两者都由均分器按容量摊。
+  //
+  // **不再计算 `maxMinutesPerLocalDay`**。此前 `_dailyQuota()` 用"剩余分钟 ÷ 剩余可用星期数"
+  // 算一个统一上限，再由引擎在"第一轮守配额、第二轮全局放开"里使用——第二轮是全局解禁，
+  // 它把一天堆到 125 分钟（计划 §2.1）。现在每日预算由均分器按**真实容量**算出，且事后重分
+  // 只发生在还有余量的日期之间。
+  //
+  // `early` 与 `deadlineWeighted` 保持 `unconstrained`：它们表达的是"什么时候做完"，
+  // 不是"每天做多少"。
   switch (template.pace) {
     case RecurringPace.even:
       return [
@@ -423,11 +435,7 @@ List<SchedulableTask> recurringSchedulableTasks({
           requiredMinutes: remaining,
           dueAtUtc: input.period.endUtc,
           availableFromUtc: null,
-          maxMinutesPerLocalDay: _dailyQuota(
-            input: input,
-            allowedWeekdaysMask: recurringAllWeekdaysMask,
-            zones: zones,
-          ),
+          distributionPolicy: TaskDistributionPolicy.even,
         ),
       ];
     case RecurringPace.deadlineWeighted:
@@ -460,42 +468,10 @@ List<SchedulableTask> recurringSchedulableTasks({
           dueAtUtc: input.period.endUtc,
           availableFromUtc: input.period.startUtc,
           allowedWeekdaysMask: mask,
-          maxMinutesPerLocalDay: _dailyQuota(
-            input: input,
-            allowedWeekdaysMask: mask,
-            zones: zones,
-          ),
+          distributionPolicy: TaskDistributionPolicy.even,
         ),
       ];
   }
-}
-
-int _dailyQuota({
-  required RecurringScheduleInput input,
-  required int allowedWeekdaysMask,
-  required TimeZoneDatabase zones,
-}) {
-  final startLocal = zones.toLocal(
-    input.planningStartUtc,
-    input.period.timeZoneId,
-  );
-  var cursor = DateTime(startLocal.year, startLocal.month, startLocal.day);
-  final end = input.period.endLocalDate;
-  var eligibleDays = 0;
-  while (cursor.isBefore(end)) {
-    if (allowedWeekdaysMask & (1 << (cursor.weekday - DateTime.monday)) != 0) {
-      eligibleDays++;
-    }
-    cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
-  }
-  if (eligibleDays <= 1) return input.progress.remainingMinutes;
-  final raw =
-      (input.progress.remainingMinutes + eligibleDays - 1) ~/ eligibleDays;
-  final minimum = input.template.minChunkMinutes;
-  if (input.progress.remainingMinutes <= minimum) {
-    return input.progress.remainingMinutes;
-  }
-  return math.max(raw, minimum);
 }
 
 /// 把 [original] 的区间搬到 [targetLocalDate] 的同一天，**保留原来的本地钟点与时长**。

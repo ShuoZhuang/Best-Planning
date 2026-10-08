@@ -162,7 +162,7 @@ void main() {
       expect(tasks.single.dueAtUtc!.isBefore(_weekEndUtc), isTrue);
     });
 
-    test('仅指定星期保留一个任务并写入允许星期与单日配额', () {
+    test('仅指定星期保留一个任务并写入允许星期与均分策略', () {
       final tasks = _expand(
         template: _template(
           pace: RecurringPace.selectedWeekdays,
@@ -179,9 +179,51 @@ void main() {
         tasks.single.allowedWeekdaysMask,
         weekdayMaskOf([DateTime.wednesday, DateTime.saturday]),
       );
-      expect(tasks.single.maxMinutesPerLocalDay, 50);
+      // **1.7.1 起不再写 `maxMinutesPerLocalDay`**（计划 Task 5 Step 2）：那个由
+      // "剩余 ÷ 天数"算出的单一配额会被引擎的"第二轮全局放开"抵消，实测让一天堆到 125 分钟
+      // （计划 §2.1）。现在表达"均匀"的是显式策略，每日预算由均分器按**真实容量**算。
+      expect(
+        tasks.single.maxMinutesPerLocalDay,
+        isNull,
+        reason: '均匀分布不再靠单日配额表达',
+      );
+      expect(
+        tasks.single.distributionPolicy,
+        TaskDistributionPolicy.even,
+        reason: '仅指定星期同样是"在被选日期间均分"（计划 §3.4）',
+      );
       expect(tasks.single.availableFromUtc, _weekStartUtc);
       expect(tasks.single.dueAtUtc, _weekEndUtc);
+    });
+
+    test('均匀分布与仅指定星期都映射为 even；尽早完成与截止加权不映射', () {
+      // 计划 Task 5 Step 1 的映射矩阵。`early`／`deadlineWeighted` 表达的是"什么时候做完"，
+      // 不是"每天做多少"，因此保持 unconstrained。
+      TaskDistributionPolicy policyOf(RecurringPace pace, {int? mask}) =>
+          _expand(
+            template: _template(
+              pace: pace,
+              allowedWeekdaysMask: mask ?? recurringAllWeekdaysMask,
+            ),
+            progress: _progress(),
+          ).single.distributionPolicy;
+
+      expect(policyOf(RecurringPace.even), TaskDistributionPolicy.even);
+      expect(
+        policyOf(
+          RecurringPace.selectedWeekdays,
+          mask: weekdayMaskOf([DateTime.wednesday]),
+        ),
+        TaskDistributionPolicy.even,
+      );
+      expect(
+        policyOf(RecurringPace.early),
+        TaskDistributionPolicy.unconstrained,
+      );
+      expect(
+        policyOf(RecurringPace.deadlineWeighted),
+        TaskDistributionPolicy.unconstrained,
+      );
     });
 
     test('仅指定星期选了全部七天时等价于均匀分布', () {

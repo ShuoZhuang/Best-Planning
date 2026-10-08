@@ -37,7 +37,12 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 被占用时计一次移动代价。
   /// 版本 9 注入任务期望时段因子（此前 `CandidateScoringContext` 的该字段从未被
   /// 引擎设置，恒为 0）。
-  static const String algorithmVersion = '9';
+  /// 版本 10（1.7.1）三处会改变输出：① `AvailabilityBuilder` 不再按每日上限截断候选，
+  /// 因此候选集覆盖全天真实空闲；② 每日可移动上限改为在选块时统一判定
+  /// （`_exceedsMovableDailyLimit`），不再靠"少看见一些空档"实现；③ `even` 策略的周期目标
+  /// 改由容量感知的按日均分器给出每日预算，且**不再有两轮全局放开配额**。
+  /// 三处都会改变同一输入得到的分块位置，因此必须抬版本，否则无法区分"算法变了"与"输入变了"。
+  static const String algorithmVersion = '10';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -742,13 +747,20 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///
   /// 取并集是必要的：候选是按"起点 × 时长"展开的，同一段空闲会被重复计入很多次，
   /// 直接累加候选时长会把容量放大到没有意义。
+  ///
+  /// **只统计计划窗口覆盖到的本地日**：窗口可能是"周四 20:00 到下周一 00:00"这种形状，
+  /// 于是第一天（周四）只有半个晚上可用。若不限制，窗口边界所在的**前一天**（因为 UTC 与
+  /// 本地日错位而出现）也会被当成一个可选日期，白白吃掉一份预算——实测 `210 ÷ 8 天`
+  /// 而不是 `÷ 4 天`。
   Map<DateTime, int> _capacityByLocalDate(
     SchedulableTask task,
     List<AvailabilitySlot> slots,
     int granularity,
   ) {
+    final eligibleDates = _eligibleLocalDates(task, slots);
     final rangesByDate = <DateTime, List<TimeRange>>{};
     for (final slot in slots) {
+      if (!eligibleDates.contains(slot.localDate)) continue;
       if (!task.allowsWeekday(slot.localDate.weekday)) continue;
       (rangesByDate[slot.localDate] ??= []).add(slot.range);
     }
@@ -779,6 +791,17 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     }
     return result;
   }
+
+  /// 可用时段真正覆盖到的本地日集合。
+  ///
+  /// **不能用"窗口起止各取本地日再逐日推进"**：窗口起点是 `planningStartUtc`，它在本地日
+  /// 内部（例如周四 20:00），若把它的 `localDate` 当成第一天，窗口边界之外的半天会被算进来。
+  /// 因此这里反过来——以 `AvailabilityBuilder` 实际产出的 `slot.localDate` 为准，
+  /// 它已经按本地日切好片。
+  Set<DateTime> _eligibleLocalDates(
+    SchedulableTask task,
+    List<AvailabilitySlot> slots,
+  ) => {for (final slot in slots) slot.localDate};
 
   /// 该任务在这些块上按本地日期已经占用的分钟。
   ///
