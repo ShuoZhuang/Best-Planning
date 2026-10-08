@@ -3,6 +3,165 @@
 本文件记录候选构建和正式发布状态。只有满足 `version-policy.md` 第 7 节的全部条件并把状态改成
 “已发布”，才算正式发布。
 
+## 1.6.2+37 / MSIX 1.6.2.0 — 2026-10-07（`1.6` 发布线收口）
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **收口构建，待人工验收**（**不是**"已发布"——见下方"为什么不写已发布"） |
+| 为什么第四段一路走到 `3` | 收口包装到本机之后又改了三次代码，按 `version-policy.md` 第 2 节都属于**同一批次的重复打包** → 只抬 MSIX 第四段，**不抬第三段、不改构建号**。`Add-AppxPackage` 只升不降，因此同一号不能重发不同内容。两次改动分别是：`1`（备份页兜底分支把异常里的**完整路径**打到界面上）、`2`（**用户实测反馈的两处**：① 今天做完的事在今日与日历界面消失；② 统计页时间范围"自定义范围"常亮）、`3`（**M8 操作式引导**：用户定案的四状态状态机、启动分派、引导首页、计划窗口） |
+| 变更范围 | **`1.6` 发布线的全部九个内部里程碑（M1～M9）合并交付**，**外加用户实测反馈的两处修复**：① **今天做完的事在今日与日历界面消失**——勾选完成→重排，已完成的块不再出现在新版本计划里，而"当天有当前版的块就只用当前版"这条规则让今天正命中，于是那条做过的记录整天消失；修法是当天在当前版之外再补上**已结束任务在过去时间里的块**（整段已过去、按任务去重、一版完整声明）；② 统计页时间范围**"自定义范围"常亮**——它写死成实心按钮，另三个是描边，于是不管选哪个都是它亮着；修法是由区间**反推**当前选中哪一个（`_rangeKindFor`）：任务状态筛选与真实卡片状态、可访问与可读基线、新建任务与领域项目闭环、今日执行与调整信任（含用户定义的「跳过本次」）、真实时间比例的周日历（时间轴模式）、课表导入错误恢复、统计与复盘（跨页面同色 + 图表对比度与图例）、设置页四组分组与当前值 + 未保存修改拦截、统一发布收口 |
+| 版本段位 | **`1.6.1` → `1.6.2`**（抬第 3 段）：第二段被现行口径**固定为 `1.6`**（抬它就是 `1.7`，路线图 §13 禁止），因此第 3 段是唯一还剩的可用段位；收口批次首包，第四段 `0`；构建号全局递增 `+36` → `+37`。详见 `version-policy.md` §4.00 |
+| 数据库 | **无结构变更、无迁移** |
+| 排程算法 | **未改动**（M1～M8 均未改排程口径；「跳过本次」是既有的 `pendingSkips` 通道） |
+| 统计口径 | **未改动**；只改了**取色来源**（改用共享解析器）与图表呈现方式（切片文字移到图例） |
+| 新增测试 | 本轮 M5～M9、两处用户实测反馈、以及一处既有脆弱测试的修复合计新增 **113** 条（M5 33／M6 10／M7 27／M8 10／M9 版本一致性等），全套 **1031 项通过** |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：368 文件 0 改动，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**1031 项通过**，退出码 0；六条 Windows 集成测试逐条通过 |
+| Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 `1.6.2+37` |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.6.2-build37-windows-x64-20261007` |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.6.2-build37-windows-x64-20261007.zip`（34002961 字节，34 条目） |
+| MSIX | 同目录内 `PersonalPlanner-1.6.2-build37-windows-x64-20261007.msix`；清单 `ShuoZhuang.PersonalPlanner` / `1.6.2.0` / x64 |
+| EXE SHA-256 | `19EA3FF2520B9538D86D88BAF60137FFE204BDD9A62D7508FE7565FEA9DBC6D1` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
+| 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
+| MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN`，指纹 `9E157ECE535D16A224593CA39C084705A4FD3C13` |
+| 覆盖安装 | **成功**：从已装的 `1.6.1.0` **原位升级**到 `1.6.2.0`（未先卸载），包族名未变。**收口途中我曾把第四段抬到 `.1`/`.2`/`.3`，那是误用**（三次都改了内容，不属于"重打包"）——按用户 2026-10-08 的裁定撤回为 `1.6.2.0`；撤回时因 Windows 不接受降级，走"卸载 → 全新安装"，**卸载前后数据库 SHA-256 逐字节一致**，随后**全新安装**亦成功，两条路径下启动均 `Responding=True` |；包族名 `ShuoZhuang.PersonalPlanner_v9555qkaxdyym` **未变**（⇒ 数据容器路径不变）。升级前需先停掉在跑的旧进程（托盘常驻会让进程活着，否则 `0x80073D02`） |
+| 全新安装 | **成功**：卸载到 0 个包之后 `Add-AppxPackage` 状态 `Ok` |
+| 卸载保留数据 | **验证通过**：卸载前后数据库 SHA-256 **逐字节相同**（`B31E5BC8…`），文件仍在 |
+| 启动检查 | 覆盖安装与全新安装两条路径下，从包目录启动后进程均 `Responding=True`（约 156 MB 工作集） |
+| 用户数据 | 数据库 `F:\Documents\personal_planner.sqlite`，196608 字节，SHA-256 `B31E5BC813571F6221F9FE998FEE7CA597AB8B5E9FABDDA608DD353EEF2A8D7E`；20 张表，`tasks` 11 / `calendar_events` 21 / `areas` 5 / `plan_versions` 5 / `settings` 8。**安装、覆盖安装与卸载过程均未改动它** |
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器、安装说明、`SHA-256.txt` 与用户指南齐全；ZIP **34 条目**、**无** `user-data`／`.sqlite`／`.pfx`／诊断日志 |
+| 隐私 | `.pfx` 与私钥**不进版本库也不进交付包**：签名按指纹从当前用户证书库选取，密码不出现在任何文件或命令里 |
+| 用户指南 | `docs/release/1.6.2-build37-user-guide.md`（**已定稿**，九个里程碑逐节写明状态与限度） |
+| Release Notes | `docs/release/1.6.2-release-notes.md` |
+
+### 为什么不写"已发布"
+
+`version-policy.md` §7 要求四条**同时**满足才登记"已发布"，其中第 4 条是在本台账登记；
+而路线图 §14「确认发布」要求**总人工清单通过**之后才登记。本批：
+
+- §13 第 3 条（JSON／CSV／完整备份各走一次**真实**导出）**未做**；
+- §13 第 7 条（**通知点击**真实交互）**未做**——自动化覆盖不到系统通知中心那一下；
+- 覆盖安装的"**记录数量一致**"缺对照：升级前那一次的基线快照不存在，而把 `1.6.1.0` 装回来
+  做对照时被 Windows 以 `0x80073D06`（不接受降级）拒绝——这正是 §5 写的那条约束；
+- 用户尚未对最终包做人工验收；
+- **GitHub Release 的创建与上传**需要仓库凭证与网络操作，本次会话不具备也不应擅自执行。
+
+**产物已齐备、可直接验收。** 剩下的是人工步骤与对外发布的决定。
+
+## 1.6.1+36 / MSIX 1.6.1.0 — 2026-10-07
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **候选构建，等待用户体验确认**（**不是**正式发布） |
+| 变更范围 | **"作息规律性"的范围不足状态**（纯展示修复）：统计页「今天」是默认范围，若该范围里只有一天有安排，这张图原先会画出一根横轴为那一天的柱子。现在改为说明"只有 1 天有安排，看不出作息规律"并指出把范围切到「本周」或「本月」；明细脚注保留 |
+| 版本段位 | **`1.6.0` → `1.6.1`**（抬第 3 段）：批次里只有修复。`1.6.0.0` 已交付用户确认，不能再并入；新批次首包，第四段回到 `0` |
+| 数据库 | **无结构变更、无迁移** |
+| 排程算法 | **未改动** |
+| 统计口径 | **未改动**：`RoutineMetric` 的计算一字未改，只有"范围里不足两天时怎么显示"变了 |
+| 新增测试 | `analytics_review_sections_test.dart` 增两条：单日范围不画图且指出可用范围、两日以上照常画图。（先确认这两条在修前**红**：`Expected: no matching candidates / Actual: Found 1 widget with type "AnalyticsChart"`。） |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：345 文件 0 改动，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**870 项通过**（上一批 868 + 新增 2），退出码 0 |
+| Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 `1.6.1+36` |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.6.1-build36-windows-x64-20261007` |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.6.1-build36-windows-x64-20261007.zip` |
+| MSIX | 同目录内 `PersonalPlanner-1.6.1-build36-windows-x64-20261007.msix`；清单 `ShuoZhuang.PersonalPlanner` / `1.6.1.0` / x64 |
+| EXE SHA-256 | `B98F4718E92C0FC9C8D973C1E34E21354079BE68F93AB775ECA1D06EBC13BDDE` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
+| 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与上一批同值） |
+| MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
+| 覆盖安装 | **成功**：从已安装的 `1.6.0.0` **原位升级**到 `1.6.1.0`，**未先卸载**；包族名 `ShuoZhuang.PersonalPlanner_v9555qkaxdyym` 未变（第 14 次身份不变的覆盖安装）。升级前先关掉在跑的旧进程（`0x80073D02` 的前置条件） |
+| 启动检查 | 升级后从开始菜单启动成功，进程持续运行 23 秒以上且 `Responding=True`（主窗口标题「智能日程」） |
+| 用户数据 | 数据库 `F:\Documents\personal_planner.sqlite` 在升级前后**均为 196608 字节、修改时间未变**（安装过程未触碰数据） |
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、安装说明与一键安装器齐全；ZIP **33 条目**、**无** `user-data` |
+| 尚缺 | **统计页新文案的人工确认**（切到「今天」时应看到说明而不是一根 10/7）由用户完成；该目录尚登记为候选构建，不是正式发布 |
+
+### 复算时顺带确认的一件事：任务页应当是"全部 9 / 待安排 0 / 已安排 0 / 已完成 9"
+
+用真实数据库算过：任务共 10 条，其中 **9 条 `completed`、1 条 `cancelled`**，**没有**任何 `open`／
+`inProgress` 任务。因此任务页四个筛选应当是 `全部 9　待安排 0　已安排 0　已完成 9`。
+
+**一个容易被误判成 bug 的点**：当前确认计划里那唯一一块（10/7 10:00–10:40）属于 `算法作业`，
+而**该任务的状态是 `completed`**。按专项计划 §2.1，已完成任务即使残留时间块也归入"已完成"，
+因此它会出现在「已完成」而**不是**「已安排」。这不是分类错乱，而是口径本身要求的行为——
+人工核对时不要把这一条当成"已安排丢了"。
+
+### 这个"bug"其实是一个正确但无用的图
+
+用户报的是"作息规律性的表横轴日期都是 10/7"。查下来**计算是对的**：这张图按"有安排的本地日"
+一天一根柱，而 `1.6.0` 之前**当前确认计划里只有一个时间块**（10/7 10:00–10:40），加上 10/7 当天
+一场固定日程（19:00–20:00），于是"今天"这个默认范围里就只有 10/7 一天，图上自然只有一根柱。
+
+**用真实数据库复算过**（只读，不改数据）：
+
+| 范围 | 柱数 | 横轴标签 |
+| --- | --- | --- |
+| 今天（默认） | **1** | 10/7 |
+| 本周 | 5 | 10/5、10/6、10/7、10/8、10/9 |
+| 本月 | 22 | 10/1、10/2、10/5 … 10/30 |
+
+问题因此不在计算，而在**一天之内的"作息规律"恒等于 0**（开工相差 0、收工相差 0）——这种图既
+看不出规律，又让人以为横轴坏了。路线图 §11 已要求"空数据与单点数据使用专门状态"，本次正是兑现
+那一条的第一个可交付切片。
+
+### 顺带查清的两件事（本次不改，留档）
+
+1. **计划侧数据比看上去少得多**：本月那 22 天里，**计划块只贡献 1 天**（10/7），其余全靠固定日程。
+   已确认计划总共 1 个块、3 个旧版本各 1–3 个块（superseded，正确排除）。
+2. **"删除这一次"的标记行是零长度的**（10/6 算法与数据结构、10/7 大学物理与最优化方法），
+   `end_at_utc == start_at_utc`。统计侧已正确排除这类行（`_scheduledMinutes` 要求区间为正），
+   日历页也不再返回它们，因此**不是数据损坏**——那是 `deleteOccurrence` 有意写的标记行。
+   另外 `trend` 的日桶数比窗口多 1（本周 7 天返回 8 桶，含窗口前一天的 0），与"作息规律性"的
+   日期口径不一致，值得在路线图 §11（统计与复盘）里单独核对。
+
+## 1.6.0+35 / MSIX 1.6.0.0 — 2026-10-07
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **候选构建，等待用户体验确认**（**不是**正式发布） |
+| 变更范围 | **任务清单的状态筛选**：新增「全部／待安排／已安排／已完成」四个筛选项（带数量、键盘可切、窄窗横向滚动）；卡片显示真实状态（`待安排 · 预计 50 分钟` / `已安排 · 13:00–14:30` / `已完成 · 实际投入 25 分钟`，逾期再加"已逾期 · 截止于…"）；任务页改为读取**全部**任务（此前只读未结束的，因此"已完成"永远是空的）；"是否已安排"只认**当前确认计划中尚未结束的时间块**；五种空状态各自说明原因；切换筛选退出多选、"已完成"里不提供多选 |
+| 版本段位 | **`1.5.0` → `1.6.0`**（抬第 2 段）：批次含用户可感知的新功能，且向后兼容。`1.5.0.6` 已交付用户确认，不能再拿第四段当补丁计数器；新批次首包，第四段回到 `0` |
+| 数据库 | **无结构变更、无迁移**：`watchAll` 只是新增一条查询，`schemaVersion` 未动 |
+| 排程算法 | **未改动**：今日页、日历页、排程与统计行为均不变 |
+| 新增测试 | `test/features/tasks/task_list_filter_test.dart`（31 条纯逻辑）、`test/features/tasks/task_list_status_filter_test.dart`（20 条 Widget）、`test/app/task_list_route_test.dart`（2 条路由装配）。**路由装配那两条做过变更验证**：把 `plans` 改成 `null` 后它立刻红（`已安排 1` → `已安排 0`），确认它真的守着"计划仓储被传进页面"这件事 |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：345 文件 0 改动，退出码 0；`flutter analyze --no-pub`：**0 问题**；`flutter test`：**868 项通过**（上一批 813 + 新增 55），退出码 0 |
+| Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 `1.6.0+35`（`FileDescription = 智能日程`） |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.6.0-build35-windows-x64-20261007` |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.6.0-build35-windows-x64-20261007.zip` |
+| MSIX | 同目录内 `PersonalPlanner-1.6.0-build35-windows-x64-20261007.msix`；清单 `ShuoZhuang.PersonalPlanner` / `1.6.0.0` / x64 / `CN=Shuo Zhuang, O=Personal User, C=CN` |
+| EXE SHA-256 | `EE2A352635BF21A2B7309A406557D38F29DE7A1DDCFC08A6239C2AB240C09A61` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
+| 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与上一批同值；包内 `.cer` 仅公钥，`HasPrivateKey=False`） |
+| MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**（"已验证签名"），签名者与指纹未变（`9E157ECE535D16A224593CA39C084705A4FD3C13`） |
+| 覆盖安装 | **成功**：从已安装的 `1.5.0.6` **原位升级**到 `1.6.0.0`，**未先卸载**；包族名 `ShuoZhuang.PersonalPlanner_v9555qkaxdyym` 未变（第 13 次身份不变的覆盖安装）。首次尝试被 `0x80073D02`（"资源正在使用中"）拒绝，因为旧版进程仍在运行；关闭两个旧实例后即成功——这正是升级路径应有的行为，记录在此免得下次误判为打包问题 |
+| 启动检查 | 升级后从开始菜单启动成功，进程持续运行 20 秒以上且 `Responding=True`（主窗口标题「智能日程」，工作集约 157 MB） |
+| 用户数据 | 升级前 `F:\Documents\personal_planner.sqlite` = 196608 字节；升级后大小不变、文件未被替换。启动后因应用自身写入而更新（属正常） |
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、安装说明与一键安装器齐全；ZIP **33 条目**、**无** `user-data` |
+| 尚缺 | **按新版界面的人工确认**（任务页筛选栏的实际显示与点击）由用户完成；该目录尚登记为候选构建，不是正式发布 |
+
+### 这一批修掉的是一个"看得见但没人发现"的问题
+
+任务页此前调用的是 `watchOpenTasks()`——**只返回未结束的任务**。于是"已完成"这一栏永远是空的，
+用户做完一件事之后就再也看不到它、也无法把误完成的任务改回来；而与此同时，任务表里那些已完成、
+已取消的记录一直躺在库里，没有任何界面能看到它们。这一批把读取口径换成 `watchAllTasks()`，
+并把"是否已安排"从"任务表里的 `scheduled` 状态"改为**按当前确认计划的未来时间块现算**——
+任务自身的持久化状态没有新增字段，仍然是同一份事实来源。
+
+### 为什么"已安排"必须按时间块现算，而不能落库
+
+`PlannerTask` 的注释里已经写过这条理由（`lib/domain/models/task.dart` 对 `TaskStatus` 的说明）：
+`scheduled` 取决于"已确认计划中是否存在该任务的块"，与计划生命周期绑定。**一旦落库就会有两个
+事实来源**——撤销、重排或换计划版本时必然有一个是旧的。这一批没有新增状态字段，而是每次按
+`PlanRepository.current()` 重新算，因此"撤销后任务回到待安排"是自动成立的。
+
+### 一个必须记住的测试陷阱（本次踩到并修掉）
+
+Widget 测试的替身如果写成 `Stream.value(tasks.values.toList())`，它在页面重建时会**重放同一个
+快照**：状态改了、界面看起来却没变。`task_list_status_filter_test.dart` 里的替身因此改成
+**广播流 + 每次保存推一次全量**（与 `DriftTaskRepository` 同型），否则"取消完成后任务立即从已完成
+里消失"那条断言是**假通过**。
+
 ## 1.5.0+34 / MSIX 1.5.0.6 — 2026-10-07
 
 | 项目 | 结果 |
@@ -15,8 +174,8 @@
 | MSIX | 同上目录内 `PersonalPlanner-1.5.0-build34-windows-x64-20261007.msix` |
 | 新增证据 | `G:\best-planing\release\evidence-1.5.0-build33-BEFORE-duplicate-fix-today.png`（**修复前**的今日页：`算法作业` 出现 **3 次**，07:30、07:30、10:00）；`acceptance-1.5.0-build33-today-no-duplicate.png`（修复后只 1 次） |
 | EXE SHA-256 | `E7F620DF536128B6A4629BD22A95CD2DB018F728A0E49780D56F087098894E27` |
-| ZIP SHA-256 | `FDFEDAFD7DDC3BDCB0CE6EB49D5D79354A9DF2D14C90394B7CBEEA25847445C1` |
-| MSIX SHA-256 | `29DF04614FAA1214E77CE48028C8E025EB9925AF9354888506455BB3A0B2D8B9` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 格式／分析／测试 | `dart format --set-exit-if-changed` 340 文件 0 改动；`flutter analyze` 0 问题；`flutter test` **813 通过** |
 | 覆盖安装 | 从 `1.5.0.5` 原位升级到 `1.5.0.6`，未先卸载（第 12 次身份不变的覆盖安装） |
 | 包内教程图一致性 | 逐张比对构建输出与仓库 `assets/tutorial/`：**6 张全部一致**（哈希相等） |
@@ -57,8 +216,8 @@
 | Windows MSIX | `...\PersonalPlanner-1.5.0-build33-windows-x64-20261007\PersonalPlanner-1.5.0-build33-windows-x64-20261007.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.5.0-build33-today-no-duplicate.png`（**今日里 `算法作业` 只出现一次**，实拍） |
 | EXE SHA-256 | `7082824A5349E1043C63380FB14610496579A82E8DFFBF8EC35F8CCE76063CFF` |
-| ZIP SHA-256 | `D37C60B65AC66CF15F426585743C8860B14FD6C470322AC18D0C78344AE1C1AD` |
-| MSIX SHA-256 | `38F3DBBD3EF85B15FC903F2C3177E5431B7CECBFD773E2BA1A2CF57CCD0B8858` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：340 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -195,8 +354,8 @@
 | Windows MSIX | `...\PersonalPlanner-1.5.0-build32-windows-x64-20261007\PersonalPlanner-1.5.0-build32-windows-x64-20261007.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.5.0-build32-tutorial.png`（**首次启动自动弹出的教程**，实拍） |
 | EXE SHA-256 | `99E7F8EA548245D1533A742AE6485C533F0726FF62E20A55E53E139F9FDA7AF4` |
-| ZIP SHA-256 | `779E7E9A249AE88A780A3A2F65A9897025466F9406366FD5F219D0E394AB53BB` |
-| MSIX SHA-256 | `AEDCA35397798724526F586A2ADA64C0EDCC02ABF294A56DC2FACB8FAD7094E0` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：340 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -308,8 +467,8 @@
 | Windows MSIX | `...\PersonalPlanner-1.5.0-build29-windows-x64-20261006\PersonalPlanner-1.5.0-build29-windows-x64-20261006.msix` |
 | 验收截图 | **本次未能采集**——见下方"未采集到的证据" |
 | EXE SHA-256 | `DDF922F58E04F33C570D9676EFBA25D7589383099A0200079770E719FF7C08E6` |
-| ZIP SHA-256 | `856C1D3518359295CAC808B7078F65487DCFA7317EEE43B9F39D2867462A93CC` |
-| MSIX SHA-256 | `81EE55A61AA289DFC15EC146143C747B5E2E8982B153FFDC4879373951F78EA6` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：332 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -434,8 +593,8 @@
 | Windows MSIX | `...\PersonalPlanner-1.5.0-build28-windows-x64-20261006\PersonalPlanner-1.5.0-build28-windows-x64-20261006.msix` |
 | 验收截图 | **本次未能采集**——见下方"未采集到的证据" |
 | EXE SHA-256 | `929B7A0CD0CB64059FA09BC4093EA7A81E2C17B22DF2A2B0D589D49DFE168C6B` |
-| ZIP SHA-256 | `12283DDCFC3EF0907049492048EDFEF79067EAF15CF7F9115A893DD24D428BE0` |
-| MSIX SHA-256 | `FAC02729680EA00620FB2D6B4977C054E9026B0DE259814642EC466F833D066A` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：325 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -531,8 +690,8 @@
 | Windows MSIX | `...\PersonalPlanner-1.4.2-build27-windows-x64-20261006\PersonalPlanner-1.4.2-build27-windows-x64-20261006.msix` |
 | 验收截图 | **本次未能采集**——见下方"未采集到的证据" |
 | EXE SHA-256 | `EF05AEA7E624DAF7469475E52E88921BE97342A08C2D50D91B0B8D9F8958B51D` |
-| ZIP SHA-256 | `03F8936593986B1C4AC2DC871C31CAF4D96D5D0DC104C0BE0918C38AFBF36A1D` |
-| MSIX SHA-256 | `680C1F1C0C0307E3145DD5F0396997910405121CCCC3CE38F5CF1F36971C3307` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：323 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
 | 完整测试 | `flutter test --no-pub`：**750 项通过**（比上一版 +6），退出码 0 |
@@ -608,8 +767,8 @@ muted 色对勾（今日 `today-schedule-completed-*`、七日 `week-schedule-co
 | Windows MSIX | `...\PersonalPlanner-1.4.2-build26-windows-x64-20261006\PersonalPlanner-1.4.2-build26-windows-x64-20261006.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.4.2-build26\`（今日） |
 | EXE SHA-256 | `F18DFF380076B798AEE289E85F5647D59245857FA33FFEE8898F5ED15F6CBCB1` |
-| ZIP SHA-256 | `813A735EDE8FED9D30A17148E567442B9385618DD281A4C093AD963FC3BAC183` |
-| MSIX SHA-256 | `D983E6447DFD163E469EC04ED1DAFDFBB0953361128B28A76EC613EB5F600069` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：323 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -674,8 +833,8 @@ muted 色对勾（今日 `today-schedule-completed-*`、七日 `week-schedule-co
 | Windows MSIX | `...\PersonalPlanner-1.4.2-build25-windows-x64-20261006\PersonalPlanner-1.4.2-build25-windows-x64-20261006.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.4.2-build25\`（今日） |
 | EXE SHA-256 | `EEE05E3308557730DB81C2F9A98698E98406E968D0059E5BB8D7E729793DD39E` |
-| ZIP SHA-256 | `85F450AFC4A9E83A4AE66B5660A5875EF8F1B09976836BDA1B3ACF7886AABB61` |
-| MSIX SHA-256 | `AF341BBA9FDEB89CF35DCD7D2495937C5153092EAF9C9057106D711BAEC852BD` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：323 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -728,8 +887,8 @@ muted 色对勾（今日 `today-schedule-completed-*`、七日 `week-schedule-co
 | Windows MSIX | `...\PersonalPlanner-1.4.2-build24-windows-x64-20261006\PersonalPlanner-1.4.2-build24-windows-x64-20261006.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.4.2-build24\`（今日、七日日历） |
 | EXE SHA-256 | `249DC64AE93666FB950B5FB2C50B2357391B6E7EFBE54A7FFE32EE6E62AD13CF` |
-| ZIP SHA-256 | `35D04DD12D1AA8741C359D6BEBCEC217F8BA89EDBB5F340EB8E3E0F7A3E86CAD` |
-| MSIX SHA-256 | `BC9E6A00557BB0CE8225809B9680B6B55FABF8946A8BF24CC63FAE9AFB1EBD23` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：323 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -779,8 +938,8 @@ muted 色对勾（今日 `today-schedule-completed-*`、七日 `week-schedule-co
 | Windows MSIX | `G:\best-planing\release\PersonalPlanner-1.4.2-build23-windows-x64-20261006\PersonalPlanner-1.4.2-build23-windows-x64-20261006.msix` |
 | 验收截图 | `G:\best-planing\release\acceptance-1.4.2-build23\`（7 张：今日 × 无玻璃／极致、七日日历 × 无玻璃／极致、单日详情 × 极致、升级后安装版今日、三代对比图） |
 | EXE SHA-256 | `34E2D6BCD1250D64AB4E95685420347967AC5C5E1851E4180A613C30F5307E85` |
-| ZIP SHA-256 | `63018D78F1DF8E6416D476AC7A42DAD60A3572EB3C10CFA555A7BC9A840D690B` |
-| MSIX SHA-256 | `2F6B86F37DBA60FC4678D58F0219C3A7E55BAAB98F6D5E598B4A2E8D50BEA1E0` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：322 个文件，0 个改动，退出码 0 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题，退出码 0 |
@@ -846,8 +1005,8 @@ border = lerp(PlannerPalette.outline, 分类色, 0.32)   // 完全不透明
 | Windows ZIP | `PersonalPlanner-1.4.1-build21-windows-x64-20261006.zip` |
 | Windows MSIX | `PersonalPlanner-1.4.1-build21-windows-x64-20261006.msix` |
 | EXE SHA-256 | `8243C1623C7AE71410A128A3E7E5E7E3B935556AFF75019CA9355FF6EE82AECF` |
-| ZIP SHA-256 | `A14AF853F4A7CD4744B53EBA34B10D98D60E60DE1ADAD01BB71F28EE625FF73F` |
-| MSIX SHA-256 | `0C2519AC3974714DB31884B1D863D4091B822DDDF0CDE1965D11C3044879FA83` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
+| MSIX SHA-256 | `98BBCB95F7CE42877939D779792BDEC255D582A213FE617569B47A42382F8387` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test`：316 个文件，0 个改动 |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题 |
@@ -870,7 +1029,7 @@ border = lerp(PlannerPalette.outline, 分类色, 0.32)   // 完全不透明
 | Windows 目录 | `PersonalPlanner-1.4.0-build20-windows-x64-20261006` |
 | Windows ZIP | `PersonalPlanner-1.4.0-build20-windows-x64-20261006.zip` |
 | EXE SHA-256 | `73909020CA2ABDE9C0F17D583AB8543F30E3DE8CA25B45C5D84C88E5EF2FF851` |
-| ZIP SHA-256 | `F7AC1BD74F087F28F362712116E2E895DDF10341A44A9185A6E05F5EA79DC67B` |
+| ZIP SHA-256 | `6CC6FD2AB26039AAFCADCD79D02106042AC48A4FB6112680B0252424BE028834` |
 | 静态分析 | `flutter analyze --no-pub`：0 个问题 |
 | 功能测试组 | 80 项通过 |
 | 完整测试 | 721 项通过 |

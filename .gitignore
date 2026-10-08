@@ -16,6 +16,8 @@ coverage/
 *.iml
 *.log
 *.tmp
+__pycache__/
+*.pyc
 
 # Local application data and secrets
 *.sqlite

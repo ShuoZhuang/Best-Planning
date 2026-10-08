@@ -20,7 +20,7 @@ import 'package:sqlite3/sqlite3.dart';
 ///
 /// 这条"手工一致"由 `test/app/version_consistency_test.dart` 守着——漂移了测试会红。
 /// 版本规则与历史回填见 `docs/release/version-policy.md`。
-const appVersion = '1.5.0+34';
+const appVersion = '1.6.2+37';
 
 /// 待恢复文件的路径：恢复**不立刻**替换正在使用的数据库，而是写到这里，等下次启动时生效。
 String pendingRestorePath(String databasePath) =>

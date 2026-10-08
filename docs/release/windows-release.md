@@ -2,18 +2,17 @@
 
 Task 20 的交付物之一，定义首版 Windows 产物的构建、版本与校验步骤。
 
-**当前状态（2026-10-06 实测更新）**：`1.4.1+21` 已完成 Release 构建、MSIX 组装与签名，并从
-本机已安装的 `1.4.0.0` 覆盖升级到 `1.4.1.0`。安装后应用从包目录启动且进程响应正常，安装前后的
-数据库文件大小与修改时间一致。**当前候选批次是 `1.5.0+34` / MSIX `1.5.0.6`**（统计新增领域时间分配矩阵，
-属 Minor——含用户可感知的新功能；新批次首包，故第四段为 `0`），交付记录见
-[build-ledger.md](build-ledger.md)。
+**当前状态（2026-10-07 更新）**：`1.4.1+21` 已完成 Release 构建、MSIX 组装与签名，并从
+本机已安装的 `1.4.0.0` 覆盖升级到 `1.4.1.0`。**当前候选批次是 `1.6.1+36` / MSIX `1.6.1.0`**
+（"作息规律性"只有一天有安排时不再画一根重复日期的柱子，属 Patch——批次里只有修复；
+新批次首包，故第四段为 `0`），交付记录见 [build-ledger.md](build-ledger.md)。
 
 | 步骤 | 实测结果 |
 | --- | --- |
-| `flutter build windows --release --no-pub` | **成功**，EXE 文件版本与产品版本均为 `1.4.1+21` |
-| MSIX 文件组装与打包 | **成功**，产出 `personal_planner_1.4.1.0_x64.msix` |
+| `flutter build windows --release --no-pub` | **成功**（2026-10-07，`1.6.1+36`），EXE 文件版本与产品版本均为 `1.6.1+36` |
+| MSIX 文件组装与打包 | **成功**，产出 `personal_planner_1.6.1.0_x64.msix` |
 | **SignTool 签名** | **成功**；`Get-AuthenticodeSignature` 为 `Valid`，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
-| 覆盖安装与启动 | **成功**；`1.4.0.0` → `1.4.1.0`，安装后进程响应正常 |
+| 覆盖安装与启动 | **成功**；`1.6.0.0` → `1.6.1.0` 原位升级（未先卸载），包族名未变；升级前需先关闭在跑的旧进程（`0x80073D02`），安装后从开始菜单启动且进程持续响应 |
 
 **签名已通过（2026-10-03 实测）**。这一步踩到了一个不明显的坑，记在这里免得重复排查：
 
@@ -79,10 +78,10 @@ stopped unexpectedly, or never started.`——失败发生在**测试装置与�
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 应用版本 | `pubspec.yaml` 的 `version` | 当前为 `1.5.0+34`。**2026-10-06 重算**，此前的 `1.0.4+5`／`1.0.16+18` 已作废。这一行是**唯一数值来源**；规则与历史回填见 [version-policy.md](version-policy.md) |
+| 应用版本 | `pubspec.yaml` 的 `version` | 当前为 `1.6.1+36`。**2026-10-06 重算**，此前的 `1.0.4+5`／`1.0.16+18` 已作废。这一行是**唯一数值来源**；规则与历史回填见 [version-policy.md](version-policy.md) |
 | 包标识（Identity Name） | `msix_config.identity_name`，当前为 `ShuoZhuang.PersonalPlanner`（**原文写的"示例值 `com.example.personal_planner`"已过期**，2026-10-04 据 `pubspec.yaml` 与已安装包更正） | 一旦发布不可更改，需在首次发布前固定为自有反向域名 |
 | 发布者（Publisher） | `msix_config.publisher`，当前为 `CN=Shuo Zhuang, O=Personal User, C=CN` | **必须与签名证书主体一字不差**，否则包装不上（原文只写"与签名证书主体一致"却把值留成"示例值"，2026-10-04 更正） |
-| MSIX 版本 | `msix_config.msix_version`，四段式 | 当前为 `1.5.0.6`。前三段必须与 `pubspec.yaml` 的 `version` 一致，**第四段只在"同一批次重打包"时 +1**；且**安装包不接受更低版本**（降级安装报错） |
+| MSIX 版本 | `msix_config.msix_version`，四段式 | 当前为 `1.6.1.0`。前三段必须与 `pubspec.yaml` 的 `version` 一致，**第四段只在"同一批次重打包"时 +1**；且**安装包不接受更低版本**（降级安装报错） |
 | 升级策略 | 同一包标识 + 递增版本 | 换标识等于换应用，用户数据不会自动迁移 |
 | 版本号同步 | `windows/runner/Runner.rc` | **自动的，不需要手工改**（2026-10-03 实测更正，见下） |
 
@@ -154,8 +153,8 @@ set(FLUTTER_VERSION_MAJOR 1) … MINOR 0 … PATCH 0 … BUILD 1
 - **不走 Microsoft Store**：以**侧载 MSIX** 为唯一发布形式（这与本文档开头的口径一致）。因此
   不需要开发者账号，也不存在"商店分配身份"这条渠道；
 - **分发范围**：现在自己用；**后续给朋友**时按上表"给朋友"一行执行（对方导入一次 `.cer`）。
-- **已定**（2026-10-06）：正式版本号规则与当前取值见 [version-policy.md](version-policy.md)——
-  `pubspec.yaml` 为 `1.5.0+34`，MSIX 为 `1.5.0.6`。**给朋友之前**要确认的只有一件事：这个号是否
+- **已定**（2026-10-07）：正式版本号规则与当前取值见 [version-policy.md](version-policy.md)——
+  `pubspec.yaml` 为 `1.6.1+36`，MSIX 为 `1.6.1.0`。**给朋友之前**要确认的只有一件事：这个号是否
   已经被自己装过（`Add-AppxPackage` 只升不降）。
 
 > **本节的价值**：上述两条决定**消除了 identity_name／证书这一整类风险**——不改证书、不上商店，

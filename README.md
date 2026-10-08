@@ -18,14 +18,18 @@ Download the latest Windows release here:
 [https://github.com/ShuoZhuang/Best-Planning/releases](https://github.com/ShuoZhuang/Best-Planning/releases)
 
 > [!TIP]
-> 推荐下载名称中包含 `windows-x64` 的完整 ZIP，完整解压后双击 `安装.cmd`。  
+> 推荐下载名称中包含 `windows-x64` 的完整 ZIP，完整解压后双击 `安装.cmd`。
+>
+> **当前版本 `1.6.2+37`**（MSIX `1.6.2.3`）：产物名
+> `PersonalPlanner-1.6.2-build37-windows-x64-20261007.zip`；同目录的 `.msix`
+> 与 `.cer` 一一对应，校验值见包内 `SHA-256.txt`。
 > ZIP 已包含 MSIX、签名公钥证书、安装脚本、安装说明和便携版文件，无需安装 Flutter 或配置开发环境。
 
 ---
 
 ## Documentation / 使用文档
 
-- [最新版使用教程](docs/release/1.5.0-build34-user-guide.md)
+- [最新版使用教程](docs/release/1.6.2-build37-user-guide.md)
 - [Windows 安装与发布说明](docs/release/windows-release.md)
 - [版本号规则](版本号规则.md)
 - [提交问题](https://github.com/ShuoZhuang/Best-Planning/issues)

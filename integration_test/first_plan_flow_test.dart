@@ -24,6 +24,7 @@ import 'package:personal_planner/data/repositories/drift_workspace_repository.da
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
+import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
 /// 端到端流程：录入任务 → 生成七日计划 → 确认应用 → 界面显示已确认的计划块。
@@ -71,6 +72,15 @@ void main() {
     await settingsRepository.write(
       OnboardingPage.schemaVersionKey,
       OnboardingPage.currentSchemaVersion.toString(),
+    );
+    // **首次教程闸门是另一条独立的门**（同样是"设置键 + 版本比较"）：不喂这一条，
+    // 整个应用 pump 出来的是**教程页**而不是主界面，下面的 `find.text('日历')` 自然
+    // 一个都找不到。仓库里 15 个其它 pump `PlannerApp` 的测试都写了这一条，
+    // **只有这个集成测试漏了**——因此它从教程闸门加入那天起就一直失败，
+    // 而路线图 §15 要求逐条跑通这四个集成测试。
+    await settingsRepository.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
     );
 
     // 快速录入：只提供标题与预计时长。
