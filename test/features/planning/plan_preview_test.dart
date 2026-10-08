@@ -3,6 +3,151 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 
 void main() {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // M4（路线图 §8）调整预览：**五类分组**与**原时间／目标时间**。
+  // 规格见 `docs/superpowers/specs/2026-10-07-m4-today-execution.md` §4.5。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('M4 预览按五类分组，含「未安排」与「保护时间变化」', (tester) async {
+    // §8 原文要求按"新增、移动、拆分、未安排、保护时间变化"分组。
+    // 此前 `PreviewChangeKind` 只有四类，且第四类叫「移除」而不是「未安排」——
+    // 用户看不懂"未排进去的任务"为什么被写成"移除"（它没有被移除，只是没排下）。
+    final model = PlanPreviewModel(
+      proposalId: 'proposal-groups',
+      changes: const [
+        PreviewChange(
+          kind: PreviewChangeKind.added,
+          title: '新增复习',
+          reason: 'r',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.moved,
+          title: '移动实验',
+          reason: 'r',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.split,
+          title: '拆分论文',
+          reason: 'r',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.unplanned,
+          title: '大物预习',
+          reason: '缺 40 分钟',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.protectedTimeChanged,
+          title: '午餐时间',
+          reason: '规则调整',
+        ),
+      ],
+      conflicts: const [],
+      isStale: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: model,
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final label in const ['新增', '移动', '拆分', '未安排', '保护时间变化']) {
+      expect(
+        find.text(label),
+        findsOneWidget,
+        reason: '五类分组里「$label」必须各自有一个分组标题',
+      );
+    }
+    // 旧的「移除」标签在五类体系里已由「未安排」承担；不该两套并存。
+    expect(find.text('移除'), findsNothing, reason: '不能同时留着旧标签，否则同一件事有两个说法');
+    // 分组里的条目也要真的渲染出来。
+    expect(find.text('大物预习'), findsOneWidget);
+    expect(find.text('午餐时间'), findsOneWidget);
+  });
+
+  testWidgets('M4 移动类条目同时显示原时间与目标时间', (tester) async {
+    // §8 要求"显示原时间、目标时间和原因"。只给原因，用户看不出**从哪挪到哪**。
+    final model = PlanPreviewModel(
+      proposalId: 'proposal-times',
+      changes: const [
+        PreviewChange(
+          kind: PreviewChangeKind.moved,
+          title: '实验',
+          reason: '匹配高精力时段',
+          fromLabel: '10-05 09:00–10:00',
+          toLabel: '10-05 14:00–15:00',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.added,
+          title: '新任务',
+          reason: '临近截止',
+          // 新增没有"原时间"——这是正常的，不显示即可。
+          toLabel: '10-06 09:00–10:00',
+        ),
+        PreviewChange(
+          kind: PreviewChangeKind.unplanned,
+          title: '没排下的任务',
+          reason: '缺 40 分钟',
+          // 未安排没有"目标时间"。
+          fromLabel: '10-07 09:00–10:00',
+        ),
+      ],
+      conflicts: const [],
+      isStale: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PlanPreviewPage(
+          model: model,
+          autoAdjustStore: MemoryAutoAdjustStore(),
+          onConfirm: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // **断言要限定在那一张卡内**：展开是叠加的（前一张不会自动收起），
+    // 全页 `textContaining('原时间')` 会把上一张的内容也算进来，
+    // 于是"新增没有原时间"这条会误报成失败。
+    Finder inTile(String title, String text) => find.descendant(
+      of: find.ancestor(
+        of: find.text(title),
+        matching: find.byType(ExpansionTile),
+      ),
+      matching: find.textContaining(text),
+    );
+
+    await tester.tap(find.text('实验'));
+    await tester.pumpAndSettle();
+    expect(inTile('实验', '10-05 09:00–10:00'), findsOneWidget, reason: '要显示原时间');
+    expect(
+      inTile('实验', '10-05 14:00–15:00'),
+      findsOneWidget,
+      reason: '要显示目标时间',
+    );
+    expect(inTile('实验', '匹配高精力时段'), findsOneWidget, reason: '原因不能丢');
+
+    // 新增只显示目标时间。
+    await tester.tap(find.text('新任务'));
+    await tester.pumpAndSettle();
+    expect(inTile('新任务', '10-06 09:00–10:00'), findsOneWidget);
+    expect(inTile('新任务', '原时间'), findsNothing, reason: '新增没有原时间，不该硬编一个');
+
+    // 未安排只显示原时间。
+    // **先滚到它**：三张卡依次展开后它已经落到视口外，`tap` 会静默打空
+    // （只留一句 "would not hit test" 警告），断言就会报"找不到"——很像产品缺陷的假象。
+    await tester.ensureVisible(find.text('没排下的任务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('没排下的任务'));
+    await tester.pumpAndSettle();
+    expect(inTile('没排下的任务', '10-07 09:00–10:00'), findsOneWidget);
+    expect(inTile('没排下的任务', '目标时间'), findsNothing, reason: '未安排没有目标时间');
+  });
+
   testWidgets('preview groups every change and expands reasons', (
     tester,
   ) async {
@@ -25,8 +170,8 @@ void main() {
           reason: '分成两个专注片段',
         ),
         PreviewChange(
-          kind: PreviewChangeKind.removed,
-          title: '移除游戏',
+          kind: PreviewChangeKind.unplanned,
+          title: '没排下的游戏',
           reason: '当天容量不足',
         ),
       ],
@@ -47,7 +192,8 @@ void main() {
     expect(find.text('新增'), findsOneWidget);
     expect(find.text('移动'), findsOneWidget);
     expect(find.text('拆分'), findsOneWidget);
-    expect(find.text('移除'), findsOneWidget);
+    // M4：第四类从「移除」改称「未安排」——没排进去不等于被移除，任务还在列表里。
+    expect(find.text('未安排'), findsOneWidget);
     expect(find.text('冲突'), findsOneWidget);
     expect(find.text('周三缺少 30 分钟'), findsOneWidget);
 

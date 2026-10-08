@@ -128,9 +128,23 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     // 当时排了什么只留在旧版本里。只读最新版就是"重排一次、历史全没"，用户 2026-10-07 报的
     // "昨天已经完成的计划在我调整计划后就都不见了"正是这个。
     final historical = await history.blocksInWindow(startUtc, endUtc);
+    // ignore: avoid_print
+    // **哪些任务已经结束**（M9 收口后修）：只查**历史块里出现过的**任务，不拉全表——
+    // 窗口 8 天、历史版本若干个，涉及的 id 通常是个位数。
+    final terminalTaskIds = <String>{};
+    for (final taskId in {for (final entry in historical) entry.block.taskId}) {
+      final task = await tasks.getById(taskId);
+      if (task != null && task.status.isClosed) terminalTaskIds.add(taskId);
+      // ignore: avoid_print
+    }
     // 复用上面那份"现在"（固定日程的完成判定已经取过一次），不再重复取——两次调用之间跨过
     // 一秒就会让同一个窗口里的判定互相打架。
     final currentBlocks = confirmed?.blocks ?? const <PlannedBlock>[];
+    // **当前版给哪些任务安排过位置**（M9 收口后修）：判"这个任务的旧位置是否已被取代"要看
+    // **整份当前版**，而不是只看某一天——一个任务可能被当前版挪到了别的一天。
+    final scheduledTaskIds = <String>{
+      for (final block in currentBlocks) block.taskId,
+    };
 
     // **一个本地日只由一版计划决定**，而不是把各版本求并集。
     //
@@ -156,7 +170,39 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
       final chosen = fromCurrent.isNotEmpty
           ? fromCurrent
           : _historyInForce(historical, dayRange, day.endUtc, nowUtc);
-      for (final block in chosen) {
+      // **已结束的任务，那块时间仍然要看得见**（M9 收口后修，用户实测报告）。
+      //
+      // 用户原话："我今天完成的算法作业为什么在今日和日历界面不见了"。
+      //
+      // 机制（用他的真实数据核对过）：勾选完成 → `TaskService.changeStatus` 发
+      // `DomainChangeKind.taskCompleted` → 重排；已完成的任务**不再参与排程**，
+      // 因此**新版本计划里不再有它的块**（他库里的 `算法作业` 只在 03:51 与 01:49 两版里，
+      // 而当前版是 21:18 生成的）。而上面的规则 1 说"当天有当前版的块就**只用当前版**"——
+      // 今天正好有别的任务的块，于是那条已经做完的记录**整天消失**。
+      // 规则 2 的 `_historyInForce` 只覆盖"**整天已经完整过去**"的日子，救不了今天。
+      //
+      // 修法：当天在当前版之外，**再补上"已结束的任务"在过去时间里的那些块**。
+      // 边界刻意收得很紧，避免重新引入"同一件事显示两次"（见上面 135~147 行的教训）：
+      //   · 只收**状态是终态**（已完成／已取消／已跳过）的任务；
+      //   · 只收**整段已经过去**的块（`endUtc <= now`）——未来的时间不存在"做完了"；
+      //   · 同一任务只保留**最新版本**里的那一块；
+      //   · 与当前版**按块 id 去重**。
+      //
+      // **为什么不改成"把已完成任务的块留在当前版里"**：那是重排器的语义（已完成不参与排程），
+      // 改它会动摇"计划只包含还要做的事"这条口径。这是**视图**该补的历史显示。
+      // ignore: avoid_print
+      final chosenBlocks = <PlannedBlock>[
+        ...chosen,
+        ..._pastTerminalBlocks(
+          historical: historical,
+          dayRange: dayRange,
+          nowUtc: nowUtc,
+          terminalTaskIds: terminalTaskIds,
+          scheduledTaskIds: scheduledTaskIds,
+          alreadyIncluded: {for (final block in chosen) block.id},
+        ),
+      ];
+      for (final block in chosenBlocks) {
         if (keptIds.add(block.id)) kept.add(block);
       }
     }
@@ -210,6 +256,9 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
             categorySortOrder: category.sortOrder,
             explanation: block.explanationCode,
             areaId: areaId,
+            // M4（路线图 §8）：今日页要就地开始专注／完成／查看详情，因此必须能从条目
+            // 找到任务。这里本来就有 `block.taskId`，直接带出去，省得页面去拆 `id` 前缀。
+            taskId: block.taskId,
             isCompleted: completedIds.contains(block.taskId),
           ),
         );
@@ -264,6 +313,58 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   ///   确认为准，否则"把任务改到别的时间"会又从旧版把原来的位置捞回来。
   /// - "当时在用的那一版"取 `versionCreatedAtUtc <= dayEndUtc` 中**最新**的一版，且这一版必须
   ///   在那一天真的排了块——否则会选到一个只覆盖之后几天的新版本，导致这一天变空。
+  /// **已结束的任务在"过去时间"里的那些块**（M9 收口后修）。
+  ///
+  /// 见调用处的长说明。规则收得很紧：
+  /// · 只收状态为终态的任务（由 [terminalTaskIds] 给出）；
+  /// · **当前版已经给这个任务安排过位置 → 一律不补**（[scheduledTaskIds]）——
+  ///   旧版那个位置已被取代，再补就是"同一件事显示两次"；
+  /// · 只收**整段已经过去**的块（`endUtc <= nowUtc`）——未来的时间不存在"做完了"；
+  /// · **一版计划是对那段时间的完整声明**，因此补的是"当时在用的那一版"里的**整组块**，
+  ///   而不是每个任务各挑一块。这条与 `_historyInForce` 同一口径。
+  List<PlannedBlock> _pastTerminalBlocks({
+    required List<HistoricalPlanBlock> historical,
+    required TimeRange dayRange,
+    required DateTime nowUtc,
+    required Set<String> terminalTaskIds,
+    required Set<String> scheduledTaskIds,
+    required Set<String> alreadyIncluded,
+  }) {
+    if (terminalTaskIds.isEmpty) return const [];
+    // ① 先为每个"要补的任务"挑出**当时在用的那一版**。
+    final versionByTask = <String, HistoricalPlanBlock>{};
+    for (final entry in historical) {
+      if (!terminalTaskIds.contains(entry.block.taskId)) continue;
+      if (scheduledTaskIds.contains(entry.block.taskId)) continue;
+      if (!entry.block.range.overlaps(dayRange)) continue;
+      // **整段已经过去**才算"当时做完了"。用 `endUtc` 而不是 `startUtc`：
+      // 正在进行中的那一段还没有"做完"，它要么由当前版显示，要么压根不该补。
+      if (entry.block.range.endUtc.isAfter(nowUtc)) continue;
+      final existing = versionByTask[entry.block.taskId];
+      if (existing == null ||
+          entry.versionCreatedAtUtc.isAfter(existing.versionCreatedAtUtc)) {
+        versionByTask[entry.block.taskId] = entry;
+      }
+    }
+    if (versionByTask.isEmpty) return const [];
+    // ② 把那一版在**这一天**的**全部**块拿出来（"完整声明"口径）。
+    final chosenVersions = <String, Set<String>>{
+      for (final entry in versionByTask.values)
+        entry.versionId: {entry.block.taskId},
+    };
+    final result = <PlannedBlock>[];
+    final seen = <String>{};
+    for (final entry in historical) {
+      final tasks = chosenVersions[entry.versionId];
+      if (tasks == null || !tasks.contains(entry.block.taskId)) continue;
+      if (!entry.block.range.overlaps(dayRange)) continue;
+      if (alreadyIncluded.contains(entry.block.id)) continue;
+      if (!seen.add(entry.block.id)) continue;
+      result.add(entry.block);
+    }
+    return result;
+  }
+
   List<PlannedBlock> _historyInForce(
     List<HistoricalPlanBlock> historical,
     TimeRange dayRange,

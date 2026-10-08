@@ -135,6 +135,10 @@ final class _InMemoryTasks implements TaskRepository {
   }
 
   @override
+  Stream<List<PlannerTask>> watchAllTasks() =>
+      Stream.value(items.values.toList(growable: false));
+
+  @override
   Stream<List<PlannerTask>> watchOpenTasks() =>
       Stream.value(items.values.toList(growable: false));
 }

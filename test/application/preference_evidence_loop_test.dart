@@ -49,6 +49,11 @@ final class _Tasks implements TaskRepository {
   Future<void> save(PlannerTask task) async => tasks[task.id] = task;
 
   @override
+  Stream<List<PlannerTask>> watchAllTasks() async* {
+    yield const [];
+  }
+
+  @override
   Stream<List<PlannerTask>> watchOpenTasks() async* {
     yield const [];
   }

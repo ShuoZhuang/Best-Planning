@@ -1,5 +1,6 @@
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -48,6 +49,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.days = 7,
     this.snapshots = const InputSnapshotBuilder(),
     this.pendingMoves,
+    this.pendingSkips,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
 
@@ -66,6 +68,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
 
   /// 用户手动拖动产生的待处理移动（FR-CAL-05）。为空即"没有手动移动"，行为与从前完全一致。
   final PendingMoveDrafts? pendingMoves;
+
+  /// 用户点「**跳过本次**」产生的待处理跳过（M4，2026-10-07 用户定义）。
+  ///
+  /// 为空即"没有跳过"，行为与从前完全一致。语义见 `pending_skips.dart`：
+  /// **只放弃这一个块**，任务仍在 `tasks` 里继续参与重排。
+  final PendingSkipDrafts? pendingSkips;
 
   @override
   Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
@@ -138,9 +146,27 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       }
     }
 
+    // M4「跳过本次」（2026-10-07 用户定义）：把被跳过的块**从两处都排除**——
+    // 它既不再被冻结（`lockedBlocks`），也不再作为"可移动的已确认块"（`existingBlocks`）。
+    //
+    // **这是"跳过"与"拖动"的分水岭**：拖动是"把这一块钉到别处"（进 `pinnedByBlockId`），
+    // 跳过是"这一块这次不要了"，因此这里**不加任何钉住**，让它彻底消失。
+    //
+    // 注意**刻意不把旧时段标成禁区**：用户跳过的是"这件事现在不做"，
+    // 不是"这段时间不许安排别的事"。把它锁成不可用会让"跳过之后空出来"
+    // 变成"跳过之后白白浪费"，与用户要的第 1、3 条都相悖。
+    final skips = pendingSkips;
+    final skippedBlockIds = <String>{
+      if (skips != null)
+        for (final block in confirmedBlocks)
+          if (skips.forBlock(block.id) != null) block.id,
+    };
+
     final problem = ScheduleProblem(
       planningWindow: TimeRange(startUtc: startUtc, endUtc: endUtc),
       timeZoneId: timeZoneId,
+      // **任务照旧留在 `tasks` 里**：跳过只放弃块，任务仍是未完成待办、继续参与重排。
+      // 剩余时长也不在这里动——已专注的部分由既有的专注重算扣减，不重算。
       tasks: schedulable,
       fixedIntervals: [
         for (final occurrence in occurrences)
@@ -156,6 +182,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         for (final block in confirmedBlocks)
           if (block.locked &&
               schedulableIds.contains(block.taskId) &&
+              !skippedBlockIds.contains(block.id) &&
               !pinnedByBlockId.containsKey(block.id))
             block,
         // 被拖动的块替换掉它原来的位置（同一个 id 不能出现两次，否则引擎会排出两条）。
@@ -166,6 +193,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         for (final block in confirmedBlocks)
           if (!block.locked &&
               schedulableIds.contains(block.taskId) &&
+              !skippedBlockIds.contains(block.id) &&
               !pinnedByBlockId.containsKey(block.id))
             block,
       ],

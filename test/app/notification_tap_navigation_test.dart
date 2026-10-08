@@ -68,6 +68,12 @@ final class _Tasks implements TaskRepository {
   @override
   Future<void> save(PlannerTask task) async => tasks[task.id] = task;
 
+  /// 全量监听：这里**刻意不过滤**，与生产 `TaskDao.watchAll` 同口径。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() async* {
+    yield tasks.values.toList();
+  }
+
   @override
   Stream<List<PlannerTask>> watchOpenTasks() async* {
     yield tasks.values.where((task) => !task.status.isClosed).toList();
@@ -166,7 +172,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('任务清单'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('查看详情'));
+    await tester.tap(find.byKey(const Key('task-detail-task-1')));
     await tester.pumpAndSettle();
 
     expect(find.byType(TaskDetailPage), findsOneWidget);

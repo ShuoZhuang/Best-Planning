@@ -12,6 +12,17 @@ final class TodayPage extends StatefulWidget {
     required this.source,
     required this.day,
     this.toLocal,
+    this.nowUtc,
+    this.onStartFocus,
+    this.onComplete,
+    this.onOpenDetail,
+    this.onDefer,
+    this.onRequestAdjust,
+    this.onToggleLock,
+    this.onSkipCurrent,
+    this.dismissedProposalId,
+    this.onDismissReplan,
+    this.replanProposalId,
     super.key,
   });
 
@@ -21,6 +32,56 @@ final class TodayPage extends StatefulWidget {
   /// 视图数据以 UTC 保存；生产环境传入应用选定时区的换算函数。
   /// 测试与纯视图预览可省略，此时保持输入值不变。
   final DateTime Function(DateTime instantUtc)? toLocal;
+
+  /// 判定"当前安排"的基准时刻。省略时取系统当前时间。
+  final DateTime? nowUtc;
+
+  // ── M4（路线图 §8）执行动作 ────────────────────────────────────────────────
+  //
+  // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由 router 注入**。
+  // 端口为空时对应入口**不渲染**——这比"渲染一个点了没反应的按钮"诚实。
+
+  /// 「开始专注」。§8 退出条件要求"从今日页开始专注不超过两次点击"，
+  /// 因此这个入口直接做成卡片上的按钮，不藏进菜单。
+  final ValueChanged<ScheduleViewItem>? onStartFocus;
+
+  /// 「完成」。由调用方决定是改任务状态还是别的；页面只负责发起。
+  final ValueChanged<ScheduleViewItem>? onComplete;
+
+  /// 「查看详情」。
+  final ValueChanged<ScheduleViewItem>? onOpenDetail;
+
+  /// 「延后」。页面不收集时长——那属于确认界面，这里只发起。
+  final ValueChanged<ScheduleViewItem>? onDefer;
+
+  /// 「请求调整」→ 排程提案预览。
+  final ValueChanged<ScheduleViewItem>? onRequestAdjust;
+
+  /// 「锁定」这条计划块。只对任务块出现（`movableTaskBlockId` 之外的东西锁不了）。
+  final ValueChanged<ScheduleViewItem>? onToggleLock;
+
+  /// 「**跳过本次**」（2026-10-07 用户定义）。
+  ///
+  /// 语义：只放弃**这一个时间块**，任务仍是未完成待办、剩余时长不变，并继续参与重排；
+  /// 由调用方去重新生成提案（默认进预览，"信任自动调整"开启时直接应用）。
+  ///
+  /// **刻意与另外两个动作分开**，页面只发出"跳过这一块"这一件事：
+  /// · 「延后到明天」改的是 `availableFromUtc`（另一个动作）；
+  /// · 「取消任务」改的是 `TaskStatus.cancelled`（另一个动作）。
+  /// 页面不替调用方做这两种决定。
+  final ValueChanged<ScheduleViewItem>? onSkipCurrent;
+
+  /// 本次会话里已被用户关掉的那条重排提示对应的方案 id。
+  ///
+  /// **用 id 而不是 bool**：bool 会让"关掉一次之后就再也不提醒"，
+  /// 而 §8 要求"重新生成的新方案仍会提醒"。只隐藏**同一条**。
+  final String? dismissedProposalId;
+
+  /// 关闭重排提示。
+  final VoidCallback? onDismissReplan;
+
+  /// 当前待确认方案的 id；为空表示没有待确认方案，此时不显示提示。
+  final String? replanProposalId;
 
   @override
   State<TodayPage> createState() => _TodayPageState();
@@ -43,6 +104,9 @@ final class _TodayPageState extends State<TodayPage> {
   }
 
   void _retry() => setState(_subscribe);
+
+  /// 判定"当前安排"用的时刻：显式传入优先（测试可控），否则取系统当前时间。
+  DateTime get _effectiveNow => (widget.nowUtc ?? DateTime.now()).toUtc();
 
   @override
   void didUpdateWidget(covariant TodayPage oldWidget) {
@@ -91,6 +155,11 @@ final class _TodayPageState extends State<TodayPage> {
                         // **拷贝时新字段容易漏**：这里的对象是"按当天裁剪过区间"的副本，
                         // 漏掉 `isCompleted` 会让"已完成"标记在这一页永远不显示——这条由
                         // `today_page_test.dart` 的标记用例守着。
+                        // 同理，M4 加的 `taskId` 也必须带过来：漏了它，
+                        // 「开始专注／完成／查看详情」在这些副本上会全部失灵
+                        // （条目本身有 taskId，副本却是 null），而且症状是
+                        // "按钮不见了"而不是报错——最难查的那种。
+                        taskId: item.taskId,
                         isCompleted: item.isCompleted,
                         areaId: item.areaId,
                         range: TimeRange(
@@ -110,6 +179,15 @@ final class _TodayPageState extends State<TodayPage> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // §8：顶部重排提示支持关闭，**关闭只隐藏这条提示，不取消待确认方案**。
+                    // 因此它渲染与否只看"有没有方案"与"这条方案是否已被关掉"，
+                    // 与 `_PlanningRail` 里的方案状态无关。
+                    if (widget.replanProposalId != null &&
+                        widget.replanProposalId != widget.dismissedProposalId)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _ReplanNotice(onDismiss: widget.onDismissReplan),
+                      ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: ScheduleCategoryLegend(
@@ -125,6 +203,14 @@ final class _TodayPageState extends State<TodayPage> {
                           final timeline = _TimelinePanel(
                             items: items,
                             formatTime: formatTime,
+                            nowUtc: _effectiveNow,
+                            onStartFocus: widget.onStartFocus,
+                            onComplete: widget.onComplete,
+                            onOpenDetail: widget.onOpenDetail,
+                            onDefer: widget.onDefer,
+                            onRequestAdjust: widget.onRequestAdjust,
+                            onToggleLock: widget.onToggleLock,
+                            onSkipCurrent: widget.onSkipCurrent,
                           );
                           final summary = _PlanningRail(
                             items: items,
@@ -199,10 +285,29 @@ final class _TodayHeader extends StatelessWidget {
 }
 
 final class _TimelinePanel extends StatelessWidget {
-  const _TimelinePanel({required this.items, required this.formatTime});
+  const _TimelinePanel({
+    required this.items,
+    required this.formatTime,
+    required this.nowUtc,
+    this.onStartFocus,
+    this.onComplete,
+    this.onOpenDetail,
+    this.onDefer,
+    this.onRequestAdjust,
+    this.onToggleLock,
+    this.onSkipCurrent,
+  });
 
   final List<ScheduleViewItem> items;
   final String Function(DateTime value) formatTime;
+  final DateTime nowUtc;
+  final ValueChanged<ScheduleViewItem>? onStartFocus;
+  final ValueChanged<ScheduleViewItem>? onComplete;
+  final ValueChanged<ScheduleViewItem>? onOpenDetail;
+  final ValueChanged<ScheduleViewItem>? onDefer;
+  final ValueChanged<ScheduleViewItem>? onRequestAdjust;
+  final ValueChanged<ScheduleViewItem>? onToggleLock;
+  final ValueChanged<ScheduleViewItem>? onSkipCurrent;
 
   @override
   Widget build(BuildContext context) => _Panel(
@@ -219,6 +324,14 @@ final class _TimelinePanel extends StatelessWidget {
                         item: items[index],
                         isLast: index == items.length - 1,
                         formatTime: formatTime,
+                        isCurrent: _isCurrent(items[index]),
+                        onStartFocus: onStartFocus,
+                        onComplete: onComplete,
+                        onOpenDetail: onOpenDetail,
+                        onDefer: onDefer,
+                        onRequestAdjust: onRequestAdjust,
+                        onToggleLock: onToggleLock,
+                        onSkipCurrent: onSkipCurrent,
                       ),
                   ],
                 ),
@@ -247,6 +360,14 @@ final class _TimelinePanel extends StatelessWidget {
       },
     ),
   );
+
+  /// "现在正落在这一条里"。
+  ///
+  /// 半开区间 `[start, end)`：`end` 那一瞬间已经不算"正在做"，否则相邻两条会同时是"当前"，
+  /// 卡片上就会出现两组「开始专注」。
+  bool _isCurrent(ScheduleViewItem item) =>
+      !nowUtc.isBefore(item.range.startUtc) &&
+      nowUtc.isBefore(item.range.endUtc);
 }
 
 final class _TimelineItem extends StatelessWidget {
@@ -254,11 +375,38 @@ final class _TimelineItem extends StatelessWidget {
     required this.item,
     required this.isLast,
     required this.formatTime,
+    required this.isCurrent,
+    this.onStartFocus,
+    this.onComplete,
+    this.onOpenDetail,
+    this.onDefer,
+    this.onRequestAdjust,
+    this.onToggleLock,
+    this.onSkipCurrent,
   });
 
   final ScheduleViewItem item;
   final bool isLast;
   final String Function(DateTime value) formatTime;
+  final bool isCurrent;
+  final ValueChanged<ScheduleViewItem>? onStartFocus;
+  final ValueChanged<ScheduleViewItem>? onComplete;
+  final ValueChanged<ScheduleViewItem>? onOpenDetail;
+  final ValueChanged<ScheduleViewItem>? onDefer;
+  final ValueChanged<ScheduleViewItem>? onRequestAdjust;
+  final ValueChanged<ScheduleViewItem>? onToggleLock;
+  final ValueChanged<ScheduleViewItem>? onSkipCurrent;
+
+  /// 这是不是一个**任务**条目。
+  ///
+  /// 只有任务才有"完成／开始专注／延后"这些动作：固定日程的完成是**时间过去**
+  /// （数据源已经算好 `isCompleted`），保护时间是规则算出来的区间。对它们渲染这些按钮，
+  /// 用户点了也无处落地。
+  bool get _isTask => item.kind == ScheduleItemKind.task && item.taskId != null;
+
+  /// 能不能"请求调整／锁定"：只有计划块能移动，判定与拖动那条路径共用同一个函数，
+  /// 免得两处对"什么可移动"给出不同答案。
+  bool get _isMovable => movableTaskBlockId(item) != null;
 
   @override
   Widget build(BuildContext context) {
@@ -396,6 +544,8 @@ final class _TimelineItem extends StatelessWidget {
                                 color: PlannerPalette.textMuted,
                               ),
                             ],
+                            // M4（路线图 §8）：卡片上的执行动作。
+                            ..._actions(context),
                           ],
                         ),
                       ),
@@ -409,6 +559,163 @@ final class _TimelineItem extends StatelessWidget {
       ),
     );
   }
+
+  /// §8 的卡片动作区。
+  ///
+  /// **分工是刻意的**：
+  /// - 「开始专注」「完成」是**当前安排**的主动作，直接做成按钮——§8 的退出条件要求
+  ///   "从今日页开始专注不超过两次点击"（进页面 1 次 + 点按钮 1 次），藏进菜单就做不到；
+  /// - 其余动作收进**一个菜单**：§8 明确要求"动作密度用菜单控制，不能每张卡片堆满按钮"。
+  ///
+  /// 端口为 `null` 时**不渲染**对应入口：渲染一个点了没反应的按钮，比不显示更糟
+  /// （与 `TaskDetailPage` 对 `onStartFocus` 的处理一致）。
+  List<Widget> _actions(BuildContext context) {
+    final widgets = <Widget>[];
+
+    // 主动作只给"任务"且"还没完成"的当前条目。
+    // 已完成的任务不该再出现「完成」；固定日程与保护时间没有任务可做，因此一个都不给。
+    if (isCurrent && _isTask && !item.isCompleted) {
+      if (onStartFocus != null) {
+        widgets.add(
+          _CardAction(
+            actionKey: Key('today-start-focus-${item.id}'),
+            icon: Icons.play_arrow_rounded,
+            label: '开始专注',
+            onPressed: () => onStartFocus!(item),
+          ),
+        );
+      }
+      if (onComplete != null) {
+        widgets.add(
+          _CardAction(
+            actionKey: Key('today-complete-${item.id}'),
+            icon: Icons.check_rounded,
+            label: '完成',
+            onPressed: () => onComplete!(item),
+          ),
+        );
+      }
+    }
+
+    // 菜单：详情／跳过本次／延后／请求调整／锁定。没有任何可用项时连按钮都不出现。
+    final menuItems = <PopupMenuEntry<String>>[
+      if (onOpenDetail != null)
+        const PopupMenuItem(value: 'detail', child: Text('查看详情')),
+      // 「跳过本次」（2026-10-07 用户定义）：只放弃这一个块，任务继续参与重排。
+      // 只对**任务块**出现——固定日程与保护时间没有"要不要做"这回事。
+      if (_isTask && onSkipCurrent != null)
+        const PopupMenuItem(value: 'skip', child: Text('跳过本次')),
+      if (_isTask && onDefer != null)
+        const PopupMenuItem(value: 'defer', child: Text('延后')),
+      if (_isMovable && onRequestAdjust != null)
+        const PopupMenuItem(value: 'adjust', child: Text('请求调整')),
+      if (_isMovable && onToggleLock != null)
+        const PopupMenuItem(value: 'lock', child: Text('锁定')),
+    ];
+    if (menuItems.isNotEmpty) {
+      widgets.add(
+        PopupMenuButton<String>(
+          key: Key('today-more-${item.id}'),
+          tooltip: '更多操作',
+          onSelected: (value) {
+            switch (value) {
+              case 'detail':
+                onOpenDetail?.call(item);
+              case 'skip':
+                onSkipCurrent?.call(item);
+              case 'defer':
+                onDefer?.call(item);
+              case 'adjust':
+                onRequestAdjust?.call(item);
+              case 'lock':
+                onToggleLock?.call(item);
+            }
+          },
+          itemBuilder: (context) => menuItems,
+        ),
+      );
+    }
+    return widgets;
+  }
+}
+
+/// 卡片上的一个小动作按钮。
+///
+/// 用 `TextButton.icon` 而不是 `IconButton`：§8 的动作是给用户读的，
+/// 光一个图标得靠猜（而且这一页此前已经因为"无文字控件"吃过亏）。
+final class _CardAction extends StatelessWidget {
+  const _CardAction({
+    required this.actionKey,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4),
+    child: TextButton.icon(
+      key: actionKey,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: PlannerPalette.textPrimary,
+        backgroundColor: PlannerPalette.surfaceHover,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        minimumSize: const Size(0, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+    ),
+  );
+}
+
+/// §8 的顶部重排提示。
+///
+/// **关闭只隐藏这条提示，不取消待确认方案**——因此这里不做任何"丢弃方案"的动作，
+/// 只是把 `onDismiss` 交回去。隐藏之后方案仍在，用户可以去计划预览页处理。
+final class _ReplanNotice extends StatelessWidget {
+  const _ReplanNotice({this.onDismiss});
+
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) => _Panel(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.auto_awesome_outlined,
+            color: PlannerPalette.accent,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              '有一份新的安排建议待确认。可以先看看它改了什么。',
+              style: TextStyle(color: PlannerPalette.textPrimary),
+            ),
+          ),
+          if (onDismiss != null)
+            IconButton(
+              key: const Key('today-replan-dismiss'),
+              tooltip: '关闭这条提示',
+              onPressed: onDismiss,
+              icon: const Icon(Icons.close_rounded),
+              color: PlannerPalette.textSecondary,
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 final class _EmptyTimeline extends StatelessWidget {

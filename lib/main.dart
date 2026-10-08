@@ -13,6 +13,7 @@ import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
@@ -204,6 +205,10 @@ Future<void> main() async {
   // 与"消费的通道"（下面的排程输入来源）**——只给一侧就是"拖了没用"或"记了没人看"，这正是
   // 本次之前的状态（接口没有任何实现，且组合根注入的是 DisabledWeekMoveController）。
   final pendingMoves = PendingMoveDrafts();
+  // M4「跳过本次」：与 `pendingMoves` 完全同一套道理——**同一个实例必须同时给
+  // "记录的落点"（今日页经 PlannerApp）与"消费的通道"（下面的排程输入来源）**。
+  // 只给一侧就会变成"点了没用"或"记了没人看"。
+  final pendingSkips = PendingSkipDrafts();
   final problemSource = RepositoryScheduleProblemSource(
     tasks: taskRepository,
     lifeAreas: DriftLifeAreaLookup(database),
@@ -214,6 +219,7 @@ Future<void> main() async {
     timeZoneId: timeZoneId,
     zones: zones,
     pendingMoves: pendingMoves,
+    pendingSkips: pendingSkips,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -573,6 +579,8 @@ Future<void> main() async {
         autoAdjustStore: autoAdjustStore,
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
+        // M4「跳过本次」：同样与排程输入来源共用同一实例。
+        pendingSkips: pendingSkips,
         analytics: AnalyticsService(
           // 固定日程的展开与例外处理复用同一个日历仓储：统计层的「领域时间分配」必须把课表算进去，
           // 而展开规则（重复、跨午夜例外、"这一次被删除"的零长度标记）只应有一份实现。

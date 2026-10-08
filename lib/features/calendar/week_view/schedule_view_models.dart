@@ -47,6 +47,7 @@ final class ScheduleViewItem {
     required this.categorySortOrder,
     this.explanation,
     this.areaId,
+    this.taskId,
     this.isCompleted = false,
   });
 
@@ -74,6 +75,17 @@ final class ScheduleViewItem {
   ///
   /// 归属由数据源解析成上面的分类展示字段；页面不能再自行查询领域或判断颜色。
   final String? areaId;
+
+  /// 这条**任务块**属于哪个任务；固定日程与保护时间为 `null`。
+  ///
+  /// 存在的理由（M4，路线图 §8）：今日页要能就地"开始专注／完成／延后／查看详情"，
+  /// 而这一切都必须先知道这条安排属于哪个任务。此前任务 id 只藏在 [id] 的 `'block:'`
+  /// 前缀之后，页面要么去拆字符串、要么反过来查计划——两种做法都会让视图层重新认识
+  /// 领域结构。数据源本来就有 `block.taskId`，顺手带出来最省事。
+  ///
+  /// 与 [movableTaskBlockId] 的分工：那个函数给的是**计划块 id**（用于拖动与锁定），
+  /// 这个字段给的是**任务 id**（用于打开详情、开始专注、改任务状态）。
+  final String? taskId;
 }
 
 abstract interface class ScheduleViewSource {

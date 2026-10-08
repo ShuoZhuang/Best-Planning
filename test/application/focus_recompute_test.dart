@@ -30,9 +30,16 @@ final class _Ids implements IdGenerator {
 final class _Tasks implements TaskRepository {
   _Tasks(this.tasks);
   final Map<String, PlannerTask> tasks;
+
+  /// 全量监听；这个替身没有数据库，因此"全部"与"未结束"共用一份数据。
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() =>
+      Stream.value(tasks.values.toList());
+
   @override
   Stream<List<PlannerTask>> watchOpenTasks() =>
       Stream.value(tasks.values.toList());
+
   @override
   Future<PlannerTask?> getById(String id) async => tasks[id];
   @override

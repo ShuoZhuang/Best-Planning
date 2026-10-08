@@ -3,14 +3,26 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 
-enum PreviewChangeKind { added, moved, split, removed }
+/// 预览里的一条变更。
+///
+/// **五类分组**（M4，路线图 §8 原文：按"新增、移动、拆分、未安排、保护时间变化"分组）：
+/// 第四类从原来的 `removed`（移除）改称 `unplanned`（未安排）。改名不是措辞洁癖——
+/// "没排进去的任务"并没有被移除，它还在任务列表里，只是这一版计划装不下；
+/// 写成"移除"会让用户以为自己的一项待办被删了。
+///
+/// **原时间与目标时间**：§8 要求"显示原时间、目标时间和原因"。只给原因，用户看不出
+/// **从哪挪到哪**。两者都可空，因为三种情形天生只有一个方向：
+/// · 新增只有目标时间；· 未安排只有原时间；· 移动两个都有。
+/// 空的那一侧**不渲染**，而不是编一个占位文案。
+enum PreviewChangeKind { added, moved, split, unplanned, protectedTimeChanged }
 
 extension on PreviewChangeKind {
   String get label => switch (this) {
     PreviewChangeKind.added => '新增',
     PreviewChangeKind.moved => '移动',
     PreviewChangeKind.split => '拆分',
-    PreviewChangeKind.removed => '移除',
+    PreviewChangeKind.unplanned => '未安排',
+    PreviewChangeKind.protectedTimeChanged => '保护时间变化',
   };
 }
 
@@ -19,10 +31,18 @@ final class PreviewChange {
     required this.kind,
     required this.title,
     required this.reason,
+    this.fromLabel,
+    this.toLabel,
   });
   final PreviewChangeKind kind;
   final String title;
   final String reason;
+
+  /// 原时间（本地时间的人话写法）。新增类为 `null`。
+  final String? fromLabel;
+
+  /// 目标时间。未安排类为 `null`。
+  final String? toLabel;
 }
 
 final class PlanPreviewModel {
@@ -253,7 +273,27 @@ final class _ChangeGroup extends StatelessWidget {
             for (final change in changes)
               ExpansionTile(
                 title: Text(change.title),
-                children: [ListTile(title: Text(change.reason))],
+                children: [
+                  // §8：显示**原时间与目标时间**。空的一侧不渲染——
+                  // 新增没有原时间、未安排没有目标时间，硬编占位文案只会让人以为缺了数据。
+                  if (change.fromLabel != null)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.schedule, size: 18),
+                      title: Text('原时间　${change.fromLabel}'),
+                    ),
+                  if (change.toLabel != null)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.arrow_forward, size: 18),
+                      title: Text('目标时间　${change.toLabel}'),
+                    ),
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.info_outline, size: 18),
+                    title: Text(change.reason),
+                  ),
+                ],
               ),
         ],
       ),

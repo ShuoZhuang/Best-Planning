@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/appearance_service.dart';
@@ -9,6 +10,7 @@ import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/plan_undo_service.dart';
@@ -17,6 +19,7 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/week_view_preference_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
@@ -54,6 +57,7 @@ import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
+import 'package:personal_planner/features/onboarding/onboarding_reopen_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
@@ -78,6 +82,9 @@ GoRouter createPlannerRouter({
   required ScheduleViewSource scheduleSource,
   required WeekMoveController moveController,
   required AutoAdjustStore autoAdjustStore,
+
+  /// 「跳过本次」的落点（M4，2026-10-07 用户定义）。为 `null` 时今日页**不显示**该入口。
+  PendingSkipDrafts? pendingSkips,
   required DateTime todayStartUtc,
   required TimeZoneDatabase zones,
   required String timeZoneId,
@@ -142,6 +149,69 @@ GoRouter createPlannerRouter({
             source: scheduleSource,
             day: todayStartUtc,
             toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
+            nowUtc: nowUtc ?? todayStartUtc,
+            // ── M4（路线图 §8）今日页的执行动作 ──────────────────────────────────
+            //
+            // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
+            //
+            // 只接三条是因为另外两条**现在给不出诚实的落地**：
+            // · 「延后」需要用户先输入延后多久（`TaskService.deferTask` 要求 `by > 0`），
+            //   而 M4 的验收目标是"从今日页直接执行"，不是再造一个时长收集界面；
+            // · 「请求调整」只对**已确认计划块**有意义（`movableTaskBlockId`），
+            //   而这一页同时显示固定日程与保护时间——对它们给"请求调整"是假的入口。
+            // 两者在端口为空时**不渲染**（页面自己保证），因此不会出现点了没反应的按钮。
+            // 见 `docs/testing/m4-acceptance.md` 的未完成项。
+            onStartFocus: focusService == null
+                ? null
+                : (item) => context.go('/focus/${item.taskId!}'),
+            onComplete: (item) async {
+              // 与任务详情页的"完成"共用同一个服务方法，因此统计记录、重排原因标签
+              // 与别处完全一致——不在这一页另造一套状态变更。
+              await taskService.changeStatus(
+                item.taskId!,
+                TaskStatus.completed,
+              );
+            },
+            onOpenDetail: (item) => context.go('/tasks/${item.taskId!}'),
+            // ── 「跳过本次」（M4，2026-10-07 用户定义）────────────────────────────
+            //
+            // 三步，与用户给的定义一一对应：
+            //   ① 记下"这一块这次不排"（消费方是排程输入来源，见 `pending_skips.dart`）；
+            //   ② 重新生成提案——**任务仍在待排集合里**，因此引擎会在截止时间前
+            //      自己找下一个空档，新时间可能是今天稍后/明天/别的日期，
+            //      **不是**把 `availableFromUtc` 设成明天（那是「延后到明天」）；
+            //   ③ 走既有的 `PlanGenerationFlow`：默认进预览；"信任自动调整"开启时才直接应用。
+            //      复用而不是新写，是为了让"默认预览、信任才自动应用"这条规则只有一处实现。
+            onSkipCurrent: pendingSkips == null || planningService == null
+                ? null
+                : (item) async {
+                    final blockId = movableTaskBlockId(item);
+                    // 只有计划块能跳过；不可移动的条目（固定日程、保护时间）在页面上
+                    // 本来就不会显示这个入口，这里是第二道防线。
+                    if (blockId == null) return;
+                    pendingSkips.setRequestedSkip(
+                      RequestedSkip(blockId: blockId),
+                    );
+                    final proposal = await planningService.createProposal();
+                    if (!context.mounted) return;
+                    final outcome =
+                        await PlanGenerationFlow(
+                          isTrusted: () =>
+                              autoAdjustStore.enabled &&
+                              planApplication != null,
+                        ).run(
+                          proposal: proposal,
+                          apply: planApplication == null
+                              ? (proposal) async => ApplyPlanResult.stale()
+                              : planApplication.apply,
+                        );
+                    if (!context.mounted) return;
+                    if (outcome.message.isNotEmpty) {
+                      showPlannerMessage(context, message: outcome.message);
+                      return;
+                    }
+                    context.go('/planning/preview/${outcome.proposalId}');
+                  },
           ),
         ),
         GoRoute(
@@ -149,6 +219,23 @@ GoRouter createPlannerRouter({
           builder: (context, state) => TaskListPage(
             service: taskService,
             nowUtc: nowUtc ?? todayStartUtc,
+            // §10：**当前确认计划**是"是否已安排"的唯一依据。这里把既有的 `plans`
+            // 直接传下去，而不新建第二套计划服务——同一个事实只留一个出口。
+            plans: plans,
+            // 计划块与截止时间要显示成用户读的本地钟点；页面不认识时区，
+            // 与今日页、周视图同一分工。
+            zones: zones,
+            timeZoneId: timeZoneId,
+            // §7 的"已安排为空"空状态里的生成计划入口。未装配排程服务时不显示，
+            // 免得给出一个点了没反应的按钮（与壳层"生成计划"同一判断）。
+            onGeneratePlan: planningService == null
+                ? null
+                : () => _generatePlan(
+                    context,
+                    planningService,
+                    planApplication,
+                    autoAdjustStore,
+                  ),
             // FR-TASK-03 的"批量调整"最后一环。整批共用同一天，因此**只换算一次**；
             // 页面不认识时区，本地日期到 UTC 的换算在此完成（与"设置截止时间"同一模式）。
             onSetDueDateForSelection: (taskIds, localDate, minute) async {
@@ -294,6 +381,29 @@ GoRouter createPlannerRouter({
             toLocal: (instant) => zones.toLocal(instant, timeZoneId),
             weekStart: todayStartUtc,
             moveController: moveController,
+            // M5（§9）：记住本机选的「紧凑／时间轴」。
+            // 与统计页图表偏好同一形状（`SettingsRepository` + 读失败回默认）。
+            viewModePreference: WeekViewPreferenceService(
+              settings: settingsService.repository,
+            ),
+            // M5（§9）："点击任务、固定日程或保护时间进入对应详情"。
+            //
+            // **任务块进任务详情；其余进当天日视图**——那才是它们真正的"详情"
+            // （固定日程与保护时间没有独立详情页；日视图会把它们连同上下文一起显示）。
+            // 不在这里为固定日程新建一个详情路由：§9 要的是"能进得去"，不是新造一个页面。
+            onOpenItem: (item) {
+              final taskId = item.taskId;
+              if (taskId != null) {
+                context.go('/tasks/$taskId');
+                return;
+              }
+              final local = zones.toLocal(item.range.startUtc, timeZoneId);
+              final day = zones.localMidnightToUtc(
+                DateTime(local.year, local.month, local.day),
+                timeZoneId,
+              );
+              context.go('/calendar/day/${day.microsecondsSinceEpoch}');
+            },
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
             // FR-CAL-03 的日视图入口：与周视图互为切换，不占导航项。
@@ -562,39 +672,74 @@ GoRouter createPlannerRouter({
             versionLabel: appVersion,
             entries: [
               SettingsHubEntry(
+                key: const Key('settings-rules'),
+                title: '规划规则与默认值',
+                group: SettingsGroup.planning,
+                // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
+                // 提醒开关、提前量与免打扰时段），而原来的副标题一个字都没提通知——用户因此
+                // 在设置里找不到它（真实的反馈：按说明去找"通知设置"，翻遍设置页都没看到）。
+                // 副标题只是文案，但**入口的说明与实际内容不符就是可发现性缺陷**。
+                subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
+                // M8（§12「每个入口展示一项当前关键值」，例子就是"默认专注 50 分钟"）。
+                // 读的是**已有设置**，不新建服务、不落库、不上报。
+                //
+                // **为什么要 `resolveForDate` 而不是直接读补丁**：用户规则是一层**补丁**
+                // （`PlanningRulesPatch.defaultFocusMinutes` 是可空的），真实的专注分钟数
+                // 由"默认值 ← 常见补丁 ← 工作日/周末补丁 ← 当日覆盖"逐层应用得出。
+                // 直接读补丁会在用户没改过这一项时拿到 `null`——那样入口上就什么都不显示，
+                // 而用户想问的恰恰是"现在到底是多少"。因此按**今天**解析出**生效值**。
+                currentValue: () async {
+                  // 用路由器已有的 `todayStartUtc`（而不是再取一次系统时间）：
+                  // 组合根已经把它算好并按本机时区落在当日零点，重算一次只会引入第二套口径。
+                  final zoneNow = zones.toLocal(todayStartUtc, timeZoneId);
+                  final resolved = await settingsService.resolveForDate(
+                    DateTime(zoneNow.year, zoneNow.month, zoneNow.day),
+                  );
+                  return '默认专注 ${resolved.rules.defaultFocusMinutes} 分钟';
+                },
+                onOpen: () => context.go('/settings/rules'),
+              ),
+              SettingsHubEntry(
                 key: const Key('settings-appearance'),
                 title: '外观与材质',
+                group: SettingsGroup.appearance,
                 subtitle: '在无玻璃、克制、激进和极致液态玻璃之间切换',
+                // `AppearanceService` 是 `ChangeNotifier` 且启动时已 `load()` 过，
+                // 因此直接读内存里的当前值即可（不为了一个提示再查一次库）。
+                currentValue: () async =>
+                    '材质：${_materialLabel(appearance.mode)}',
                 onOpen: () => context.go('/settings/appearance'),
               ),
               if (windowBehavior != null)
                 SettingsHubEntry(
                   key: const Key('settings-window'),
                   title: '窗口与后台',
+                  group: SettingsGroup.appearance,
                   subtitle: '关闭窗口后收进托盘后台运行，还是直接退出程序',
+                  currentValue: () async =>
+                      '关闭窗口：${(await windowBehavior.load()).label}',
                   onOpen: () => context.go('/settings/window'),
                 ),
-              SettingsHubEntry(
-                key: const Key('settings-rules'),
-                title: '规划规则与默认值',
-                // B6：这一页里**同时**装着通知设置（`NotificationPreferencesSection`，含四类
-                // 提醒开关、提前量与免打扰时段），而原来的副标题一个字都没提通知——用户因此
-                // 在设置里找不到它（真实的反馈：按说明去找"通知设置"，翻遍设置页都没看到）。
-                // 副标题只是文案，但**入口的说明与实际内容不符就是可发现性缺陷**。
-                subtitle: '作息、精力区间、保护时间、每日上限、生活配额、通知与免打扰',
-                onOpen: () => context.go('/settings/rules'),
-              ),
               if (academicCalendar != null)
                 SettingsHubEntry(
                   key: const Key('settings-academic-calendar'),
                   title: '学期与节次模板',
+                  group: SettingsGroup.planning,
                   subtitle: '校准当前周数，设置每一节课的开始与结束时间',
                   onOpen: () => context.go('/settings/academic-calendar'),
                 ),
+              SettingsHubEntry(
+                key: const Key('settings-relaxation'),
+                title: '临时放宽每日上限',
+                group: SettingsGroup.planning,
+                subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
+                onOpen: () => context.go('/settings/relaxation'),
+              ),
               if (preferences != null)
                 SettingsHubEntry(
                   key: const Key('settings-preferences'),
                   title: '学习偏好',
+                  group: SettingsGroup.notification,
                   subtitle: '查看、确认或停用从行为中学到的偏好',
                   onOpen: () => context.go('/settings/preferences'),
                 ),
@@ -602,13 +747,17 @@ GoRouter createPlannerRouter({
                 SettingsHubEntry(
                   key: const Key('settings-app-lock'),
                   title: '应用锁',
+                  group: SettingsGroup.notification,
                   subtitle: '启动时需要密码；不宣称加密数据库',
+                  currentValue: () async =>
+                      '应用锁：${await appLock.isEnabled() ? '已开启' : '关闭'}',
                   onOpen: () => context.go('/settings/app-lock'),
                 ),
               if (exportService != null)
                 SettingsHubEntry(
                   key: const Key('settings-export'),
                   title: '数据导出',
+                  group: SettingsGroup.data,
                   subtitle: '把全部事实导出为 JSON 文件',
                   onOpen: () => context.go('/settings/export'),
                 ),
@@ -616,23 +765,49 @@ GoRouter createPlannerRouter({
                 SettingsHubEntry(
                   key: const Key('settings-backup'),
                   title: '数据备份与恢复',
+                  group: SettingsGroup.data,
                   subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
                   onOpen: () => context.go('/settings/backup'),
                 ),
+              // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
+              //
+              // 用户的原话："我怎么从引导首页点进去啊，这个的前提是我没有装软件吧"——
+              // 他说得对：引导首页只在**首次启动**那条路径上出现，走完（或跳过）之后
+              // 设置里没有任何入口能再看到它。而新手教程一直有"随时重看"，
+              // **这条不一致本身就是缺口**。
               SettingsHubEntry(
-                key: const Key('settings-relaxation'),
-                title: '临时放宽每日上限',
-                subtitle: '只放宽某一天的可移动任务上限，随时可以清除',
-                onOpen: () => context.go('/settings/relaxation'),
+                key: const Key('settings-onboarding'),
+                title: '首次引导',
+                group: SettingsGroup.data,
+                subtitle: '重新看一遍建任务／导入课表／主要界面这三个入口',
+                onOpen: () => context.go('/settings/onboarding'),
               ),
-              // 新手教程放在最后：它是"随时重看"的入口，不是每天要动的东西。
+              // 新手教程放在数据与帮助这一组的最后：它是"随时重看"的入口，
+              // 不是每天要动的东西。
               SettingsHubEntry(
                 key: const Key('settings-tutorial'),
                 title: '新手教程',
+                group: SettingsGroup.data,
                 subtitle: '用真实界面截图走一遍主要功能，两分钟',
                 onOpen: () => context.go('/settings/tutorial'),
               ),
             ],
+          ),
+        ),
+        GoRoute(
+          path: '/settings/onboarding',
+          // **从设置重新打开首次引导**（用户 2026-10-08 反馈后补）。
+          //
+          // 三个入口都**复用既有页面**，不新建第二套编辑器或导入向导——
+          // 用户明确要求引导里创建的任务与普通任务**没有任何业务区别**
+          // （同一任务表、同一套默认值与校验、可编辑可删除可完成可重排、
+          // 统计与日历里照常显示、退出引导后仍保留）。
+          builder: (context, state) => OnboardingReopenPage(
+            settings: settingsService.repository,
+            tasks: taskService.repository,
+            onCreateTask: () => context.go('/tasks/new'),
+            onImportTimetable: () => context.go('/calendar/import'),
+            onLearnUi: () => context.go('/settings/tutorial'),
           ),
         ),
         GoRoute(
@@ -1113,7 +1288,7 @@ final class _PlannerShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final generate = onGeneratePlan;
     final specialDay = onSpecialDay;
-    return Scaffold(
+    final body = Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         flexibleSpace: const PlannerGlassChrome(child: SizedBox.expand()),
@@ -1214,7 +1389,40 @@ final class _PlannerShell extends StatelessWidget {
         ],
       ),
     );
+
+    // **Esc 返回上一级**（路线图 §6 强制测试第 2 条："Esc 能关闭对话框或返回上一级"）。
+    //
+    // 此前**全库没有任何 Esc 处理**：返回只能靠点左上角那个按钮，键盘用户没有对应按键。
+    // 这里只在**本来就有返回按钮的页面**上接管 Esc（`_showsBackButton`），因此：
+    // - 顶层页面（今日／任务／日历…）不受影响，Esc 不会把用户莫名其妙地弹回今日；
+    // - 弹窗类（对话框）自带 Esc 处理，它们的路由在对话框层，不受这里影响。
+    //
+    // 用 `Shortcuts` + `Actions` 而不是硬编码 `onKeyEvent`：这样它进入标准动作体系，
+    // 焦点在哪个子控件上都能拿到（`Focus` 会沿着树上冒到最近的 `Shortcuts`）。
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        if (_showsBackButton)
+          const SingleActivator(LogicalKeyboardKey.escape):
+              const _ShellBackIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _ShellBackIntent: CallbackAction<_ShellBackIntent>(
+            onInvoke: (_) {
+              context.go(_parentLocation);
+              return null;
+            },
+          ),
+        },
+        child: body,
+      ),
+    );
   }
+}
+
+/// "返回上一级"的意图，只由 [_PlannerShell] 的 Esc 快捷键产生。
+final class _ShellBackIntent extends Intent {
+  const _ShellBackIntent();
 }
 
 final class _BrandMark extends StatelessWidget {
@@ -1348,6 +1556,26 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
             kind: _kindOf(change),
             title: _titleOf(widget.zones, widget.timeZoneId, change),
             reason: explanationLabel(change.reason ?? ''),
+            // M4（§8）：预览必须显示**原时间与目标时间**，否则用户看不出"从哪挪到哪"。
+            // 空的那一侧留 `null`：新增没有原时间、未安排没有目标时间。
+            fromLabel: _timeLabelOf(
+              widget.zones,
+              widget.timeZoneId,
+              change.before,
+            ),
+            toLabel: _timeLabelOf(
+              widget.zones,
+              widget.timeZoneId,
+              change.after,
+            ),
+          ),
+        // §8 的「未安排」是**独立一类**：提案没排下的任务不在 `diff.changes` 里
+        // （diff 只比较两侧都有的计划块），因此必须单独取 `proposal.unscheduled`。
+        for (final task in proposal.unscheduled)
+          PreviewChange(
+            kind: PreviewChangeKind.unplanned,
+            title: '${task.taskId} 还缺 ${task.shortageMinutes} 分钟',
+            reason: '可用时间不足，这一版没有排进去',
           ),
       ],
       conflicts: [
@@ -1475,8 +1703,39 @@ PreviewChangeKind _kindOf(PlanChange change) => switch (change.type) {
   PlanChangeType.added => PreviewChangeKind.added,
   PlanChangeType.moved => PreviewChangeKind.moved,
   PlanChangeType.split => PreviewChangeKind.split,
-  PlanChangeType.removed => PreviewChangeKind.removed,
+  // `removed` 在 M4 的五类体系里由「未安排」承担（见 `PreviewChangeKind` 的注释：
+  // 没排进去不等于被移除，任务还在）。
+  PlanChangeType.removed => PreviewChangeKind.unplanned,
 };
+
+/// 材质模式的中文短名（M8：设置首页每个入口要展示当前值）。
+///
+/// **为什么在路由器里而不是在枚举上**：`PlannerMaterialMode` 是领域层的枚举，
+/// 而"在设置首页那一行里怎么称呼它"是**这一处的文案**，不是这个概念的固有属性
+/// （外观页自己有更长的说法）。把它挂在枚举上会让领域层承担界面文案。
+String _materialLabel(PlannerMaterialMode mode) => switch (mode) {
+  PlannerMaterialMode.off => '无玻璃',
+  PlannerMaterialMode.restrained => '克制',
+  PlannerMaterialMode.aggressive => '激进',
+  PlannerMaterialMode.liquid => '极致液态玻璃',
+};
+
+/// 一个计划块的**本地时间人话写法**；块为空时返回 `null`。
+///
+/// M4：新增没有原时间、未安排没有目标时间，因此这个函数必须能表达"这一侧没有"。
+String? _timeLabelOf(
+  TimeZoneDatabase zones,
+  String timeZoneId,
+  PlannedBlock? block,
+) {
+  if (block == null) return null;
+  final start = zones.toLocal(block.startUtc, timeZoneId);
+  final end = zones.toLocal(block.endUtc, timeZoneId);
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(start.month)}-${two(start.day)} '
+      '${two(start.hour)}:${two(start.minute)}–'
+      '${two(end.hour)}:${two(end.minute)}';
+}
 
 String _titleOf(TimeZoneDatabase zones, String timeZoneId, PlanChange change) {
   final block = change.after ?? change.before;

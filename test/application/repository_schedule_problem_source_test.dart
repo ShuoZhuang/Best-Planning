@@ -265,6 +265,8 @@ final class _FakeTasks implements TaskRepository {
   @override
   Future<void> save(PlannerTask task) async {}
   @override
+  Stream<List<PlannerTask>> watchAllTasks() => Stream.value(items);
+  @override
   Stream<List<PlannerTask>> watchOpenTasks() => Stream.value(items);
 }
 

@@ -29,6 +29,9 @@ final class _Tasks implements TaskRepository {
   _Tasks(this.tasks);
   final Map<String, PlannerTask> tasks;
   @override
+  Stream<List<PlannerTask>> watchAllTasks() =>
+      Stream.value(tasks.values.toList());
+  @override
   Stream<List<PlannerTask>> watchOpenTasks() =>
       Stream.value(tasks.values.toList());
   @override
