@@ -118,6 +118,10 @@ SchedulableTask _goal({LocalTimeRange? preferredWindow}) => SchedulableTask(
   priority: TaskPriority.medium,
   energyLevel: TaskEnergyLevel.medium,
   preferredWindow: preferredWindow,
+  // **周期目标的均匀分布必须显式声明策略**（计划 Task 3 Step 4）。
+  // 这里显式写出来，是为了让夹具与生产展开的输出一致——否则测的是一个生产中不存在的形状，
+  // 会出现"测试绿、产品红"。Task 5 负责验证生产映射真的设了这个值。
+  distributionPolicy: TaskDistributionPolicy.even,
 );
 
 ScheduleProblem _problem(

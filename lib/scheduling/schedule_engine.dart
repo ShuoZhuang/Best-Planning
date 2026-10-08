@@ -7,6 +7,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
+import 'package:personal_planner/scheduling/even_distribution_allocator.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
@@ -83,6 +84,46 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       );
     }
 
+    // ── 均匀分布任务：**先撤掉上一轮那份可移动的安排**（计划 §3.3）──────────────
+    //
+    // 计划 §3.3 明确要求："若旧确认计划已经不均匀，稳定性惩罚不能阻止本次重排恢复均匀；
+    // 稳定性只在同等均匀度的候选之间生效。"
+    //
+    // `problem.lockedBlocks` 里同时装着**真锁定**的块和"上一轮确认计划里未锁定"的块，
+    // 而引擎把两者一视同仁地当成既有事实（`scheduledByTask` 与 `blocks` 都用它）。
+    // 对均匀分布任务，那份未锁定的既有安排会把上轮的偏斜**冻结**下来：实测中周五已有的
+    // 90 分钟让 210 分钟排成 `0/90/80/40`，而不是 `50/50/55/55`——正是用户报告的聚拢。
+    //
+    // 因此这里先把均匀分布任务的**未锁定**旧块撤出 `blocks`，并把它们的分钟从
+    // `scheduledByTask` 里扣回，于是 `target` 重新等于"本次要摊开的全部分钟"，由均分器按容量
+    // 重新分配。**真锁定的块一律保留**（用户明确锁住的东西不可移动）。
+    //
+    // 扣回而不是直接忽略，是因为 `scheduledByTask` 决定了"还剩多少要排"；不扣会让目标偏小，
+    // 结果少排。
+    final evenTaskIds = {
+      for (final task in problem.tasks)
+        if (task.distributionPolicy == TaskDistributionPolicy.even) task.id,
+    };
+    if (evenTaskIds.isNotEmpty) {
+      final removed = <PlannedBlock>[];
+      blocks.removeWhere((block) {
+        final movable =
+            evenTaskIds.contains(block.taskId) &&
+            (!block.locked ||
+                problem.pinnedUnlockedBlockIds.contains(block.id));
+        if (movable && !block.locked) removed.add(block);
+        return movable && !block.locked;
+      });
+      for (final block in removed) {
+        scheduledByTask.update(
+          block.taskId,
+          (value) => value - block.durationMinutes < 0
+              ? 0
+              : value - block.durationMinutes,
+        );
+      }
+    }
+
     // ── 拒绝证据的收集（路线图 Task 12A Step 6 第 3 条）──────────────────────
     //
     // 每个任务一份，按 `UnscheduledReasonCode` 去重。**刻意不记"最后一次"**：那取决于候选遍历
@@ -93,6 +134,37 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     void recordRejection(String taskId, UnscheduledReason reason) {
       (rejectionEvidence[taskId] ??= {})[reason.code] = reason;
     }
+
+    // ── 均匀分布：先算"每天多少分钟"，日内选点才交给评分（计划 §3.1 / §3.2）──────
+    //
+    // **这一步必须在放置之前**：候选评分里的同任务连续性、精力匹配与旧计划稳定性都只看
+    // "这一天内部哪个位置更好"，一旦让它们参与"选哪一天"，就会出现用户实测的
+    // `35 / 125 / 50 / 0`（计划 §2.3）。
+    final evenPlans = <String, EvenDistributionPlan>{
+      for (final task in problem.tasks)
+        if (task.distributionPolicy == TaskDistributionPolicy.even)
+          task.id: allocateEvenDistribution(
+            EvenDistributionInput(
+              targetMinutes: math.max(
+                0,
+                targets[task.id]! - (scheduledByTask[task.id] ?? 0),
+              ),
+              granularityMinutes: problem.rules.granularityMinutes,
+              minChunkMinutes: task.minChunkMinutes,
+              capacityMinutesByLocalDate: _capacityByLocalDate(
+                task,
+                slots,
+                problem.rules.granularityMinutes,
+              ),
+
+              alreadyPlannedMinutesByLocalDate: _plannedMinutesByLocalDate(
+                problem,
+                task,
+                problem.lockedBlocks,
+              ),
+            ),
+          ),
+    };
 
     for (final task in tasks) {
       var remaining = math.max(
@@ -185,22 +257,21 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
 
       while (remaining > 0) {
-        // ── 单日配额是"摊开"的偏好，两轮放置 ────────────────────────────────
+        // ── 均匀分布任务：按日预算放置（1.7.1 计划 Task 4 Step 3）──────────────
         //
-        // 第一轮**守着**配额：优先把量摊到更多天，这是"均匀分布"能成立的原因（2026-10-08 实测：
-        // 不守配额时确定性引擎会把 180 分钟全堆进同一天）。
-        //
-        // 但配额**不是容量的真相**：它由"目标 ÷ 天数"摊出来，而真正的容量取决于保护时间与
-        // 固定日程。若第一轮一个候选都选不出来，说明守配额会让这一段永远排不进去——那正是
-        // `capacityShortfallForRecurringGoal` 要如实汇报的缺口，不该由配额凭空放大。
-        // 于是第二轮放开配额，把**实际**还放得下的量排进去。
-        //
-        // 两轮的关系是"先摊、摊不动再堆"：`recurring_planning_test` 的「均匀分布跨多个本地日」
-        // 验第一轮，「容量只有 120 分钟 ⇒ 缺口恰好 60」验第二轮。两者都要成立，因此配额不能是硬上限。
+        // `distributionPolicy == even` 的任务**不使用**下面那套"两轮放开配额"。原因：
+        // 两轮策略的第二轮是**全局解禁**，它能把一天堆到 125 分钟——那正是用户实测的缺陷
+        // （计划 §2.1）。均匀分布的正确处置是"某日放不下就把它放不下的部分重新分给还有余量的
+        // 日期"，这件事已经由均分器按容量做完（计划 §3.1 第 4 条），因此这里只消费预算。
         var ranked = <_RankedCandidate>[];
-        var relaxedDailyQuota = false;
-        for (var pass = 0; pass < 2 && ranked.isEmpty; pass++) {
-          relaxedDailyQuota = pass == 1;
+        final evenPlan = evenPlans[task.id];
+        var relaxedDailyQuota = evenPlan != null;
+        for (
+          var pass = 0;
+          pass < (evenPlan == null ? 2 : 1) && ranked.isEmpty;
+          pass++
+        ) {
+          relaxedDailyQuota = evenPlan != null || pass == 1;
           for (final candidate in candidates) {
             // **每一条拒绝都留证据**，而不是只记最后一条。同一个候选可能同时违反多条约束
             // （例如既超过今日配额、又和固定日程重叠），只记一条会让原因随遍历顺序变化。
@@ -225,6 +296,29 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                 ),
               );
               continue;
+            }
+            if (evenPlan != null) {
+              // 均匀分布任务只消费按日预算。预算不足即跳过——**不放宽**，
+              // 因为"放不下的部分已由均分器重新分给其他日期"。
+              final budget = _evenBudgetRemaining(
+                problem,
+                task,
+                candidate,
+                evenPlan,
+                blocks,
+              );
+              if (candidate.durationMinutes > budget) {
+                recordRejection(
+                  task.id,
+                  UnscheduledReason(
+                    code: UnscheduledReasonCode.dailyLimitReached,
+                    requiredMinutes: candidate.durationMinutes,
+                    availableMinutes: budget,
+                    constraintLabel: '本日均匀份额',
+                  ),
+                );
+                continue;
+              }
             }
             if (_exceedsDailyQuota(
               problem,
@@ -642,6 +736,90 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
     return planned + candidate.durationMinutes > limit;
+  }
+
+  /// 每个本地日期能承接多少分钟：把该日的可用时段取**并集**后求和。
+  ///
+  /// 取并集是必要的：候选是按"起点 × 时长"展开的，同一段空闲会被重复计入很多次，
+  /// 直接累加候选时长会把容量放大到没有意义。
+  Map<DateTime, int> _capacityByLocalDate(
+    SchedulableTask task,
+    List<AvailabilitySlot> slots,
+    int granularity,
+  ) {
+    final rangesByDate = <DateTime, List<TimeRange>>{};
+    for (final slot in slots) {
+      if (!task.allowsWeekday(slot.localDate.weekday)) continue;
+      (rangesByDate[slot.localDate] ??= []).add(slot.range);
+    }
+    final result = <DateTime, int>{};
+    for (final entry in rangesByDate.entries) {
+      final sorted = [...entry.value]
+        ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+      var total = 0;
+      DateTime? cursor;
+      DateTime? end;
+      for (final range in sorted) {
+        if (cursor == null) {
+          cursor = range.startUtc;
+          end = range.endUtc;
+          continue;
+        }
+        if (!range.startUtc.isAfter(end!)) {
+          if (range.endUtc.isAfter(end)) end = range.endUtc;
+          continue;
+        }
+        total += end.difference(cursor).inMinutes;
+        cursor = range.startUtc;
+        end = range.endUtc;
+      }
+      if (cursor != null) total += end!.difference(cursor).inMinutes;
+      // 向下取整到粒度：不足一个粒度的碎片放不下任何片段。
+      result[entry.key] = (total ~/ granularity) * granularity;
+    }
+    return result;
+  }
+
+  /// 该任务在这些块上按本地日期已经占用的分钟。
+  ///
+  /// 均分器的 `alreadyPlannedMinutesByLocalDate` 用它：那些分钟已经占了这一天的一部分，
+  /// 均分器要算的是"还差多少"，不是"从零开始"。
+  Map<DateTime, int> _plannedMinutesByLocalDate(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    List<PlannedBlock> blocks,
+  ) {
+    final result = <DateTime, int>{};
+    for (final block in blocks) {
+      if (block.taskId != task.id) continue;
+      final date = _localDate(block.startUtc, problem.timeZoneId);
+      result[date] = (result[date] ?? 0) + block.durationMinutes;
+    }
+    return result;
+  }
+
+  /// 候选所属本地日还剩多少**新增**预算。
+  ///
+  /// 从计划的 `additionalMinutesByLocalDate` 减去"本次生成已在该日放下的分钟"，后者由当前
+  /// `blocks` 里该任务的块推算——**不留可变状态**，因此同样的输入必然得到同样的结果
+  /// （排程器的确定性要求）。
+  int _evenBudgetRemaining(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+    EvenDistributionPlan plan,
+    List<PlannedBlock> blocks,
+  ) {
+    final date = candidate.localDate;
+    final budget = plan.additionalMinutesByLocalDate[date] ?? 0;
+    if (budget <= 0) return 0;
+    var consumed = 0;
+    for (final block in blocks) {
+      if (block.taskId != task.id) continue;
+      final blockDate = _localDate(block.startUtc, problem.timeZoneId);
+      if (blockDate == date) consumed += block.durationMinutes;
+    }
+    return budget - consumed;
   }
 
   /// 同一任务在该候选所在本地日是否已有其它片段。

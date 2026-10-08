@@ -165,13 +165,43 @@ void main() {
       expect(endMinute, lessThanOrEqualTo(12 * 60));
     });
 
-    test('没有期望时段时仍安排在刻意时段的更早位置', () {
-      // 对照：同一问题去掉偏好后，任务不再被"拉"到 09:00–12:00，而是落在当天最早的
-      // 可排位置，说明上一个用例的落位确实来自该因子而非其它约束。
+    // 这条用例的断言被**刻意改过一次**（1.7.1），理由如下，不是为了让它变绿：
+    //
+    // 旧断言是"没有偏好时开始时间 < 09:00"，注释写"落在当天最早的可排位置"。
+    // 它当时确实通过——但那是因为 `AvailabilityBuilder` 会把每日上限当成"最多保留多少分钟
+    // 候选"从清晨开始消费，于是候选只到约 08:00，引擎**别无选择**。
+    //
+    // 1.7.1 删除了那个截断（计划 §2.4 / Task 2），候选延伸全天，于是这条用例暴露出它测的
+    // 并不是它声称的东西：默认精力窗口是 09:00–12:00 高、14:00–17:00 中，而 60 分钟任务的
+    // 精力判定取**中点**，因此起点 13:30（中点 14:00）拿到最高的 +600 精力匹配分
+    // （13:00 被默认午餐保护挡掉）。实测得分 1600。
+    //
+    // 这**符合设计**：计划 §3.2 明确写"若下午足以完成当天预算，算法可以优先下午；
+    // 若下午不足，必须使用上午补足"。旧断言"必须在 09:00 之前"与这条设计相矛盾。
+    //
+    // 因此改成断言**这条用例真正要证明的东西**：去掉偏好之后，任务不再被拉进 09:00–12:00，
+    // 而是按精力窗口落在更晚的位置。与上一条用例形成对照。
+    test('没有期望时段时不被拉进刻意时段，而是按精力窗口落到更晚的位置', () {
       final engine = DeterministicScheduleEngine(_zones);
-      final block = engine.generate(problemWith(null)).blocks.single;
-      final startMinute = block.startUtc.hour * 60 + block.startUtc.minute;
-      expect(startMinute, lessThan(9 * 60));
+      final withPreference = engine
+          .generate(problemWith(_morning))
+          .blocks
+          .single;
+      final withoutPreference = engine
+          .generate(problemWith(null))
+          .blocks
+          .single;
+
+      int startMinute(DateTime utc) => utc.hour * 60 + utc.minute;
+
+      expect(
+        startMinute(withoutPreference.startUtc),
+        greaterThan(startMinute(withPreference.startUtc)),
+        reason:
+            '期望时段把任务拉进 09:00–12:00；没有它时任务会落到精力窗口内的更晚位置'
+            '（实测 ${startMinute(withoutPreference.startUtc) ~/ 60}:'
+            '${startMinute(withoutPreference.startUtc) % 60}）',
+      );
     });
   });
 }
