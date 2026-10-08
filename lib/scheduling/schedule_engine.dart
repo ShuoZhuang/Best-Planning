@@ -83,19 +83,106 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       );
     }
 
+    // ── 拒绝证据的收集（路线图 Task 12A Step 6 第 3 条）──────────────────────
+    //
+    // 每个任务一份，按 `UnscheduledReasonCode` 去重。**刻意不记"最后一次"**：那取决于候选遍历
+    // 顺序，换个排序就换个说法；用户看到的失败原因会因此随无关改动漂移。
+    // 排程结束后由 `primaryUnscheduledReason` 按固定优先级从**全部**证据里选主原因。
+    final rejectionEvidence =
+        <String, Map<UnscheduledReasonCode, UnscheduledReason>>{};
+    void recordRejection(String taskId, UnscheduledReason reason) {
+      (rejectionEvidence[taskId] ??= {})[reason.code] = reason;
+    }
+
     for (final task in tasks) {
       var remaining = math.max(
         0,
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
-      final candidates = _candidateGenerator
-          .generate(task, slots)
+      final allCandidates = _candidateGenerator.generate(task, slots);
+      // ── 先分辨"根本没得排"的三种情况，再进入放置循环 ────────────────────────
+      //
+      // 这三条必须在候选为空时给出**不同**的说法，否则用户看到的永远是笼统的"可用时间不足"，
+      // 而三种情况的处置完全不同：等一等（还没到开始时间）、改截止时间、腾出/放宽时段。
+      if (allCandidates.isEmpty) {
+        final availableFrom = task.availableFromUtc;
+        if (availableFrom != null &&
+            !availableFrom.isBefore(problem.planningWindow.endUtc)) {
+          recordRejection(
+            task.id,
+            UnscheduledReason(
+              code: UnscheduledReasonCode.availableTimeNotReached,
+              requiredMinutes: remaining,
+              constraintLabel: '最早开始时间',
+            ),
+          );
+        } else if (task.splitMode == TaskSplitMode.continuous) {
+          // 连续任务要求一次做完 `requiredMinutes`。可用时段被切碎到每一段都短于它时，
+          // 真实原因是"找不到足够长的连续空档"，而不是"总容量不足"——前者改拆分方式或
+          // 截止时间就能解决，后者要靠腾时间。
+          final longest = _longestSlotMinutes(slots);
+          recordRejection(
+            task.id,
+            UnscheduledReason(
+              code: UnscheduledReasonCode.continuousGapTooShort,
+              requiredMinutes: remaining,
+              availableMinutes: longest,
+              constraintLabel: '连续时长',
+            ),
+          );
+        } else {
+          recordRejection(
+            task.id,
+            UnscheduledReason(
+              code: UnscheduledReasonCode.insufficientCapacity,
+              requiredMinutes: remaining,
+            ),
+          );
+        }
+      }
+      // 截止前的窗口装不下任何一段 ⇒ 这是一个**独立**的原因，不是笼统的容量不足：
+      // 处置是"把截止时间往后挪或缩短任务"，而容量不足的处置是"腾出时间"。
+      if (allCandidates.isNotEmpty) {
+        final withinDeadline = allCandidates
+            .where(
+              (candidate) =>
+                  task.dueAtUtc == null ||
+                  !candidate.endUtc.isAfter(task.dueAtUtc!),
+            )
+            .toList();
+        if (withinDeadline.isEmpty) {
+          final longest = allCandidates
+              .map((candidate) => candidate.durationMinutes)
+              .reduce(math.max);
+          recordRejection(
+            task.id,
+            UnscheduledReason(
+              code: UnscheduledReasonCode.deadlineWindowTooShort,
+              requiredMinutes: task.minChunkMinutes,
+              availableMinutes: longest,
+              constraintLabel: '截止时间',
+            ),
+          );
+        }
+      }
+      final candidates = allCandidates
           .where(
             (candidate) =>
                 task.dueAtUtc == null ||
                 !candidate.endUtc.isAfter(task.dueAtUtc!),
           )
           .toList();
+      // 有候选、但全部被截止时间挡掉（上面已记过 `deadlineWindowTooShort`）时不再补兜底
+      // 证据：两条都记会让"截止窗口不足"这个更具体的原因被笼统原因淹没。
+      if (candidates.isEmpty && rejectionEvidence[task.id] == null) {
+        recordRejection(
+          task.id,
+          UnscheduledReason(
+            code: UnscheduledReasonCode.insufficientCapacity,
+            requiredMinutes: remaining,
+          ),
+        );
+      }
 
       while (remaining > 0) {
         // ── 单日配额是"摊开"的偏好，两轮放置 ────────────────────────────────
@@ -115,22 +202,70 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         for (var pass = 0; pass < 2 && ranked.isEmpty; pass++) {
           relaxedDailyQuota = pass == 1;
           for (final candidate in candidates) {
-            if (candidate.durationMinutes > remaining ||
-                _overlapsAny(candidate.range, blocks) ||
-                _exceedsDailyQuota(
-                  problem,
-                  task,
-                  candidate,
-                  blocks,
-                  relaxed: relaxedDailyQuota,
-                ) ||
-                _violatesRestGap(problem, task, candidate, blocks)) {
+            // **每一条拒绝都留证据**，而不是只记最后一条。同一个候选可能同时违反多条约束
+            // （例如既超过今日配额、又和固定日程重叠），只记一条会让原因随遍历顺序变化。
+            // 这里逐条判定并各自记录，主原因最后由固定优先级决定。
+            if (candidate.durationMinutes > remaining) {
+              recordRejection(
+                task.id,
+                UnscheduledReason(
+                  code: UnscheduledReasonCode.minimumChunkTooLarge,
+                  requiredMinutes: candidate.durationMinutes,
+                  availableMinutes: remaining,
+                ),
+              );
+              continue;
+            }
+            if (_overlapsAny(candidate.range, blocks)) {
+              recordRejection(
+                task.id,
+                const UnscheduledReason(
+                  code: UnscheduledReasonCode.lockedPlanOccupied,
+                  constraintLabel: '已有计划块或固定日程',
+                ),
+              );
+              continue;
+            }
+            if (_exceedsDailyQuota(
+              problem,
+              task,
+              candidate,
+              blocks,
+              relaxed: relaxedDailyQuota,
+            )) {
+              recordRejection(
+                task.id,
+                UnscheduledReason(
+                  code: UnscheduledReasonCode.dailyLimitReached,
+                  requiredMinutes: candidate.durationMinutes,
+                  availableMinutes: task.maxMinutesPerLocalDay,
+                ),
+              );
+              continue;
+            }
+            if (_violatesRestGap(problem, task, candidate, blocks)) {
+              recordRejection(
+                task.id,
+                const UnscheduledReason(
+                  code: UnscheduledReasonCode.requiredBreakUnavailable,
+                  constraintLabel: '片段间休息',
+                ),
+              );
               continue;
             }
             final leftover = remaining - candidate.durationMinutes;
             if (task.splitMode == TaskSplitMode.splittable &&
                 leftover > 0 &&
                 leftover < task.minChunkMinutes) {
+              recordRejection(
+                task.id,
+                UnscheduledReason(
+                  code: UnscheduledReasonCode.minimumChunkTooLarge,
+                  requiredMinutes: leftover,
+                  availableMinutes: task.minChunkMinutes,
+                  constraintLabel: '最终余量小于最小片段',
+                ),
+              );
               continue;
             }
             final score = _scoreCandidate(
@@ -227,8 +362,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           .fold<int>(0, (sum, block) => sum + block.durationMinutes);
       final shortage = math.max(0, targets[task.id]! - scheduled);
       if (shortage > 0) {
+        final evidence = [...?rejectionEvidence[task.id]?.values];
         unscheduled.add(
-          UnscheduledTask(taskId: task.id, shortageMinutes: shortage),
+          UnscheduledTask(
+            taskId: task.id,
+            shortageMinutes: shortage,
+            primaryReason: primaryUnscheduledReason(evidence),
+            reasons: evidence,
+          ),
         );
       }
     }
@@ -753,6 +894,21 @@ int _compareNullableDates(DateTime? a, DateTime? b) {
 
 bool _overlapsAny(TimeRange range, List<PlannedBlock> blocks) =>
     blocks.any((block) => range.overlaps(block.range));
+
+/// 可用时段里**最长的一段**有多少分钟。
+///
+/// 只用于把"连续任务排不下"这件事说清楚：一个要求一次做完 60 分钟的任务，在最长空档只有
+/// 30 分钟的周里，真实原因是"没有足够长的连续空档"，而不是"总容量不足"——两者对用户意味着
+/// 完全不同的下一步（改拆分方式／改截止时间 vs 腾出时间）。
+int _longestSlotMinutes(List<AvailabilitySlot> slots) {
+  if (slots.isEmpty) return 0;
+  var longest = 0;
+  for (final slot in slots) {
+    final minutes = slot.range.durationMinutes;
+    if (minutes > longest) longest = minutes;
+  }
+  return longest;
+}
 
 int _plannedLifeMinutes(
   List<SchedulableTask> tasks,
