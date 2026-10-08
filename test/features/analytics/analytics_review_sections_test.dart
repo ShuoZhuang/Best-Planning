@@ -107,6 +107,7 @@ Future<void> _pump(
   Map<AnalyticsChartSlot, ChartKind>? initial,
   _Recorder? recorder,
   RoutineMetric? routine,
+  String tab = 'time',
 }) async {
   tester.view.physicalSize = const Size(1400, 3200);
   tester.view.devicePixelRatio = 1;
@@ -126,6 +127,27 @@ Future<void> _pump(
       ),
     ),
   );
+  await tester.pumpAndSettle();
+  await _openTab(tester, tab);
+}
+
+/// 切到某个页签（M3 §3.1 把统计页分成四页）。
+///
+/// **为什么测试要显式切页签**：这不只是"让断言能找到控件"——内容确实换了位置。此前完成率、
+/// 休息三卡、调整记录全部堆在一条长列表里，现在它们各在自己的页签。把切换动作写进测试，
+/// 等于把"哪一页回答哪个问题"这件事钉住；否则将来有人把某张卡挪到别的页签，测试仍然绿。
+Future<void> _openTab(WidgetTester tester, String tab) async {
+  const keys = {
+    'time': 'analytics-tab-time',
+    'quality': 'analytics-tab-quality',
+    'rest': 'analytics-tab-rest',
+    'adjustments': 'analytics-tab-adjustments',
+  };
+  final key = keys[tab];
+  if (key == null) {
+    throw ArgumentError('未知页签：$tab（可选 ${keys.keys.join('、')}）');
+  }
+  await tester.tap(find.byKey(Key(key)));
   await tester.pumpAndSettle();
 }
 
@@ -163,6 +185,8 @@ void main() {
     );
 
     expect(_kindOf(tester, 'analytics-area-share'), ChartKind.horizontalBar);
+    // 「休息时长」在「休息与作息」页签，因此先切过去再看它的图型。
+    await _openTab(tester, 'rest');
     expect(_kindOf(tester, 'analytics-rest-duration'), ChartKind.pie);
   });
 
@@ -208,7 +232,7 @@ void main() {
   });
 
   testWidgets('休息三张卡都渲染，且口径只看计划侧', (tester) async {
-    await _pump(tester);
+    await _pump(tester, tab: 'rest');
 
     expect(find.byKey(const Key('analytics-rest')), findsOneWidget);
 
@@ -230,6 +254,7 @@ void main() {
   testWidgets('作息规律性范围内只有一天时，说明原因而不是画一根柱子', (tester) async {
     await _pump(
       tester,
+      tab: 'rest',
       routine: RoutineMetric(
         perDay: [
           DailyRoutineMetric(
@@ -270,7 +295,7 @@ void main() {
   });
 
   testWidgets('作息规律性有两天以上时照常画图', (tester) async {
-    await _pump(tester);
+    await _pump(tester, tab: 'rest');
 
     expect(
       find.descendant(
@@ -283,23 +308,38 @@ void main() {
   });
 
   testWidgets('领域覆盖缺口点名零占用的领域', (tester) async {
-    await _pump(tester);
+    await _pump(tester, tab: 'quality');
 
     expect(find.byKey(const Key('analytics-area-coverage')), findsOneWidget);
-    expect(find.text('未排计划：科研、竞赛、工作'), findsOneWidget);
-    expect(find.textContaining('一个计划块、一场固定日程都没有'), findsOneWidget);
+    // **限定在这张卡里找**：首页四项摘要里的「最需处理的问题」现在也会写
+    // 「未排计划：科研、竞赛、工作」（它按同一份数据选出来的第一件事），满页找会命中两个。
+    // 这不是重复渲染，而是同一事实在两处的两种用途：摘要给结论，这一卡给细节。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('analytics-area-coverage')),
+        matching: find.text('未排计划：科研、竞赛、工作'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('analytics-area-coverage')),
+        matching: find.textContaining('一个计划块、一场固定日程都没有'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('领域占比的口径包含固定日程', (tester) async {
-    await _pump(tester);
+    await _pump(tester, tab: 'time');
 
     // 学业：计划 60 + 固定日程 600 = 660；生活：60。脚注必须把两个来源分开写清楚，
     // 否则用户看到"学业 11 小时"会以为是任务排出来的。
-    expect(find.textContaining('计划 60 分钟 + 固定日程 600 分钟'), findsOneWidget);
+    expect(find.textContaining('计划 1 小时 + 固定日程 10 小时'), findsOneWidget);
   });
 
   testWidgets('页面上不再出现计划/实际那组内容', (tester) async {
-    await _pump(tester);
+    await _pump(tester, tab: 'adjustments');
 
     expect(find.text('计划 120 分钟'), findsNothing);
     expect(find.text('实际 0 分钟'), findsNothing);

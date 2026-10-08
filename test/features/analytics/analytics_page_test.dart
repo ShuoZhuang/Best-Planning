@@ -115,11 +115,9 @@ void main() {
     expect(find.text('计划 / 实际'), findsNothing);
     expect(find.text('每日趋势'), findsNothing);
 
-    // 横向：领域占比（当前范围）。
+    // 横向：领域占比（当前范围）——它在默认页签「时间分配」上。
     expect(find.byKey(const Key('analytics-area-share')), findsOneWidget);
     expect(find.text('领域占比'), findsOneWidget);
-    // 规划是否合理：完成率/按期/逾期都保留——它们问的是"计划合不合理"，与"计划 vs 实际"无关。
-    expect(find.text('完成率 3 / 4'), findsOneWidget);
 
     // 纵向：时间总计 + 矩阵表。假报告对每次查询都返回同一份：三个周期的合计都是 120
     // （学业 90 + 生活 30），学业占 75%、生活占 25%。
@@ -129,8 +127,18 @@ void main() {
       find.byKey(const Key('analytics-area-period-table')),
       findsOneWidget,
     );
-    expect(find.text('90 分钟（75%）'), findsNWidgets(3));
+    // 矩阵表的格子也走「小时 + 分钟」（§7.1 第 3 条：不显示裸分钟），因此断言格式化后的值。
+    expect(find.text('1 小时 30 分钟（75%）'), findsNWidgets(3));
     expect(find.text('30 分钟（25%）'), findsNWidgets(3));
+
+    // 规划是否合理：完成率/按期/逾期都保留——它们问的是"计划合不合理"，与"计划 vs 实际"无关。
+    // **它们现在在「计划质量」页签上**（§3.1 的四个页签），因此先切过去。
+    await tester.tap(find.byKey(const Key('analytics-tab-quality')));
+    await tester.pumpAndSettle();
+    expect(find.text('完成率 3 / 4'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('analytics-tab-time')));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('analytics-range-month')));
     await tester.pumpAndSettle();
