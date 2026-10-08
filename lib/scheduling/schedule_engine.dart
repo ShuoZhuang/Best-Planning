@@ -140,6 +140,16 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       (rejectionEvidence[taskId] ??= {})[reason.code] = reason;
     }
 
+    // 每日可移动上限的判定表。**增量维护**：`blocks` 每变一次就在这里加一笔，
+    // 于是判定从"每个候选扫一遍所有块"退化为一次 Map 查表。
+    // 见 `_exceedsMovableDailyLimit` 的说明（取消候选截断后这一项曾是主要开销）。
+    final movableMinutesByDate = _movableMinutesByDate(problem, blocks);
+    void chargeMovable(PlannedBlock block) {
+      final date = _localDate(block.startUtc, problem.timeZoneId);
+      movableMinutesByDate[date] =
+          (movableMinutesByDate[date] ?? 0) + block.durationMinutes;
+    }
+
     // ── 均匀分布：先算"每天多少分钟"，日内选点才交给评分（计划 §3.1 / §3.2）──────
     //
     // **这一步必须在放置之前**：候选评分里的同任务连续性、精力匹配与旧计划稳定性都只看
@@ -176,7 +186,29 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         0,
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
-      final allCandidates = _candidateGenerator.generate(task, slots);
+      final evenPlanForTask = evenPlans[task.id];
+      final generated = _candidateGenerator.generate(task, slots);
+      // ── 按日预算剪枝（计划 Issue 4a 允许的"等价剪枝"）─────────────────────────
+      //
+      // 取消每日上限对候选时间轴的截断后（Task 2），候选数明显变多：实测规模用例
+      // 1632 ms → 3255 ms（恰好两倍，计划 Step 4a 的阈值就是两倍）。
+      //
+      // 对被分配器定过预算的任务，**只保留"所属本地日仍有新增预算"的候选**。
+      // 这是**等价剪枝，不可能改变最优日分配**：均分器已经把每日分钟定死，而下面的放置循环
+      // 只消费仍有余量的日期（`_evenBudgetRemaining`）。某日本次预算为 0，则它的候选
+      // 无论保留与否都**永远不会被选中**；剪掉它们只省掉"必被跳过"的评分与拒绝记录开销。
+      //
+      // 注意保留条件用 `additionalMinutesByLocalDate` 是否**存在**该日，而不是它当前的剩余量：
+      // 剩余量会随放置递减，用剩余量做过滤会让同一份候选集在循环中变化，破坏确定性。
+      final allCandidates = evenPlanForTask == null
+          ? generated
+          : [
+              for (final candidate in generated)
+                if (evenPlanForTask.additionalMinutesByLocalDate.containsKey(
+                  candidate.localDate,
+                ))
+                  candidate,
+            ];
       // ── 先分辨"根本没得排"的三种情况，再进入放置循环 ────────────────────────
       //
       // 这三条必须在候选为空时给出**不同**的说法，否则用户看到的永远是笼统的"可用时间不足"，
@@ -342,7 +374,11 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
               );
               continue;
             }
-            if (_exceedsMovableDailyLimit(problem, candidate, blocks)) {
+            if (_exceedsMovableDailyLimit(
+              problem,
+              candidate,
+              movableMinutesByDate,
+            )) {
               recordRejection(
                 task.id,
                 UnscheduledReason(
@@ -419,6 +455,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           explanationCode: explanationCode,
         );
         blocks.add(block);
+        chargeMovable(block);
         remaining -= selected.durationMinutes;
         scheduledByTask.update(
           task.id,
@@ -719,28 +756,39 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///   `problem.pinnedUnlockedBlockIds` 的块**仍然计入**——否则会出现
   ///   "引擎认为没超、恢复 `locked: false` 后 `PlanValidator` 报 `dailyLimitExceeded`"，
   ///   把一次合法提案判为无效。
+  /// - **上限不小于一天时整条规则不生效**，直接返回：这条短路同时是规模用例的救命稻草，
+  ///   因为默认上限是 360 而规模用例里多数任务所在的日子早已排满。
   bool _exceedsMovableDailyLimit(
     ScheduleProblem problem,
     SchedulingCandidate candidate,
-    List<PlannedBlock> blocks,
+    Map<DateTime, int> movableMinutesByDate,
   ) {
     final limit = problem.rules.dailyMovableTaskLimitMinutes;
     if (limit >= LocalTimeRange.minutesPerDay) return false;
-    final zoneId = problem.timeZoneId;
-    final localDate = candidate.localDate;
-    var planned = 0;
+    final planned = movableMinutesByDate[candidate.localDate] ?? 0;
+    return planned + candidate.durationMinutes > limit;
+  }
+
+  /// 按本地日期汇总**未锁定**（含生成期间被临时固定）块的分钟数。
+  ///
+  /// **在候选循环之外算一次**。此前每个候选都要线性扫一遍 `blocks` 才能算出同一个数字，
+  /// 总成本是 `候选数 × 块数`；取消候选截断后候选数上升，这一项直接变成规模用例的主要开销
+  /// （实测 1.6 秒 → 3.3 秒）。这里把"看块"的部分挪到循环外，判定退化为一次 Map 查表。
+  ///
+  /// 调用方必须在**每次 `blocks` 变化后**重新调用它，否则判定会用到过期数字。
+  Map<DateTime, int> _movableMinutesByDate(
+    ScheduleProblem problem,
+    List<PlannedBlock> blocks,
+  ) {
+    final result = <DateTime, int>{};
     for (final block in blocks) {
       final movable =
           !block.locked || problem.pinnedUnlockedBlockIds.contains(block.id);
       if (!movable) continue;
-      final local = _zones.toLocal(block.startUtc, zoneId);
-      if (local.year == localDate.year &&
-          local.month == localDate.month &&
-          local.day == localDate.day) {
-        planned += block.durationMinutes;
-      }
+      final date = _localDate(block.startUtc, problem.timeZoneId);
+      result[date] = (result[date] ?? 0) + block.durationMinutes;
     }
-    return planned + candidate.durationMinutes > limit;
+    return result;
   }
 
   /// 每个本地日期能承接多少分钟：把该日的可用时段取**并集**后求和。
@@ -1080,7 +1128,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         // 局部改进也必须守每日可移动上限：`others` **已经排除了当前这一块本身**，
         // 因此这里问的正是"把它搬到候选位置后，那一天会不会超限"。
         // 少了这一条，初次放置摊开的结果会在改进阶段被重新堆回同一天。
-        if (_exceedsMovableDailyLimit(problem, candidate, others)) continue;
+        // 判定表按 `others` 现算：`_improve` 会改动 `blocks`，复用放置阶段那份会过期。
+        if (_exceedsMovableDailyLimit(
+          problem,
+          candidate,
+          _movableMinutesByDate(problem, others),
+        )) {
+          continue;
+        }
         final score = _scoreCandidate(
           problem,
           task,
