@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -156,6 +157,30 @@ final class _OngoingSource implements ScheduleViewSource {
       ]);
 }
 
+/// 给「延后本次」提供一条尚未开始的计划块。
+final class _FutureSource implements ScheduleViewSource {
+  const _FutureSource();
+
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      Stream.value([
+        ScheduleViewItem(
+          id: 'block:b1',
+          title: '算法作业',
+          kind: ScheduleItemKind.task,
+          range: TimeRange(
+            startUtc: _today.add(const Duration(hours: 14)),
+            endUtc: _today.add(const Duration(hours: 15)),
+          ),
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff456789,
+          categorySortOrder: 0,
+          taskId: 't1',
+        ),
+      ]);
+}
+
 /// 专注服务的最小替身。
 ///
 /// **必须装配它**：路由里 `onStartFocus` 是 `focusService == null ? null : ...`，
@@ -191,6 +216,7 @@ PlannerTask _task(String id, String title) => PlannerTask(
 void main() {
   Future<({_Tasks repository, void Function() dispose})> pumpTodayRoute(
     WidgetTester tester, {
+    PendingMoveDrafts? moves,
     PendingSkipDrafts? skips,
     PlanningService? planning,
     ScheduleViewSource source = const _OngoingSource(),
@@ -216,6 +242,7 @@ void main() {
       ),
       moveController: const DisabledWeekMoveController(),
       autoAdjustStore: MemoryAutoAdjustStore(),
+      pendingMoves: moves,
       pendingSkips: skips,
       planningService: planning,
       todayStartUtc: _today,
@@ -376,6 +403,40 @@ void main() {
     expect(find.text('算法作业'), findsWidgets);
     // 并且已经离开今日页。
     expect(find.byType(TodayPage), findsNothing);
+  });
+
+  testWidgets('今日更多操作可将当前计划块延后 10 分钟', (tester) async {
+    final moves = PendingMoveDrafts();
+    final planning = PlanningService(
+      source: _EmptyProblemSource(),
+      engine: DeterministicScheduleEngine(TimeZoneDatabase()),
+    );
+    await pumpTodayRoute(
+      tester,
+      moves: moves,
+      planning: planning,
+      source: const _FutureSource(),
+    );
+
+    await tester.tap(find.byKey(const Key('today-more-block:b1')));
+    await tester.pumpAndSettle();
+    expect(find.text('延后本次'), findsOneWidget);
+
+    await tester.tap(find.text('延后本次'));
+    await tester.pumpAndSettle();
+    expect(find.text('延后当前计划'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('defer-current-10')));
+    await tester.pump();
+    await tester.pump();
+
+    final move = moves.forBlock('b1');
+    expect(move, isNotNull);
+    expect(
+      move!.targetStartUtc,
+      _today.add(const Duration(hours: 14, minutes: 10)),
+    );
+    expect(move.lock, isFalse, reason: '延后本次只钉住这次生成，不应把任务永久锁定');
   });
 
   testWidgets('M4 未装配跳过端口时，菜单里不出现「跳过本次」', (tester) async {

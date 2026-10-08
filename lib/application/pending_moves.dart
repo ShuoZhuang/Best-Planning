@@ -12,21 +12,36 @@ import 'dart:collection';
 /// 分别放到不同天。这与 `ScheduleProblem` 的任务级模型并不冲突——意图按块记录，装配时
 /// 按块钉住。
 ///
-/// **只记本地日期，不记具体时刻**：周视图的拖放目标是一整列（一天），不是某个钟点。
-/// 具体时刻由装配层按"保留原来的本地钟点"决定（见 `RepositoryScheduleProblemSource`），
-/// 这样"把周三 14:00 的那块拖到周五"落成"周五 14:00"，与用户看到的位移一致。
+/// 两种来源共用同一个意图：周视图拖放只记目标本地日期，并保留原钟点；
+/// 今日页「延后本次」记精确 UTC 时刻。两者都是块级别的一次性移动。
 final class RequestedMove {
   const RequestedMove({
     required this.blockId,
     required this.localDate,
     required this.lock,
-  });
+  }) : targetStartUtc = null;
+
+  /// 把计划块移到一个精确时刻。
+  ///
+  /// 今日页的「延后本次」用这条路径：它表达的是当前块的一次性位移，
+  /// 不修改任务的截止时间或最早开始时间。[targetStartUtc] 必须是 UTC，与
+  /// `PlannedBlock.range` 使用同一时间口径。
+  RequestedMove.atInstant({
+    required this.blockId,
+    required DateTime targetStartUtc,
+    required this.lock,
+  }) : assert(targetStartUtc.isUtc),
+       localDate = null,
+       targetStartUtc = targetStartUtc;
 
   /// 被拖动的**已确认计划块**的 id（`schedule_blocks.id`），不是任务 id。
   final String blockId;
 
   /// 目标**本地日期**（只用到年月日）。刻意不是 UTC 时刻——"哪一天"是用户看到的概念。
-  final DateTime localDate;
+  final DateTime? localDate;
+
+  /// 精确目标时刻；与 [localDate] 二选一。
+  final DateTime? targetStartUtc;
 
   /// 落地后是否锁定（FR-CAL-05 的"手动移动后可选择锁定"）。
   ///
@@ -36,12 +51,12 @@ final class RequestedMove {
   final bool lock;
 }
 
-/// 周视图拖动的**落点**：把"把某一块移到某一天、是否锁定"记下来。
+/// 手动移动计划块的**落点**：记住目标日期或精确时刻，以及是否锁定。
 ///
 /// **端口为什么在 application 而不是 features**：实现方是 [PendingMoveDrafts]（应用层的
 /// 内存态意图），而消费方是 `RepositoryScheduleProblemSource`（装配排程输入）。若把端口留在
-/// `features/`，应用层就得反过来 import 界面层。因此端口按**原始输入**（块 id、本地日期、
-/// 是否锁定）声明，不认识 `ScheduleViewItem`——由界面侧的控制器把视图条目翻译成它。
+/// `features/`，应用层就得反过来 import 界面层。因此端口按**原始输入**声明，
+/// 不认识 `ScheduleViewItem`——由界面侧把视图条目翻译成它。
 ///
 /// 此前这个端口只有声明、**全库没有任何实现**，而 `planner_app.dart` 注入的是
 /// `DisabledWeekMoveController`，于是 `PlanningServiceWeekMoveController` 那条路径永远走不到
@@ -59,7 +74,7 @@ abstract interface class MoveDraftSink {
 /// **不需要显式清理**：落地时计划块的 id 会被重写成 `<提案 id>:<块 id>`
 /// （`drift_plan_repository.dart` 的 `applyProposal`），因此旧 id 再也匹配不上任何已确认
 /// 块，这条意图**自动失效**。这一点由用例钉住（见
-/// `test/application/pending_moves_test.dart`），否则"拖动一次就被永久钉住"会是个静默缺陷。
+/// `test/application/requested_move_test.dart`），否则"移动一次就被永久钉住"会是个静默缺陷。
 final class PendingMoveDrafts implements MoveDraftSink {
   final Map<String, RequestedMove> _byBlock = {};
 

@@ -10,6 +10,7 @@ import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
+import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
@@ -329,6 +330,9 @@ GoRouter createPlannerRouter({
   required WeekMoveController moveController,
   required AutoAdjustStore autoAdjustStore,
 
+  /// 「延后本次」的一次性计划块位移意图。为 `null` 时今日页不显示该入口。
+  PendingMoveDrafts? pendingMoves,
+
   /// 「跳过本次」的落点（M4，2026-10-07 用户定义）。为 `null` 时今日页**不显示**该入口。
   PendingSkipDrafts? pendingSkips,
   required DateTime todayStartUtc,
@@ -425,10 +429,7 @@ GoRouter createPlannerRouter({
               //
               // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
               //
-              // 只接三条是因为另外两条**现在给不出诚实的落地**：
-              // · 「延后」需要用户先输入延后多久（`TaskService.deferTask` 要求 `by > 0`），
-              //   而 M4 的验收目标是"从今日页直接执行"，不是再造一个时长收集界面；
-              // · 「请求调整」只对**已确认计划块**有意义（`movableTaskBlockId`），
+              // 「请求调整」只对**已确认计划块**有意义（`movableTaskBlockId`），
               //   而这一页同时显示固定日程与保护时间——对它们给"请求调整"是假的入口。
               // 两者在端口为空时**不渲染**（页面自己保证），因此不会出现点了没反应的按钮。
               // 见 `docs/testing/m4-acceptance.md` 的未完成项。
@@ -458,6 +459,42 @@ GoRouter createPlannerRouter({
               // （`taskId` 为 `null`）会当场抛 `Null check operator used on a null value`。
               onOpenDetail: (item) =>
                   _openScheduleItemDetail(context, item, todayStartUtc),
+              // 延后的是**当前计划块**，不是任务截止时间。用精确 UTC 时刻
+              // 钉住本次生成，落地后仍为未锁定，后续调整仍可移动。
+              onDefer: pendingMoves == null || planningService == null
+                  ? null
+                  : (item) async {
+                      final blockId = movableTaskBlockId(item);
+                      if (blockId == null) return;
+                      final by = await _showDeferCurrentDialog(context);
+                      if (by == null || !context.mounted) return;
+                      pendingMoves.setRequestedMove(
+                        RequestedMove.atInstant(
+                          blockId: blockId,
+                          targetStartUtc: item.range.startUtc.add(by),
+                          lock: false,
+                        ),
+                      );
+                      final proposal = await planningService.createProposal();
+                      if (!context.mounted) return;
+                      final outcome =
+                          await PlanGenerationFlow(
+                            isTrusted: () =>
+                                autoAdjustStore.enabled &&
+                                planApplication != null,
+                          ).run(
+                            proposal: proposal,
+                            apply: planApplication == null
+                                ? (proposal) async => ApplyPlanResult.stale()
+                                : planApplication.apply,
+                          );
+                      if (!context.mounted) return;
+                      if (outcome.message.isNotEmpty) {
+                        showPlannerMessage(context, message: outcome.message);
+                        return;
+                      }
+                      context.go('/planning/preview/${outcome.proposalId}');
+                    },
               // §11 Task 12：撤销刚刚那一次变更。装配层没接端口时不显示撤销入口
               // （今日页据此只报消息），因此这里可以无条件传。
               onUndoLastChange: lastChange.undo,
@@ -1629,6 +1666,78 @@ final class _FocusData {
 
   final PlannerTask? task;
   final DateTime? plannedEndUtc;
+}
+
+/// 选择当前计划块要向后移多久。
+///
+/// 「延后本次」与任务详情页的「延后截止时间」严格分开：这里只改当前块，
+/// 且按排程器的 5 分钟粒度校验自定义值。
+Future<Duration?> _showDeferCurrentDialog(BuildContext context) async {
+  final controller = TextEditingController();
+  String? error;
+  final result = await showDialog<Duration>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('延后当前计划'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('只移动这一个计划块，不修改任务截止时间。'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final minutes in const [10, 15, 30, 60])
+                  ActionChip(
+                    key: Key('defer-current-$minutes'),
+                    label: Text(minutes == 60 ? '1 小时' : '$minutes 分钟'),
+                    onPressed: () => Navigator.pop(
+                      dialogContext,
+                      Duration(minutes: minutes),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('defer-current-custom-minutes'),
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: '自定义分钟',
+                helperText: '请输入 5 的倍数',
+                errorText: error,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('defer-current-custom-confirm'),
+            onPressed: () {
+              final minutes = int.tryParse(controller.text.trim());
+              if (minutes == null || minutes <= 0 || minutes % 5 != 0) {
+                setState(() => error = '请输入大于 0 的 5 分钟倍数');
+                return;
+              }
+              Navigator.pop(dialogContext, Duration(minutes: minutes));
+            },
+            child: const Text('延后'),
+          ),
+        ],
+      ),
+    ),
+  );
+  controller.dispose();
+  return result;
 }
 
 Future<void> _generatePlan(

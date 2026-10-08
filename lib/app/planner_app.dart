@@ -454,6 +454,7 @@ final class _PlannerAppState extends State<PlannerApp> {
               planning: widget.planningService!,
             ),
       autoAdjustStore: widget.autoAdjustStore ?? MemoryAutoAdjustStore(),
+      pendingMoves: widget.pendingMoves,
       // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
       // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。
       pendingSkips: widget.planningService == null ? null : widget.pendingSkips,

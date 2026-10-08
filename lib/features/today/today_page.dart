@@ -57,7 +57,7 @@ final class TodayPage extends StatefulWidget {
   /// 「查看详情」。
   final ValueChanged<ScheduleViewItem>? onOpenDetail;
 
-  /// 「延后」。页面不收集时长——那属于确认界面，这里只发起。
+  /// 「延后本次」。页面不收集时长——那属于确认界面，这里只发起。
   final ValueChanged<ScheduleViewItem>? onDefer;
 
   /// 「请求调整」→ 排程提案预览。
@@ -714,7 +714,7 @@ final class _TimelineItem extends StatelessWidget {
       if (_isTask && onSkipCurrent != null)
         const PopupMenuItem(value: 'skip', child: Text('跳过本次')),
       if (_isTask && onDefer != null)
-        const PopupMenuItem(value: 'defer', child: Text('延后')),
+        const PopupMenuItem(value: 'defer', child: Text('延后本次')),
       if (_isMovable && onRequestAdjust != null)
         const PopupMenuItem(value: 'adjust', child: Text('请求调整')),
       if (_isMovable && onToggleLock != null)

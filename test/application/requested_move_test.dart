@@ -171,6 +171,28 @@ void main() {
   });
 
   group('拖动 → 排程输入', () {
+    test('延后本次按绝对时刻钉住当前块，保持时长且落地后不锁定', () async {
+      final drafts = PendingMoveDrafts()
+        ..setRequestedMove(
+          RequestedMove.atInstant(
+            blockId: 'block-1',
+            targetStartUtc: DateTime.utc(2026, 10, 5, 2, 10),
+            lock: false,
+          ),
+        );
+
+      final problem = await source(
+        plan: planWith([mondayBlock()]),
+        pendingMoves: drafts,
+      ).load();
+
+      final pinned = problem.lockedBlocks.single;
+      expect(pinned.range.startUtc, DateTime.utc(2026, 10, 5, 2, 10));
+      expect(pinned.range.endUtc, DateTime.utc(2026, 10, 5, 3, 40));
+      expect(problem.pinnedUnlockedBlockIds, {'block-1'});
+      expect(problem.existingBlocks, isEmpty);
+    });
+
     test('钉住的块替换它原来的位置，时间保留原本地钟点', () async {
       final drafts = PendingMoveDrafts()
         ..setRequestedMove(
