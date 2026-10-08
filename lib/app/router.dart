@@ -40,6 +40,7 @@ import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
+import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
@@ -75,6 +76,42 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 场景下（例如只构造 `PlannerApp()`），今日页与周视图仍可显示真实数据源给出的
 /// 内容，而"生成计划"入口会隐藏、调整预览会明确提示计划服务不可用，而不是
 /// 显示一个点了没反应的按钮。
+/// 打开一条事项的"详情"（M1，路线图 §3.2）。
+///
+/// **这是"这条事项该去哪儿"在真实装配里的唯一实现**：今日页与周视图都走它，因此同一个
+/// 固定日程在两个视图里一定落同一个页面。判定本身在
+/// `features/calendar/schedule_item_open_target.dart` 的纯函数里（那里可以脱离路由测试），
+/// 这里只负责把目标翻译成 `go`。
+///
+/// [dayStartUtc] 是调用方认定的"这一天"：今日页传自己的 `day`，周视图传该条目所在的
+/// **本地日**。两者都必须已经是本地 `00:00` 对应的 UTC 瞬间——换算由持有 `zones`
+/// 与 `timeZoneId` 的这一层完成，纯函数不认识时区。
+///
+/// 解析不出目标时**什么都不做**：调用方本不该给出入口（§3.2："没有合法目标的事项不显示
+/// 死入口"），这里是第二道防线，行为与 `movableTaskBlockId` 那条约定一致——不报错、
+/// 不猜测，也不拿条目 id 硬拼一个路由。
+void _openScheduleItemDetail(
+  BuildContext context,
+  ScheduleViewItem item,
+  DateTime dayStartUtc,
+) {
+  switch (resolveScheduleItemOpenTarget(item, dayStartUtc)) {
+    case TaskOpenTarget(:final taskId):
+      context.go('/tasks/$taskId');
+    case DayOpenTarget(:final dayStartUtc, :final eventId):
+      // 日视图按 `dayStartMicros` 定位那一天；`eventId` 作为查询参数带上，
+      // 让日视图能滚动/高亮到这一条（它此前只认日期）。
+      context.go(
+        '/calendar/day/${dayStartUtc.microsecondsSinceEpoch}'
+        '?event=${Uri.encodeQueryComponent(eventId)}',
+      );
+    case PlanningRulesOpenTarget():
+      context.go('/settings/rules');
+    case null:
+      break;
+  }
+}
+
 GoRouter createPlannerRouter({
   required TaskService taskService,
   required SettingsService settingsService,
@@ -172,7 +209,12 @@ GoRouter createPlannerRouter({
                 TaskStatus.completed,
               );
             },
-            onOpenDetail: (item) => context.go('/tasks/${item.taskId!}'),
+            // M1（路线图 §3.2）：不同事项的去处由共享的解析器决定——
+            // 任务进 `/tasks/:id`、固定日程进当天日视图、保护时间进 `/settings/rules`。
+            // 此前这里是 `context.go('/tasks/${item.taskId!}')`：对固定日程与保护时间
+            // （`taskId` 为 `null`）会当场抛 `Null check operator used on a null value`。
+            onOpenDetail: (item) =>
+                _openScheduleItemDetail(context, item, todayStartUtc),
             // ── 「跳过本次」（M4，2026-10-07 用户定义）────────────────────────────
             //
             // 三步，与用户给的定义一一对应：
@@ -386,23 +428,19 @@ GoRouter createPlannerRouter({
             viewModePreference: WeekViewPreferenceService(
               settings: settingsService.repository,
             ),
-            // M5（§9）："点击任务、固定日程或保护时间进入对应详情"。
+            // M5（§9）＋ M1（§3.2）："点击任务、固定日程或保护时间进入对应详情"。
             //
-            // **任务块进任务详情；其余进当天日视图**——那才是它们真正的"详情"
-            // （固定日程与保护时间没有独立详情页；日视图会把它们连同上下文一起显示）。
-            // 不在这里为固定日程新建一个详情路由：§9 要的是"能进得去"，不是新造一个页面。
+            // 判定与今日页**共用** `_openScheduleItemDetail`：此前这一页自己判
+            // `taskId != null`，而保护时间会退回日视图——那是"能进得去但进错了地方"，
+            // §3.2 要求保护时间进 `/settings/rules`。固定日程仍然进日视图，
+            // 但带上领域事件 id 以便定位那一条。
             onOpenItem: (item) {
-              final taskId = item.taskId;
-              if (taskId != null) {
-                context.go('/tasks/$taskId');
-                return;
-              }
               final local = zones.toLocal(item.range.startUtc, timeZoneId);
               final day = zones.localMidnightToUtc(
                 DateTime(local.year, local.month, local.day),
                 timeZoneId,
               );
-              context.go('/calendar/day/${day.microsecondsSinceEpoch}');
+              _openScheduleItemDetail(context, item, day);
             },
             onProposalCreated: (proposalId) =>
                 context.go('/planning/preview/$proposalId'),
@@ -548,6 +586,9 @@ GoRouter createPlannerRouter({
               ),
               zones: zones,
               timeZoneId: timeZoneId,
+              // M1（§3.2）：从今日页/周视图点一条**固定日程**进来时带上它的领域事件 id，
+              // 这一页据此把那条标记出来（"定位该日程"）。为空时行为与从前一样。
+              highlightEventId: state.uri.queryParameters['event'],
               onOpenWeek: () => context.go('/calendar'),
               // 调整固定日程的归属。领域清单从工作区读，页面只交回选中的 id。
               onSetEventArea: calendarService == null

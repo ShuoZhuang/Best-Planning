@@ -29,9 +29,12 @@ import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
+import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 
@@ -70,6 +73,63 @@ final class _Tasks implements TaskRepository {
 
   @override
   Future<void> save(PlannerTask task) async => tasks[task.id] = task;
+}
+
+/// M1（路线图 §3.2）：三类事项各一条，供"每一类都到正确的页面"的装配测试使用。
+///
+/// 与 [_OngoingSource] 的区别是它**同时**给出任务、固定日程与保护时间：
+/// §3.2 的规则是逐类不同的（任务 → `/tasks/:id`、固定日程 → 当天日视图并定位、
+/// 保护时间 → `/settings/rules`），只喂任务就测不出后两条。
+///
+/// 显式带 `categoryLabel` 与 `kind`，因为**点哪张卡片**要靠 `today-schedule-card-<id>`
+/// 这个键定位（`ScheduleViewItem.id` 就是视图条目 id，带命名空间）。
+final class _MixedSource implements ScheduleViewSource {
+  const _MixedSource();
+
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      Stream.value([
+        ScheduleViewItem(
+          id: 'fixed:evt-7',
+          title: '线性代数',
+          kind: ScheduleItemKind.fixed,
+          range: TimeRange(
+            startUtc: _today.add(const Duration(hours: 8)),
+            endUtc: _today.add(const Duration(hours: 9, minutes: 30)),
+          ),
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff456789,
+          categorySortOrder: 0,
+        ),
+        ScheduleViewItem(
+          id: 'block:b1',
+          title: '算法作业',
+          kind: ScheduleItemKind.task,
+          range: TimeRange(
+            startUtc: _today.add(const Duration(hours: 10)),
+            endUtc: _today.add(const Duration(hours: 11)),
+          ),
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff456789,
+          categorySortOrder: 0,
+          taskId: 't1',
+        ),
+        ScheduleViewItem(
+          id: 'protected:lunch',
+          title: '午餐保护',
+          kind: ScheduleItemKind.protectedTime,
+          range: TimeRange(
+            startUtc: _today.add(const Duration(hours: 12)),
+            endUtc: _today.add(const Duration(hours: 13)),
+          ),
+          categoryKey: 'protected:meal',
+          categoryLabel: '保护时间',
+          categoryColorArgb: 0xff2ea44f,
+          categorySortOrder: 1,
+        ),
+      ]);
 }
 
 /// 给这一页喂一条**正在进行**的任务块（10:00–11:00，而"现在"是 10:30）。
@@ -133,6 +193,7 @@ void main() {
     WidgetTester tester, {
     PendingSkipDrafts? skips,
     PlanningService? planning,
+    ScheduleViewSource source = const _OngoingSource(),
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -146,7 +207,7 @@ void main() {
       ),
       settingsService: SettingsService(repository: MemorySettingsRepository()),
       appearance: AppearanceService(MemorySettingsRepository()),
-      scheduleSource: const _OngoingSource(),
+      scheduleSource: source,
       focusService: FocusService(
         store: _MemoryFocus(),
         clock: const _Clock(),
@@ -181,6 +242,82 @@ void main() {
       reason: '真实装配里「开始专注」必须出现在当前安排卡片上',
     );
     expect(find.byKey(const Key('today-complete-block:b1')), findsOneWidget);
+  });
+
+  // ── M1（路线图 §3.2、§11 Task 2）三类事项各到正确的页面 ────────────────────────
+  //
+  // **这一组存在的理由**：此前路由那一行是 `context.go('/tasks/${item.taskId!}')`，
+  // 对固定日程与保护时间（`taskId` 为 `null`）会抛
+  // `Null check operator used on a null value`——用户点一条固定课程就是一次崩溃。
+  // 纯函数层已由 `schedule_item_open_target_test.dart` 覆盖，这里钉的是
+  // **真实装配把三类分别接对了**（§11 Task 2 Step 6 的"返回与刷新测试"）。
+
+  testWidgets('M1 点固定日程卡片主体进入当天日视图，并定位到那一条', (tester) async {
+    await pumpTodayRoute(tester, source: const _MixedSource());
+
+    // 前置：确实在今日页，且那一条固定日程在。
+    expect(find.byType(TodayPage), findsOneWidget);
+    expect(find.text('线性代数'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('today-schedule-card-fixed:evt-7')));
+    await tester.pumpAndSettle();
+
+    // ① 到了日视图（不是任务详情——那正是此前的崩溃点）。
+    expect(find.byType(DayViewPage), findsOneWidget);
+    // ② 并且**定位到那一条**（§3.2 的"并定位该日程"）。
+    expect(
+      find.byKey(const Key('day-highlighted-item')),
+      findsOneWidget,
+      reason: '从今日页点进来的那条固定日程必须被标记出来，否则"定位"是空话',
+    );
+    // ③ 没有被送去任务详情。
+    expect(find.byType(TodayPage), findsNothing);
+  });
+
+  testWidgets('M1 点保护时间卡片主体进入规划规则页（不是日视图、更不是任务详情）', (tester) async {
+    await pumpTodayRoute(tester, source: const _MixedSource());
+
+    await tester.tap(
+      find.byKey(const Key('today-schedule-card-protected:lunch')),
+    );
+    await tester.pumpAndSettle();
+
+    // §3.2："保护时间显示「查看保护规则」，进入 `/settings/rules`"。
+    // 保护时间是**规划规则算出来的区间**，规则页才是它的详情。
+    expect(
+      find.byType(PlanningRulesPage),
+      findsOneWidget,
+      reason: '保护时间的详情是那条规则本身，不是把它再显示一遍的日视图',
+    );
+    expect(find.byType(DayViewPage), findsNothing);
+  });
+
+  testWidgets('M1 点任务卡片主体进入该任务详情（三类里唯一进任务的一条）', (tester) async {
+    await pumpTodayRoute(tester, source: const _MixedSource());
+
+    await tester.tap(find.byKey(const Key('today-schedule-card-block:b1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('算法作业'), findsWidgets);
+    expect(find.byType(TodayPage), findsNothing);
+    expect(find.byType(DayViewPage), findsNothing);
+  });
+
+  testWidgets('M1 从固定日程日视图切到周视图，同一批事项仍在（导航没有把数据搞丢）', (tester) async {
+    await pumpTodayRoute(tester, source: const _MixedSource());
+
+    await tester.tap(find.byKey(const Key('today-schedule-card-fixed:evt-7')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DayViewPage), findsOneWidget);
+
+    // 日视图自带的「查看本周」。§3.2 要的是"能继续走下去、来源页的数据还在"；
+    // 编辑成功后来源页自动刷新由 drift 的 `watch` 保证（见 `onDeleteEvent` 那段注释），
+    // 不在这里重复钉。
+    await tester.tap(find.byKey(const Key('open-week-view')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(WeekViewPage), findsOneWidget);
+    expect(find.text('线性代数'), findsWidgets);
   });
 
   // M4 §8 退出条件第 1 条："从今日页开始专注**不超过两次点击**"。

@@ -5,6 +5,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
+import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 final class TodayPage extends StatefulWidget {
@@ -465,92 +466,113 @@ final class _TimelineItem extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Container(
-                key: ValueKey('today-schedule-card-${item.id}'),
-                margin: const EdgeInsets.only(bottom: 10),
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: visual.fill,
-                  border: Border.all(color: visual.border),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                // **`stretch` 是这条竖条能不能被看见的关键**，不是排版洁癖：`Row` 默认
-                // `CrossAxisAlignment.center`，而没有子节点的 `ColoredBox` 内在高度是 0，于是
-                // "左侧强调条"会被量成 0×3 的零面积控件——控件树里有它、颜色也对、测试里
-                // `tester.widget<ColoredBox>(...).color` 照样通过，屏幕上却什么都没有（用户就是
-                // 这么发现它的）。卡片高度在这里本来就是紧约束（外层 `Row` 也是 `stretch`），
-                // 所以只要把内层 `Row` 也设成 `stretch`，竖条就会被拉满整张卡片的高度。
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: 3,
-                      child: ColoredBox(
-                        key: ValueKey('today-schedule-accent-${item.id}'),
-                        color: visual.accent,
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
+              // M1（§3.2）：**卡片主体可点**，而不是只有"更多"菜单里能进详情。
+              //
+              // **为什么用 `GestureDetector` 包住卡片、而不是用 `InkWell` 替换它**：
+              // 键 `today-schedule-card-<id>` **必须留在那个 `Container` 上**——
+              // `today_page_test.dart` 与 `schedule_card_material_mode_test.dart` 里有五处
+              // 断言是用 `tester.widget<Container>(find.byKey(...))` 读它的 `decoration` 与
+              // `margin`（卡片填充、边框、强调条铺满高度都靠它）。把键挪到 `InkWell` 上会让
+              // 那五条一起红，而"点卡片能进详情"和"卡片怎么画"是两件事，不该互相牵连。
+              //
+              // 代价是少了水波反馈（`Container` 不是 `Material`，`InkWell` 会画不出来）。
+              // 这是刻意的取舍：`InkWell` 水波要么靠把键挪走、要么靠再包一层带底色的
+              // `Material`——后者会改变卡片填充（`1.4.2` 批次为这种偏差连续重打包过五次）。
+              //
+              // 子控件（「开始专注」按钮、菜单按钮）自己会吃掉点击，因此点它们不会顺带
+              // 打开详情：手势竞技场让最深的命中目标先赢。
+              child: GestureDetector(
+                // 端口为空时**不加**点击区：§3.2 要求"没有合法目标的事项不显示死入口"，
+                // 一个点了没反应的卡片正是死入口。`null` 的 `onTap` 让这个检测器
+                // 不参与手势，卡片行为保持原样。
+                onTap: onOpenDetail == null ? null : () => onOpenDetail!(item),
+                child: Container(
+                  key: ValueKey('today-schedule-card-${item.id}'),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: visual.fill,
+                    border: Border.all(color: visual.border),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  // **`stretch` 是这条竖条能不能被看见的关键**，不是排版洁癖：`Row` 默认
+                  // `CrossAxisAlignment.center`，而没有子节点的 `ColoredBox` 内在高度是 0，于是
+                  // "左侧强调条"会被量成 0×3 的零面积控件——控件树里有它、颜色也对、测试里
+                  // `tester.widget<ColoredBox>(...).color` 照样通过，屏幕上却什么都没有（用户就是
+                  // 这么发现它的）。卡片高度在这里本来就是紧约束（外层 `Row` 也是 `stretch`），
+                  // 所以只要把内层 `Row` 也设成 `stretch`，竖条就会被拉满整张卡片的高度。
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 3,
+                        child: ColoredBox(
+                          key: ValueKey('today-schedule-accent-${item.id}'),
+                          color: visual.accent,
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              item.kind.icon,
-                              key: ValueKey('today-schedule-icon-${item.id}'),
-                              size: 18,
-                              color: visual.accent,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: PlannerPalette.textPrimary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${formatTime(item.range.startUtc)}–${formatTime(item.range.endUtc)} · ${item.categoryLabel}',
-                                    style: const TextStyle(
-                                      color: PlannerPalette.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // 「已完成」标记。任务：所属任务已勾选完成；固定日程：结束时间已过。
-                            // 用 muted 而不是分类色：它不是分类信息，只是状态，不该跟分类抢注意力。
-                            if (item.isCompleted) ...[
-                              const SizedBox(width: 8),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
                               Icon(
-                                Icons.check_circle_outline,
-                                key: ValueKey(
-                                  'today-schedule-completed-${item.id}',
-                                ),
-                                size: 16,
-                                color: PlannerPalette.textMuted,
+                                item.kind.icon,
+                                key: ValueKey('today-schedule-icon-${item.id}'),
+                                size: 18,
+                                color: visual.accent,
                               ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: PlannerPalette.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${formatTime(item.range.startUtc)}–${formatTime(item.range.endUtc)} · ${item.categoryLabel}',
+                                      style: const TextStyle(
+                                        color: PlannerPalette.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // 「已完成」标记。任务：所属任务已勾选完成；固定日程：结束时间已过。
+                              // 用 muted 而不是分类色：它不是分类信息，只是状态，不该跟分类抢注意力。
+                              if (item.isCompleted) ...[
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.check_circle_outline,
+                                  key: ValueKey(
+                                    'today-schedule-completed-${item.id}',
+                                  ),
+                                  size: 16,
+                                  color: PlannerPalette.textMuted,
+                                ),
+                              ],
+                              // M4（路线图 §8）：卡片上的执行动作。
+                              ..._actions(context),
                             ],
-                            // M4（路线图 §8）：卡片上的执行动作。
-                            ..._actions(context),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -598,9 +620,16 @@ final class _TimelineItem extends StatelessWidget {
     }
 
     // 菜单：详情／跳过本次／延后／请求调整／锁定。没有任何可用项时连按钮都不出现。
+    //
+    // M1（§3.2）：入口文案由 `scheduleItemOpenLabel` 按事项类型给出——任务是「查看详情」、
+    // 固定日程是「查看当天」、保护时间是「查看保护规则」。文案与"点了去哪"（路由里的
+    // `resolveScheduleItemOpenTarget`）成对存在，**不由这一页各自判断**，免得两处漂移。
+    // 没有合法目标（生活块、缺 taskId 的任务块、id 拆不出事件 id 的固定日程）时它是 `null`，
+    // 于是这一项**不渲染**——这正是 §3.2 的"不显示死入口"。
+    final openLabel = onOpenDetail == null ? null : scheduleItemOpenLabel(item);
     final menuItems = <PopupMenuEntry<String>>[
-      if (onOpenDetail != null)
-        const PopupMenuItem(value: 'detail', child: Text('查看详情')),
+      if (openLabel != null)
+        PopupMenuItem(value: 'detail', child: Text(openLabel)),
       // 「跳过本次」（2026-10-07 用户定义）：只放弃这一个块，任务继续参与重排。
       // 只对**任务块**出现——固定日程与保护时间没有"要不要做"这回事。
       if (_isTask && onSkipCurrent != null)

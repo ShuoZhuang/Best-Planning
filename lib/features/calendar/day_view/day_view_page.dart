@@ -29,6 +29,7 @@ final class DayViewPage extends StatelessWidget {
     this.onReplaceSeries,
     this.onSetEventArea,
     this.loadAreaOptions,
+    this.highlightEventId,
     super.key,
   });
 
@@ -104,6 +105,16 @@ final class DayViewPage extends StatelessWidget {
   /// 可选领域清单（供"调整归属"对话框使用）。为空时不显示该入口。
   final Future<List<ScheduleAreaOption>> Function()? loadAreaOptions;
 
+  /// 要**定位**的那一条固定日程的领域事件 id（M1，路线图 §3.2）。
+  ///
+  /// §3.2 要求"固定日程进入对应日期的日视图，**并定位该日程**；若定位暂时做不到，
+  /// 至少进入正确日期"。路由因此把 [DayOpenTarget.eventId] 作为 `?event=` 传下来，
+  /// 这一页据此把那一条**标记出来**——用户从今日页点了一条 8:00 的课，落到日视图时
+  /// 那一条会被高亮，而不是让他在十几条里自己找。
+  ///
+  /// 为空时（从周视图、或手工输入 URL 进来）页面与从前完全一样。
+  final String? highlightEventId;
+
   @override
   Widget build(BuildContext context) => StreamBuilder<List<ScheduleViewItem>>(
     stream: source.watch(dayStartUtc, dayStartUtc.add(const Duration(days: 1))),
@@ -163,75 +174,98 @@ final class DayViewPage extends StatelessWidget {
                     // 提升为局部变量：公开字段不会被 Dart 提升为不可空，直接判空过不了类型检查。
                     final setArea = onSetEventArea;
                     final loadOptions = loadAreaOptions;
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: _DayItemTile(
-                            item: item,
-                            start: zones.toLocal(
-                              item.range.startUtc,
-                              timeZoneId,
+                    // M1（§3.2）的"定位该日程"：从今日页点进来的那一条会被标记出来。
+                    // 判定用**领域事件 id**（`fixedEventId`）而不是条目 id——路由传下来的是
+                    // 领域 id，条目 id 带着 `fixed:` 命名空间，直接比会永远不相等。
+                    final isHighlighted =
+                        highlightEventId != null && eventId == highlightEventId;
+                    return Container(
+                      key: isHighlighted
+                          ? const Key('day-highlighted-item')
+                          : null,
+                      // 用**描边**而不是底色：这一页的卡片底色已经承载了分类信息
+                      // （领域色/保护色），改底色会让"被定位的那一条"看起来像换了分类。
+                      decoration: isHighlighted
+                          ? BoxDecoration(
+                              border: Border.all(
+                                color: PlannerPalette.accent,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            )
+                          : null,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _DayItemTile(
+                              item: item,
+                              start: zones.toLocal(
+                                item.range.startUtc,
+                                timeZoneId,
+                              ),
+                              end: zones.toLocal(item.range.endUtc, timeZoneId),
                             ),
-                            end: zones.toLocal(item.range.endUtc, timeZoneId),
                           ),
-                        ),
-                        // 两个图标位**对每个条目都在**，只是不可用时变暗且点不动。
-                        //
-                        // 为什么不做成"不可用就不显示"：那样只有固定日程带图标，其余卡片
-                        // 右边空着，同一列里宽窄参差（用户报的就是这个）。图标位的宽度
-                        // 因此必须与可用性无关。
-                        if (onDeleteEvent != null)
-                          IconButton(
-                            key: Key('delete-${item.id}'),
-                            tooltip: eventId == null ? '只有固定日程可以删除' : '删除这条日程',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: eventId == null
-                                ? null
-                                : () => _confirmDelete(
-                                    context,
-                                    item,
-                                    eventId: eventId,
-                                    onDeleteEvent: onDeleteEvent,
-                                    onDeleteOccurrence: onDeleteOccurrence,
-                                    onDeleteFollowing: onDeleteFollowing,
-                                  ),
-                          ),
-                        if (setArea != null && loadOptions != null)
-                          IconButton(
-                            key: Key('area-${item.id}'),
-                            tooltip: eventId == null
-                                ? '只有固定日程可以调整归属'
-                                : '调整所属领域',
-                            icon: const Icon(Icons.folder_outlined),
-                            onPressed: eventId == null
-                                ? null
-                                : () => _chooseArea(
-                                    context,
-                                    item,
-                                    eventId: eventId,
-                                    onSetEventArea: setArea,
-                                    loadAreaOptions: loadOptions,
-                                  ),
-                          ),
-                        if (onReplaceOccurrence != null)
-                          IconButton(
-                            key: Key('edit-${item.id}'),
-                            tooltip: eventId == null ? '只有固定日程可以改写' : '改这一次',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: eventId == null
-                                ? null
-                                : () => _editOccurrence(
-                                    context,
-                                    item,
-                                    eventId: eventId,
-                                    onReplaceOccurrence: onReplaceOccurrence,
-                                    onReplaceFollowing: onReplaceFollowing,
-                                    onReplaceSeries: onReplaceSeries,
-                                    zones: zones,
-                                    timeZoneId: timeZoneId,
-                                  ),
-                          ),
-                      ],
+                          // 两个图标位**对每个条目都在**，只是不可用时变暗且点不动。
+                          //
+                          // 为什么不做成"不可用就不显示"：那样只有固定日程带图标，其余卡片
+                          // 右边空着，同一列里宽窄参差（用户报的就是这个）。图标位的宽度
+                          // 因此必须与可用性无关。
+                          if (onDeleteEvent != null)
+                            IconButton(
+                              key: Key('delete-${item.id}'),
+                              tooltip: eventId == null
+                                  ? '只有固定日程可以删除'
+                                  : '删除这条日程',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: eventId == null
+                                  ? null
+                                  : () => _confirmDelete(
+                                      context,
+                                      item,
+                                      eventId: eventId,
+                                      onDeleteEvent: onDeleteEvent,
+                                      onDeleteOccurrence: onDeleteOccurrence,
+                                      onDeleteFollowing: onDeleteFollowing,
+                                    ),
+                            ),
+                          if (setArea != null && loadOptions != null)
+                            IconButton(
+                              key: Key('area-${item.id}'),
+                              tooltip: eventId == null
+                                  ? '只有固定日程可以调整归属'
+                                  : '调整所属领域',
+                              icon: const Icon(Icons.folder_outlined),
+                              onPressed: eventId == null
+                                  ? null
+                                  : () => _chooseArea(
+                                      context,
+                                      item,
+                                      eventId: eventId,
+                                      onSetEventArea: setArea,
+                                      loadAreaOptions: loadOptions,
+                                    ),
+                            ),
+                          if (onReplaceOccurrence != null)
+                            IconButton(
+                              key: Key('edit-${item.id}'),
+                              tooltip: eventId == null ? '只有固定日程可以改写' : '改这一次',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: eventId == null
+                                  ? null
+                                  : () => _editOccurrence(
+                                      context,
+                                      item,
+                                      eventId: eventId,
+                                      onReplaceOccurrence: onReplaceOccurrence,
+                                      onReplaceFollowing: onReplaceFollowing,
+                                      onReplaceSeries: onReplaceSeries,
+                                      zones: zones,
+                                      timeZoneId: timeZoneId,
+                                    ),
+                            ),
+                        ],
+                      ),
                     );
                   },
                 ),

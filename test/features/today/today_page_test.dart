@@ -158,6 +158,55 @@ void main() {
     expect(find.byKey(const Key('today-more-block:current')), findsOneWidget);
   });
 
+  // ── M1 §3.2 详情导航：点卡片主体、菜单文案按事项类型 ──────────────────────────
+
+  testWidgets('M1 点卡片主体就打开详情（不是只有菜单里能进）', (tester) async {
+    final counters = await pumpActions(
+      tester,
+      withStartFocus: false,
+      withComplete: false,
+    );
+
+    await tester.tap(find.byKey(const Key('today-schedule-card-block:later')));
+    await tester.pumpAndSettle();
+
+    expect(counters.detail, 1, reason: '§3.2："点击卡片主体打开详情"——此前只有菜单里能进详情');
+  });
+
+  testWidgets('M1 任务卡片的菜单写「查看详情」', (tester) async {
+    await pumpActions(tester, withStartFocus: false, withComplete: false);
+
+    await tester.tap(find.byKey(const Key('today-more-block:later')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('查看详情'), findsOneWidget);
+    expect(find.text('查看当天'), findsNothing, reason: '任务不该被送进日视图');
+    expect(find.text('查看保护规则'), findsNothing);
+  });
+
+  testWidgets('M1 固定日程的菜单写「查看当天」（它没有独立详情页）', (tester) async {
+    await pumpActions(tester);
+
+    await tester.tap(find.byKey(const Key('today-more-fixed:lecture')));
+    await tester.pumpAndSettle();
+
+    // §3.2 的文案规则：固定日程进入对应日期的日视图，
+    // 因此这里写"查看当天"比"查看详情"诚实——它确实没有详情页。
+    expect(find.text('查看当天'), findsOneWidget);
+    expect(find.text('查看详情'), findsNothing);
+  });
+
+  testWidgets('M1 点固定日程卡片主体也能打开（今天这一页的固定日程同样不该是死入口）', (tester) async {
+    final counters = await pumpActions(tester);
+
+    await tester.tap(
+      find.byKey(const Key('today-schedule-card-fixed:lecture')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(counters.detail, 1);
+  });
+
   // ── 「跳过本次」（2026-10-07 用户定义）────────────────────────────────────────
 
   testWidgets('M4「跳过本次」在任务块的菜单里，点了把那一块交回端口', (tester) async {
