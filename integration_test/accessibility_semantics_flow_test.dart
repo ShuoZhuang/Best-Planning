@@ -125,7 +125,11 @@ void main() {
 
     // ④ 页面标题与新建入口也在（说明这一层确实拿到了界面的语义，而不是空树）。
     expect(labels, contains('任务清单'));
-    expect(labels, contains('新建任务'));
+    // **这里原先断言的是「新建任务」**。Task 7 把入口文案改成了「新建」——同一个入口现在还能建
+    // 周期目标，继续写"新建任务"会让用户以为只能建任务（`task_list_page.dart` 第 147 行的注释
+    // 记了这次改名）。因此更新的是**断言**，不是行为：按钮的 key（`new-task`）没变，
+    // 变的只是给用户看的字。
+    expect(labels, contains('新建'));
   });
 
   testWidgets('真实应用里，任务卡片的详情入口带任务名', (tester) async {
