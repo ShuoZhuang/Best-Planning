@@ -20,6 +20,7 @@ final class SchedulableTask {
     this.preferredWindow,
     this.allowedWeekdaysMask = allWeekdaysMask,
     this.maxMinutesPerLocalDay,
+    this.distributionPolicy = TaskDistributionPolicy.unconstrained,
   });
 
   final String id;
@@ -56,10 +57,30 @@ final class SchedulableTask {
   /// 而不是"单个片段多长"。
   final int? maxMinutesPerLocalDay;
 
+  /// 该任务在日期之间如何分配分钟；见 [TaskDistributionPolicy]。
+  ///
+  /// 默认 [TaskDistributionPolicy.unconstrained]，因此既有调用点无需改动，
+  /// 而"周期目标的均匀分布"必须**显式**声明，不再依赖 `maxMinutesPerLocalDay` 是否为空。
+  final TaskDistributionPolicy distributionPolicy;
+
   /// 该掩码是否允许某个本地星期（`DateTime.monday` … `DateTime.sunday`）。
   bool allowsWeekday(int weekday) =>
       allowedWeekdaysMask & (1 << (weekday - DateTime.monday)) != 0;
 }
+
+/// 任务在**日期之间**如何分配分钟。
+///
+/// 这是 1.7.1 新增的**明确策略标记**（计划 Task 3 Step 4）。它替换掉此前用
+/// `maxMinutesPerLocalDay != null` 暗示"这是周期均分任务"的隐式做法——那是两个不同的概念：
+///
+/// - [unconstrained]：普通任务。引擎按优先级、截止、精力与容量自行决定落在哪些天。
+/// - [even]：周期目标的"均匀分布"。先由容量感知的均分器算出**每天的分钟预算**，
+///   日内选点才交给评分（计划 §3.2）。
+///
+/// 之所以要把两者分开：`maxMinutesPerLocalDay` 表达的是"这一天最多多少"，而"均匀分布"
+/// 表达的是"每天**应当**多少、余数落在哪两天"。修复前引擎把它们混成一个会被全局放开的
+/// 单日软配额，于是同一天可以被堆到 125 分钟（计划 §2.1）。
+enum TaskDistributionPolicy { unconstrained, even }
 
 /// 全部七天都允许的掩码（周一 bit 0 … 周日 bit 6）。
 const int allWeekdaysMask = 0x7F;
