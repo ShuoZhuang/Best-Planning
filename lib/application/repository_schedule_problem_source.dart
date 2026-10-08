@@ -273,6 +273,23 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   /// - 没有实例的模板跳过（还没到开始日／已归档）；
   /// - 暂停期内的跳过（§3.3：暂停期间不生成，自然也不安排）；
   /// - 剩余为 0 的跳过（已达标）：继续送进去会让引擎为一件已经做完的事占位。
+  ///
+  /// ## 为什么读之前要先补生成（用户 2026-10-08 实测报告）
+  ///
+  /// 用户报告："保存周期任务后重新规划，计划里不显示它。"
+  ///
+  /// 根因是**生成只在启动时跑过一次**（`main.dart` 里那个 `unawaited(ensureCycles)`），
+  /// 而这里原先只**读**实例、读到 `null` 就 `continue`。于是**会话中途**新建的周期目标当周
+  /// 没有任何实例，被静默跳过，计划里自然不出现——用户必须重启程序才能看到它，而界面上
+  /// 没有任何提示说"重启一下"。这属于"操作完成了但结果要重启才生效"，是最难自查的一类缺陷。
+  ///
+  /// 修法不是"创建模板时立刻生成实例"——`recurring_task_service.dart` 的注释明确说明生成是
+  /// 一条**独立且幂等**的路径，刻意不在创建时发生（模板可以先建、下周一才生效）。因此正确
+  /// 的处置是**让读路径自己补齐**：在读取之前，先把与排程同形的窗口生成出来。
+  ///
+  /// **这是安全的，因为生成是幂等的**：`(模板, 周)` 是联合主键，重复调用只会回读先到的那一行。
+  /// 代价是每次 `load()` 多一次"这一周有没有实例"的检查——相对一次排程可以忽略，
+  /// 而换来的是"任何时刻生成计划都能看到刚建的周期目标"。
   Future<List<RecurringScheduleInput>> _recurringInputs(DateTime nowUtc) async {
     final service = recurring;
     if (service == null) return const [];
@@ -280,6 +297,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       includeArchived: false,
     );
     if (templates.isEmpty) return const [];
+    // 与排程窗口同形的滚动七天：跨周不重启也会在下次生成计划时补齐。
+    // 结算排在生成之前（`ensureCycles` 内部保证顺序），因此结转读得到上一周的真实状态。
+    await service.ensureCycles(
+      TimeRange(startUtc: nowUtc, endUtc: nowUtc.add(const Duration(days: 7))),
+      nowUtc,
+    );
     final period = service.periodContaining(nowUtc);
     final inputs = <RecurringScheduleInput>[];
     for (final template in templates) {
