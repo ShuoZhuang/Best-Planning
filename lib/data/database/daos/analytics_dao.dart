@@ -48,7 +48,16 @@ final class AnalyticsDao implements AnalyticsDataSource {
       events: events,
       areas: [
         for (final row in areaRows)
-          AnalyticsAreaFact(id: row.id, name: row.name, isLife: row.isLife),
+          AnalyticsAreaFact(
+            id: row.id,
+            name: row.name,
+            isLife: row.isLife,
+            // M7（§11）：把颜色与排序位带进统计数据集，好让「领域占比」用**同一个**
+            // `resolveAreaColorArgb` 取色，而不是按下标另编一套（那会让同一领域在
+            // 统计页与今日页、日历页显示成不同颜色）。
+            storedColorArgb: row.color,
+            sortOrder: row.sortOrder,
+          ),
       ],
     );
   }

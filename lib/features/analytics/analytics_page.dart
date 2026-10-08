@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/feedback_service.dart';
+import 'package:personal_planner/core/area_palette.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/area_period_matrix.dart';
@@ -275,15 +276,14 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
       saveText: '应用',
     );
     if (selected == null) return;
-    _setRange(
-      _localMidnight(
-        DateTime(selected.start.year, selected.start.month, selected.start.day),
-      ),
-      // 用户选的末日**含当天**，因此终点取次日零点。
-      _localMidnight(
-        DateTime(selected.end.year, selected.end.month, selected.end.day + 1),
-      ),
+    // 换算抽成纯函数（`analyticsRangeForSelectedDays`）：这样才能对**跨月、跨年、
+    // 单日**这些边界直接写测试，而不必每次去驱动日期选择器。
+    final range = analyticsRangeForSelectedDays(
+      selected,
+      zones: widget.zones,
+      timeZoneId: widget.timeZoneId,
     );
+    _setRange(range.startUtc, range.endUtc);
   }
 
   void _setRange(DateTime start, DateTime end) {
@@ -341,6 +341,13 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                 const SizedBox(height: 18),
                 _RangeControls(
                   filter: _filter,
+                  // **以区间为唯一真相反推高亮**：见 `_rangeKindFor` 的说明。
+                  selected: _rangeKindFor(
+                    _filter,
+                    zones: widget.zones,
+                    timeZoneId: widget.timeZoneId,
+                    nowUtc: widget.nowUtc,
+                  ),
                   onToday: _selectToday,
                   onWeek: _selectWeek,
                   onMonth: _selectMonth,
@@ -365,7 +372,11 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
                     color: Theme.of(context).colorScheme.errorContainer,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text('统计加载失败：$_error'),
+                      // 加载失败要**被播报**（M2 §6：错误不能只靠视觉表达）。
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text('统计加载失败：$_error'),
+                      ),
                     ),
                   ),
                 ],
@@ -420,6 +431,40 @@ final class _AnalyticsPageState extends State<AnalyticsPage> {
         ),
       ),
     ),
+  );
+}
+
+/// 把用户在选择器里选中的**日期范围**换算成统计用的 UTC 窗口。
+///
+/// **核心口径：末日含当天。** `showDateRangePicker` 交回的是一个"用户眼里的日期区间"，
+/// 而 `AnalyticsFilter`（以及底下所有查询）用的是**半开区间** `[startUtc, endUtc)`。
+/// 因此终点必须取"末日次日零点"——少这一天，用户选了 10 月 1 日到 10 月 7 日却看不到 7 号，
+/// 而且**不会报错**，只是每个数字都偏小一点（这类"静默少算一天"最难发现）。
+///
+/// **按日历加减天数，不用 `add(Duration(days: 1))`**：后者是绝对时间加法，夏令时切换日的
+/// 本地一天不是 24 小时，加 24 小时会落回当天 23:00、日期不变。本仓库在保护时间展开器上
+/// 吃过同一处亏（§13.0 的 C11）。
+///
+/// **抽成顶层的纯函数**（而不是留在 State 里）是为了能对跨月、跨年、闰年二月、单日这些边界
+/// 直接写测试，不必每次去驱动日期选择器。顺带也说明了一件事：我第一版把它插在了 State 的
+/// 方法之间，于是它成了**类的方法**、测试里根本找不到——如果只跑集成路径就发现不了。
+({DateTime startUtc, DateTime endUtc}) analyticsRangeForSelectedDays(
+  DateTimeRange selected, {
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+}) {
+  DateTime midnightOf(DateTime date) => zones.localMidnightToUtc(
+    DateTime(date.year, date.month, date.day),
+    timeZoneId,
+  );
+
+  final start = selected.start;
+  final end = selected.end;
+  return (
+    startUtc: midnightOf(start),
+    // 「次日零点」由日历加法得出：`DateTime(y, m, d + 1)` 会自动进位到下个月/下一年，
+    // 因此跨月、跨年、闰年二月都不需要特判。
+    endUtc: midnightOf(DateTime(end.year, end.month, end.day + 1)),
   );
 }
 
@@ -489,9 +534,59 @@ final class _TagFilter extends StatelessWidget {
   }
 }
 
+/// 统计范围的四种预设（M9 收口后修）。
+///
+/// **修的是什么**：四个按钮里「自定义范围」写死成 `FilledButton.tonal`，另外三个是
+/// `OutlinedButton`——于是**无论当前范围是什么，「自定义范围」永远是高亮的那一个**。
+/// 用户的原话是"时间范围应该选哪个亮哪个，现在是自定义范围常亮，会影响使用"：
+/// 他选了「本周」，界面上却是「自定义范围」亮着，看不出自己当前看的是哪一段。
+///
+/// 修法：**由 `filter` 反推当前选中哪一个**（见 [_rangeKindFor]），再据此决定样式。
+enum _RangeKind { today, week, month, custom }
+
+/// 从当前筛选区间反推它属于哪个预设。
+///
+/// **为什么反推而不是记一个 `_selectedKind` 字段**：区间是可以被别处改掉的
+/// （`_setRange` 由四个入口共用，将来还可能从路由参数进来），记一个字段就得在每个入口
+/// 手动同步，漏一处就会出现"按钮亮着但范围不是它"。**以区间为唯一真相**，
+/// 高亮永远和实际查询的那段一致，不可能漂移。
+///
+/// **比较的是瞬时而不是日期**：四个预设都由同一套 `localMidnightToUtc` 算出来，
+/// 因此同一段区间必然逐微秒相等。用日期比较反而会在夏令时切换日误判。
+_RangeKind _rangeKindFor(
+  AnalyticsFilter filter, {
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+  required DateTime nowUtc,
+}) {
+  final local = zones.toLocal(nowUtc, timeZoneId);
+  final today = DateTime(local.year, local.month, local.day);
+  DateTime midnight(DateTime date) =>
+      zones.localMidnightToUtc(date, timeZoneId);
+  // 按日历加减天数：绝对时间加法在夏令时切换日会退回当天 23:00，日期不变。
+  DateTime addDays(DateTime date, int days) =>
+      DateTime(date.year, date.month, date.day + days);
+
+  bool matches(DateTime startLocal, DateTime endLocal) =>
+      filter.startUtc == midnight(startLocal) &&
+      filter.endUtc == midnight(endLocal);
+
+  if (matches(today, addDays(today, 1))) return _RangeKind.today;
+  final monday = addDays(today, -(today.weekday - 1));
+  if (matches(monday, addDays(monday, 7))) return _RangeKind.week;
+  if (matches(
+    DateTime(today.year, today.month),
+    DateTime(today.year, today.month + 1),
+  )) {
+    return _RangeKind.month;
+  }
+  return _RangeKind.custom;
+}
+
 final class _RangeControls extends StatelessWidget {
   const _RangeControls({
     required this.filter,
+    required this.selected,
     required this.onToday,
     required this.onWeek,
     required this.onMonth,
@@ -499,10 +594,23 @@ final class _RangeControls extends StatelessWidget {
   });
 
   final AnalyticsFilter filter;
+
+  /// 当前区间属于哪个预设（由 [_rangeKindFor] 算出）。
+  final _RangeKind selected;
+
   final VoidCallback onToday;
   final VoidCallback onWeek;
   final VoidCallback onMonth;
   final VoidCallback onCustom;
+
+  /// 一个范围按钮。**选中的那个是实心（`FilledButton.tonal`），其余是描边**
+  /// ——"选哪个亮哪个"。`key` 由 kind 派生，与既有测试用的 key 完全一致。
+  Widget _rangeButton(_RangeKind kind, String label, VoidCallback onPressed) {
+    final key = Key('analytics-range-${kind.name}');
+    return selected == kind
+        ? FilledButton.tonal(key: key, onPressed: onPressed, child: Text(label))
+        : OutlinedButton(key: key, onPressed: onPressed, child: Text(label));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -535,26 +643,16 @@ final class _RangeControls extends StatelessWidget {
             //    的第 ⑮ 条里。
             // **四个按钮都要有 key**：新增的「领域时间分配」矩阵表头里也有"上周／本周／本月"
             // 这几个字，按文本查找会命中多个控件——测试点不动，也不再唯一。
-            OutlinedButton(
-              key: const Key('analytics-range-today'),
-              onPressed: onToday,
-              child: const Text('今天'),
-            ),
-            OutlinedButton(
-              key: const Key('analytics-range-week'),
-              onPressed: onWeek,
-              child: const Text('本周'),
-            ),
-            OutlinedButton(
-              key: const Key('analytics-range-month'),
-              onPressed: onMonth,
-              child: const Text('本月'),
-            ),
-            FilledButton.tonal(
-              key: const Key('analytics-range-custom'),
-              onPressed: onCustom,
-              child: const Text('自定义范围'),
-            ),
+            //
+            // **样式随 `selected` 变**（M9 收口后修）：选中的那个用 `FilledButton.tonal`，
+            // 其余用 `OutlinedButton`。此前「自定义范围」写死成实心，于是它永远亮着。
+            for (final (kind, label, onPressed) in [
+              (_RangeKind.today, '今天', onToday),
+              (_RangeKind.week, '本周', onWeek),
+              (_RangeKind.month, '本月', onMonth),
+              (_RangeKind.custom, '自定义范围', onCustom),
+            ])
+              _rangeButton(kind, label, onPressed),
             Text(
               '${format.format(filter.startUtc)} — '
               '${format.format(inclusiveEnd)}',
@@ -599,11 +697,22 @@ final class _AreaShareSection extends StatelessWidget {
         kind: kind,
         emptyLabel: '所选范围里还没有已确认的计划块或固定日程。',
         data: [
-          for (var index = 0; index < distribution.length; index++)
+          // M7（§11 退出条件："同一领域在今日、日历、统计三个页面显示同一个 ARGB 值"）。
+          //
+          // **这里曾经用的是 `chartColorAt(index)`**——按下标从一套自带的 `chartPalette`
+          // 里取色，于是同一个领域在统计页是"第 3 个颜色"、在今日页和日历页是它自己的领域色，
+          // 两处对不上。§11 明确写着"图表不得重新分配颜色"。
+          //
+          // 现在用 `resolveAreaColorArgb`——与今日页、日历页、领域管理页**同一个解析器**：
+          // 用户选过颜色就用它，没选过就按 `sortOrder` 从调色板取默认色。因此"统计页的颜色"
+          // 与别处的颜色在**定义上**就是同一个函数，不可能漂移。
+          for (final item in distribution)
             ChartDatum(
-              label: distribution[index].label,
-              value: distribution[index].totalMinutes,
-              color: chartColorAt(index),
+              label: item.label,
+              value: item.totalMinutes,
+              color: Color(
+                resolveAreaColorArgb(item.storedColorArgb, item.sortOrder),
+              ),
             ),
         ],
       ),
@@ -908,6 +1017,11 @@ final class _RoutineCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final startSpread = routine.startSpreadMinutes ?? 0;
     final endSpread = routine.endSpreadMinutes ?? 0;
+    // **一天的范围内不画这张图**：作息规律度量的是"一天与另一天的差别"，范围里只有一天时
+    // 两个极差恒等于 0，图上就只剩一根柱子、横轴重复同一个日期。2026-10-07 用户报的
+    // "横轴日期都是 10/7"正是这个——默认范围就是「今天」，而那天恰好只有 1 天有安排。
+    // 一根柱子既看不出规律，又容易被读成"数据坏了"，因此改为说明原因并给出出路。
+    final enoughDays = routine.perDay.length >= 2;
     return _SectionCard(
       cardKey: const Key('analytics-routine'),
       slot: AnalyticsChartSlot.routine,
@@ -918,24 +1032,26 @@ final class _RoutineCard extends StatelessWidget {
           '开工相差 ${_minutes(startSpread)}，收工相差 ${_minutes(endSpread)}；'
           '平均 ${_clockText(routine.averageStartMinute)} 开工、'
           '${_clockText(routine.averageEndMinute)} 收工',
-      chart: AnalyticsChart(
-        kind: kind,
-        emptyLabel: '这个范围里还没有任何安排。',
-        data: [
-          for (var index = 0; index < routine.perDay.length; index++)
-            ChartDatum(
-              label:
-                  '${routine.perDay[index].localDate.month}/'
-                  '${routine.perDay[index].localDate.day}',
-              // 用**每天安排的跨度**当数值：它同时反映"多早开工"和"多晚收工"，
-              // 比单独画开工时刻更能看出"这一天被拉得多长"。
-              value:
-                  routine.perDay[index].lastMinute -
-                  routine.perDay[index].firstMinute,
-              color: chartColorAt(index),
-            ),
-        ],
-      ),
+      chart: enoughDays
+          ? AnalyticsChart(
+              kind: kind,
+              emptyLabel: '这个范围里还没有任何安排。',
+              data: [
+                for (var index = 0; index < routine.perDay.length; index++)
+                  ChartDatum(
+                    label:
+                        '${routine.perDay[index].localDate.month}/'
+                        '${routine.perDay[index].localDate.day}',
+                    // 用**每天安排的跨度**当数值：它同时反映"多早开工"和"多晚收工"，
+                    // 比单独画开工时刻更能看出"这一天被拉得多长"。
+                    value:
+                        routine.perDay[index].lastMinute -
+                        routine.perDay[index].firstMinute,
+                    color: chartColorAt(index),
+                  ),
+              ],
+            )
+          : _notEnoughDays(),
       footnote: routine.perDay
           .map(
             (day) =>
@@ -945,6 +1061,24 @@ final class _RoutineCard extends StatelessWidget {
           .join('\n'),
     );
   }
+
+  /// 范围里只有一天有安排时的替代内容。
+  ///
+  /// 高度与 [AnalyticsChart] 的默认高度对齐，避免切换范围时卡片高度跳一下。
+  Widget _notEnoughDays() => SizedBox(
+    height: 200,
+    child: Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(
+          '这个范围里只有 1 天有安排，看不出作息规律。\n'
+          '把时间范围切到「本周」或「本月」，有两天以上才比较得出来。',
+          textAlign: TextAlign.center,
+          style: const TextStyle(height: 1.5),
+        ),
+      ),
+    ),
+  );
 }
 
 /// 统一的"标题 + 图型选择 + 图 + 脚注"卡片，避免每张各写一遍同样的骨架。

@@ -56,20 +56,83 @@ final class AnalyticsChart extends StatelessWidget {
         child: Center(child: Text(emptyLabel)),
       );
     }
-    return SizedBox(
-      height: height,
-      child: switch (kind) {
-        ChartKind.pie => _pie(context, visible),
-        ChartKind.bar => _bar(context, visible),
-        ChartKind.horizontalBar => _horizontalBar(context, visible),
-        ChartKind.line => _line(context, visible),
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: height,
+          child: switch (kind) {
+            ChartKind.pie => _pie(context, visible),
+            ChartKind.bar => _bar(context, visible),
+            ChartKind.horizontalBar => _horizontalBar(context, visible),
+            ChartKind.line => _line(context, visible),
+          },
+        ),
+        // M7（§11）：**可读的明细替代**。
+        //
+        // 饼图与折线图在画布上画不出可读的分类文字（见 `_pie` 的说明），柱状图的横轴标签
+        // 还会因为太长被截断。因此统一在图下方给一行"颜色块 + 名称 + 数值"——
+        // 名称与数值都是**正常表面上的文字**（4.5:1 可达），而且让"哪一块是什么"不再
+        // 只靠颜色区分。横向条形图本身已经逐行写了名称与数值，不再重复。
+        if (kind != ChartKind.horizontalBar) _chartLegend(context, visible),
+      ],
     );
   }
+
+  /// 图例：每个数据点一行「色块 + 名称 + 数值」。
+  Widget _chartLegend(BuildContext context, List<ChartDatum> data) => Padding(
+    padding: const EdgeInsets.only(top: 10),
+    child: Wrap(
+      spacing: 14,
+      runSpacing: 6,
+      children: [
+        for (var index = 0; index < data.length; index++)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                key: ValueKey('chart-legend-swatch-${data[index].label}'),
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  // 图形色只用来标识"哪一块"，文字信息在右边。
+                  color: _colorOf(data, index),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${data[index].label} ${data[index].value}',
+                key: ValueKey('chart-legend-label-${data[index].label}'),
+                // 用正文色：它落在正常表面上，与 M2 的正文对比度判据一致。
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+      ],
+    ),
+  );
 
   Color _colorOf(List<ChartDatum> data, int index) =>
       data[index].color ?? chartColorAt(index);
 
+  /// 饼图。
+  ///
+  /// **切片上刻意不写文字**（M7，§11："图表颜色、图例、Tooltip 和表格明细不能只靠颜色区分"）。
+  ///
+  /// 原来的做法是把**白色标签直接画在切片上**，而按 WCAG 相对亮度实测，同一张饼的八种颜色里
+  /// 只有三种能到 4.5:1（`#E39035` 上只有 2.53:1），「领域占比」用的领域调色板更糟
+  /// （`#f2b35d` 上只有 **1.85:1**）。**改成深色也不成立**——逐色试过，
+  /// `#3567D4` 上深色 4.04、`#8B5CC7` 上 4.45，仍不达标。
+  /// 也就是说：**没有一个固定前景色能适配这八种切片色**，这不是调色能修的。
+  ///
+  /// 因此把名称与数值移到**图例**（见 `_chartLegend`）：文字回到正常表面上，
+  /// 4.5:1 可达；同时图例让"哪一块是什么"有了文字依据，不再只靠颜色。
+  ///
+  /// **一个容易误判的点**：整页的 `textContrastGuideline` 检查**看不见**切片里的字——
+  /// fl_chart 把它画在 `CustomPaint` 的画布上，而那条规则遍历的是语义树上的文字控件。
+  /// 所以"整页通过对比度检查"并不等于"图里的字看得清"。这也正是这条退出条件要单独做的原因。
   Widget _pie(BuildContext context, List<ChartDatum> data) => PieChart(
     PieChartData(
       centerSpaceRadius: 34,
@@ -78,14 +141,10 @@ final class AnalyticsChart extends StatelessWidget {
         for (var index = 0; index < data.length; index++)
           PieChartSectionData(
             value: data[index].value.toDouble(),
-            title: data[index].label,
+            // **空的标题**：见上面的说明，切片上不写字。
+            title: '',
             radius: 58,
             color: _colorOf(data, index),
-            titleStyle: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-            ),
           ),
       ],
     ),

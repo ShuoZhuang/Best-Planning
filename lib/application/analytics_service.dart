@@ -102,6 +102,11 @@ final class AnalyticsService implements AnalyticsQuery {
       actualByEntry,
       dataset.fixedEvents,
       filter,
+      // M7（§11："图表不得重新分配颜色"）：把领域上存储的颜色与排序位一起带进去，
+      // 好让「领域占比」用**同一个** `resolveAreaColorArgb` 取色。
+      // 此前统计页按下标另编了一套 `chartPalette`，于是同一领域在统计页与今日页、
+      // 日历页显示成**不同颜色**——那正是这条退出条件禁止的。
+      dataset.areas,
     );
     final trend = _trend(planned, actualByEntry, filter);
     final lifeTaskIds = tasks
@@ -303,7 +308,10 @@ List<DomainTimeMetric> _domainDistribution(
   Map<AnalyticsActualFact, int> actual,
   List<AnalyticsFixedFact> fixed,
   AnalyticsFilter filter,
+  List<AnalyticsAreaFact> areas,
 ) {
+  // 领域的颜色与排序位来自数据集里的领域事实（与今日页、日历页同源）。
+  final areaById = {for (final area in areas) area.id: area};
   final values = <String, _MutableDomain>{};
   _MutableDomain domainFor(String taskId) {
     final task = taskById[taskId]!;
@@ -345,6 +353,9 @@ List<DomainTimeMetric> _domainDistribution(
           plannedMinutes: item.planned,
           actualMinutes: item.actual,
           fixedMinutes: item.fixed,
+          // 颜色来自领域事实；`未分类`（没有领域 id）没有对应领域，保持 0 由界面取中性色。
+          storedColorArgb: areaById[item.id]?.storedColorArgb ?? 0,
+          sortOrder: areaById[item.id]?.sortOrder ?? 0,
         ),
       )
       .toList();

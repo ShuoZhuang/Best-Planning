@@ -65,6 +65,8 @@ final class DomainTimeMetric {
     required this.plannedMinutes,
     required this.actualMinutes,
     this.fixedMinutes = 0,
+    this.storedColorArgb = 0,
+    this.sortOrder = 0,
   });
 
   final String id;
@@ -83,6 +85,11 @@ final class DomainTimeMetric {
   final int fixedMinutes;
 
   final int actualMinutes;
+
+  /// 领域上存储的颜色与排序位（见 [AnalyticsAreaFact] 的说明）。
+  /// 统计页的「领域占比」用它取色，**不再按下标另编一套**（§11："图表不得重新分配颜色"）。
+  final int storedColorArgb;
+  final int sortOrder;
 
   /// 该领域的**总占用时间**：计划块 + 固定日程。
   ///
@@ -226,11 +233,24 @@ final class AnalyticsAreaFact {
     required this.id,
     required this.name,
     required this.isLife,
+    this.storedColorArgb = 0,
+    this.sortOrder = 0,
   });
 
   final String id;
   final String name;
   final bool isLife;
+
+  /// 领域上**存储的**颜色（0 表示"用户没选过颜色"）。
+  ///
+  /// **为什么不在这里就解析成最终 ARGB**：解析规则属于表示层（见
+  /// `lib/core/area_palette.dart` 的 `resolveAreaColorArgb`），领域模型不该知道调色板。
+  /// 这里原样带出来，由界面用**同一个**解析器算——这样"统计页的颜色"与"今日页、日历页的颜色"
+  /// 在定义上就是同一个函数，不可能漂移。
+  final int storedColorArgb;
+
+  /// 排序位：`storedColorArgb == 0` 时按它从调色板取默认色（与其它页面同一规则）。
+  final int sortOrder;
 }
 
 /// **休息时长本身**：每类保护窗口在范围内有多少时间，其中被安排占用多少。

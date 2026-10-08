@@ -21,7 +21,7 @@ final class _Query implements AnalyticsQuery {
   Future<AnalyticsReport> query(AnalyticsFilter filter) async => report;
 }
 
-AnalyticsReport _report() => AnalyticsReport(
+AnalyticsReport _report({RoutineMetric? routine}) => AnalyticsReport(
   filter: AnalyticsFilter(
     startUtc: DateTime.utc(2026, 10, 4, 16),
     endUtc: DateTime.utc(2026, 10, 11, 16),
@@ -75,20 +75,22 @@ AnalyticsReport _report() => AnalyticsReport(
     restMinutes: 3300,
     idleMinutes: 6120,
   ),
-  routine: RoutineMetric(
-    perDay: [
-      DailyRoutineMetric(
-        localDate: DateTime.utc(2026, 10, 5),
-        firstMinute: 480,
-        lastMinute: 1240,
+  routine:
+      routine ??
+      RoutineMetric(
+        perDay: [
+          DailyRoutineMetric(
+            localDate: DateTime.utc(2026, 10, 5),
+            firstMinute: 480,
+            lastMinute: 1240,
+          ),
+          DailyRoutineMetric(
+            localDate: DateTime.utc(2026, 10, 6),
+            firstMinute: 540,
+            lastMinute: 1300,
+          ),
+        ],
       ),
-      DailyRoutineMetric(
-        localDate: DateTime.utc(2026, 10, 6),
-        firstMinute: 540,
-        lastMinute: 1300,
-      ),
-    ],
-  ),
   areaCoverage: const AreaCoverageMetric(
     covered: ['学业'],
     uncovered: ['科研', '竞赛', '工作'],
@@ -104,6 +106,7 @@ Future<void> _pump(
   WidgetTester tester, {
   Map<AnalyticsChartSlot, ChartKind>? initial,
   _Recorder? recorder,
+  RoutineMetric? routine,
 }) async {
   tester.view.physicalSize = const Size(1400, 3200);
   tester.view.devicePixelRatio = 1;
@@ -112,7 +115,7 @@ Future<void> _pump(
   await tester.pumpWidget(
     MaterialApp(
       home: AnalyticsPage(
-        analytics: _Query(_report()),
+        analytics: _Query(_report(routine: routine)),
         nowUtc: DateTime.utc(2026, 10, 8, 8),
         zones: TimeZoneDatabase(),
         timeZoneId: 'Asia/Shanghai',
@@ -222,6 +225,61 @@ void main() {
     expect(find.byKey(const Key('analytics-routine')), findsOneWidget);
     expect(find.textContaining('开工相差 1 小时'), findsOneWidget);
     expect(find.textContaining('08:00–20:40'), findsOneWidget);
+  });
+
+  testWidgets('作息规律性范围内只有一天时，说明原因而不是画一根柱子', (tester) async {
+    await _pump(
+      tester,
+      routine: RoutineMetric(
+        perDay: [
+          DailyRoutineMetric(
+            localDate: DateTime.utc(2026, 10, 7),
+            firstMinute: 600,
+            lastMinute: 1200,
+          ),
+        ],
+      ),
+    );
+
+    // 卡片仍在（它属于"休息"一节，不该整块消失），摘要也照实说"相差 0 分钟"。
+    expect(find.byKey(const Key('analytics-routine')), findsOneWidget);
+    expect(find.textContaining('开工相差 0 分钟'), findsOneWidget);
+
+    // **但不再画那根 10/7**：一天之内的"作息规律"恒为 0，画出来只会让图上重复出现同一个日期，
+    // 让人以为数据坏了（这正是用户 2026-10-07 报的那个现象）。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('analytics-routine')),
+        matching: find.byType(AnalyticsChart),
+      ),
+      findsNothing,
+    );
+    expect(find.textContaining('只有 1 天有安排'), findsOneWidget);
+    // 提示要给出可执行的出路，而不是只说"数据不足"。**限定在这张卡里**：
+    // "本周"在范围按钮和领域矩阵表头上也出现，满页找会命中一堆无关控件。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('analytics-routine')),
+        matching: find.textContaining('把时间范围切到「本周」或「本月」'),
+      ),
+      findsOneWidget,
+    );
+
+    // 脚注里那一天的明细仍然保留——用户要核对"那天到底排了什么"时还得看得见。
+    expect(find.textContaining('10/7 10:00–20:00'), findsOneWidget);
+  });
+
+  testWidgets('作息规律性有两天以上时照常画图', (tester) async {
+    await _pump(tester);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('analytics-routine')),
+        matching: find.byType(AnalyticsChart),
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('只有 1 天有安排'), findsNothing);
   });
 
   testWidgets('领域覆盖缺口点名零占用的领域', (tester) async {
