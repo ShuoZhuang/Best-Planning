@@ -89,7 +89,24 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
     final nowUtc = clock.nowUtc();
     final startLocalDate = _dateOnly(zones.toLocal(nowUtc, timeZoneId));
-    final startUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
+    // ── 窗口起点是"现在"，不是当天本地午夜（路线图 Task 12A Step 5）──────────────
+    //
+    // 引擎判断"现在"用的就是 `planningWindow.startUtc`（`_targetFor` 里
+    // `nowUtc: problem.planningWindow.startUtc`）。此前这里取的是本地午夜，等于告诉引擎
+    // "现在是凌晨 0 点"——它因此可以合法地把新块排进**今天已经过去**的时段。用户看到的现象是：
+    // 下午 15:30 生成计划，日程里冒出 09:00–10:00 这种已经过去的块，而"可用时间"里还把这几个小时
+    // 算成能用的容量，缺口报告也跟着失真。
+    //
+    // 向上取整到排程粒度（`scheduleGranularityMinutes`）而不是直接用 `nowUtc`：引擎只在粒度网格上
+    // 放置片段，起点若落在网格之外，第一个合法起点会被引擎自己上取整，反而让"不得早于现在"
+    // 这件事在两个地方各算一遍。这里取整一次，网格与下界就只有一个来源。
+    //
+    // 终点**不变**：仍是"本地日边界 + [days] 天"。因此"未来七天"的长度语义没有被改动，
+    // 变的只是不再回望过去。
+    final dayStartUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
+    final startUtc = _ceilToGranularity(
+      nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
+    );
     final endUtc = zones.localMidnightToUtc(
       startLocalDate.add(Duration(days: days)),
       timeZoneId,
@@ -101,7 +118,15 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     );
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
-    final occurrences = await calendar.occurrencesBetween(startUtc, endUtc);
+    // **固定日程从当天本地午夜开始读，而不是从窗口起点（现在）开始读。**
+    //
+    // 窗口起点改成"现在"之后，一个**今天已经结束**的日程（例如 00:00–10:00 的课，而现在 10:00）
+    // 就不再与窗口相交，于是被整段丢掉。那会让"窗口内的事实"少一条：同一天里已经发生过的固定
+    // 日程不再计入当天占用与容量判断，而这与"不要把新块排到过去"是两件事——前者是**事实**，
+    // 后者是**放置约束**。
+    //
+    // 因此读事实用完整的当天起点（`dayStartUtc`），放置下界仍由窗口起点表达。
+    final occurrences = await calendar.occurrencesBetween(dayStartUtc, endUtc);
     final confirmed = await plans.current();
 
     final schedulable = <SchedulableTask>[
@@ -468,3 +493,19 @@ TimeRange? _sameLocalClockOn(
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+/// 把 [instantUtc] 向上取整到排程粒度。
+///
+/// **向上而不是就近**：起点代表"不得早于现在"。就近取整会把一个 10:03 的时刻变成 10:05
+/// （可以）但也可能变成 10:00（不可以——那又把 3 分钟过去时段放回了窗口）。
+///
+/// 粒度默认 5 分钟，与 `CandidateGenerator.granularityMinutes` 的默认值一致；引擎只在那个
+/// 网格上放置片段，因此起点也必须落在同一个网格上。刻意**不**从引擎读这个值：那会把
+/// "排程粒度"变成 `ScheduleProblem` 的一部分，而这只是窗口起点的一个取整约定。
+DateTime _ceilToGranularity(DateTime instantUtc, {int granularityMinutes = 5}) {
+  assert(granularityMinutes > 0);
+  final step = Duration(minutes: granularityMinutes).inMicroseconds;
+  final micros = instantUtc.toUtc().microsecondsSinceEpoch;
+  final rounded = ((micros + step - 1) ~/ step) * step;
+  return DateTime.fromMicrosecondsSinceEpoch(rounded, isUtc: true);
+}

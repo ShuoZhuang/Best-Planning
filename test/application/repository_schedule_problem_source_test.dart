@@ -84,11 +84,28 @@ void main() {
     expect(work.tasks.single.isLifeTask, isFalse);
   });
 
-  test('按本机时区计算未来七天的规划窗口', () async {
+  test('规划窗口从"现在"开始，而不是当天本地午夜（Task 12A Step 5）', () async {
     final problem = await source().load();
 
-    // 东八区 2026-10-05 00:00 == 2026-10-04 16:00Z。
-    expect(problem.planningWindow.startUtc, DateTime.utc(2026, 10, 4, 16));
+    // **这条断言原先写的是本地午夜**（`DateTime.utc(2026, 10, 4, 16)`，即东八区 10-05 00:00），
+    // 也就是把行为**当成了**规格。但引擎判断"现在"用的就是 `planningWindow.startUtc`
+    // （`_targetFor` 里 `nowUtc: problem.planningWindow.startUtc`），于是窗口从午夜开始就等于
+    // 告诉引擎"现在是凌晨 0 点"——它完全可以合法地把新块排进**今天已经过去**的时段。
+    // 用户看到的后果是：下午 15:30 生成计划，日程里冒出 09:00–10:00 这种已经过去的块。
+    //
+    // 现在起于时钟时刻（本例东八区 10-05 10:00），终点仍按本地日边界对齐，
+    // 因此"未来七天"的长度语义不变，变的只是不再回望过去。
+    expect(
+      problem.planningWindow.startUtc,
+      DateTime.utc(2026, 10, 5, 2),
+      reason: '窗口起点必须等于时钟的"现在"，否则引擎会以为现在是午夜',
+    );
+    expect(
+      problem.planningWindow.startUtc.isAfter(DateTime.utc(2026, 10, 4, 16)),
+      isTrue,
+      reason: '起点不得早于"现在"，也就是不得回望当天已经过去的时段',
+    );
+    // 终点保持在"本地日边界 + 七天"：从 10-05 00:00 起算的第 7 天结束。
     expect(problem.planningWindow.endUtc, DateTime.utc(2026, 10, 11, 16));
     expect(problem.timeZoneId, zoneId);
     expect(problem.inputHash, isNotEmpty);
