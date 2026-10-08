@@ -260,18 +260,41 @@ final class TimetableImportController extends ChangeNotifier {
       errorMessage = switch (error.code) {
         TimetableOcrFailureCode.languageUnavailable =>
           '本机未安装简体中文 OCR，你仍可以保留这张图并手动录入。',
-        TimetableOcrFailureCode.imageTooLarge => '图片尺寸过大，请裁剪后重试。',
+        TimetableOcrFailureCode.imageTooLarge =>
+          '「${_fileName(path)}」尺寸过大，请裁剪后重试，或换一张更小的图（支持 PNG、JPG、JPEG）。',
         TimetableOcrFailureCode.decodeFailed =>
-          '无法读取这张图片。请确认文件没有被移动或删除，也可以重新选择 PNG 或 JPG。',
+          '无法读取「${_fileName(path)}」。请确认文件没有被移动或删除，'
+              '或换一张图（支持 PNG、JPG、JPEG）。',
         TimetableOcrFailureCode.platformUnavailable => '当前设备不支持本地课表识别。',
         TimetableOcrFailureCode.recognitionFailed => '课表识别失败，可以重试或手动录入。',
       };
     } catch (_) {
-      errorMessage = '课表识别失败，图片仍已保留，可以重试或手动录入。';
+      // **吞掉原始异常，给一句人话**（§10 退出条件："图片读取失败不再暴露
+      // `PathAccessException` 等原始异常"）。底层读取失败会以各种运行时异常形式冒出来
+      // （`PathAccessException`、`FileSystemException`、平台通道错误……），
+      // 它们的类型名与 `OS Error 5` 之类的文本对用户毫无意义，还会把路径带出去。
+      errorMessage =
+          '无法读取「${_fileName(path)}」。请确认文件没有被移动或删除，'
+          '或换一张图（支持 PNG、JPG、JPEG）。';
     } finally {
       recognizing = false;
       notifyListeners();
     }
+  }
+
+  /// 从路径里取出**文件名**（不含目录）。
+  ///
+  /// **为什么只给文件名**：§10 一边要求"显示文件名"，一边要求"图片原件不写入数据库、
+  /// 不上传"。把 `C:\Users\someone\Documents\...` 这串目录摆在界面上没有必要，
+  /// 而且截图或录屏时会跟着外泄用户的目录结构。
+  ///
+  /// 同时兼容 Windows 的 `\` 与 POSIX 的 `/`：这个应用的图片路径来自平台选择器，
+  /// 在测试里两种都可能出现。
+  static String _fileName(String path) {
+    final normalized = path.replaceAll(r'\', '/');
+    final index = normalized.lastIndexOf('/');
+    final name = index == -1 ? normalized : normalized.substring(index + 1);
+    return name.isEmpty ? path : name;
   }
 
   void rotateLeft() {

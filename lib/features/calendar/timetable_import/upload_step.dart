@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 
 final class TimetableUploadStep extends StatelessWidget {
@@ -147,6 +148,27 @@ final class TimetableUploadStep extends StatelessWidget {
         if (controller.errorMessage != null) ...[
           const SizedBox(height: 16),
           _InlineMessage(message: controller.errorMessage!),
+          // M6（§10「错误恢复」）：**与图片有关的失败**要能"就地换图"。
+          //
+          // 为什么是在这里而不是只靠上方那个通用选择按钮：§10 要求"图片读取失败时能换图"。
+          // 用户读完失败原因之后，下一步动作必须在**同一处**，否则他还要回头去找按钮。
+          //
+          // 为什么只对这两种失败显示：换一张图**解决不了**"本机没装中文 OCR"或
+          // "设备不支持本地识别"——给了反而把用户引到错的方向。
+          if (controller.ocrFailureCode ==
+                  TimetableOcrFailureCode.decodeFailed ||
+              controller.ocrFailureCode ==
+                  TimetableOcrFailureCode.imageTooLarge) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('timetable-change-image'),
+              onPressed: controller.recognizing
+                  ? null
+                  : () => controller.pickAndRecognize(),
+              icon: const Icon(Icons.image_outlined),
+              label: const Text('更换图片'),
+            ),
+          ],
         ],
         if (controller.ocrFailureCode != null || controller.draft == null) ...[
           const SizedBox(height: 16),

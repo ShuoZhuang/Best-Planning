@@ -55,10 +55,160 @@ void main() {
 
     await controller.pickAndRecognize();
 
-    expect(
-      controller.errorMessage,
-      '无法读取这张图片。请确认文件没有被移动或删除，也可以重新选择 PNG 或 JPG。',
+    expect(controller.errorMessage, contains('schedule.jpg'));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // M6（路线图 §10「错误恢复」）解码失败要能自查。
+  // 规格：`docs/superpowers/specs/2026-10-07-m6-timetable-import-reliability.md`
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  test('M6 解码失败的消息同时给出**文件名**与**支持的格式**', () async {
+    // §10：「无法解码图片时显示文件名、支持格式和'更换图片'，不得只显示系统异常文本」。
+    final controller = _controller(
+      ocr: const _FailingOcr(TimetableOcrFailureCode.decodeFailed),
+      picker: const _Picker(r'F:\downloads\我的课表.png'),
     );
+    await controller.initialize();
+    await controller.pickAndRecognize();
+
+    final message = controller.errorMessage!;
+    expect(message, contains('我的课表.png'), reason: '要写出是哪个文件读不了');
+    for (final format in const ['PNG', 'JPG', 'JPEG']) {
+      expect(message, contains(format), reason: '要写清支持哪些格式，用户才知道该换什么');
+    }
+  });
+
+  test('M6 解码失败的消息**不暴露目录路径**，只给文件名', () async {
+    // 只取文件名而不是完整路径有两个理由：
+    // ① §10 同时要求"图片原件不写入数据库、不上传"，把完整路径摆在界面上没有必要；
+    // ② 那是用户机器上的目录结构，截图或录屏时会跟着外泄。
+    final controller = _controller(
+      ocr: const _FailingOcr(TimetableOcrFailureCode.decodeFailed),
+      picker: const _Picker(r'F:\downloads\私密目录\我的课表.png'),
+    );
+    await controller.initialize();
+    await controller.pickAndRecognize();
+
+    final message = controller.errorMessage!;
+    expect(message, contains('我的课表.png'));
+    expect(
+      message,
+      isNot(contains(r'F:\downloads')),
+      reason: '不该把用户机器上的完整目录摆到界面上，实际=$message',
+    );
+    expect(message, isNot(contains('私密目录')), reason: '父目录名也不该出现');
+  });
+
+  test('M6 图片过大时也给出文件名与"更换图片"的指引', () async {
+    final controller = _controller(
+      ocr: const _FailingOcr(TimetableOcrFailureCode.imageTooLarge),
+      picker: const _Picker(r'G:\screens\big.png'),
+    );
+    await controller.initialize();
+    await controller.pickAndRecognize();
+
+    expect(controller.errorMessage, contains('big.png'));
+  });
+
+  test('M6 原始异常文本不得出现在提示里（§10 最后一条退出条件）', () async {
+    // 这条对应 §10 退出条件："图片读取失败不再暴露 PathAccessException 等原始异常"。
+    // 用一个**带路径、且异常文本很长**的异常来模拟底层读取失败，
+    // 断言界面上看不到异常类型名，也看不到那串路径。
+    final controller = _controller(
+      ocr: const _ThrowingOcr(
+        r'PathAccessException: Cannot open file, path = '
+        r"'C:\Users\someone\Documents\课表.png' (OS Error: 拒绝访问。, errno = 5)",
+      ),
+      picker: const _Picker(r'C:\Users\someone\Documents\课表.png'),
+    );
+    await controller.initialize();
+    await controller.pickAndRecognize();
+
+    final message = controller.errorMessage!;
+    expect(
+      message,
+      isNot(contains('PathAccessException')),
+      reason: '对用户来说异常类名毫无意义，不该出现在界面上。实际=$message',
+    );
+    expect(
+      message,
+      isNot(contains('OS Error')),
+      reason: '系统错误码同样不该直接抛给用户。实际=$message',
+    );
+    expect(message, contains('课表.png'), reason: '但要告诉他是哪个文件');
+  });
+
+  testWidgets('M6 与图片有关的失败处**就地**给出「更换图片」', (tester) async {
+    // §10：「图片读取失败时能换图、旋转、裁剪、重试或手动继续」。
+    // 动作必须与解释在**同一处**，否则用户读完原因还要回头找按钮。
+    final picker = _CountingPicker(r'G:\screens\broken.png');
+    final controller = _controller(
+      ocr: const _FailingOcr(TimetableOcrFailureCode.decodeFailed),
+      picker: picker,
+    );
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: TimetableImportPage(
+          controller: controller,
+          onCancel: () {},
+          onCompleted: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick-timetable-image')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('timetable-change-image')),
+      findsOneWidget,
+      reason: '解码失败时必须就地能换图',
+    );
+    // 手动录入也必须还在（§10："不能把用户困在上传步骤"）。
+    expect(find.byKey(const Key('manual-timetable-entry')), findsOneWidget);
+
+    final before = picker.calls;
+    // **先滚到它**：失败提示在页面下方，800×760 的默认视口里"更换图片"落在视口外，
+    // 直接 `tap` 会静默打空（只留一句 "would not hit test" 警告），
+    // 断言就会报"calls 没变"——看起来像功能坏了，其实是没点到。
+    await tester.ensureVisible(find.byKey(const Key('timetable-change-image')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('timetable-change-image')));
+    await tester.pumpAndSettle();
+    expect(picker.calls, greaterThan(before), reason: '点"更换图片"要真的再去选一次图');
+  });
+
+  testWidgets('M6 与图片**无关**的失败不给「更换图片」', (tester) async {
+    // 缺 OCR 语言、设备不支持 OCR 这些换图解决不了，给了反而把用户引到错的方向。
+    final controller = _controller(
+      ocr: const _FailingOcr(TimetableOcrFailureCode.languageUnavailable),
+      picker: const _Picker(r'G:\screens\schedule.png'),
+    );
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: TimetableImportPage(
+          controller: controller,
+          onCancel: () {},
+          onCompleted: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pick-timetable-image')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('timetable-change-image')),
+      findsNothing,
+      reason: '换一张图解决不了"本机没装中文 OCR"',
+    );
+    // 但手动录入仍要可用。
+    expect(find.byKey(const Key('manual-timetable-entry')), findsOneWidget);
   });
 
   testWidgets('后退步骤保留已编辑的课程', (tester) async {
@@ -223,6 +373,30 @@ final class _Picker implements TimetableImagePicker {
   final String? path;
   @override
   Future<String?> pickImage() async => path;
+}
+
+/// 记账用的选择器：用来证明"更换图片"真的又去选了一次。
+final class _CountingPicker implements TimetableImagePicker {
+  _CountingPicker(this.path);
+  final String? path;
+  int calls = 0;
+  @override
+  Future<String?> pickImage() async {
+    calls++;
+    return path;
+  }
+}
+
+/// 抛出一个**不是** `TimetableOcrException` 的底层异常。
+///
+/// 用来钉住 §10 的退出条件"不再暴露 `PathAccessException` 等原始异常"：
+/// 真实的读取失败会从引擎里以各种运行时异常形式冒出来，而界面**只能**给出人话。
+final class _ThrowingOcr implements TimetableOcrEngine {
+  const _ThrowingOcr(this.message);
+  final String message;
+  @override
+  Future<OcrDocument> recognize(OcrImageRequest request) async =>
+      throw StateError(message);
 }
 
 final class _FailingOcr implements TimetableOcrEngine {
