@@ -309,6 +309,29 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     )..where((row) => row.id.equals(cycle.taskId))).go();
   });
 
+  @override
+  Future<void> deleteTemplate({required String templateId}) =>
+      _database.transaction(() async {
+        // 先取出这个模板的**全部**周期，逐周复用 `deleteCycleAndTask` 的清理顺序：
+        // 专注记录 → 修正记录 → 周期 → 任务。顺序在外键上是有要求的
+        // （`time_entries.task_id → tasks.id`），复用同一段逻辑可以保证两处不漂移。
+        final cycles = await _dao.listCyclesForTemplate(templateId);
+        for (final cycle in cycles) {
+          await deleteCycleAndTask(
+            templateId: templateId,
+            periodStartLocalDate: parseLocalDate(cycle.periodStartLocalDate),
+          );
+        }
+        // 兜底：**没有任何周期的模板也要能删掉**——用户刚建完、还没到开始日就删，
+        // 正是这种形状。少了这一步，界面上会表现为"删除无效"。
+        await (_database.delete(
+          _database.recurringTaskCycles,
+        )..where((row) => row.templateId.equals(templateId))).go();
+        await (_database.delete(
+          _database.recurringTaskTemplates,
+        )..where((row) => row.id.equals(templateId))).go();
+      });
+
   db.RecurringTaskTemplatesCompanion _templateToRow(
     RecurringTaskTemplate template,
   ) => db.RecurringTaskTemplatesCompanion(

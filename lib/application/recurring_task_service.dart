@@ -291,6 +291,20 @@ final class RecurringTaskService {
     return updated;
   }
 
+  /// 删除一个周期目标（连同它的全部周期实例与本周记录，以及历史周次）。
+  ///
+  /// 与 [stopGenerating] 的分工要写清楚，因为两者在界面上都像"不要了"：
+  /// - [stopGenerating] 是**归档**："以后都不做了"，已生成的周期与它们的任务**原样保留**，
+  ///   统计里仍然看得到历史。
+  /// - 本方法是**删除**：模板、全部周期、以及那些周期对应的普通任务（连带专注记录与修正记录）
+  ///   一起清掉，不可撤销。
+  ///
+  /// 用户点的是"删除这个周期目标"，对话框里也明确写了"历史周次也会消失，且无法撤销"——
+  /// 因此这里必须真的删干净。**把归档当删除用**会让界面的承诺与事实不符，而用户以为数据没了、
+  /// 其实还在统计里；反过来把删除当归档用，则永久丢掉他以为已经丢掉的东西。
+  Future<void> deleteTemplate(String templateId) =>
+      _repository.deleteTemplate(templateId: templateId);
+
   /// 恢复生成（取消归档）。
   Future<RecurringTaskTemplate> resumeGenerating(String templateId) async {
     final template = await _requireTemplate(templateId);

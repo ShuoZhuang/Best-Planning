@@ -571,4 +571,141 @@ void main() {
       );
     });
   });
+
+  // 用户 2026-10-08 报告："为什么周期目标我点击删除这个周期目标无效啊"
+  //
+  // 根因不是界面：`router.dart` 的 `onDelete` 只写了 `context.go('/tasks')`——**只导航、不删除**。
+  // 而服务层与仓储层**根本没有删除模板的能力**（仓储只有 `deleteCycleAndTask`，删一周）。
+  // 也就是说那个按钮是个**渲染了却没有动作的死入口**。
+  //
+  // 下面钉住"真的删干净"这件事，以及它与"归档"的分工。
+  group('删除周期目标（用户 2026-10-08）', () {
+    test('删掉模板：模板、全部周期、以及它们的普通任务一起消失', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      // 再补一次生成，让第二周也有实例。
+      await ensure(wednesday.add(const Duration(days: 7)));
+
+      final before = await repository.listCyclesForTemplate('template-1');
+      expect(before, isNotEmpty, reason: '前置条件：先生成出周期实例');
+      final taskIds = before.map((cycle) => cycle.taskId).toList();
+      for (final taskId in taskIds) {
+        expect(
+          await database.taskDao.findById(taskId),
+          isNotNull,
+          reason: '前置条件：周期对应的普通任务存在',
+        );
+      }
+
+      await service.deleteTemplate('template-1');
+
+      expect(
+        await repository.findTemplate('template-1'),
+        isNull,
+        reason: '模板必须真的没了；此前"删除"只做了导航，什么都没删',
+      );
+      expect(await repository.listCyclesForTemplate('template-1'), isEmpty);
+      for (final taskId in taskIds) {
+        expect(
+          await database.taskDao.findById(taskId),
+          isNull,
+          reason: '周期对应的普通任务也要删（否则任务列表里会留下一堆孤儿待办）',
+        );
+      }
+    });
+
+    test('**连专注记录一起删**：外键不允许留下孤儿行', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      // `ensure()` 会同时生成本周与下周，因此这里有**两个**周期——取本周那一个。
+      // （第一版写 `.single`，当场被 "Too many elements" 抓住。）
+      final cycle = (await repository.listCyclesForTemplate('template-1'))
+          .firstWhere((item) => item.periodStartLocalDate == weekStart);
+      await service.recordManualMinutes('template-1', weekStart, 30);
+      // 用仓储自己的汇总，而不是裸 SQL：这样断言的是"用户可见的分钟数归零"，
+      // 而不是某个表的行数——后者会在实现换表时安静地变成另一件事。
+      expect(
+        await repository.recordedMinutesForTask(
+          cycle.taskId,
+          weekStart,
+          nextWeekStart,
+        ),
+        greaterThan(0),
+        reason: '前置条件：有专注记录',
+      );
+
+      await service.deleteTemplate('template-1');
+
+      expect(
+        await repository.recordedMinutesForTask(
+          cycle.taskId,
+          weekStart,
+          nextWeekStart,
+        ),
+        0,
+        reason: '留下孤儿行会让外键检查失败，且那些分钟会被统计读到',
+      );
+    });
+
+    test('**还没生成任何周期也要能删**（刚建完就改主意）', () async {
+      await repository.saveTemplate(template());
+
+      await service.deleteTemplate('template-1');
+
+      expect(
+        await repository.findTemplate('template-1'),
+        isNull,
+        reason:
+            '刚建完、还没到开始日就删，正是这种形状；'
+            '少了这条兜底，界面上会表现为"删除无效"',
+      );
+    });
+
+    test('删一个不影响另一个（只删这个模板的东西）', () async {
+      await repository.saveTemplate(template(id: 'a', title: '每周英语'));
+      await repository.saveTemplate(template(id: 'b', title: '每周跑步'));
+      await ensure();
+      final bCycles = await repository.listCyclesForTemplate('b');
+      expect(bCycles, isNotEmpty);
+
+      await service.deleteTemplate('a');
+
+      expect(await repository.findTemplate('a'), isNull);
+      expect(await repository.findTemplate('b'), isNotNull, reason: 'b 不该被牵连');
+      expect(
+        await repository.listCyclesForTemplate('b'),
+        hasLength(bCycles.length),
+      );
+      expect(await database.taskDao.findById(bCycles.first.taskId), isNotNull);
+    });
+
+    test('删一个不存在的模板不抛（重复点击/已删除）', () async {
+      await expectLater(
+        service.deleteTemplate('never-existed'),
+        completes,
+        reason: '用户连点两次、或另一个页面刚删过，都不该让界面报错',
+      );
+    });
+
+    test('**删除与归档是两件事**：归档保留周期与任务，删除清掉它们', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      final cycles = await repository.listCyclesForTemplate('template-1');
+      final taskId = cycles.first.taskId;
+
+      await service.stopGenerating('template-1');
+
+      expect(
+        await repository.listCyclesForTemplate('template-1'),
+        isNotEmpty,
+        reason: '归档是"以后都不做了"，已生成的周期与任务原样保留，统计里仍看得到历史',
+      );
+      expect(await database.taskDao.findById(taskId), isNotNull);
+
+      await service.deleteTemplate('template-1');
+
+      expect(await repository.findTemplate('template-1'), isNull);
+      expect(await database.taskDao.findById(taskId), isNull);
+    });
+  });
 }

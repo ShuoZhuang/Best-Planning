@@ -118,4 +118,20 @@ abstract interface class RecurringTaskRepository {
     required EntityId templateId,
     required DateTime periodStartLocalDate,
   });
+
+  /// 删除一个周期目标模板，连同它的**全部**周期实例与那些实例对应的普通任务。
+  ///
+  /// 与 [deleteCycleAndTask] 的区别是范围：那个删一周，这个删整个目标。用户看到的措辞是
+  /// "删除这个周期目标"并且对话框明确写了"模板与本周的记录会一起删除，历史周次也会消失，
+  /// 这一步无法撤销"——因此这里必须真的把历史一起清掉，否则界面的承诺与事实不符。
+  ///
+  /// **必须在一个事务里按依赖顺序清干净**，与 [deleteCycleAndTask] 同样的理由：
+  /// `time_entries.task_id → tasks.id` 的外键不允许留下孤儿行，而"只删一半"会留下
+  /// 一批再也访问不到、却仍占着空间并可能被统计读到的记录。
+  ///
+  /// 顺序：专注记录 → 任务与修正记录 → 周期 → 模板。前两步复用 [deleteCycleAndTask]
+  /// 的清理逻辑，避免同一件事写两遍（两处各写一遍迟早会在外键顺序上漂移）。
+  ///
+  /// **只删这个模板的东西**：`time_entries` 与 `task_corrections` 里其它任务的行不能碰。
+  Future<void> deleteTemplate({required EntityId templateId});
 }

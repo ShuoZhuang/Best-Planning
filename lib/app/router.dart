@@ -187,7 +187,18 @@ Widget _recurringDetailRoute(
   // 任务详情的按钮，等于给了一个名不副实的入口。页面在端口为空时不渲染它。
   onStartFocus: null,
   onEdit: (template) => context.go('/tasks/recurring/${template.id}/edit'),
-  onDelete: (template) => context.go('/tasks'),
+  // 「删除这个周期目标」**必须真的删**（用户 2026-10-08 报告："点击删除这个周期目标无效"）。
+  //
+  // 此前这里只写了 `context.go('/tasks')`——只导航、不删除。于是用户点删除、确认、页面退回
+  // 任务页，而周期目标还在列表里。**渲染了入口却没有动作**比没有入口更糟：用户会以为程序坏了，
+  // 或者更糟——以为数据已经删掉而其实还在。
+  //
+  // 顺序是"**先删再导航**"，且导航放在删除之后：反过来会先离开页面，而删除还没发生，
+  // 用户看到的是"回到列表、东西还在"。
+  onDelete: (template) async {
+    await service.deleteTemplate(template.id);
+    if (context.mounted) context.go('/tasks');
+  },
 );
 
 /// 处理一条容量缺口（M6，路线图 §3.4）。
