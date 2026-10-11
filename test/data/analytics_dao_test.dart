@@ -217,6 +217,47 @@ void main() {
     ], reason: '保护时间不得进入 fixedEvents（它不算固定日程投入）');
   });
 
+  test('自定义保护时间进入 protectedInstances，带精确 UTC 区间与用户标题', () async {
+    // 规范 §9.1 的最后一条：保护时间**仍然出现在保护时间那一节**。
+    // 把它排除出"固定日程投入"不等于把它藏起来——用户建它就是为了看到"这段时间被保护了"，
+    // 而"休息保护情况"与"休息总结"两节的分子分母都读这一份数据。
+    //
+    // **为什么必须是精确 UTC 区间而不是"本地分钟窗"**：`AnalyticsProtectedWindow` 表达的是
+    // "每天 12:00–13:00 都是保护时间"。一条只覆盖某一天的一次性保护若被投影成"每天
+    // 14:00–15:00"，统计里会凭空多出六天的保护时间——数字错了，而且错的方向恰好是
+    // "看起来休息得更多"，最不容易被发现。
+    await database
+        .into(database.calendarEvents)
+        .insert(
+          CalendarEventsCompanion.insert(
+            id: 'event-protected-only',
+            title: '每周二下午不排事',
+            startAtUtc: start
+                .add(const Duration(hours: 4))
+                .microsecondsSinceEpoch,
+            endAtUtc: start
+                .add(const Duration(hours: 6))
+                .microsecondsSinceEpoch,
+            timeZoneId: 'Asia/Shanghai',
+            kind: const Value('protected'),
+            updatedAtUtc: 1,
+          ),
+        );
+
+    final dataset = await dao.load(filterWith(const {}));
+
+    expect(dataset.protectedInstances, hasLength(1));
+    final instance = dataset.protectedInstances.single;
+    expect(instance.label, '每周二下午不排事', reason: '用用户给的标题，而不是另编一个"自定义保护"');
+    expect(instance.startUtc, start.add(const Duration(hours: 4)));
+    expect(instance.endUtc, start.add(const Duration(hours: 6)));
+    expect(
+      dataset.fixedEvents,
+      isEmpty,
+      reason: '同一条记录不能既进固定日程投入、又进保护时间（两份互为补集）',
+    );
+  });
+
   test('固定日程的时长按领域计入，读来源是日程本身而不是任务表', () async {
     // 课表不挂在任何任务上：它必须靠自己的 areaId 归集，否则"有课表但没建任务"的领域
     // 在占比里恒为 0。

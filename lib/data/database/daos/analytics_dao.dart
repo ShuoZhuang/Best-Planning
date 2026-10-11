@@ -41,6 +41,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
       weeklyLifeQuotaMinutes: await _weeklyLifeQuota(),
       energyWindows: await _energyWindows(),
       protectedWindows: await _protectedWindows(),
+      protectedInstances: await _protectedInstances(filter),
       relaxedLocalDates: await _relaxedLocalDates(),
       tasks: tasks,
       plannedBlocks: planned,
@@ -105,6 +106,31 @@ final class AnalyticsDao implements AnalyticsDataSource {
           startUtc: occurrence.range.startUtc,
           endUtc: occurrence.range.endUtc,
         ),
+    ];
+  }
+
+  /// 用户自己建的**一次性或按周重复**保护时间（1.8.0，规范 §9.1）。
+  ///
+  /// **只收 `kind == protected` 的 occurrence**：与 `_fixedEvents` 是同一次
+  /// `occurrencesBetween` 的互补两份，因此同一条记录不可能既算固定日程投入、又算保护时间。
+  /// 展开（含按周重复与例外）全部由仓储侧的既有展开器完成，这里不认识重复规则。
+  Future<List<AnalyticsProtectedInstance>> _protectedInstances(
+    AnalyticsFilter filter,
+  ) async {
+    final occurrences = await calendar.occurrencesBetween(
+      filter.startUtc,
+      filter.endUtc,
+    );
+    return [
+      for (final occurrence in occurrences)
+        if (occurrence.kind == CalendarEventKind.protected)
+          AnalyticsProtectedInstance(
+            // **带上用户的标题**：用户给这一段起过名字（默认是"保护时间"），
+            // 统计里用 `occurrence.title` 比另编一个"自定义保护"更贴合他的认知。
+            label: occurrence.title,
+            startUtc: occurrence.range.startUtc,
+            endUtc: occurrence.range.endUtc,
+          ),
     ];
   }
 

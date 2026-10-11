@@ -223,6 +223,26 @@ final class AnalyticsProtectedWindow {
   final bool? isWeekend;
 }
 
+/// 一条**一次性**的保护时间实例（1.8.0，规范 §9.1 最后一条）。
+///
+/// **为什么与 [AnalyticsProtectedWindow] 分开，而不是把一次性事件也投影成"本地分钟窗"**：
+/// 那个模型表达的是"每天 12:00–13:00 都是保护时间"，而用户自己建的保护时间可能只覆盖
+/// **某一天**。把一条 10-14 的一次性保护投影成"每天 14:00–15:00"，统计里就会凭空多出
+/// 六天的保护时间——数字错了，而错的方向恰好是"看起来休息得更多"，最不容易被发现。
+///
+/// 因此这一类直接带**精确的 UTC 区间**，与数据库里的存储口径一致。
+final class AnalyticsProtectedInstance {
+  const AnalyticsProtectedInstance({
+    required this.label,
+    required this.startUtc,
+    required this.endUtc,
+  });
+
+  final String label;
+  final DateTime startUtc;
+  final DateTime endUtc;
+}
+
 /// 一个领域在统计里的事实：名字与"是否计入个人生活时间"。
 ///
 /// **为什么数据集要带全部领域**：用户要看的「领域覆盖缺口」问的是"哪些领域我根本没排"，
@@ -616,6 +636,7 @@ final class AnalyticsDataset {
     required this.weeklyLifeQuotaMinutes,
     List<AnalyticsEnergyWindow> energyWindows = const [],
     List<AnalyticsProtectedWindow> protectedWindows = const [],
+    List<AnalyticsProtectedInstance> protectedInstances = const [],
     List<DateTime> relaxedLocalDates = const [],
     List<AnalyticsTaskFact> tasks = const [],
     List<AnalyticsPlannedFact> plannedBlocks = const [],
@@ -625,6 +646,7 @@ final class AnalyticsDataset {
     List<AnalyticsAreaFact> areas = const [],
   }) : energyWindows = UnmodifiableListView(energyWindows),
        protectedWindows = UnmodifiableListView(protectedWindows),
+       protectedInstances = UnmodifiableListView(protectedInstances),
        relaxedLocalDates = UnmodifiableListView(relaxedLocalDates),
        tasks = UnmodifiableListView(tasks),
        plannedBlocks = UnmodifiableListView(plannedBlocks),
@@ -640,6 +662,13 @@ final class AnalyticsDataset {
 
   /// 用户的保护时间（睡眠／用餐／固定休息），本地时刻。为空时不显示"休息保护"一节。
   final List<AnalyticsProtectedWindow> protectedWindows;
+
+  /// 用户自己建的**一次性或按周重复**的保护时间（`CalendarEventKind.protected`）。
+  ///
+  /// 与 [protectedWindows] 分开的理由见 [AnalyticsProtectedInstance]：前者是"每天都是"
+  /// 的本地分钟窗，后者带精确 UTC 区间。两者在统计里**合并计入**同一节
+  /// （"休息保护"），因为它们对用户是同一件事。
+  final List<AnalyticsProtectedInstance> protectedInstances;
 
   /// 存在**按日临时例外**的本地日期（FR-REPLAN-07 的"临时放宽每日上限"）。
   ///

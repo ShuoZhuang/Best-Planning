@@ -185,6 +185,7 @@ final class AnalyticsService implements AnalyticsQuery {
       // 实际投入与那次查询的时区。
       restProtection: _restProtection(
         windows: dataset.protectedWindows,
+        customInstances: dataset.protectedInstances,
         relaxedLocalDates: dataset.relaxedLocalDates,
         actualByEntry: actualByEntry,
         filter: filter,
@@ -201,6 +202,7 @@ final class AnalyticsService implements AnalyticsQuery {
       // 从统计里拿掉，因此这里一条都不读 `actualByEntry`。
       restSummary: _restSummary(
         windows: dataset.protectedWindows,
+        customInstances: dataset.protectedInstances,
         planned: planned,
         fixed: dataset.fixedEvents,
         filter: filter,
@@ -217,6 +219,7 @@ final class AnalyticsService implements AnalyticsQuery {
       workRest: _workRest(
         protectedMinutes: _protectedMinutes(
           windows: dataset.protectedWindows,
+          customInstances: dataset.protectedInstances,
           filter: filter,
           zones: zones,
           timeZoneId: timeZoneId,
@@ -237,6 +240,7 @@ final class AnalyticsService implements AnalyticsQuery {
         ),
         scheduleMinutes: _scheduledIntersectingProtected(
           windows: dataset.protectedWindows,
+          customInstances: dataset.protectedInstances,
           taskById: taskById,
           planned: planned,
           fixed: dataset.fixedEvents,
@@ -578,6 +582,10 @@ List<EnergyPeriodMetric> _energyPeriods({
 /// 改代码的人准备了一个"只修好一半"的机会。
 List<({String label, DateTime startUtc, DateTime endUtc})> _protectedInstances({
   required List<AnalyticsProtectedWindow> windows,
+  // 用户自己建的**一次性或按周重复**保护时间（1.8.0，规范 §9.1）。它们与规则来源的
+  // 保护时间在统计里**合并计入同一节**——对用户是同一件事。
+  // 默认空列表，因此"只想看规则来源"的调用点不必逐个改。
+  List<AnalyticsProtectedInstance> customInstances = const [],
   required AnalyticsFilter filter,
   required TimeZoneDatabase zones,
   required String timeZoneId,
@@ -599,7 +607,22 @@ List<({String label, DateTime startUtc, DateTime endUtc})> _protectedInstances({
     return zones.localDateTimeToUtc(anchor, minute, timeZoneId);
   }
 
-  final instances = <({String label, DateTime startUtc, DateTime endUtc})>[];
+  final instances = <({String label, DateTime startUtc, DateTime endUtc})>[
+    // **先放入用户自己建的那些**（1.8.0，规范 §9.1）：它们带精确 UTC 区间，
+    // 不需要"按本地分钟 × 日期"展开，直接进结果即可。
+    //
+    // **再按范围裁剪一次**：仓储的 `occurrencesBetween` 已经做过相交过滤，但统计的
+    // `filter` 与那次查询的窗口不一定逐值相同（调用方可以传更窄的范围），
+    // 不裁剪会让区间外的实例计入总量。
+    for (final instance in customInstances)
+      if (instance.startUtc.isBefore(filter.endUtc) &&
+          filter.startUtc.isBefore(instance.endUtc))
+        (
+          label: instance.label,
+          startUtc: instance.startUtc,
+          endUtc: instance.endUtc,
+        ),
+  ];
   // **从范围首日的「前一天」开始走**：跨午夜的保护段（睡眠默认 23:00–07:00）锚定在**前一天**，
   // 而它的后半段（首日 00:00–07:00）落在范围之内。此前从首日本身开始，那一夜的后半段就被整个
   // 漏掉——7 天范围只报 2940 分钟而不是 3360，界面上一除便成"平均每天只睡 6 小时"。这是
@@ -638,11 +661,16 @@ List<({String label, DateTime startUtc, DateTime endUtc})> _protectedInstances({
 /// 保护时段在范围内的**总容量**（A 与 D 的分母）。
 int _protectedMinutes({
   required List<AnalyticsProtectedWindow> windows,
+  List<AnalyticsProtectedInstance> customInstances = const [],
   required AnalyticsFilter filter,
   required TimeZoneDatabase? zones,
   required String? timeZoneId,
 }) {
-  if (windows.isEmpty || zones == null || timeZoneId == null) return 0;
+  if ((windows.isEmpty && customInstances.isEmpty) ||
+      zones == null ||
+      timeZoneId == null) {
+    return 0;
+  }
   return _protectedInstances(
     windows: windows,
     filter: filter,
@@ -691,13 +719,18 @@ int _scheduledMinutes(DateTime start, DateTime end, AnalyticsFilter filter) {
 /// 计划块/固定日程排进睡眠或午晚餐，就是规划层面的"没给自己留休息"。
 RestSummaryMetric? _restSummary({
   required List<AnalyticsProtectedWindow> windows,
+  List<AnalyticsProtectedInstance> customInstances = const [],
   required List<AnalyticsPlannedFact> planned,
   required List<AnalyticsFixedFact> fixed,
   required AnalyticsFilter filter,
   required TimeZoneDatabase? zones,
   required String? timeZoneId,
 }) {
-  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
+  if ((windows.isEmpty && customInstances.isEmpty) ||
+      zones == null ||
+      timeZoneId == null) {
+    return null;
+  }
   final instances = _protectedInstances(
     windows: windows,
     filter: filter,
@@ -861,6 +894,7 @@ int _workedMinutes({
 /// 已安排的区间与保护时段的重叠分钟数（按每条安排自身长度封顶，理由同 `_restSummary`）。
 int _scheduledIntersectingProtected({
   required List<AnalyticsProtectedWindow> windows,
+  List<AnalyticsProtectedInstance> customInstances = const [],
   required Map<String, AnalyticsTaskFact> taskById,
   required List<AnalyticsPlannedFact> planned,
   required List<AnalyticsFixedFact> fixed,
@@ -868,9 +902,14 @@ int _scheduledIntersectingProtected({
   required TimeZoneDatabase? zones,
   required String? timeZoneId,
 }) {
-  if (windows.isEmpty || zones == null || timeZoneId == null) return 0;
+  if ((windows.isEmpty && customInstances.isEmpty) ||
+      zones == null ||
+      timeZoneId == null) {
+    return 0;
+  }
   final instances = _protectedInstances(
     windows: windows,
+    customInstances: customInstances,
     filter: filter,
     zones: zones,
     timeZoneId: timeZoneId,
@@ -944,15 +983,21 @@ AreaCoverageMetric? _areaCoverage(
 
 RestProtectionMetric? _restProtection({
   required List<AnalyticsProtectedWindow> windows,
+  List<AnalyticsProtectedInstance> customInstances = const [],
   required List<DateTime> relaxedLocalDates,
   required Map<AnalyticsActualFact, int> actualByEntry,
   required AnalyticsFilter filter,
   required TimeZoneDatabase? zones,
   required String? timeZoneId,
 }) {
-  if (windows.isEmpty || zones == null || timeZoneId == null) return null;
+  if ((windows.isEmpty && customInstances.isEmpty) ||
+      zones == null ||
+      timeZoneId == null) {
+    return null;
+  }
   final instances = _protectedInstances(
     windows: windows,
+    customInstances: customInstances,
     filter: filter,
     zones: zones,
     timeZoneId: timeZoneId,
