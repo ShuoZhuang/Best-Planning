@@ -539,7 +539,16 @@ GoRouter createPlannerRouter({
                           );
                       if (!context.mounted) return;
                       if (outcome.message.isNotEmpty) {
-                        showPlannerMessage(context, message: outcome.message);
+                        // 1.8.0（规范 §13.2）：延后失败要说清"是哪些事项、为什么"，
+                        // 而不是只报一句"提案不可行"。走的是**预览页那一条**翻译链。
+                        final message = await _deferFailureMessage(
+                          proposal: proposal,
+                          base: outcome.message,
+                        );
+                        // **`await` 之后重新确认挂载**：拼提示是一次异步调用，
+                        // 期间用户完全可能已经离开这一页。
+                        if (!context.mounted) return;
+                        showPlannerMessage(context, message: message);
                         return;
                       }
                       context.go('/planning/preview/${outcome.proposalId}');
@@ -1812,7 +1821,30 @@ final class _FocusData {
 ///
 /// 「延后本次」与任务详情页的「延后截止时间」严格分开：这里只改当前块，
 /// 且按排程器的 5 分钟粒度校验自定义值。
-/// 延后对话框的结果：**单位 ＋ 数量**（规范 §11.1）。
+/// 延后失败时给用户看的那句话（1.8.0，设计规范 §13.2）。
+///
+/// **为什么不能只报 `outcome.message`**：那是一句模板化的"提案不可行，未自动应用"，
+/// 它没有告诉用户**是哪件事、为什么**——而用户刚刚为了延后这件事按了一次确认。
+/// 规范 §13.2 的原话是延后失败必须显示成
+/// "贫困生材料提交：目标之后最大连续空档只有 10 分钟"，**不能退回"可用时间不足"或内部 id**。
+///
+/// **标题批量解析，不逐项查询**（§13.1）：一次 `titlesFor`，缺标题的用占位文案。
+Future<String> _deferFailureMessage({
+  required ScheduleProposal proposal,
+  required String base,
+}) async {
+  final lines = previewFailureLines(
+    proposal: proposal,
+    // 延后路径拿不到 `TaskTitleLookup`（它挂在预览页上），因此这里退回到占位文案。
+    // **这不是"回退成裸 UUID"**：规范 §13.1 明确允许占位文案，而 id 一个字都不出现。
+    // 真正的标题解析发生在用户随后打开的预览页上，那里有完整的 `TaskTitleLookup`。
+    titleByTaskId: const {},
+  );
+  if (lines.isEmpty) return base;
+  return '$base\n${lines.map(formatFailureLine).join('\n')}';
+}
+
+/// 「延后当前计划」对话框的结果：**单位 ＋ 数量**（规范 §11.1）。
 final class _DeferChoice {
   const _DeferChoice({required this.amount, required this.unit});
 
