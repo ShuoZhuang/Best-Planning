@@ -144,6 +144,32 @@ DateTime deferNotBeforeUtc({
   }
 }
 
+/// 排程器的时间粒度（分钟）。延后的自定义分钟值按它向上对齐（规范 §11.1）。
+const deferMinuteGranularity = 5;
+
+/// 自定义延后量的取值范围（规范 §11.1 的"自定义约束"列）。
+///
+/// 放在这里而不是 `router.dart`：它是**规范里的数值**，与"打开哪个对话框"无关。
+/// 留在界面层时没有任何用例碰得到它（对话框是私有的），于是范围写错也不会被发现。
+bool deferAmountIsValid(int amount, DeferUnit unit) => switch (unit) {
+  DeferUnit.minutes => amount >= 1 && amount <= 1440,
+  DeferUnit.hours => amount >= 1 && amount <= 72,
+  DeferUnit.days => amount >= 1 && amount <= 365,
+};
+
+/// 按 [deferMinuteGranularity] **向上**对齐自定义延后量（规范 §11.1）。
+///
+/// 只有分钟需要对齐：小时与天本来就以整单位表达。
+///
+/// **必须是向上**：写成 `amount ~/ 5 * 5` 会把 1～4 分钟变成 0，而"延后 0 分钟"等于
+/// 什么都没做——用户按了确认却看不到任何变化，而且不会报错。
+int alignDeferAmount(int amount, DeferUnit unit) {
+  if (unit != DeferUnit.minutes) return amount;
+  final remainder = amount % deferMinuteGranularity;
+  if (remainder == 0) return amount;
+  return amount + (deferMinuteGranularity - remainder);
+}
+
 /// 一次**调整请求**：把块级意图绑成"这一个 proposal 专属"的一次性输入
 /// （规范 §11.3 与全局不变量第 4 条）。
 ///

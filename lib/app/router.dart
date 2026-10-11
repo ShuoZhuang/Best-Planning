@@ -1918,6 +1918,12 @@ final class _DeferDialogState extends State<_DeferDialog> {
     final custom = int.tryParse(_controller.text.trim());
     final amount = custom ?? _quickValues[_unit]!.first;
     final valid = _deferAmountIsValid(amount, _unit);
+    // **预览用的必须是"真正会被应用的那个值"**（规范 §11.1："在确认前展示实际值"）。
+    //
+    // 用未对齐的 `amount` 会让"原时间 → 最早目标时间"这一行**说谎**：用户输入 7 分钟，
+    // 预览按 7 分钟算，应用时按对齐后的 10 分钟算——相差 3 分钟正是用户拿来判断
+    // "会不会撞上下一件事"的依据。快捷值本来就是 5 的倍数，对齐后不变。
+    final effectiveAmount = alignDeferAmount(amount, _unit);
     final formatted = _formatLocal(
       _zones,
       widget.sourceStartUtc,
@@ -1928,7 +1934,7 @@ final class _DeferDialogState extends State<_DeferDialog> {
             _zones,
             deferNotBeforeUtc(
               sourceStartUtc: widget.sourceStartUtc,
-              amount: amount,
+              amount: effectiveAmount,
               unit: _unit,
               timeZoneId: widget.timeZoneId,
               zones: _zones,
@@ -2020,7 +2026,16 @@ final class _DeferDialogState extends State<_DeferDialog> {
               );
               return;
             }
-            Navigator.pop(context, _DeferChoice(amount: amount, unit: _unit));
+            // 规范 §11.1：分钟"最终按 5 分钟粒度**向上**对齐"。对齐后的值才是真正
+            // 应用的值，因此**传出去的是对齐值**——用户输入 7 分钟时应用的是 10 分钟，
+            // 而 `defer-current-range` 那一行在确认前就会把它显示出来。
+            Navigator.pop(
+              context,
+              _DeferChoice(
+                amount: alignDeferAmount(amount, _unit),
+                unit: _unit,
+              ),
+            );
           },
           child: const Text('延后'),
         ),
@@ -2030,11 +2045,12 @@ final class _DeferDialogState extends State<_DeferDialog> {
 }
 
 /// 自定义输入的取值范围（规范 §11.1 的"自定义约束"列）。
-bool _deferAmountIsValid(int amount, DeferUnit unit) => switch (unit) {
-  DeferUnit.minutes => amount >= 1 && amount <= 1440,
-  DeferUnit.hours => amount >= 1 && amount <= 72,
-  DeferUnit.days => amount >= 1 && amount <= 365,
-};
+///
+/// **已移到 `pending_moves.dart`**：那是规范里的数值，与"打开哪个对话框"无关，
+/// 而对话框是私有的——留在这里就没有任何用例碰得到它，范围写错也不会被发现。
+/// 保留这个别名只是为了让调用点读起来仍然像"对话框自己的校验"。
+bool _deferAmountIsValid(int amount, DeferUnit unit) =>
+    deferAmountIsValid(amount, unit);
 
 /// 把 UTC 时刻按**事项自己的时区**格式化成 `MM-DD HH:mm`。
 String _formatLocal(
