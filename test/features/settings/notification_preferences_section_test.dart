@@ -61,31 +61,37 @@ final class _Cycles implements RecurringCycleReader {
   ) async => candidates;
 }
 
-Widget _section({bool enabled = true, ValueChanged<bool>? onChanged}) =>
-    MaterialApp(
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: NotificationPreferencesSection(
-            taskLeadController: TextEditingController(text: '10'),
-            calendarLeadController: TextEditingController(text: '10'),
-            deadlineLeadController: TextEditingController(text: '1440'),
-            quietStartController: TextEditingController(text: '23:30'),
-            quietEndController: TextEditingController(text: '07:30'),
-            taskStartEnabled: true,
-            calendarStartEnabled: true,
-            deadlineEnabled: true,
-            conflictEnabled: true,
-            onTaskStartChanged: (_) {},
-            onCalendarStartChanged: (_) {},
-            onDeadlineChanged: (_) {},
-            onConflictChanged: (_) {},
-            recurringGoalEnabled: enabled,
-            onRecurringGoalChanged: onChanged,
-            errors: const {},
-          ),
-        ),
+Widget _section({
+  bool enabled = true,
+  ValueChanged<bool>? onChanged,
+  bool notificationsEnabled = true,
+  ValueChanged<bool>? onNotificationsEnabledChanged,
+}) => MaterialApp(
+  home: Scaffold(
+    body: SingleChildScrollView(
+      child: NotificationPreferencesSection(
+        taskLeadController: TextEditingController(text: '10'),
+        calendarLeadController: TextEditingController(text: '10'),
+        deadlineLeadController: TextEditingController(text: '1440'),
+        quietStartController: TextEditingController(text: '23:30'),
+        quietEndController: TextEditingController(text: '07:30'),
+        enabled: notificationsEnabled,
+        taskStartEnabled: true,
+        calendarStartEnabled: true,
+        deadlineEnabled: true,
+        conflictEnabled: true,
+        onEnabledChanged: onNotificationsEnabledChanged ?? (_) {},
+        onTaskStartChanged: (_) {},
+        onCalendarStartChanged: (_) {},
+        onDeadlineChanged: (_) {},
+        onConflictChanged: (_) {},
+        recurringGoalEnabled: enabled,
+        onRecurringGoalChanged: onChanged,
+        errors: const {},
       ),
-    );
+    ),
+  ),
+);
 
 void main() {
   group('§11 Task 9：设置页的周期目标提醒开关', () {

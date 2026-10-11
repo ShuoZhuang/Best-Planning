@@ -7,10 +7,12 @@ final class NotificationPreferencesSection extends StatelessWidget {
     required this.deadlineLeadController,
     required this.quietStartController,
     required this.quietEndController,
+    required this.enabled,
     required this.taskStartEnabled,
     required this.calendarStartEnabled,
     required this.deadlineEnabled,
     required this.conflictEnabled,
+    required this.onEnabledChanged,
     required this.onTaskStartChanged,
     required this.onCalendarStartChanged,
     required this.onDeadlineChanged,
@@ -26,10 +28,18 @@ final class NotificationPreferencesSection extends StatelessWidget {
   final TextEditingController deadlineLeadController;
   final TextEditingController quietStartController;
   final TextEditingController quietEndController;
+
+  /// **通知总开关**（1.8.0，设计规范 §5.1）。
+  ///
+  /// 关闭时下面五个分类值**保留但不生效**：再打开时用户应当看到原来的勾选，而不是被重置。
+  /// 因此关闭时**不隐藏**分类开关——隐藏会让"我原来选了哪些"在界面上无法确认，而保留
+  /// （置灰）才是"值还在、只是不生效"的诚实表达。
+  final bool enabled;
   final bool taskStartEnabled;
   final bool calendarStartEnabled;
   final bool deadlineEnabled;
   final bool conflictEnabled;
+  final ValueChanged<bool> onEnabledChanged;
   final ValueChanged<bool> onTaskStartChanged;
   final ValueChanged<bool> onCalendarStartChanged;
   final ValueChanged<bool> onDeadlineChanged;
@@ -49,6 +59,21 @@ final class NotificationPreferencesSection extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      _Switch(
+        key: const Key('notifications-enabled'),
+        title: '启用通知',
+        value: enabled,
+        onChanged: onEnabledChanged,
+      ),
+      Text(
+        enabled
+            ? '关闭总开关会立即取消已排入系统的全部提醒，各分类的选择会保留。'
+            : '总开关已关闭：已排入系统的提醒正在取消，各分类的选择会保留，重新开启后恢复。',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      const SizedBox(height: 8),
+      // 分类开关在总开关关闭时**仍然显示但不可改**：值还在，只是不生效（§5.1）。
+      // 灰掉而不是隐藏，用户才能确认"我原来选的是哪些"。
       Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -56,28 +81,28 @@ final class NotificationPreferencesSection extends StatelessWidget {
           _Switch(
             title: '任务开始提醒',
             value: taskStartEnabled,
-            onChanged: onTaskStartChanged,
+            onChanged: enabled ? onTaskStartChanged : null,
           ),
           _Switch(
             title: '固定日程提醒',
             value: calendarStartEnabled,
-            onChanged: onCalendarStartChanged,
+            onChanged: enabled ? onCalendarStartChanged : null,
           ),
           _Switch(
             title: '截止临近提醒',
             value: deadlineEnabled,
-            onChanged: onDeadlineChanged,
+            onChanged: enabled ? onDeadlineChanged : null,
           ),
           _Switch(
             title: '冲突待处理提醒',
             value: conflictEnabled,
-            onChanged: onConflictChanged,
+            onChanged: enabled ? onConflictChanged : null,
           ),
           if (onRecurringGoalChanged case final onRecurringGoalChanged?)
             _Switch(
               title: '周期目标提醒',
               value: recurringGoalEnabled,
-              onChanged: onRecurringGoalChanged,
+              onChanged: enabled ? onRecurringGoalChanged : null,
             ),
         ],
       ),
@@ -127,11 +152,14 @@ final class _Switch extends StatelessWidget {
     required this.title,
     required this.value,
     required this.onChanged,
+    super.key,
   });
 
   final String title;
   final bool value;
-  final ValueChanged<bool> onChanged;
+
+  /// 为空时**开关不可操作**（总开关关闭时各分类走这一支）。
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) => SizedBox(

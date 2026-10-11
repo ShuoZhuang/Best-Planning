@@ -1,3 +1,4 @@
+import 'package:personal_planner/application/recurring_notification_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -36,7 +37,55 @@ final class NotificationService {
   });
 
   static const _managedPrefix = 'planner.';
+  static const _taskStartPrefix = 'planner.task_start.';
+  static const _calendarStartPrefix = 'planner.calendar_start.';
+  static const _deadlinePrefix = 'planner.deadline.';
+  static const _conflictPrefix = 'planner.conflict.';
+  static const _recurringPrefix = RecurringNotificationService.managedPrefix;
   static const _window = Duration(days: 7);
+
+  /// 本应用会自己排队的所有通知 id 前缀。
+  ///
+  /// **顺序即"取消的全集"**：总开关关闭或某一类关闭时，判断"这条待处理项该不该被取消"
+  /// 用的就是这份清单（见 [reconcile]）。此前只有 `_managedPrefix` 一个粗粒度前缀，
+  /// 于是"关掉截止提醒"只能靠"重新生成一遍期望集合"来间接实现——而那条路径在
+  /// 总开关关闭时**仍然会去读计划**，正是设计规范 §5.2 明令禁止的。
+  static const managedPrefixes = <String>[
+    _managedPrefix,
+    _taskStartPrefix,
+    _calendarStartPrefix,
+    _deadlinePrefix,
+    _conflictPrefix,
+    _recurringPrefix,
+  ];
+
+  /// 这条通知 id 属于哪一类；`null` 表示它**不是本应用排入的**。
+  ///
+  /// 用"枚举已知前缀"而不是"看它是否以 `planner.` 开头"：后者会把旧版本留下的、
+  /// 或者将来新增的未知前缀也算成本应用的，于是对账可能误伤它们。返回枚举值而不是
+  /// 字符串，是为了让"该不该取消"只在一处判断（见 [reconcile]）。
+  static NotificationKind? _categoryOf(String id) {
+    if (id.startsWith(_taskStartPrefix)) return NotificationKind.taskStart;
+    if (id.startsWith(_calendarStartPrefix)) {
+      return NotificationKind.calendarStart;
+    }
+    if (id.startsWith(_deadlinePrefix)) return NotificationKind.deadline;
+    if (id.startsWith(_conflictPrefix)) return NotificationKind.conflict;
+    if (id.startsWith(_recurringPrefix)) return NotificationKind.recurringGoal;
+    return null;
+  }
+
+  /// 这一类现在是否开启。
+  static bool _categoryEnabled(
+    NotificationPreferences preferences,
+    NotificationKind kind,
+  ) => switch (kind) {
+    NotificationKind.taskStart => preferences.taskStartEnabled,
+    NotificationKind.calendarStart => preferences.calendarStartEnabled,
+    NotificationKind.deadline => preferences.deadlineEnabled,
+    NotificationKind.conflict => preferences.conflictEnabled,
+    NotificationKind.recurringGoal => preferences.recurringGoalEnabled,
+  };
 
   final PlanRepository plans;
   final SettingsService settings;
@@ -57,51 +106,57 @@ final class NotificationService {
   /// 冲突不属于持久事实，而是每次排程的产物，因此由调用方提供读取方式。
   final Future<List<PlanningConflict>> Function()? pendingConflicts;
 
-  Future<NotificationSyncResult> syncNextSevenDays() async {
-    final capability = await notifications.capability();
-    final now = clock.nowUtc();
-    final horizon = now.add(_window);
-    final localNow = zones.toLocal(now, timeZoneId);
-    final resolved = await settings.resolveForDate(
-      DateTime(localNow.year, localNow.month, localNow.day),
-    );
-    final preferences = resolved.notifications;
-    final plan = await plans.current();
+  /// 把"当前计划 + 当前设置"对账成一组应当存在的提醒。
+  ///
+  /// 抽成独立方法是为了让 [reconcile] 能**在总开关关闭时完全不调它**——那正是规范 §5.2
+  /// 的要求："总开关关闭时不读取计划来重新排通知"。分成两个入口的话，"找那个算期望集合的
+  /// 函数"就会有两份，而规范第 4 条不变量恰恰是"只能有一个 proposal/一条链"。
+  Future<Map<String, NotificationRequest>> _desiredNotifications({
+    required NotificationCapability capability,
+    required NotificationPreferences preferences,
+    required DateTime now,
+    required DateTime horizon,
+  }) async {
     final desired = <String, NotificationRequest>{};
+    if (!capability.canSchedule) return desired;
+    // 总开关关闭时调用方不该走到这里；这一步是防御而不是主路径。
+    if (!preferences.enabled) return desired;
 
-    if (capability.canSchedule &&
-        preferences.taskStartEnabled &&
-        plan != null) {
-      for (final block in plan.blocks) {
-        if (!block.startUtc.isAfter(now) || block.startUtc.isAfter(horizon)) {
-          continue;
+    if (preferences.taskStartEnabled) {
+      final plan = await plans.current();
+      if (plan != null) {
+        for (final block in plan.blocks) {
+          if (!block.startUtc.isAfter(now) || block.startUtc.isAfter(horizon)) {
+            continue;
+          }
+          var scheduledAt = block.startUtc.subtract(
+            Duration(minutes: preferences.taskStartLeadMinutes),
+          );
+          scheduledAt = _clampToFuture(scheduledAt, now);
+          scheduledAt = _delayPastQuietHours(
+            scheduledAt,
+            preferences.quietHours,
+          );
+          if (scheduledAt.isAfter(horizon)) continue;
+
+          final id = '$_taskStartPrefix${block.id}';
+          desired[id] = NotificationRequest(
+            id: id,
+            scheduledAtUtc: scheduledAt,
+            title: '日程提醒',
+            body: '有一项安排即将开始',
+            payload: NotificationPayload(
+              notificationId: id,
+              kind: NotificationKind.taskStart,
+              entityId: block.taskId,
+              route: '/tasks/${block.taskId}',
+            ).encode(),
+          );
         }
-        var scheduledAt = block.startUtc.subtract(
-          Duration(minutes: preferences.taskStartLeadMinutes),
-        );
-        scheduledAt = _clampToFuture(scheduledAt, now);
-        scheduledAt = _delayPastQuietHours(scheduledAt, preferences.quietHours);
-        if (scheduledAt.isAfter(horizon)) continue;
-
-        final id =
-            '$_managedPrefix'
-            'task_start.${block.id}';
-        desired[id] = NotificationRequest(
-          id: id,
-          scheduledAtUtc: scheduledAt,
-          title: '日程提醒',
-          body: '有一项安排即将开始',
-          payload: NotificationPayload(
-            notificationId: id,
-            kind: NotificationKind.taskStart,
-            entityId: block.taskId,
-            route: '/tasks/${block.taskId}',
-          ).encode(),
-        );
       }
     }
 
-    if (capability.canSchedule && preferences.calendarStartEnabled) {
+    if (preferences.calendarStartEnabled) {
       final source = calendar;
       if (source != null) {
         for (final occurrence in await source.occurrencesBetween(
@@ -119,9 +174,7 @@ final class NotificationService {
             preferences.quietHours,
           );
           if (scheduledAt.isAfter(horizon)) continue;
-          final id =
-              '$_managedPrefix'
-              'calendar_start.${occurrence.eventId}';
+          final id = '$_calendarStartPrefix${occurrence.eventId}';
           desired[id] = NotificationRequest(
             id: id,
             scheduledAtUtc: scheduledAt,
@@ -138,7 +191,7 @@ final class NotificationService {
       }
     }
 
-    if (capability.canSchedule && preferences.deadlineEnabled) {
+    if (preferences.deadlineEnabled) {
       final source = tasks;
       if (source != null) {
         for (final task in await source.watchOpenTasks().first) {
@@ -156,9 +209,7 @@ final class NotificationService {
             preferences.quietHours,
           );
           if (scheduledAt.isAfter(horizon)) continue;
-          final id =
-              '$_managedPrefix'
-              'deadline.${task.id}';
+          final id = '$_deadlinePrefix${task.id}';
           desired[id] = NotificationRequest(
             id: id,
             scheduledAtUtc: scheduledAt,
@@ -175,7 +226,7 @@ final class NotificationService {
       }
     }
 
-    if (capability.canSchedule && preferences.conflictEnabled) {
+    if (preferences.conflictEnabled) {
       final source = pendingConflicts;
       if (source != null) {
         final conflicts = await source();
@@ -194,9 +245,7 @@ final class NotificationService {
             Duration(minutes: preferences.conflictLeadMinutes),
           );
           if (!scheduledAt.isAfter(horizon)) {
-            final id =
-                '$_managedPrefix'
-                'conflict.pending';
+            final id = '${_conflictPrefix}pending';
             desired[id] = NotificationRequest(
               id: id,
               scheduledAtUtc: scheduledAt,
@@ -214,16 +263,81 @@ final class NotificationService {
       }
     }
 
-    var cancelledCount = 0;
-    final pending = await notifications.pendingNotifications();
-    for (final item in pending) {
-      if (item.id.startsWith(_managedPrefix) && !desired.containsKey(item.id)) {
-        await notifications.cancel(item.id);
-        cancelledCount++;
-      }
+    return desired;
+  }
+
+  /// 按**当前设置**重新对账一次：取消不该留的，排出该有的。
+  ///
+  /// **这是通知侧唯一的对账入口**（设计规范 §5.2）：启动、唤醒、计划应用、任务状态变化
+  /// 与设置保存全部走它。此前设置页保存开关只落库、不调用任何同步，于是已排进 Windows 的
+  /// `planner.*` 通知继续存在，"关掉通知"只关掉了界面上的一个勾（§2.2）。
+  ///
+  /// 四条规则，顺序不能换：
+  ///
+  /// 1. **总开关关闭 ⇒ 不读计划**。只按 id 前缀取消全部本应用待处理通知。§5.2 明确
+  ///    "总开关关闭时不读取计划来重新排通知"——那既浪费一次数据库查询，又会把"关掉通知"
+  ///    变成一次隐式的计划读取（用户以为自己只是关了提醒）。
+  /// 2. **某一类关闭 ⇒ 只取消那一类**。`planner.` 之外的通知（别的应用）永不触碰；
+  ///    同类但由别的来源排入的（例如周期目标走 `planner.recurring.`）也各归各的开关。
+  /// 3. **幂等**。第二次调用不会重复取消（第一次已经把它们从待处理里拿掉了），
+  ///    也不会抛错——启动、计划应用与保存会各自调它一次。
+  /// 4. **重新排入之前先取消**。顺序反过来会先排一遍再取消掉刚排的（如果 id 恰好一致）。
+  ///
+  /// [preferences] 为空时从设置读当前值。
+  Future<NotificationSyncResult> reconcile({
+    NotificationPreferences? preferences,
+    Future<void> Function()? evaluateRecurringGoal,
+  }) async {
+    final resolved =
+        preferences ?? await settings.loadNotificationPreferences();
+    final capability = await notifications.capability();
+    final now = clock.nowUtc();
+    final horizon = now.add(_window);
+
+    // 规则 1：总开关关闭 ⇒ 不读计划，直接按前缀清干净。
+    if (!resolved.enabled) {
+      final cancelled = await _cancelPending(
+        (id) => id.startsWith(_managedPrefix),
+      );
+      return NotificationSyncResult(
+        scheduledCount: 0,
+        cancelledCount: cancelled,
+        capability: capability,
+      );
     }
+
+    final desired = await _desiredNotifications(
+      capability: capability,
+      preferences: resolved,
+      now: now,
+      horizon: horizon,
+    );
+
+    // 规则 2：逐类判断。被关掉的那一类按前缀取消，**不依赖"它是否出现在期望集合里"**——
+    // 关闭的类别本来就不会生成期望项，用"差值"实现等于把两件事混成一件：只要任何一个
+    // 生成分支忘了判开关，那条通知就会被当成"计划里没有它"而漏取消。
+    //
+    // 反过来也要小心：**不能**把"不在期望集合里"直接当成"该取消"。计划读不到（尚未生成）、
+    // 或者某条固定日程刚好不在窗口里时，期望集合本来就不含它——那不是用户关了通知，
+    // 而把它取消掉会让用户"关掉截止提醒"时顺手丢掉任务开始提醒。因此：
+    //   · 类别关闭           → 取消（用户明确要求）
+    //   · 类别开启但已不在期望集合 → 取消（它是过期事实：计划已改，这条提醒已无意义）
+    //   · 类别开启且在期望集合   → 保留
+    final cancelledCount = await _cancelPending((id) {
+      final category = _categoryOf(id);
+      if (category == null) return false;
+      if (!_categoryEnabled(resolved, category)) return true;
+      return !desired.containsKey(id);
+    });
+
     for (final request in desired.values) {
       await notifications.scheduleOneShot(request);
+    }
+
+    // 周期目标提醒与另外四类走**同一次对账**（§5.2 最后一条）。它自己带内存去重，
+    // 因此重复调用不会重复打扰；但它同样要在总开关关闭时一次都不评估。
+    if (resolved.recurringGoalEnabled) {
+      await evaluateRecurringGoal?.call();
     }
 
     return NotificationSyncResult(
@@ -232,6 +346,25 @@ final class NotificationService {
       capability: capability,
     );
   }
+
+  /// 取消当前待处理项里所有满足 [shouldCancel] 的通知，返回取消条数。
+  Future<int> _cancelPending(bool Function(String id) shouldCancel) async {
+    var cancelled = 0;
+    for (final item in await notifications.pendingNotifications()) {
+      if (!shouldCancel(item.id)) continue;
+      await notifications.cancel(item.id);
+      cancelled++;
+    }
+    return cancelled;
+  }
+
+  /// 向后兼容的别名：等价于 [reconcile]。
+  ///
+  /// 保留它是因为 `notification_kinds_test` 等既有用例按这个名字驱动同一条链，而那条链
+  /// 现在只有 `reconcile` 一个实现——改名不该让测试去测"另一个函数"。**新代码不要再调用
+  /// 它**：设置保存、启动、计划应用都走 `reconcile`，那是规范 §5.2 指定的唯一入口。
+  @Deprecated('Use reconcile() instead. Kept only for existing call sites.')
+  Future<NotificationSyncResult> syncNextSevenDays() => reconcile();
 
   /// 提醒时刻若已过去，改为"尽快提醒"，而不是静默丢弃。
   ///

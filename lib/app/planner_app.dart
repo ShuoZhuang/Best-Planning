@@ -101,6 +101,7 @@ final class PlannerApp extends StatefulWidget {
     this.timetableImport,
     this.timetableImagePicker,
     this.autoAdjustStore,
+    this.reconcileNotifications,
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
@@ -243,6 +244,12 @@ final class PlannerApp extends StatefulWidget {
   /// 由组合根注入而不是每次自建：该值来自持久设置，此前只有打开设置页时才会被灌进来，
   /// 因此同一个设置在不同启动里表现不同（W8）。
   final AutoAdjustStore? autoAdjustStore;
+
+  /// 通知对账入口（1.8.0，规范 §5.2）。组合根传入 `NotificationService.reconcile`。
+  ///
+  /// 设置页保存通知偏好之后立刻调用它，把不该留的系统待处理通知取消掉。为空时（测试、
+  /// 或未装配通知服务）保存照常成功，只是不对账。
+  final Future<void> Function()? reconcileNotifications;
 
   /// 手动拖动的落点（FR-CAL-05）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
@@ -454,6 +461,9 @@ final class _PlannerAppState extends State<PlannerApp> {
               planning: widget.planningService!,
             ),
       autoAdjustStore: widget.autoAdjustStore ?? MemoryAutoAdjustStore(),
+      // 1.8.0（规范 §5.2）：设置页保存通知偏好之后必须重新对账一次。入口由组合根
+      // 交下来；未装配时页面照常保存，只是不假装同步过。
+      reconcileNotifications: widget.reconcileNotifications,
       pendingMoves: widget.pendingMoves,
       // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
       // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。

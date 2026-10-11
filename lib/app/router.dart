@@ -395,6 +395,12 @@ GoRouter createPlannerRouter({
   TimetableImagePicker? timetableImagePicker,
   DateTime? nowUtc,
 
+  /// 「保存设置」保存完通知偏好之后的**对账入口**（1.8.0，设计规范 §5.2）。
+  ///
+  /// 由组合根交下来（`NotificationService.reconcile`）。为空时页面照常保存，只是不对账——
+  /// 与"不给点了没反应的入口"同一口径：它不会假装同步过。
+  Future<void> Function()? reconcileNotifications,
+
   /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。
   ///
   /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
@@ -1356,6 +1362,7 @@ GoRouter createPlannerRouter({
             builder: (context, state) => PlanningRulesPage(
               service: settingsService,
               autoAdjustStore: autoAdjustStore,
+              reconcileNotifications: reconcileNotifications,
             ),
           ),
           GoRoute(

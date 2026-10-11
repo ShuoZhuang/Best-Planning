@@ -10,12 +10,23 @@ final class PlanningRulesPage extends StatefulWidget {
     required this.service,
     this.localDate,
     this.autoAdjustStore,
+    this.reconcileNotifications,
     super.key,
   });
 
   final SettingsService service;
   final DateTime? localDate;
   final AutoAdjustStore? autoAdjustStore;
+
+  /// 「保存设置」保存完通知偏好之后的对账入口（1.8.0，设计规范 §5.2）。
+  ///
+  /// **保存即生效**靠它成立：偏好落库之后必须重新对账一次，把不该留的系统待处理通知
+  /// 取消掉。此前页面只写库、不通知任何人，于是"关掉通知"只关掉了界面上一个勾，
+  /// 已排进 Windows 的 `planner.*` 通知照样会弹（§2.2）。
+  ///
+  /// 为空时（未装配通知服务的测试、或通知不可用的装配）保存照常成功，只是不做对账——
+  /// 与这个仓库"不给点了没反应的入口"同一口径：**不假装对账过**，成功文案里会写明。
+  final Future<void> Function()? reconcileNotifications;
 
   @override
   State<PlanningRulesPage> createState() => _PlanningRulesPageState();
@@ -29,14 +40,24 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
   bool _loading = true;
   bool _saving = false;
   bool _trustAutoAdjust = false;
+  bool _notificationsEnabled = true;
   bool _taskStartEnabled = true;
   bool _calendarStartEnabled = true;
   bool _deadlineEnabled = true;
   bool _conflictEnabled = true;
+  bool _recurringGoalEnabled = true;
   final Map<ProtectedTimeKind, bool> _protectedEnabled = {
     for (final kind in ProtectedTimeKind.values) kind: false,
   };
   String? _status;
+
+  /// 通知对账失败（系统接口返回失败）。非空时显示"设置已保存，但系统通知清理失败"
+  /// 与「重新同步」按钮（设计规范 §5.3）。
+  ///
+  /// **不能静默显示成功**：偏好确实落库了，但系统里那些待处理通知还在——用户以为
+  /// 关掉了通知，实际还会被弹。这两句话必须分开说，否则失败会被当成成功。
+  String? _notificationSyncError;
+  bool _resyncing = false;
 
   /// **载入完成那一刻的快照**，用来判断"用户是不是改了东西还没保存"（M8，§12）。
   ///
@@ -51,10 +72,12 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
   final Map<String, String> _loadedText = {};
   final Map<ProtectedTimeKind, bool> _loadedProtectedEnabled = {};
   bool? _loadedTrustAutoAdjust;
+  bool? _loadedNotificationsEnabled;
   bool? _loadedTaskStartEnabled;
   bool? _loadedCalendarStartEnabled;
   bool? _loadedDeadlineEnabled;
   bool? _loadedConflictEnabled;
+  bool? _loadedRecurringGoalEnabled;
 
   bool get _hasUnsavedChanges {
     // 还没载入完就退出：不算"有未保存的修改"（用户根本没看到内容）。
@@ -66,10 +89,12 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
       if (_loadedProtectedEnabled[kind] != _protectedEnabled[kind]) return true;
     }
     return _loadedTrustAutoAdjust != _trustAutoAdjust ||
+        _loadedNotificationsEnabled != _notificationsEnabled ||
         _loadedTaskStartEnabled != _taskStartEnabled ||
         _loadedCalendarStartEnabled != _calendarStartEnabled ||
         _loadedDeadlineEnabled != _deadlineEnabled ||
-        _loadedConflictEnabled != _conflictEnabled;
+        _loadedConflictEnabled != _conflictEnabled ||
+        _loadedRecurringGoalEnabled != _recurringGoalEnabled;
   }
 
   TextEditingController _controller(String key) =>
@@ -139,10 +164,15 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     _setInt('deadline-notification-lead', notifications.deadlineLeadMinutes);
     _setRange('quiet-hours', notifications.quietHours);
     _trustAutoAdjust = weekday.trustAutoAdjust;
+    _notificationsEnabled = notifications.enabled;
     _taskStartEnabled = notifications.taskStartEnabled;
     _calendarStartEnabled = notifications.calendarStartEnabled;
     _deadlineEnabled = notifications.deadlineEnabled;
     _conflictEnabled = notifications.conflictEnabled;
+    // 周期目标的开关此前**没有加载**：页面从来不读它，于是渲染出来的永远是默认值 true，
+    // 而保存时又用默认值把它覆盖回去——用户关掉之后下次进来是关的（库里是对的），
+    // 但只要他在这一页按一次保存，它就被静默改回开启（§2.2 后半句）。
+    _recurringGoalEnabled = notifications.recurringGoalEnabled;
     widget.autoAdjustStore?.setEnabled(_trustAutoAdjust);
     // **载入完成后才拍快照**（M8）：此后任何差异都是用户改的。
     _snapshotLoadedValues();
@@ -160,10 +190,12 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
       ..clear()
       ..addAll(_protectedEnabled);
     _loadedTrustAutoAdjust = _trustAutoAdjust;
+    _loadedNotificationsEnabled = _notificationsEnabled;
     _loadedTaskStartEnabled = _taskStartEnabled;
     _loadedCalendarStartEnabled = _calendarStartEnabled;
     _loadedDeadlineEnabled = _deadlineEnabled;
     _loadedConflictEnabled = _conflictEnabled;
+    _loadedRecurringGoalEnabled = _recurringGoalEnabled;
   }
 
   void _setInt(String key, int value) =>
@@ -267,6 +299,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
       );
       await widget.service.saveNotificationPreferences(
         NotificationPreferences(
+          enabled: _notificationsEnabled,
           taskStartEnabled: _taskStartEnabled,
           taskStartLeadMinutes: taskLead!,
           calendarStartEnabled: _calendarStartEnabled,
@@ -274,15 +307,23 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
           deadlineEnabled: _deadlineEnabled,
           deadlineLeadMinutes: deadlineLead!,
           conflictEnabled: _conflictEnabled,
+          recurringGoalEnabled: _recurringGoalEnabled,
           quietHours: quietHours,
         ),
       );
       await widget.service.setTrustAutoAdjust(_trustAutoAdjust);
       widget.autoAdjustStore?.setEnabled(_trustAutoAdjust);
+      // **偏好落库之后再对账**（规范 §5.2："保存通知设置必须原子地完成
+      // 持久化偏好 → 重新对账"）。顺序反过来的话，对账会按**旧的**设置排一轮通知，
+      // 而紧接着的落库又让那一轮变成过期事实。
+      final syncError = await _reconcileNow();
       if (mounted) {
         setState(() {
           _errors = const {};
-          _status = '设置已保存';
+          _notificationSyncError = syncError;
+          // 失败时**不写"设置已保存"**：偏好确实存下来了，但"关掉通知"这件事没做成。
+          // 成功文案与失败文案必须互斥，否则用户看到的是"设置已保存"，而提醒照旧会弹。
+          _status = syncError == null ? '设置已保存' : null;
           // **存成功后重新拍快照**（M8）：改动已经落库，"未保存"的状态到此结束。
           // 不重拍的话，保存完再返回仍会弹"还有未保存的修改"——而那时根本没有未保存的东西，
           // 用户只能莫名其妙地点一次"放弃修改"。
@@ -299,6 +340,35 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// 对账一次，返回失败文案（成功为 `null`）。
+  ///
+  /// 未装配对账入口时返回 `null` 并**不加任何"已同步"字样**：没做过的动作不能写成做过。
+  Future<String?> _reconcileNow() async {
+    final reconcile = widget.reconcileNotifications;
+    if (reconcile == null) return null;
+    try {
+      await reconcile();
+      return null;
+    } on Object {
+      return '设置已保存，但系统通知清理失败，可重试';
+    }
+  }
+
+  /// 「重新同步」：只重跑对账，不重复落库。
+  ///
+  /// **必须只做对账**：用户点这个按钮是因为"清理失败"，而偏好本身已经是他刚保存的值。
+  /// 再存一次会把页面当前控件状态当成新的用户意图写下去——那是它没被要求做的事。
+  Future<void> _resyncNotifications() async {
+    setState(() => _resyncing = true);
+    final error = await _reconcileNow();
+    if (!mounted) return;
+    setState(() {
+      _resyncing = false;
+      _notificationSyncError = error;
+      _status = error == null ? '提醒已重新同步' : null;
+    });
   }
 
   @override
@@ -449,10 +519,13 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
                         ),
                         quietStartController: _controller('quiet-hours-start'),
                         quietEndController: _controller('quiet-hours-end'),
+                        enabled: _notificationsEnabled,
                         taskStartEnabled: _taskStartEnabled,
                         calendarStartEnabled: _calendarStartEnabled,
                         deadlineEnabled: _deadlineEnabled,
                         conflictEnabled: _conflictEnabled,
+                        onEnabledChanged: (value) =>
+                            setState(() => _notificationsEnabled = value),
                         onTaskStartChanged: (value) =>
                             setState(() => _taskStartEnabled = value),
                         onCalendarStartChanged: (value) =>
@@ -461,6 +534,11 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
                             setState(() => _deadlineEnabled = value),
                         onConflictChanged: (value) =>
                             setState(() => _conflictEnabled = value),
+                        // 周期目标这一支此前**没有传**：`onRecurringGoalChanged` 为空时
+                        // 那一行开关根本不渲染（§2.2 的"页面没有完整加载、保存和传入该值"）。
+                        recurringGoalEnabled: _recurringGoalEnabled,
+                        onRecurringGoalChanged: (value) =>
+                            setState(() => _recurringGoalEnabled = value),
                         errors: _errors,
                       ),
                       SwitchListTile(
@@ -490,6 +568,46 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                // **部分失败要说出来**（规范 §5.3）：偏好存下来了，但系统里的待处理
+                // 通知没清掉。写成"设置已保存"会让用户以为关掉通知生效了。
+                if (_notificationSyncError case final message?)
+                  Flexible(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            message,
+                            key: const Key('notifications-sync-error'),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          key: const Key('notifications-resync'),
+                          onPressed: _resyncing ? null : _resyncNotifications,
+                          icon: _resyncing
+                              ? const SizedBox.square(
+                                  dimension: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.sync),
+                          label: const Text('重新同步'),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
+                  ),
                 if (_status != null) ...[
                   Text(_status!),
                   const SizedBox(width: 16),

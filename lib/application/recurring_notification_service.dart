@@ -127,7 +127,14 @@ final class RecurringNotificationService {
   /// 自然会带新的 `periodStart`，因此不需要清理策略。
   final Set<String> _sent = {};
 
-  static const _managedPrefix = 'planner.recurring.';
+  /// 这个服务排入的提醒 id 前缀。
+  ///
+  /// **公开**：总开关关闭时，`NotificationService.reconcile` 必须能按前缀把这一类
+  /// 已经排进系统的待处理项也取消掉（设计规范 §5.2："周期目标提醒与其他四类走同一保存、
+  /// 加载和取消链"）。写死两份字符串迟早会漂。
+  static const managedPrefix = 'planner.recurring.';
+
+  static const _managedPrefix = managedPrefix;
 
   /// 评估一次：该提醒的都发出去，已经发过的不再发。
   ///

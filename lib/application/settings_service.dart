@@ -21,6 +21,7 @@ final class UserPlanningRules {
 
 final class NotificationPreferences {
   NotificationPreferences({
+    this.enabled = true,
     this.taskStartEnabled = true,
     this.taskStartLeadMinutes = 10,
     this.calendarStartEnabled = true,
@@ -34,6 +35,15 @@ final class NotificationPreferences {
   }) : quietHours =
            quietHours ??
            LocalTimeRange(startMinute: 23 * 60 + 30, endMinute: 7 * 60 + 30);
+
+  /// **通知总开关，默认开启**（1.8.0，设计规范 §5.1）。
+  ///
+  /// 关闭时下面五个分类值**保留但不生效**：用户关掉通知是为了"现在别打扰我"，不是
+  /// "把我之前的选择全清掉"——再打开时他应当看到原来的勾选，而不是被重置成默认。
+  ///
+  /// 这就是它必须与分类开关分开、且取消逻辑必须"总开关优先"的原因：只按分类判断的话，
+  /// 关掉总开关并不会取消任何东西（五个分类都还是 true）。
+  final bool enabled;
 
   final bool taskStartEnabled;
   final int taskStartLeadMinutes;
@@ -217,6 +227,9 @@ final class SettingsService {
     if (raw == null) return NotificationPreferences();
     final value = jsonDecode(raw) as Map<String, Object?>;
     return NotificationPreferences(
+      // 与 `recurringGoalEnabled` 同一口径：**缺键时默认开启**。1.7.1 及以前存下的设置
+      // 里没有 `enabled`，强转会在启动路径上抛；而"老用户升级后收不到任何通知"是更坏的默认。
+      enabled: value['enabled'] as bool? ?? true,
       taskStartEnabled: value['taskStartEnabled'] as bool,
       taskStartLeadMinutes: value['taskStartLeadMinutes'] as int,
       calendarStartEnabled: value['calendarStartEnabled'] as bool,
@@ -249,6 +262,7 @@ final class SettingsService {
     await repository.write(
       _notificationsKey,
       jsonEncode({
+        'enabled': preferences.enabled,
         'taskStartEnabled': preferences.taskStartEnabled,
         'taskStartLeadMinutes': preferences.taskStartLeadMinutes,
         'calendarStartEnabled': preferences.calendarStartEnabled,

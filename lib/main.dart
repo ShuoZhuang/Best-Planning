@@ -21,10 +21,12 @@ import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/recurring_notification_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
+import 'package:personal_planner/application/repository_recurring_cycle_reader.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
@@ -368,6 +370,39 @@ Future<void> main() async {
     pendingConflicts: () async => latestProposal?.conflicts ?? const [],
   );
 
+  // 周期目标提醒（1.8.0，设计规范 §5.2）。**此前这个服务在生产里从未被构造过**：
+  // 组件与测试都在，装配链缺一段，于是"周期目标提醒"这一类在真实运行中永远不出现。
+  // 现在它与另外四类共用同一次对账（`NotificationService.reconcile`）。
+  final recurringNotifications = RecurringNotificationService(
+    cycles: RepositoryRecurringCycleReader(
+      repository: recurringTaskRepository,
+      // 周界复用周期服务自己的实现，提醒与界面因此不可能对"这周从哪天开始"给出两个答案。
+      periods: (nowUtc) => recurringTasks.periodContaining(nowUtc),
+    ),
+    notifications: notifications,
+    clock: clock,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    // 免打扰按**本地日**生效，因此这里按当天解析一次（与 `NotificationService` 同一口径）。
+    quietHoursFor: (localDate) async =>
+        (await settingsService.resolveForDate(localDate))
+            .notifications
+            .quietHours,
+    // 开关读的是与对账**同一个持久源**。`reconcile` 还额外用自己那份偏好做了一次闸门，
+    // 因此即使这里读到旧值，"总开关关闭 ⇒ 不评估"也不会被绕过。
+    enabledFor: () async =>
+        (await settingsService.loadNotificationPreferences())
+            .recurringGoalEnabled,
+  );
+
+  // 通知对账入口（规范 §5.2）。**设置页保存之后必须走它**：只落库不对账等于"关掉通知"
+  // 只关掉了界面上一个勾，已排进 Windows 的 `planner.*` 通知照样会弹（§2.2）。因此把它
+  // 作为独立回调交给 `PlannerApp` → 路由 → 设置页，而不是让设置页直接认识通知服务。
+  //
+  // 先声明再在下面赋值：`reconcileNotifications` 需要被引用（交给 `PlannerApp`），而它
+  // 指向的 `resyncNotifications` 是局部函数、按声明顺序才可见。
+  late final Future<void> Function() reconcileNotifications;
+
   // 启动即同步未来七天的提醒，但不阻塞首屏：通知不是启动的必要条件，平台侧失败也不
   // 应让应用起不来。
   //
@@ -377,7 +412,13 @@ Future<void> main() async {
   // 下面把它抽成一个可复用的函数，接到三处"当前计划/相关输入真的变了"的地方。
   Future<void> resyncNotifications() async {
     try {
-      final result = await notificationService.syncNextSevenDays();
+      // 1.8.0（规范 §5.2）：启动、计划应用、任务状态变化与设置保存**共用同一个幂等
+      // 对账入口**。此前这里调的是 `syncNextSevenDays`，而它是一个"把当前计划算成期望集合"
+      // 的函数——不认总开关、也管不到周期目标那一类。现在由 `reconcile` 统一处理
+      // "先取消不该留的、再排出该有的"，并让周期目标提醒走同一条链。
+      final result = await notificationService.reconcile(
+        evaluateRecurringGoal: recurringNotifications.evaluate,
+      );
       // **成功也要记**：只有失败有记录时，读日志的人无法区分"没跑"与"跑了但没事发生"。
       // 这三项正好覆盖"到底有没有安排、有没有取消、以及平台能力判定"。
       diagnostics.write(
@@ -393,6 +434,9 @@ Future<void> main() async {
       diagnostics.write('提醒同步失败：$error\n$stackTrace');
     }
   }
+
+  // 两处引用同一个实现，因此设置页保存后的对账与启动时的那一次**必然是同一条链**。
+  reconcileNotifications = resyncNotifications;
 
   unawaited(resyncNotifications());
 
@@ -696,6 +740,8 @@ Future<void> main() async {
         replanOutcome: replanOutcome,
         // 启动时已按持久设置初始化（W8）。
         autoAdjustStore: autoAdjustStore,
+        // 1.8.0（规范 §5.2）：设置页保存通知偏好之后立刻对账一次。
+        reconcileNotifications: reconcileNotifications,
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
         // M4「跳过本次」：同样与排程输入来源共用同一实例。
