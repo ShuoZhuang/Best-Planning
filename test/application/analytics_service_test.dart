@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
@@ -14,6 +15,60 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 void main() {
   final start = DateTime.utc(2026, 10, 2, 10);
   final end = DateTime.utc(2026, 10, 9, 10);
+
+  test('用户自建的保护时间**计入**「休息保护」那一节（1.8.0，规范 §9.1 末条）', () async {
+    // 走的是**服务层**：`AnalyticsDao` 产出 `protectedInstances`，
+    // 由 `AnalyticsService` 的展开器与规则来源的保护时间**合并**计入同一节。
+    // 只测 DAO 只能证明"数据取到了"，测不到"有没有被算进去"。
+    //
+    // **必须传 `zones` 与 `timeZoneId`**：服务刻意不在缺少时区时按 UTC 归桶，
+    // 缺了它们时所有与保护时间有关的小节都返回 `null`。
+    // 第一版漏了这两个参数，断言于是在 `!` 上崩掉——**夹具比断言更容易错**。
+    const customHours = 2;
+    final withCustom = await AnalyticsService(
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      source: _MemoryAnalyticsSource(
+        _dataset(
+          start,
+          protectedInstances: [
+            AnalyticsProtectedInstance(
+              label: '每周二下午不排事',
+              startUtc: start.add(const Duration(hours: 2)),
+              endUtc: start.add(const Duration(hours: 2 + customHours)),
+            ),
+          ],
+        ),
+      ),
+    ).query(AnalyticsFilter(startUtc: start, endUtc: end));
+
+    expect(
+      withCustom.restSummary,
+      isNotNull,
+      reason:
+          '窗口里**只有**用户自建的保护时间时，「休息保护」这一节也必须出现；'
+          '否则用户建了保护时间却在统计里看不到——等于被悄悄丢掉',
+    );
+    expect(
+      withCustom.restSummary!.totalMinutes,
+      greaterThanOrEqualTo(customHours * 60),
+      reason: '那一节的分钟数至少要把这 2 小时算进去',
+    );
+  });
+
+  test('完全没有保护时间时「休息保护」这一节不出现（空节的语义）', () async {
+    final report = await AnalyticsService(
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      source: _MemoryAnalyticsSource(_dataset(start)),
+    ).query(AnalyticsFilter(startUtc: start, endUtc: end));
+
+    expect(
+      report.restSummary,
+      isNull,
+      reason: '没有保护时间就没有这一节——这与"这一节是 0 分钟"是两件事',
+    );
+  });
 
   test('自定义范围按交集区分计划和实际，并公开所有比例分母', () async {
     final service = AnalyticsService(
@@ -193,8 +248,12 @@ void main() {
   });
 }
 
-AnalyticsDataset _dataset(DateTime start) => AnalyticsDataset(
+AnalyticsDataset _dataset(
+  DateTime start, {
+  List<AnalyticsProtectedInstance> protectedInstances = const [],
+}) => AnalyticsDataset(
   weeklyLifeQuotaMinutes: 360,
+  protectedInstances: protectedInstances,
   tasks: [
     AnalyticsTaskFact(
       id: 'study',

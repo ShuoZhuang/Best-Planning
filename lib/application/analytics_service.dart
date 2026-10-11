@@ -733,6 +733,15 @@ RestSummaryMetric? _restSummary({
   }
   final instances = _protectedInstances(
     windows: windows,
+    // **这一行是补上的**（1.8.0，规范 §9.1 末条）：参数声明了、上游也传进来了，
+    // 但这里漏了转发，于是"用户自建的保护时间"在**休息总结**这一节里被丢掉。
+    //
+    // 为什么没被发现：`_restProtection`、`_protectedMinutes`、
+    // `_scheduledIntersectingProtected` 三处都转发了，只有这一处没有；
+    // 而 analyzer 对"声明了但没往下传的可选参数"不构成警告——形参有没有出现在函数体里，
+    // 它并不检查。结果：`analytics_dao_test` 证明数据取到了，另外三处的数字也对，
+    // 唯独**休息总结**少算，而那正是用户看得到的一节。
+    customInstances: customInstances,
     filter: filter,
     zones: zones,
     timeZoneId: timeZoneId,
@@ -768,10 +777,19 @@ RestSummaryMetric? _restSummary({
     return total > length ? length : total;
   }
 
-  // 按标签分组，保持 windows 里第一次出现的顺序（用户设置里的顺序就是界面顺序）。
+  // 按标签分组。**顺序**上先按 `windows`（用户设置里的顺序就是界面顺序），
+  // 再补上只出现在 `customInstances` 里的标签（1.8.0，规范 §9.1 末条）。
+  //
+  // **这一行原本只遍历 `windows`**：于是"用户自建的保护时间"虽然进了 `instances`
+  // （探针确认 `instances=1`），却因为它的标签不在 `labels` 里而**一个分组都没有**，
+  // 下面的 `metrics.isEmpty` 立刻返回 `null`——整节消失。
+  // 症状是"用户建了保护时间，统计里完全看不到"，而不是数字偏小。
   final labels = <String>[];
   for (final window in windows) {
     if (!labels.contains(window.label)) labels.add(window.label);
+  }
+  for (final instance in instances) {
+    if (!labels.contains(instance.label)) labels.add(instance.label);
   }
 
   final metrics = <RestWindowMetric>[];
