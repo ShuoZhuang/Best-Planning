@@ -2444,7 +2444,12 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     final displayInfos = lookup == null
         ? const <TaskDisplayInfo>[]
         : await resolveTaskDisplayInfos(lookup, [
+            // **两类条目一起解析**（规范 §13.1）：变更行与"未安排"行用的是同一个
+            // `taskId` 空间，分开解析就会出现"一类有名字、另一类还是 id"。
             for (final task in proposal.unscheduled) task.taskId,
+            for (final change in diff.changes)
+              if ((change.after ?? change.before) case final block?)
+                block.taskId,
           ]);
     final titleByTaskId = {
       for (final info in displayInfos) info.taskId: info.title,
@@ -2457,7 +2462,12 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         for (final change in diff.changes)
           PreviewChange(
             kind: _kindOf(change),
-            title: _titleOf(widget.zones, widget.timeZoneId, change),
+            title: planChangeTitle(
+              change: change,
+              titleByTaskId: titleByTaskId,
+              zones: widget.zones,
+              timeZoneId: widget.timeZoneId,
+            ),
             reason: explanationLabel(change.reason ?? ''),
             // M4（§8）：预览必须显示**原时间与目标时间**，否则用户看不出"从哪挪到哪"。
             // 空的那一侧留 `null`：新增没有原时间、未安排没有目标时间。
@@ -2661,12 +2671,49 @@ String? _timeLabelOf(
       '${two(end.hour)}:${two(end.minute)}';
 }
 
-String _titleOf(TimeZoneDatabase zones, String timeZoneId, PlanChange change) {
+/// 预览里一条变更行的标题。
+///
+/// **必须是任务名，不能是 `taskId`**（设计规范 §13.1）：
+///
+/// > 预览层继续通过现有 `TaskTitleLookup.titlesFor()` 批量把 `taskId` 映射到标题；
+/// > 禁止逐项查询。**任何找不到标题的项使用现有占位文案，仍不得回退到 UUID。**
+///
+/// 修复前这里直接拼 `block.taskId`：
+///
+/// ```dart
+/// return '${block.taskId}  ${two(start.month)}-...';   // 用户看到一串 uuid
+/// ```
+///
+/// 于是**每一行**变更都在显示任务 id —— 而"未安排"那一类走的是另一条
+/// （`titleOf` → `resolveTaskDisplayInfos`），是好的。同一次预览里两类条目的
+/// 命名方式不一致，正是"某一条路径漏了走那条链"的典型。
+///
+/// **为什么此前没被发现**：`plan_preview_test.dart` 直接构造 `PlanPreviewModel`
+/// 并传 `title: '移动实验'` 这类**已经可读**的标题，因此它验的是"页面会显示模型里的
+/// title"，而不是"模型里的 title 是怎么来的"。装配层那一步在 widget 测试的接缝之外。
+///
+/// 抽成顶层纯函数是为了让它**能脱离界面与路由被测**：它只依赖
+/// （diff、标题表、时区、占位文案），而这几条回落规则正是 §13.1 的实际内容。
+String planChangeTitle({
+  required PlanChange change,
+  required Map<String, String> titleByTaskId,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+}) {
+  // `after ?? before` 是"移动"的对：两者都有时用新位置，只有一个时用那一个。
   final block = change.after ?? change.before;
-  if (block == null) return change.blockId;
+  if (block == null) {
+    // 两侧都没有块（理论上不该出现）。**仍然不返回 `blockId`**：
+    // 那是内部标识，用户既认不出也没法据此行动。
+    return unnamedTaskLabel;
+  }
+  final taskTitle = titleByTaskId[block.taskId];
+  final name = (taskTitle != null && taskTitle.trim().isNotEmpty)
+      ? taskTitle.trim()
+      : unnamedTaskLabel;
   final start = zones.toLocal(block.startUtc, timeZoneId);
   final end = zones.toLocal(block.endUtc, timeZoneId);
   String two(int value) => value.toString().padLeft(2, '0');
-  return '${block.taskId}  ${two(start.month)}-${two(start.day)} '
+  return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
