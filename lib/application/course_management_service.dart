@@ -110,8 +110,49 @@ List<CourseTimeConflict> detectCourseTimeConflicts({
   });
 }
 
-/// 判断一条既有占用属于哪一类。
+/// 把"新的本地钟点"套到某一个片段**自己那一周的那一天**上。
 ///
+/// 规范 §10.2 第三条要的是"改这门课的时间"，而不是"把所有片段压到同一时刻"：
+/// 单双周课程的每一段各有自己的星期，改完之后必须**仍然是那一天**。
+///
+/// 实现方式刻意选"锚点日 `+ (目标星期 - 锚点星期)` 天"：
+/// - `newStartUtc` 的**本地钟点**由调用方给定，这里只搬日期；
+/// - 用**日历日加法**（`DateTime(y, m, d + n)`）而不是 `add(Duration(days: n))`——
+///   后者在夏令时切换日会漂一小时（与 `deferNotBeforeUtc` 同一条理由）；
+/// - `Duration` 在这里**只用于"加多少天"**，不会被加到时刻上。
+///
+/// 单片段课程因此逐值不变：目标星期等于锚点星期时偏移为 0。
+(DateTime, DateTime) _mapToSegmentDay({
+  required CourseSeriesSegment segment,
+  required DateTime newStartUtc,
+  required DateTime newEndUtc,
+}) {
+  final anchorWeekday = newStartUtc.weekday;
+  final offsetDays = segment.weekday - anchorWeekday;
+  final duration = newEndUtc.difference(newStartUtc);
+  final targetStart = _addLocalDays(newStartUtc, offsetDays);
+  return (targetStart, targetStart.add(duration));
+}
+
+/// 在一个 UTC 时刻上**加减日历日**（不改变钟点，不受夏令时影响）。
+///
+/// **为什么不用 `add(Duration(days: n))`**：那加的是**绝对时长**。对 UTC 时刻本身而言
+/// 24 小时就是 24 小时，但这里的语义是"换到另一天"，而下游的
+/// `replaceSeries` 会按**规则自己的时区**重新解释这个时刻的本地日期——
+/// 因此必须保证"本地日期确实前进/后退了 n 天"，而不是"绝对时刻前进了 n×24 小时"。
+/// 用日历加法表达这个意图，读代码的人也不会误以为它在算时长。
+DateTime _addLocalDays(DateTime instantUtc, int days) =>
+    DateTime.utc(instantUtc.year, instantUtc.month, instantUtc.day + days).add(
+      Duration(
+        hours: instantUtc.hour,
+        minutes: instantUtc.minute,
+        seconds: instantUtc.second,
+        milliseconds: instantUtc.millisecond,
+        microseconds: instantUtc.microsecond,
+      ),
+    );
+
+/// 判断一条既有占用属于哪一类。///
 /// **判据有意避开"读课表元数据"**：
 /// - 是保护时间 ⇒ `protectedTime`；
 /// - 属于本课程的**其它片段**（id 在 [sameCourseEventIds] 里）⇒ `sameCourse`；
@@ -255,29 +296,42 @@ final class CourseManagementService {
       return const CourseCommandResult.failure('找不到这门课程');
     }
     final effectiveTerm = termId ?? detail.summary.termId;
-    final anchors = [
+    // **同一份清单既用于"有没有可改的"判断，也用于循环**（第一版分开算，
+    // 两处的过滤条件还写得不一致：一处是 `effectiveTerm == null || 相等`，
+    // 另一处是 `effectiveTerm != null && 不等`——在 `termId: null` 且课程有学期时，
+    // 前者认为"全部可改"而后者把每一段都跳过，于是**报告成功却什么都没改**）。
+    final targets = [
       for (final segment in detail.segments)
         if (effectiveTerm == null || detail.summary.termId == effectiveTerm)
-          segment.eventId,
+          segment,
     ];
-    if (anchors.isEmpty) {
+    if (targets.isEmpty) {
       return const CourseCommandResult.failure('这门课在当前学期没有可改动的系列');
     }
 
     final failures = <String>[];
-    for (final anchorId in anchors) {
-      // `CalendarService.replaceSeries` 只改时间；标题属于"这条日程的属性"，
-      // 由界面在需要时另走一次保存（本批次不做批量改名，规范 §10.2 也没有要求）。
-      final ok = await calendar.replaceSeries(
-        anchorId: anchorId,
+    for (final segment in targets) {
+      // **每一段保留自己的星期与日期，只换钟点**（规范 §10.2 第三条）。
+      //
+      // 修复前的写法把 `newStartUtc` 原样传给**每一段**，于是一门
+      // "周一 08:00 ＋ 周四 10:00" 的课改完之后**两段都落在周一**——每周少上一次课。
+      // 这条路径当时没有用例：旧用例只断言"调用了两次 `replaceSeries`"，
+      // **不断言两者落在哪里**，因此缺陷一直没被发现。
+      final mapped = _mapToSegmentDay(
+        segment: segment,
         newStartUtc: newStartUtc,
         newEndUtc: newEndUtc,
       );
-      if (!ok) failures.add(anchorId);
+      final ok = await calendar.replaceSeries(
+        anchorId: segment.eventId,
+        newStartUtc: mapped.$1,
+        newEndUtc: mapped.$2,
+      );
+      if (!ok) failures.add(segment.eventId);
     }
     if (failures.isEmpty) return const CourseCommandResult.success();
     return CourseCommandResult.failure(
-      '有 ${failures.length} 个系列片段没有改成功（共 ${anchors.length} 个）',
+      '有 ${failures.length} 个系列片段没有改成功（共 ${targets.length} 个）',
     );
   }
 
