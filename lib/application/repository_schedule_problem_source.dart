@@ -18,6 +18,7 @@ import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
+import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -298,6 +299,58 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           block.id: block.startUtc,
     };
 
+    // ── 调整路径：级联到位（裁定第 4 点；设计 §5.4）────────────────────────────
+    //
+    // 规范 §11.4 末段："先在当天做向后级联；当天放不下时才考虑后续日期。"
+    // `localRepairCascade` 做的正是这件事：把目标块推到不早于下界，**只让开必要的块**，
+    // 而不是重排一整天。
+    //
+    // **为什么必须在装配层算、并把结果当锁定块交给引擎**：引擎的放置是**任务级**的
+    // （按任务剩余时长重新分块），它**没有"这一块就是上次那一块"的概念**。
+    // 因此"目标块留在原位、只把它往后推"只能在装配层表达：算好位置之后以
+    // `lockedBlocks` 交给引擎，引擎原样收下。
+    //
+    // **必须同时把它从 `existingBlocks` 里排除**，否则同一块会同时是"锁定在 A"
+    // 与"可移动的 B"，引擎可能为它再排一条 —— 那就是"同一件工作排两次"。
+    //
+    // 级联当天不可行时**不假装成功**：不产出级联块，改由引擎按普通路径排
+    // （可能落到后续日期），结果如实报给用户。
+    //
+    // 位置在 `schedulableIds`／`skippedBlockIds` 之后：三个都用得到。
+    PlannedBlock? adjustedTarget;
+    final pendingAdjustment = adjustment;
+    if (pendingAdjustment != null) {
+      final bound = pendingAdjustment.notBeforeUtc;
+      final target = confirmedBlocks
+          .where((block) => block.id == pendingAdjustment.targetBlockId)
+          .firstOrNull;
+      if (target != null) {
+        final outcome = localRepairCascade(
+          targetBlockId: target.id,
+          notBeforeUtc: bound,
+          blocks: [
+            for (final block in confirmedBlocks)
+              if (schedulableIds.contains(block.taskId) &&
+                  !skippedBlockIds.contains(block.id) &&
+                  !pinnedByBlockId.containsKey(block.id))
+                block,
+          ],
+          // 固定日程与保护时间由引擎自己的硬约束守着；级联只调整计划块。
+          immovable: const [],
+          dayStartUtc: startUtc,
+          dayEndUtc: endUtc,
+        );
+        if (outcome.feasible) {
+          final placed = outcome.blocks
+              .where((block) => block.id == target.id)
+              .firstOrNull;
+          if (placed != null && !placed.startUtc.isBefore(bound)) {
+            adjustedTarget = placed;
+          }
+        }
+      }
+    }
+
     final problem = ScheduleProblem(
       planningWindow: TimeRange(startUtc: startUtc, endUtc: endUtc),
       timeZoneId: timeZoneId,
@@ -350,6 +403,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
             block,
         // 被拖动的块替换掉它原来的位置（同一个 id 不能出现两次，否则引擎会排出两条）。
         ...pinnedByBlockId.values,
+        // **级联到位的目标块**（裁定第 4 点）：以锁定块交给引擎，它原样收下。
+        // 下面的 `existingBlocks` 会把它排除，因此同一块不会既锁定又可移动。
+        ?adjustedTarget,
       ],
       // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
       existingBlocks: [
@@ -357,7 +413,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           if (!block.locked &&
               schedulableIds.contains(block.taskId) &&
               !skippedBlockIds.contains(block.id) &&
-              !pinnedByBlockId.containsKey(block.id))
+              !pinnedByBlockId.containsKey(block.id) &&
+              // 被级联接管的块不再以**原位置**出现在可移动集合里，
+              // 否则引擎会把它当参考位置放回去，级联结果当场失效。
+              block.id != adjustedTarget?.id)
             block,
       ],
       rules: resolvedRules,
