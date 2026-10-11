@@ -1,5 +1,105 @@
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+
+/// 把**还能回到原位**的块放回原位，从而最小化"被移动的块数"（1.8.0，规范 §11.4 第 3 条）。
+///
+/// **为什么需要这一步**：引擎的生成是"从零排一遍"，它不知道哪些块**本来就在合适的位置**。
+/// 于是用户按一次"延后 30 分钟"，引擎可能顺手把一整天重排一遍——而规范第 3、4 条要的
+/// 恰恰是"少动"：先比被移动的块数，再比总位移分钟。
+///
+/// **算法**：按块 id 排序（顺序必须确定），逐个尝试把它放回
+/// `problem.referenceBlocks[id]`。放回**只有在验证器确认无冲突时才接受**，
+/// 因此这个步骤**永远不会制造新冲突**：它要么减少改动，要么什么都不做。
+///
+/// **为什么贪心就够**：把某块放回原位只会让它自己"不再被算作移动"，
+/// 不会让任何别的块变成移动。因此"能放回就放回"不可能让结果变差——
+/// 每一块的处理都是单调的，且各块之间只通过"原位是否被占"互相影响，
+/// 而那个影响由验证器如实判定。
+///
+/// **不动的东西**：锁定块、没有参照的块（新排进来的）、以及放回会冲突的块。
+///
+/// 返回的 [LocalRepairPlan.movedBlockIds] 就是规范第 3 条要数的那个集合，
+/// 参照由 [LocalRepairPlan.compare] 用来算第 4 条的位移分钟。
+LocalRepairPlan minimizeChangedBlocks({
+  required ScheduleProblem problem,
+  required List<PlannedBlock> blocks,
+  required DateTime dayStartUtc,
+  required DateTime dayEndUtc,
+  PlanValidator? validator,
+}) {
+  // 不可移动的集合：锁定块，以及**没有参照**的块（新排进来的，没有"调整前"）。
+  final immovableIds = {
+    for (final block in blocks)
+      if (block.locked || !problem.referenceBlocks.containsKey(block.id))
+        block.id,
+  };
+
+  // 固定占用：锁定的块、固定日程、保护时间。放回原位时不能撞上它们。
+  final busy = <TimeRange>[
+    for (final block in blocks)
+      if (block.locked) block.range,
+    for (final interval in problem.fixedIntervals) interval.range,
+    for (final interval in problem.protectedIntervals) interval.range,
+  ];
+
+  final byId = {for (final block in blocks) block.id: block};
+  // **按 id 排序**：顺序不确定会让同一次输入产出两份不同的结果。
+  final restorable = [
+    for (final entry in problem.referenceBlocks.entries)
+      if (byId.containsKey(entry.key) &&
+          !immovableIds.contains(entry.key) &&
+          byId[entry.key]!.startUtc != entry.value)
+        entry,
+  ]..sort((a, b) => a.key.compareTo(b.key));
+
+  for (final entry in restorable) {
+    final current = byId[entry.key]!;
+    final reference = TimeRange(
+      startUtc: entry.value,
+      endUtc: entry.value.add(Duration(minutes: current.durationMinutes)),
+    );
+    // ① 必须在规划窗口内。
+    if (!problem.planningWindow.contains(reference.startUtc) ||
+        reference.endUtc.isAfter(problem.planningWindow.endUtc)) {
+      continue;
+    }
+    // ② 不能撞上固定占用。
+    if (busy.any((range) => range.overlaps(reference))) continue;
+    // ③ 不能撞上**当前位置上的**别的块。逐个试算，用验证器确认。
+    final candidate = PlannedBlock(
+      id: current.id,
+      taskId: current.taskId,
+      range: reference,
+      locked: current.locked,
+      explanationCode: current.explanationCode,
+    );
+    final trial = [
+      for (final block in byId.values)
+        if (block.id == current.id) candidate else block,
+    ];
+    if ((validator ?? PlanValidator(TimeZoneDatabase()))
+        .validate(problem, trial)
+        .isNotEmpty) {
+      continue;
+    }
+
+    // 验证器说没问题 ⇒ 接受。更新工作副本，后续块基于新状态判断。
+    byId[entry.key] = candidate;
+  }
+
+  return LocalRepairPlan(
+    // **保持输入顺序**：预览与其他消费方依赖它。
+    blocks: [for (final block in blocks) byId[block.id]!],
+    movedBlockIds: {
+      for (final block in byId.values)
+        if (problem.referenceBlocks[block.id] case final reference?
+            when reference != block.startUtc)
+          block.id,
+    },
+  );
+}
 
 /// 一次**最小改动局部修复**的结果（1.8.0，设计规范 §11.4）。
 ///

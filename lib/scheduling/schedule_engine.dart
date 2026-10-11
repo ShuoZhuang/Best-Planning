@@ -8,6 +8,7 @@ import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
 import 'package:personal_planner/scheduling/even_distribution_allocator.dart';
+import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
@@ -42,7 +43,12 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// （`_exceedsMovableDailyLimit`），不再靠"少看见一些空档"实现；③ `even` 策略的周期目标
   /// 改由容量感知的按日均分器给出每日预算，且**不再有两轮全局放开配额**。
   /// 三处都会改变同一输入得到的分块位置，因此必须抬版本，否则无法区分"算法变了"与"输入变了"。
-  static const String algorithmVersion = '10';
+  ///
+  /// 版本 11（1.8.0）新增**最小化改动**那一步（规范 §11.4 第 3、4 条）：生成结束前把
+  /// **还能回到原位**的块放回原位。于是"被移动的块数"与"总位移分钟"这两个量第一次真的被
+  /// 优化，而不是只靠单块评分里那个移动惩罚项间接影响。同一输入的分块位置因此会变
+  /// （更少、更近），必须抬版本。
+  static const String algorithmVersion = '11';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -522,6 +528,26 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
 
+    // ── 最小化改动（1.8.0，规范 §11.4 第 3、4 条）──────────────────────────────
+    //
+    // 生成是"从零排一遍"，引擎因此不知道哪些块**本来就在合适的位置**。用户按一次
+    // "延后 30 分钟"，引擎可能顺手把一整天重排一遍——而规范要的是"少动"：
+    // 先比被移动的块数，再比总位移分钟。
+    //
+    // 这一步把**还能回到原位**的块放回原位，每一步都过验证器，因此它只可能减少改动、
+    // 不可能制造新冲突。放在这里（冲突检查之前）是刻意的：如果它真的引入了冲突，
+    // 下面的 `validate` 会如实报出来，而不是被静默吞掉。
+    final minimized = minimizeChangedBlocks(
+      problem: problem,
+      blocks: blocks,
+      dayStartUtc: _dayBoundary(problem, before: true),
+      dayEndUtc: _dayBoundary(problem, before: false),
+      validator: _validator,
+    );
+    blocks
+      ..clear()
+      ..addAll(minimized.blocks);
+
     final conflicts = [..._validator.validate(problem, blocks)];
     for (final item in unscheduled) {
       conflicts.add(
@@ -687,6 +713,50 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                 !candidate.endUtc.isAfter(task.dueAtUtc!)),
       ),
     );
+  }
+
+  /// 最小化改动那一步用的"当天"边界（1.8.0，规范 §11.4）。
+  ///
+  /// **取参照块自己所在的那一天**（按问题自己的时区算），而不是规划窗口的首尾：
+  /// 窗口可能横跨七天，而"少动"这件事是**逐个本地日**判断的——
+  /// 用七天的窗口会让"原位是否空着"的判断掺进别的日子。
+  ///
+  /// 参照为空（没有确认计划）时退化为规划窗口本身：那种情况下没有任何块有"调整前"，
+  /// 最小化改动是空操作，边界取什么都不影响结果。
+  DateTime _dayBoundary(ScheduleProblem problem, {required bool before}) {
+    final references = problem.referenceBlocks.values;
+    if (references.isEmpty) {
+      return before
+          ? problem.planningWindow.startUtc
+          : problem.planningWindow.endUtc;
+    }
+    var earliest = references.first;
+    var latest = references.first;
+    for (final instant in references) {
+      if (instant.isBefore(earliest)) earliest = instant;
+      if (instant.isAfter(latest)) latest = instant;
+    }
+    final local = _zones.toLocal(earliest, problem.timeZoneId);
+    final dayStart = _zones.localMidnightToUtc(
+      DateTime.utc(local.year, local.month, local.day),
+      problem.timeZoneId,
+    );
+    final dayEnd = _zones.localMidnightToUtc(
+      DateTime.utc(local.year, local.month, local.day + 1),
+      problem.timeZoneId,
+    );
+    if (!before) {
+      // 参照块跨越多个本地日时，"当天"取到**最晚那一天的结束**：
+      // 与 `dayStart` 一起构成一个能容纳全部参照块的窗口，而不是把它们截断。
+      final localLatest = _zones.toLocal(latest, problem.timeZoneId);
+      return _zones.localMidnightToUtc(
+        DateTime.utc(localLatest.year, localLatest.month, localLatest.day + 1),
+        problem.timeZoneId,
+      );
+    }
+    return dayStart.isBefore(dayEnd)
+        ? dayStart
+        : problem.planningWindow.startUtc;
   }
 
   /// 计算设计 §5.4「任务期望时段」因子。
