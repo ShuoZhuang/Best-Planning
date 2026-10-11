@@ -37,7 +37,6 @@ void main() {
   late MemorySettingsRepository settingsRepository;
   late SettingsService settings;
   late _ReconcilePort notifications;
-
   setUp(() {
     now = DateTime.utc(2026, 10, 2, 8);
     plans = _CountingPlanRepository();
@@ -308,6 +307,62 @@ void main() {
         'planner.calendar_start.evt-lunch-shanghai',
         'planner.conflict.pending',
       }, reason: '没被关掉的三类本应用通知与那条外部通知都必须留着');
+    });
+
+    test('**五类的 id、payload 与类别三者互相对得上**（结构不变量）', () async {
+      // 这条是所有取消逻辑的地基，且**跨五个生成分支**：
+      //   · `reconcile` 取消时按 `id` 判断类别（`_categoryOf(id)`）；
+      //   · 平台点击回调按 payload 里的 `notificationId` / `kind` 决定去哪一页；
+      //   · 两者的键必须是**同一个字符串**，否则"取消"与"点击"认的不是同一条。
+      //
+      // 任何一条生成分支把 prefix、payload 或 kind 写歪，都只有这条跨分支的用例看得见——
+      // 单看某一类的用例会各自通过。
+      // **必须先把计划放进去**：`_CountingPlanRepository.plan` 默认是 `null`，
+      // 而「任务即将开始」那一类的生成分支在 `plan == null` 时什么都不产出。
+      // 第一版我忘了这一行，于是"四类都在"红了——**缺的是我的夹具，不是代码**。
+      plans.plan = planCoveringAllCategories();
+      await service().reconcile();
+
+      expect(notifications.scheduled, isNotEmpty, reason: '前置条件：五类来源齐全时必须排出通知');
+
+      final kindsSeen = <NotificationKind>{};
+      for (final request in notifications.scheduled) {
+        final payload = NotificationPayload.decode(request.payload);
+        expect(
+          payload,
+          isNotNull,
+          reason: '${request.id} 的 payload 必须能解出来；解不出来点击回调就不知道该去哪',
+        );
+        expect(
+          payload!.notificationId,
+          request.id,
+          reason:
+              '${request.id} 的 payload.notificationId 是 ${payload.notificationId}——'
+              '两者不同意味着"按 id 取消"与"按 payload 跳转"认的不是同一条通知',
+        );
+        final category = NotificationService.categoryOf(request.id);
+        expect(
+          category,
+          payload.kind,
+          reason:
+              '${request.id} 按前缀属于 $category，但 payload 声明的是 ${payload.kind}；'
+              '不一致时"关掉这一类"会取消掉另一类的通知',
+        );
+        kindsSeen.add(payload.kind);
+      }
+
+      expect(
+        kindsSeen,
+        containsAll(const [
+          NotificationKind.taskStart,
+          NotificationKind.calendarStart,
+          NotificationKind.deadline,
+          NotificationKind.conflict,
+        ]),
+        reason:
+            '夹具装配了四类来源（周期目标那一类由它自己的服务产出，不在这里）；'
+            '少一类说明有一条生成分支没进期望集合——而那一类会被当成"过期事实"取消掉',
+      );
     });
 
     test('周期目标关闭时**一次都不评估**（规范 §5.2 最后一条）', () async {
