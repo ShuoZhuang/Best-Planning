@@ -60,6 +60,7 @@ void main() {
     WidgetTester tester, {
     String teacher = '赵敏',
     String location = 'D206',
+    bool withZones = false,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -83,6 +84,8 @@ void main() {
               gateway: const _NoopGateway(),
             ),
             logicalCourseId: 'course-calc',
+            zones: withZones ? TimeZoneDatabase() : null,
+            timeZoneId: withZones ? 'Asia/Shanghai' : null,
           ),
         ),
       ),
@@ -127,6 +130,30 @@ void main() {
       find.textContaining('每 2 周'),
       findsOneWidget,
       reason: '§10.1 要求展示"单双周"；间隔为 2 时必须能看出来',
+    );
+  });
+
+  testWidgets('**未装配时区时不给「改时间」入口**（不给点了没反应的按钮）', (tester) async {
+    await pumpDetail(tester);
+
+    expect(
+      find.byKey(const Key('course-edit-time')),
+      findsNothing,
+      reason:
+          '对话框需要时区才能把本地钟点换算成 UTC 提议时段；'
+          '没有它就只能"检测不到冲突"，那比没有按钮更糟',
+    );
+  });
+
+  testWidgets('装配时区后出现「改时间」入口（§10.2 末条的界面入口）', (tester) async {
+    await pumpDetail(tester, withZones: true);
+
+    expect(
+      find.byKey(const Key('course-edit-time')),
+      findsOneWidget,
+      reason:
+          '规范 §10.2："修改课程时间…后必须重新检测冲突并预览。"'
+          '这个入口此前**不存在**——`course_edit_dialog.dart` 是计划 Task 10 声明的交付物',
     );
   });
 }

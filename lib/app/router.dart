@@ -1046,6 +1046,10 @@ GoRouter createPlannerRouter({
                 logicalCourseId: state.pathParameters['logicalCourseId'] ?? '',
                 onDeleted: () => context.go('/calendar/courses'),
                 onCancel: () => context.go('/calendar/courses'),
+                // 「改时间」入口需要它们把本地钟点换算成 UTC 提议时段，
+                // 才能做到 §10.2 末条的"保存前先看冲突"。
+                zones: zones,
+                timeZoneId: timeZoneId,
               );
             },
           ),

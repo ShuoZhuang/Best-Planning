@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'package:personal_planner/application/course_management_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
+import 'package:personal_planner/features/calendar/courses/course_edit_dialog.dart';
 
 /// 一门课的详情与改写入口（1.8.0，设计规范 §10.1／§10.2）。
 ///
@@ -16,6 +18,8 @@ final class CourseDetailPage extends StatefulWidget {
     required this.logicalCourseId,
     this.onDeleted,
     this.onCancel,
+    this.zones,
+    this.timeZoneId,
     super.key,
   });
 
@@ -23,6 +27,11 @@ final class CourseDetailPage extends StatefulWidget {
   final String logicalCourseId;
   final VoidCallback? onDeleted;
   final VoidCallback? onCancel;
+
+  /// 改时间对话框要用它把"本地钟点"换算成 UTC 提议时段（规范 §10.2 末条）。
+  /// 为空时不显示「改时间」入口——**不给点了没反应的按钮**。
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
 
   @override
   State<CourseDetailPage> createState() => _CourseDetailPageState();
@@ -109,6 +118,48 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
         logicalCourseId: widget.logicalCourseId,
         // **从今天起停**：用户点"暂停"时想的是"以后别排了"，而不是"从某个我还没选的日期"。
         fromLocalDate: DateTime(now.year, now.month, now.day),
+      ),
+    );
+  }
+
+  /// 改整个课程的时间：**先弹冲突预览，确认后才写**（规范 §10.2 末条）。
+  ///
+  /// 顺序是刻意的：对话框内部就是"预览冲突 → 出现保存"，因此这里拿到
+  /// [CourseTimeChange] 时用户**已经看过冲突**；硬冲突时对话框不会返回结果。
+  Future<void> _editTime() async {
+    final detail = _detail;
+    final zones = widget.zones;
+    final timeZoneId = widget.timeZoneId;
+    if (detail == null || zones == null || timeZoneId == null) return;
+
+    final choice = await showCourseEditDialog(
+      context,
+      service: widget.service,
+      summary: detail.summary,
+      zones: zones,
+      timeZoneId: timeZoneId,
+    );
+    if (choice == null || !mounted) return;
+
+    // 把钟点换算成 UTC：**用第一段自己的星期**作为日期载体。服务层会按
+    // 每一段自己的星期重新映射（`_mapToSegmentDay`），因此这里给的日期只决定钟点。
+    final first = detail.segments.first;
+    final baseLocalDate = DateTime(2026, 1, 5);
+    final date = DateTime(
+      baseLocalDate.year,
+      baseLocalDate.month,
+      baseLocalDate.day + (first.weekday - DateTime.monday),
+    );
+
+    await _run(
+      () => widget.service.editWholeCourse(
+        logicalCourseId: widget.logicalCourseId,
+        newStartUtc: zones.localDateTimeToUtc(
+          date,
+          choice.startMinute,
+          timeZoneId,
+        ),
+        newEndUtc: zones.localDateTimeToUtc(date, choice.endMinute, timeZoneId),
       ),
     );
   }
@@ -221,6 +272,16 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
               spacing: 12,
               runSpacing: 12,
               children: [
+                // 「改时间」（1.8.0，规范 §10.2 末条）：**保存前先看冲突**。
+                // 未装配时区时不给这个入口——对话框无法把本地钟点换算成提议时段，
+                // 而"检测不到冲突"比"没有这个按钮"更糟。
+                if (widget.zones != null && widget.timeZoneId != null)
+                  OutlinedButton.icon(
+                    key: const Key('course-edit-time'),
+                    onPressed: _busy ? null : _editTime,
+                    icon: const Icon(Icons.schedule_outlined),
+                    label: const Text('改时间'),
+                  ),
                 OutlinedButton.icon(
                   key: const Key('course-pause'),
                   onPressed: _busy ? null : _pause,

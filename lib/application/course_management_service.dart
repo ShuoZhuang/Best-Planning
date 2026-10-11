@@ -36,6 +36,26 @@ enum CourseTimeConflictKind {
   otherCourse,
 }
 
+/// 这条冲突是否**硬阻断保存**（设计规范 §10.2 末条／计划 Task 10 Step 3）。
+///
+/// 计划原文："修改时间后先显示冲突，再允许返回修改；**硬冲突不能直接保存**。"
+///
+/// 划分依据是**语义**而不是严重程度的主观排序：
+///
+/// - `protectedTime` 与 `fixedEvent` 是**用户已经确定的其他安排**。让"确认一次"就覆盖
+///   它们，等于把保护时间降级成建议——而它的语义正是"这段时间不许安排"。
+/// - `otherCourse` 与 `sameCourse` 是**课表内部的拥挤**。两门课在同一时段、或同一门课的
+///   两段相接，在真实课表里是常态（不同周次、单双周、用户就是要这样排）。
+///   做成硬阻断会让用户**根本无法保存自己真实的课表**，那比冲突本身更严重。
+bool isBlockingCourseTimeConflict(CourseTimeConflict? conflict) =>
+    switch (conflict?.kind) {
+      CourseTimeConflictKind.protectedTime => true,
+      CourseTimeConflictKind.fixedEvent => true,
+      CourseTimeConflictKind.sameCourse => false,
+      CourseTimeConflictKind.otherCourse => false,
+      null => false,
+    };
+
 /// 一条"改课程时间会撞上谁"的记录。
 final class CourseTimeConflict {
   const CourseTimeConflict({
