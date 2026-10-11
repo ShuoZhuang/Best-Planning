@@ -365,6 +365,76 @@ void main() {
       );
     });
 
+    test('**任务完成之后，它的截止提醒必须被下一次对账取消**（规范 §5.2）', () async {
+      // 规范 §5.2 列出五个触发点都必须调用同一个幂等 `reconcile`：
+      // 启动、唤醒、**计划应用**、**任务状态变化**、设置保存。
+      //
+      // 这一条验"任务状态变化"那一类**在服务层是否成立**：任务从未完成变成已完成之后，
+      // `watchOpenTasks` 不再产出它，于是它的 `planner.deadline.*` 不在期望集合里——
+      // 按规则 2 它应当被判为**过期事实并取消**。不取消的话，用户完成一件事之后
+      // 仍会收到它的截止提醒。
+      final mutable = _MutableTasks([
+        PlannerTask(
+          id: 'task-due',
+          title: '交材料',
+          priority: TaskPriority.high,
+          estimatedMinutes: 60,
+          remainingMinutes: 60,
+          dueAtUtc: now.add(const Duration(hours: 6)),
+          energyLevel: TaskEnergyLevel.medium,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 15,
+          maxChunkMinutes: 30,
+          status: TaskStatus.open,
+          createdAtUtc: now,
+          updatedAtUtc: now,
+        ),
+      ]);
+
+      NotificationService build() => NotificationService(
+        plans: plans,
+        settings: settings,
+        notifications: notifications,
+        clock: _FixedClock(now),
+        zones: TimeZoneDatabase(),
+        timeZoneId: 'Asia/Shanghai',
+        tasks: mutable,
+      );
+
+      NotificationPreferences onlyDeadline() => NotificationPreferences(
+        taskStartEnabled: false,
+        calendarStartEnabled: false,
+        conflictEnabled: false,
+        recurringGoalEnabled: false,
+      );
+
+      // ① 第一次对账：任务未完成 ⇒ 排入截止提醒。
+      await build().reconcile(preferences: onlyDeadline());
+      expect(
+        notifications.scheduled
+            .where((item) => item.id.startsWith('planner.deadline.'))
+            .map((item) => item.id),
+        contains('planner.deadline.task-due'),
+        reason: '前置条件：未完成且有截止时间的任务必须排入截止提醒',
+      );
+
+      // ② 任务完成，再对账一次。
+      mutable.tasks = [
+        mutable.tasks.single.copyWith(status: TaskStatus.completed),
+      ];
+      notifications.cancelled.clear();
+
+      await build().reconcile(preferences: onlyDeadline());
+
+      expect(
+        notifications.cancelled,
+        contains('planner.deadline.task-due'),
+        reason:
+            '任务已完成 ⇒ 它不再是"临近截止" ⇒ 这条提醒必须被当成过期事实取消；'
+            '否则用户完成一件事之后还会收到它的截止提醒',
+      );
+    });
+
     test('周期目标关闭时**一次都不评估**（规范 §5.2 最后一条）', () async {
       var evaluated = 0;
 
@@ -567,6 +637,27 @@ ConfirmedPlan _plan(List<PlannedBlock> blocks) => ConfirmedPlan(
   blocks: blocks,
 );
 
+final class _MutableTasks implements TaskRepository {
+  _MutableTasks(this.tasks);
+  List<PlannerTask> tasks;
+
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() => Stream.value(tasks);
+
+  @override
+  Stream<List<PlannerTask>> watchOpenTasks() => Stream.value([
+    for (final task in tasks)
+      if (task.status == TaskStatus.open) task,
+  ]);
+
+  @override
+  Future<PlannerTask?> getById(String id) async =>
+      tasks.where((task) => task.id == id).firstOrNull;
+
+  @override
+  Future<void> save(PlannerTask task) async {}
+}
+
 final class _FixedClock implements Clock {
   const _FixedClock(this.value);
   final DateTime value;
@@ -662,5 +753,14 @@ final class _ReconcilePort implements NotificationPort {
   @override
   Future<void> scheduleOneShot(NotificationRequest request) async {
     scheduled.add(request);
+    // **排入也要进 `pending`**，否则这个替身与真实端口的行为不一致，而那种不一致
+    // 恰好会让"取消"这件事**测不到**：`reconcile` 只能取消
+    // `pendingNotifications()` 报出来的那些，而它们此前只由用例手工塞进去。
+    //
+    // 这是本轮发现的一处**测试替身缺陷**：既有的几条用例（手工塞 pending 再断言它被取消）
+    // 因此验的是"手工塞进去的会被取消"，而不是"排进去的会被取消"——
+    // 后者才是真实端口上的闭环。加这一行之后，端到端闭环才真的被覆盖。
+    pending.removeWhere((item) => item.id == request.id);
+    pending.add(PendingNotification(id: request.id, payload: request.payload));
   }
 }
