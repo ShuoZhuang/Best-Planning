@@ -44,6 +44,13 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
   String? _status;
   bool _busy = false;
 
+  /// 读取是否**已经跑完**。
+  ///
+  /// **不能拿 `_detail == null` 当"还在加载"**：课程不存在时它同样是 `null`，
+  /// 于是页面会**永远转圈**，既不报错也不给返回入口。
+  /// 深链 `/calendar/courses/<不存在的 id>`（旧链接、或那门课刚被删）就会撞上这个状态。
+  bool _loaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +64,7 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
     setState(() {
       _detail = detail;
       _preview = preview;
+      _loaded = true;
     });
   }
 
@@ -192,8 +200,19 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
             ],
           ),
           const SizedBox(height: 12),
-          if (detail == null)
+          // **读完了却没有这门课**要给一句说明，而不是继续转圈。
+          // 用 `_loaded` 而不是 `detail == null` 判断"还在加载"——见字段注释。
+          if (!_loaded)
             const Center(child: CircularProgressIndicator())
+          else if (detail == null)
+            Center(
+              child: Text(
+                '找不到这门课程。它可能已被删除，或链接已过期。',
+                key: const Key('course-detail-missing'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            )
           else ...[
             Text(
               '共 ${detail.segments.length} 个系列片段',
