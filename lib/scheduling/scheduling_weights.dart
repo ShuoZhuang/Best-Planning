@@ -15,6 +15,7 @@ final class SchedulingWeights {
     required this.categorySwitchPenalty,
     required this.maximumFragmentationPenalty,
     required this.moveExistingBlockPenalty,
+    required this.maximumUnusableGapPenalty,
   });
 
   const SchedulingWeights.v1()
@@ -34,6 +35,7 @@ final class SchedulingWeights {
         categorySwitchPenalty: -300,
         maximumFragmentationPenalty: -600,
         moveExistingBlockPenalty: -700,
+        maximumUnusableGapPenalty: -500,
       );
 
   final int maximumDeadlineRisk;
@@ -51,4 +53,12 @@ final class SchedulingWeights {
   final int categorySwitchPenalty;
   final int maximumFragmentationPenalty;
   final int moveExistingBlockPenalty;
+
+  /// 制造**无法利用的短空档**的惩罚上限（1.8.0，规范 §11.4 第 6 条）。
+  ///
+  /// 量级取在 `moveExistingBlockPenalty`（-700）与 `categorySwitchPenalty`（-300）之间：
+  /// 规范把"不制造坏空档"排在第 6 位——在"少动块／少位移"（第 3、4 条，由
+  /// `LocalRepairPlan.compare` 比较）之后，但在截止风险、优先级、精力与期望时段（第 7 条）
+  /// 之前。取 -500 足以压过第 7 条那一组，又不至于盖过移动既有块的代价。
+  final int maximumUnusableGapPenalty;
 }

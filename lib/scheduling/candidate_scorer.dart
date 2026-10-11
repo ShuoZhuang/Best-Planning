@@ -18,6 +18,13 @@ enum ScoringFactor {
   categorySwitch,
   fragmentation,
   movingExistingBlock,
+
+  /// **无法利用的短空档**（1.8.0，规范 §11.4 第 6 条／§2.6）。
+  ///
+  /// 与 [fragmentation] 是**两件不同的事**：那个惩罚的是"这一块比最大片段短多少"，
+  /// 也就是**块的形状**；这一个惩罚的是"这次放置会在周围留下多长的、谁也放不进去的缝"。
+  /// 一个 45 分钟的块完全正常，而它前后各留 20 分钟的缝才是问题。
+  unusableGap,
 }
 
 final class CandidateScoringContext {
@@ -32,6 +39,7 @@ final class CandidateScoringContext {
     this.sameTaskAdjacent = false,
     this.categorySwitch = false,
     this.fragmentationPenaltyPermille = 0,
+    this.unusableGapPenaltyPermille = 0,
     this.movesExistingBlock = false,
     this.hardConstraintsSatisfied = true,
   });
@@ -46,6 +54,13 @@ final class CandidateScoringContext {
   final bool sameTaskAdjacent;
   final bool categorySwitch;
   final int fragmentationPenaltyPermille;
+
+  /// 这次放置会留下的无法利用的短空档，按"最深的那一段"折算成千分比（0..1000）。
+  ///
+  /// **用最深的一段而不是总分钟**：一次放置通常只影响紧邻的两段缝，"总分钟"会把
+  /// 一天里早已存在的坏空档也算进来，于是评分反映的是"当前计划有多碎"，
+  /// 而不是"这一个候选有多碎"——前者是常量，无法用来比较候选。
+  final int unusableGapPenaltyPermille;
   final bool movesExistingBlock;
   final bool hardConstraintsSatisfied;
 }
@@ -112,6 +127,12 @@ final class CandidateScorer {
       ScoringFactor.movingExistingBlock: context.movesExistingBlock
           ? weights.moveExistingBlockPenalty
           : 0,
+      // 1.8.0（规范 §11.4 第 6 条）：留下无法利用的短空档要扣分。
+      // 用与 `fragmentation` 同一条"上限 × 千分比"的折算方式，因此两个因子可以直接比较。
+      ScoringFactor.unusableGap: -_scaled(
+        -weights.maximumUnusableGapPenalty,
+        context.unusableGapPenaltyPermille,
+      ),
     };
     return CandidateScore.eligible(factors);
   }
