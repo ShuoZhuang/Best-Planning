@@ -48,7 +48,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// **还能回到原位**的块放回原位。于是"被移动的块数"与"总位移分钟"这两个量第一次真的被
   /// 优化，而不是只靠单块评分里那个移动惩罚项间接影响。同一输入的分块位置因此会变
   /// （更少、更近），必须抬版本。
-  static const String algorithmVersion = '11';
+  static const String algorithmVersion = '12';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;

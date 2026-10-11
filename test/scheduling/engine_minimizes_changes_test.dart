@@ -114,8 +114,20 @@ void main() {
     expect(first.blocks, isNotEmpty);
   });
 
-  test('算法版本是 11（最小化改动改变了结果，必须抬版本）', () {
+  test('算法版本是 12（本次算法升级完成，一次抬到位）', () {
     // 设计 §5.1：任何会改变排程结果的改动都必须抬版本，否则历史计划无法按当时的算法复现。
-    expect(DeterministicScheduleEngine.algorithmVersion, '11');
+    //
+    // **12 涵盖同一次算法升级的四件事**（裁定第 3 点原文："稳定身份、块级延后、
+    // 局部级联、方案级坏空档比较作为同一次算法升级完成，最后统一升到 12"）：
+    //   1. 稳定来源关联（`continuedFromId` + `linkBlockProvenance`）；
+    //   2. 块级延后（`BlockAdjustmentContext`，不再是任务级下界）；
+    //   3. 局部级联（`repairBestPlan` 在有限候选里择优）；
+    //   4. 方案级坏空档比较（`LocalRepairPlan.compare` 的第 6、7 级）。
+    //
+    // **11 是上一次**：`minimizeChangedBlocks` 接入时抬的那一次。
+    //
+    // 这条用例刻意写死字符串（而不是引用常量），于是抬版本时**必须**回到这里
+    // 补一句"为什么"，否则它不会通过。
+    expect(DeterministicScheduleEngine.algorithmVersion, '12');
   });
 }
