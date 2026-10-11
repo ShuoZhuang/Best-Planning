@@ -5,6 +5,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -80,8 +81,22 @@ final class AnalyticsDao implements AnalyticsDataSource {
       for (final row in areaRows) row.id: (name: row.name, isLife: row.isLife),
     };
 
-    return [
+    // **保护时间不算"固定日程投入"**（1.8.0，规范 §9.1）。
+    //
+    // 它在数据里与固定日程同形，但语义是"这段时间不安排任何事"——把它算成固定投入，
+    // 用户的"固定日程"统计里会混进一半"不许安排"的时间，而领域时间分配的饼图会因此
+    // 凭空多出一块并不存在的占用。它仍然出现在**保护时间**那一节里（那个口径由
+    // `_protectedWindows()` 与规则来源共同给出，见 `AnalyticsService`）。
+    //
+    // 过滤放在集合字面量**外面**：集合里的注释后面直接跟 `if` 是语法错误
+    // （第一版就是这么写的，analyzer 报 `Expected an identifier`）。
+    final fixedOccurrences = [
       for (final occurrence in occurrences)
+        if (occurrence.kind == CalendarEventKind.fixed) occurrence,
+    ];
+
+    return [
+      for (final occurrence in fixedOccurrences)
         AnalyticsFixedFact(
           title: occurrence.title,
           areaId: occurrence.areaId,

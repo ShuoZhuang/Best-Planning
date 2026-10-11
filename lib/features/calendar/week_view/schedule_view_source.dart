@@ -3,6 +3,7 @@ import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/schedule_colors.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -81,24 +82,35 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
       startUtc,
       endUtc,
     )) {
-      final category = colorCatalog.forAreaOrSpecial(
-        areaId: occurrence.areaId,
-        fallback: ScheduleSpecialCategory.unassignedFixed,
-      );
+      // **保护时间用统一配色、且不参与"完成"判定**（1.8.0，规范 §9.1）。
+      //
+      // 它与固定日程在数据里同形，因此差别必须在这里显式表达：
+      // · 配色走 `ScheduleSpecialCategory.protectedTime`，与规则来源的保护时间**同色**——
+      //   用户看到的是"这段时间受保护"，而不是"这是哪一种保护"；
+      // · `isCompleted` 恒为 false：保护时间不是待办，"午餐时间已经过去"不需要被标记。
+      final isProtected = occurrence.kind == CalendarEventKind.protected;
+      final category = isProtected
+          ? colorCatalog.special(ScheduleSpecialCategory.protectedTime)
+          : colorCatalog.forAreaOrSpecial(
+              areaId: occurrence.areaId,
+              fallback: ScheduleSpecialCategory.unassignedFixed,
+            );
       items.add(
         ScheduleViewItem(
           id: scheduleFixedItemId(occurrence.eventId),
           title: occurrence.title,
-          kind: ScheduleItemKind.fixed,
+          kind: isProtected
+              ? ScheduleItemKind.protectedTime
+              : ScheduleItemKind.fixed,
           range: occurrence.range,
           categoryKey: category.key,
           categoryLabel: category.label,
           categoryColorArgb: category.colorArgb,
           categorySortOrder: category.sortOrder,
-          areaId: occurrence.areaId,
-          // 固定日程没有"勾选"这个动作，它的完成是**时间过去**：结束了就是结束了。
-          // 保护时间不参与——它不是待办，"午餐时间已经过去"不需要被标记。
-          isCompleted: !occurrence.range.endUtc.isAfter(nowUtc),
+          // 保护时间没有归属：把它挂到某个领域会让"领域时间分配"多出一份并不存在的占用。
+          areaId: isProtected ? null : occurrence.areaId,
+          // 保护时间不参与"完成"判定——它不是待办。
+          isCompleted: !isProtected && !occurrence.range.endUtc.isAfter(nowUtc),
         ),
       );
     }

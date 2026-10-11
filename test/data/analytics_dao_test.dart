@@ -158,6 +158,65 @@ void main() {
     expect(event.endUtc.difference(event.startUtc), const Duration(hours: 2));
   });
 
+  test('保护时间不进"固定日程投入"（规范 §9.1）', () async {
+    // 保护时间在数据里与固定日程同形（同一张表、同一套重复规则），但语义是
+    // "这段时间不安排任何事"。把它算成固定投入，用户的"固定日程"统计里会混进一半
+    // "不许安排"的时间，领域时间分配的饼图也会凭空多出一块并不存在的占用。
+    await database
+        .into(database.areas)
+        .insert(
+          AreasCompanion.insert(
+            id: 'area-study',
+            name: '学业',
+            color: 0xff2f86ff,
+            sortOrder: 0,
+            isLife: const Value(false),
+            createdAtUtc: const Value(1),
+            updatedAtUtc: const Value(1),
+          ),
+        );
+    await database
+        .into(database.calendarEvents)
+        .insert(
+          CalendarEventsCompanion.insert(
+            id: 'event-fixed',
+            title: '高等数学',
+            startAtUtc: start
+                .add(const Duration(hours: 1))
+                .microsecondsSinceEpoch,
+            endAtUtc: start
+                .add(const Duration(hours: 3))
+                .microsecondsSinceEpoch,
+            timeZoneId: 'Asia/Shanghai',
+            areaId: const Value('area-study'),
+            updatedAtUtc: 1,
+          ),
+        );
+    await database
+        .into(database.calendarEvents)
+        .insert(
+          CalendarEventsCompanion.insert(
+            id: 'event-protected',
+            title: '保护时间',
+            startAtUtc: start
+                .add(const Duration(hours: 4))
+                .microsecondsSinceEpoch,
+            endAtUtc: start
+                .add(const Duration(hours: 6))
+                .microsecondsSinceEpoch,
+            timeZoneId: 'Asia/Shanghai',
+            kind: const Value('protected'),
+            updatedAtUtc: 1,
+          ),
+        );
+
+    final dataset = await dao.load(filterWith(const {}));
+
+    expect(dataset.fixedEvents.map((event) => event.title), [
+      '高等数学',
+    ], reason: '保护时间不得进入 fixedEvents（它不算固定日程投入）');
+  });
+
   test('固定日程的时长按领域计入，读来源是日程本身而不是任务表', () async {
     // 课表不挂在任何任务上：它必须靠自己的 areaId 归集，否则"有课表但没建任务"的领域
     // 在占比里恒为 0。

@@ -8,6 +8,7 @@ import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
@@ -126,6 +127,17 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     //
     // 因此读事实用完整的当天起点（`dayStartUtc`），放置下界仍由窗口起点表达。
     final occurrences = await calendar.occurrencesBetween(dayStartUtc, endUtc);
+    // **按 `kind` 分成互为补集的两份**（1.8.0，规范 §9.1）：固定日程进 `fixedIntervals`，
+    // 保护时间进 `protectedIntervals`，一次且仅一次。分成互为补集的两份而不是两次过滤，
+    // 是为了让"某条记录两边都进"在类型上就不可能发生。
+    final fixedOccurrences = [
+      for (final occurrence in occurrences)
+        if (occurrence.kind == CalendarEventKind.fixed) occurrence,
+    ];
+    final protectedOccurrences = [
+      for (final occurrence in occurrences)
+        if (occurrence.kind == CalendarEventKind.protected) occurrence,
+    ];
     final confirmed = await plans.current();
 
     final schedulable = <SchedulableTask>[
@@ -230,24 +242,42 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 剩余时长也不在这里动——已专注的部分由既有的专注重算扣减，不重算。
       tasks: schedulable,
       fixedIntervals: [
+        // **保护时间不进 `fixedIntervals`**（1.8.0，规范 §9.1）。它在数据里是与固定日程
+        // 同形的日历事项（`CalendarEventKind.protected`），但排程语义完全不同：
+        // 固定日程是"这段时间被占了"，保护时间是"这段时间不许安排"。混进固定日程的后果不是
+        // 排错位置，而是**它会被当成固定日程投入进统计**——用户会看到"固定日程 8 小时/周"
+        // 里有一半是"不许安排"的时间。
+        //
         // 课表课程结束后留缓冲（用户 2026-10-08 需求）：把课的结束时间往后推
         // `courseTransitionMinutes`，于是那几分钟变成"被占用"，排程器不会把计划块紧贴在
         // 下课那一刻——用户上完课要离开教室，不可能直接接续。
         //
         // 只对 `timetableImport` 来源的事件生效；自己建的会议不受影响（用户明确划的范围）。
         // 判定与边界见 `lib/scheduling/course_transition.dart` 与它的 9 条用例。
+        // 保护时间本来就是课表之外的来源，缓冲对它是空操作，但过滤要在前面做——
+        // 顺序反了会把保护时间也做成带缓冲的固定占用。
         for (final occurrence in applyCourseTransition(
-          occurrences,
+          fixedOccurrences,
           transitionMinutes: resolvedRules.courseTransitionMinutes,
         ))
           BusyInterval(id: occurrence.eventId, range: occurrence.range),
       ],
-      protectedIntervals: protectedTimes.expand(
-        rules: resolvedRules,
-        startUtc: startUtc,
-        endUtc: endUtc,
-        timeZoneId: timeZoneId,
-      ),
+      protectedIntervals: [
+        // 规则来源的保护时间（午餐／晚餐／固定休息）……
+        ...protectedTimes.expand(
+          rules: resolvedRules,
+          startUtc: startUtc,
+          endUtc: endUtc,
+          timeZoneId: timeZoneId,
+        ),
+        // ……加上用户在日历里自己建的一次性或按周重复的保护时间。
+        //
+        // **一次且仅一次**：`fixedOccurrences` 与 `protectedOccurrences` 是同一次
+        // `occurrencesBetween` 按 `kind` 分出来的两份，互为补集，因此同一条记录不可能
+        // 既进 fixed 又进 protected（规范 §8 审查问题 4）。
+        for (final occurrence in protectedOccurrences)
+          BusyInterval(id: occurrence.eventId, range: occurrence.range),
+      ],
       lockedBlocks: [
         for (final block in confirmedBlocks)
           if (block.locked &&

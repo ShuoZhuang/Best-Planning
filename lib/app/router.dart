@@ -46,6 +46,7 @@ import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
+import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -957,6 +958,31 @@ GoRouter createPlannerRouter({
                     ),
                   ),
                 ),
+              );
+            },
+          ),
+          GoRoute(
+            // 自定义保护时间（1.8.0，规范 §9.2）。
+            //
+            // **这条路由此不再通向 `/settings/rules`**（§2.8）：设置页负责的是长期默认
+            // 规则（午餐／晚餐／固定休息），它表达不了"某天 14:00–15:00 不安排"。
+            // 未装配日历写入服务时给出说明而不是空白页——深链接可能直接落到这里。
+            path: '/calendar/protected/new',
+            builder: (context, state) {
+              final service = calendarService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '新建保护时间',
+                  message: '日历写入服务未装配，暂无法新建保护时间。',
+                );
+              }
+              return ProtectedTimeEditorPage(
+                service: service,
+                timeZoneId: timeZoneId,
+                zones: zones,
+                workspace: workspaceService,
+                onSaved: () => context.go('/calendar'),
+                onCancel: () => context.go('/new'),
               );
             },
           ),

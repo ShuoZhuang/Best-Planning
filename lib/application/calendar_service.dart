@@ -28,6 +28,7 @@ final class EventDraft {
     this.recurrenceWeekdays = const {},
     this.recurrenceValidUntilLocalDate,
     this.recurrenceIntervalWeeks = 1,
+    this.kind = CalendarEventKind.fixed,
   });
 
   final String title;
@@ -46,6 +47,14 @@ final class EventDraft {
   final Set<int> recurrenceWeekdays;
   final DateTime? recurrenceValidUntilLocalDate;
   final int recurrenceIntervalWeeks;
+
+  /// 固定日程还是保护时间（1.8.0，规范 §9.1）。
+  ///
+  /// 带默认值 `fixed`：既有的两个编辑入口（固定日程编辑器、日视图改写）都不需要改，
+  /// 而保护时间编辑器显式传 `protected`。两种事项共用这一条保存路径正是规范要求的
+  /// "复用固定日程及重复规则，不另建平行时间模型"——另建一套就意味着第二套展开、
+  /// 第二套例外、第二套冲突检测。
+  final CalendarEventKind kind;
 }
 
 final class EventSaveResult {
@@ -331,6 +340,7 @@ final class CalendarService {
       locked: draft.locked,
       areaId: draft.areaId,
       projectId: draft.projectId,
+      kind: draft.kind,
       updatedAtUtc: now,
     );
     if (recurring) {

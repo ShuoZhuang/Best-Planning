@@ -532,6 +532,52 @@ void main() {
     }
   });
 
+  testWidgets('自定义保护时间**可以**改与删（规范 §9.3）', (tester) async {
+    // 与上一条的区别在 id 的前缀：上一条的 `protected:sleep` 是**规则来源**的保护时间，
+    // 库里有没对应行；这一条的 `fixed:<eventId>` 是用户自己建的一条 `CalendarEvent`
+    // （`kind: protected`），它与固定日程共用同一套"仅本次／此次及以后／整个系列"语义。
+    // 只认 `fixed` 会让保护时间建完之后在日视图里**没有任何入口**去改它。
+    final deleted = <String>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:evt-protected',
+          title: '每周二下午保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async {
+        deleted.add(id);
+        return true;
+      },
+      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
+          true,
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const Key('edit-fixed:evt-protected')),
+    );
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('改「每周二下午保护」的这一次'),
+      findsOneWidget,
+      reason: '保护时间的改写入口必须打开同一个对话框',
+    );
+    await tester.tap(find.byKey(const Key('occurrence-cancel')));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('delete-fixed:evt-protected')),
+    );
+    await tester.tap(find.byKey(const Key('delete-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    // 删除要先问范围。
+    expect(find.textContaining('删除'), findsWidgets);
+  });
+
   testWidgets('所有条目的卡片等宽（图标位与可用性无关）', (tester) async {
     await pump(
       tester,

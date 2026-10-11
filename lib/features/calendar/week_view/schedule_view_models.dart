@@ -154,18 +154,21 @@ const String scheduleFixedItemPrefix = 'fixed:';
 String scheduleFixedItemId(String eventId) =>
     '$scheduleFixedItemPrefix$eventId';
 
-/// 从视图条目里取出**固定日程的领域 id**（去掉命名空间前缀）。
+/// 从视图条目里取出**日程（固定日程或保护时间）的领域 id**（去掉命名空间前缀）。
 ///
-/// 只有 `ScheduleItemKind.fixed` 能交给日程删除／改写端口：保护时间是按规则算出来的区间，
-/// 任务块属于计划（应当撤销计划，而不是删一条日程）。返回 `null` 表示这一类**不该**走日程
-/// 端口，调用方应当不显示该入口。
+/// **1.8.0：保护时间也可以**（规范 §9.3）。它在数据里就是一个 `CalendarEvent`
+/// （`kind: protected`），"仅本次 / 此次及以后 / 整个系列"的改写与删除语义**完全相同**，
+/// 因为那套语义由 `CalendarService` 按重复规则实现，与 `kind` 无关。
+/// 只认 `fixed` 会让保护时间在日视图里**没有任何编辑或删除入口**——用户建完之后改不了。
 ///
-/// **这个函数存在的理由**：把条目 id 原样交给仓储会执行
-/// `DELETE ... WHERE id = 'fixed:<uuid>'`——匹配 0 行、不报错，而服务层按幂等语义返回成功，
-/// 界面于是显示"已删除"却什么都没删。拖动那条路径早就用 [movableTaskBlockId] 做同样的拆解，
-/// 删除与改写此前漏了。
+/// 只有 `ScheduleItemKind.task`（计划块）与 `protectedTime` 的**规则来源**区间不能走这条路：
+/// 前者属于计划（应当撤销计划，而不是删一条日程），后者是按规则算出来的、库里没有对应行。
+/// 返回 `null` 表示这一类**不该**走日程端口，调用方应当不显示该入口。
 String? fixedEventId(ScheduleViewItem item) {
-  if (item.kind != ScheduleItemKind.fixed) return null;
+  if (item.kind != ScheduleItemKind.fixed &&
+      item.kind != ScheduleItemKind.protectedTime) {
+    return null;
+  }
   if (!item.id.startsWith(scheduleFixedItemPrefix)) return null;
   final eventId = item.id.substring(scheduleFixedItemPrefix.length);
   return eventId.isEmpty ? null : eventId;
