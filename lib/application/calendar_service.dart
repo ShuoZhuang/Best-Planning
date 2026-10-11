@@ -304,14 +304,43 @@ final class CalendarService {
   Future<bool> deleteEvent(String eventId) async {
     final deletion = _deletion;
     if (deletion == null) return false;
+    // **先问清要删的是哪一类**（1.8.0，规范 §9.3）：这一句必须发生在删除**之前**，
+    // 删掉之后就没有任何地方能回答它了。
+    final wasProtected = await _isProtectedEvent(eventId);
     await deletion.deleteEvent(eventId);
     _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程删除',
+      ScheduleInputChange(
+        label: wasProtected ? '保护时间删除' : '固定日程删除',
         kind: DomainChangeKind.fixedEventChanged,
       ),
     );
     return true;
+  }
+
+  /// [eventId] 是不是一条保护时间（规范 §9.1 的 `kind`）。
+  ///
+  /// 用"读到它本身"来判断，而不是新加一个只返回 `kind` 的仓储方法：读取路径已经有
+  /// `occurrencesBetween`，加一条平行查询就意味着**第二套"什么算这条事件"的判据**——
+  /// 而那个判据要与展开器、例外、时区都保持一致，正是最容易漂的地方。
+  ///
+  /// **读不到时返回 `false`**（按固定日程记账）：读不到通常意味着它已经被删掉、
+  /// 或者落在查询窗口之外，两者都不该让原因文案变成一句不可信的话。
+  Future<bool> _isProtectedEvent(String eventId) async {
+    try {
+      final occurrences = await _repository.occurrencesBetween(
+        DateTime.utc(1970),
+        DateTime.utc(2200),
+      );
+      for (final occurrence in occurrences) {
+        if (occurrence.eventId == eventId) {
+          return occurrence.kind == CalendarEventKind.protected;
+        }
+      }
+    } on Object {
+      // 读不到就不猜：宁可按固定日程记账，也不写一句没有依据的文案。
+      return false;
+    }
+    return false;
   }
 
   Future<EventSaveResult> save(EventDraft draft) async {
@@ -390,8 +419,10 @@ final class CalendarService {
       await _repository.save(event);
     }
     _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程创建',
+      ScheduleInputChange(
+        // 保护时间不是固定日程（§9.1：它不作为"固定日程投入"统计），因此原因文案
+        // 必须分开——这句话直接显示在统计页的"重排原因"里。
+        label: draft.kind == CalendarEventKind.protected ? '保护时间创建' : '固定日程创建',
         kind: DomainChangeKind.fixedEventCreated,
       ),
     );
