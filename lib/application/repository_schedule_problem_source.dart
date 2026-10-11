@@ -299,6 +299,49 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           block.id: block.startUtc,
     };
 
+    // ── 硬占用区间的**唯一来源**（用户第 65 轮复核第 3 条）────────────────────
+    //
+    // 同样两份区间既进 `ScheduleProblem`，也作为调整路径的硬障碍。
+    // **刻意先算好再复用**，而不是在调整路径里另行展开一遍：
+    // "引擎的硬约束"与"级联的硬约束"必须是**同一份口径**，
+    // 否则会出现"引擎认可的方案被级联排到保护时间里"这类双重标准。
+    //
+    // **保护时间不进 `fixedIntervals`**（1.8.0，规范 §9.1）。它在数据里是与固定日程
+    // 同形的日历事项（`CalendarEventKind.protected`），但排程语义完全不同：
+    // 固定日程是"这段时间被占了"，保护时间是"这段时间不许安排"。混进固定日程的后果不是
+    // 排错位置，而是**它会被当成固定日程投入进统计**——用户会看到"固定日程 8 小时/周"
+    // 里有一半是"不许安排"的时间。
+    //
+    // 课表课程结束后留缓冲（用户 2026-10-08 需求）：把课的结束时间往后推
+    // `courseTransitionMinutes`，于是那几分钟变成"被占用"，排程器不会把计划块紧贴在
+    // 下课那一刻——用户上完课要离开教室，不可能直接接续。
+    // 只对 `timetableImport` 来源的事件生效；自己建的会议不受影响（用户明确划的范围）。
+    // 保护时间本来就是课表之外的来源，缓冲对它是空操作，但过滤要在前面做——
+    // 顺序反了会把保护时间也做成带缓冲的固定占用。
+    final fixedIntervalsWithTransition = [
+      for (final occurrence in applyCourseTransition(
+        fixedOccurrences,
+        transitionMinutes: resolvedRules.courseTransitionMinutes,
+      ))
+        BusyInterval(id: occurrence.eventId, range: occurrence.range),
+    ];
+    final protectedIntervalsAll = [
+      // 规则来源的保护时间（午餐／晚餐／固定休息）……
+      ...protectedTimes.expand(
+        rules: resolvedRules,
+        startUtc: startUtc,
+        endUtc: endUtc,
+        timeZoneId: timeZoneId,
+      ),
+      // ……加上用户在日历里自己建的一次性或按周重复的保护时间。
+      //
+      // **一次且仅一次**：`fixedOccurrences` 与 `protectedOccurrences` 是同一次
+      // `occurrencesBetween` 按 `kind` 分出来的两份，互为补集，因此同一条记录不可能
+      // 既进 fixed 又进 protected（规范 §8 审查问题 4）。
+      for (final occurrence in protectedOccurrences)
+        BusyInterval(id: occurrence.eventId, range: occurrence.range),
+    ];
+
     // ── 调整路径：级联到位（裁定第 4 点；设计 §5.4）────────────────────────────
     //
     // 规范 §11.4 末段："先在当天做向后级联；当天放不下时才考虑后续日期。"
@@ -350,37 +393,57 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         final outcome = repairBestPlanDayScoped(
           targetBlockId: target.id,
           notBeforeUtc: bound,
+          // **可移动输入**：只放"引擎/级联可以动"的块（用户第 65 轮复核第 1、4 条）。
+          //
+          // 修复前只排除了 `skippedBlockIds` 与 `pinnedByBlockId`，
+          // **没有排除 `block.locked`**，也**没有排除已经过去的块**。
+          // 而 `localRepairCascade` 只把 `immovable` 参数里的块当作不可移动 ——
+          // 于是锁定块与过去的块都会被当成可移动，为了给目标让路而被搬走。
+          //
+          // 锁定块的语义就是"用户说了别动"；过去的块是**已经发生的事实**。
+          // 两者都进入下面的硬占用集合，而不是可移动输入。
           blocks: [
             for (final block in confirmedBlocks)
               if (schedulableIds.contains(block.taskId) &&
                   !skippedBlockIds.contains(block.id) &&
-                  !pinnedByBlockId.containsKey(block.id))
+                  !pinnedByBlockId.containsKey(block.id) &&
+                  !block.locked &&
+                  // `nowUtc` 之前**结束**的块算已过去。
+                  !block.endUtc.isBefore(nowUtc) &&
+                  block.endUtc.isAfter(nowUtc))
                 block,
           ],
-          // 固定日程与保护时间是**硬禁区**：级联不得把任何计划块放进去
-          // （规范 §12.1："休息不是浪费"；固定日程是既有事实）。
+          // **统一的硬占用区间**（用户第 65 轮复核第 3 条）：
+          // 级联不得把任何计划块放进去。此前只传了"日历里的固定日程 + 自定义保护时间"，
+          // 漏掉了四类：
+          //   1. 规则来源的保护时间（午餐／晚餐／固定休息）；
+          //   2. 课程结束后的缓冲时间（`applyCourseTransition` 之后的固定日程）；
+          //   3. **锁定块**（它们不是障碍，而是"不许动"的现有安排）；
+          //   4. 已经过去的块。
           //
-          // 它们不在 `blocks` 里，因此不会"被移动"——`localRepairCascade` 会把
-          // `immovable` 原样带回（见该函数 ③）。
+          // 前两类已经算在 `protectedIntervals` / 带缓冲的 `fixedIntervals` 里，
+          // 因此这里直接复用**同一个来源**，避免第二套口径漂移。
           immovable: [
-            for (final occurrence in fixedOccurrences)
-              if (occurrence.range.startUtc.isBefore(endUtc) &&
-                  startUtc.isBefore(occurrence.range.endUtc))
-                PlannedBlock(
-                  id: 'fixed:${occurrence.eventId}',
-                  taskId: '',
-                  range: occurrence.range,
-                  locked: true,
-                ),
-            for (final occurrence in protectedOccurrences)
-              if (occurrence.range.startUtc.isBefore(endUtc) &&
-                  startUtc.isBefore(occurrence.range.endUtc))
-                PlannedBlock(
-                  id: 'protected:${occurrence.eventId}',
-                  taskId: '',
-                  range: occurrence.range,
-                  locked: true,
-                ),
+            for (final interval in fixedIntervalsWithTransition)
+              PlannedBlock(
+                id: 'fixed:${interval.id}',
+                taskId: '',
+                range: interval.range,
+                locked: true,
+              ),
+            for (final interval in protectedIntervalsAll)
+              PlannedBlock(
+                id: 'protected:${interval.id}',
+                taskId: '',
+                range: interval.range,
+                locked: true,
+              ),
+            // 锁定块与已过去的块：位置冻结，作为占用参与避让。
+            for (final block in confirmedBlocks)
+              if (schedulableIds.contains(block.taskId) &&
+                  !skippedBlockIds.contains(block.id) &&
+                  (block.locked || !block.endUtc.isAfter(nowUtc)))
+                block,
           ],
           // "当天"＝目标块**调整前**所在的那个本地自然日（不是"今天"：
           // 用户对 10 月 14 日的块执行延后时，当天就是 14 日）。
@@ -432,43 +495,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // **任务照旧留在 `tasks` 里**：跳过只放弃块，任务仍是未完成待办、继续参与重排。
       // 剩余时长也不在这里动——已专注的部分由既有的专注重算扣减，不重算。
       tasks: schedulable,
-      fixedIntervals: [
-        // **保护时间不进 `fixedIntervals`**（1.8.0，规范 §9.1）。它在数据里是与固定日程
-        // 同形的日历事项（`CalendarEventKind.protected`），但排程语义完全不同：
-        // 固定日程是"这段时间被占了"，保护时间是"这段时间不许安排"。混进固定日程的后果不是
-        // 排错位置，而是**它会被当成固定日程投入进统计**——用户会看到"固定日程 8 小时/周"
-        // 里有一半是"不许安排"的时间。
-        //
-        // 课表课程结束后留缓冲（用户 2026-10-08 需求）：把课的结束时间往后推
-        // `courseTransitionMinutes`，于是那几分钟变成"被占用"，排程器不会把计划块紧贴在
-        // 下课那一刻——用户上完课要离开教室，不可能直接接续。
-        //
-        // 只对 `timetableImport` 来源的事件生效；自己建的会议不受影响（用户明确划的范围）。
-        // 判定与边界见 `lib/scheduling/course_transition.dart` 与它的 9 条用例。
-        // 保护时间本来就是课表之外的来源，缓冲对它是空操作，但过滤要在前面做——
-        // 顺序反了会把保护时间也做成带缓冲的固定占用。
-        for (final occurrence in applyCourseTransition(
-          fixedOccurrences,
-          transitionMinutes: resolvedRules.courseTransitionMinutes,
-        ))
-          BusyInterval(id: occurrence.eventId, range: occurrence.range),
-      ],
-      protectedIntervals: [
-        // 规则来源的保护时间（午餐／晚餐／固定休息）……
-        ...protectedTimes.expand(
-          rules: resolvedRules,
-          startUtc: startUtc,
-          endUtc: endUtc,
-          timeZoneId: timeZoneId,
-        ),
-        // ……加上用户在日历里自己建的一次性或按周重复的保护时间。
-        //
-        // **一次且仅一次**：`fixedOccurrences` 与 `protectedOccurrences` 是同一次
-        // `occurrencesBetween` 按 `kind` 分出来的两份，互为补集，因此同一条记录不可能
-        // 既进 fixed 又进 protected（规范 §8 审查问题 4）。
-        for (final occurrence in protectedOccurrences)
-          BusyInterval(id: occurrence.eventId, range: occurrence.range),
-      ],
+      fixedIntervals: fixedIntervalsWithTransition,
+      protectedIntervals: protectedIntervalsAll,
       lockedBlocks: [
         for (final block in confirmedBlocks)
           if (block.locked &&
@@ -483,6 +511,23 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         ?adjustedTarget,
         // **被挤开的块也各就各位**：否则引擎会为它们的任务重新排位置。
         ...displaced,
+        // ── 未被本次调整碰到的确认块：**原位冻结**（用户第 65 轮复核第 1 条）──────
+        //
+        // 规范 §11.4 第 3、4 条要求"移动的其他块数量最少"。
+        // 但引擎是**从零生成**的：确认计划里的块如果不交给它，它就会按自己的规则
+        // 把那个任务重排一遍 —— 实测过一次延后把**周二的块排到了周一**，
+        // 那正是"移动了不该动的块"。
+        //
+        // 因此把"既不是目标、也没被挤开"的确认块连同**原位**交给引擎。
+        // 它们不参与本次调整，也就不该被本次调整改变。
+        if (adjustment != null)
+          for (final block in confirmedBlocks)
+            if (schedulableIds.contains(block.taskId) &&
+                !skippedBlockIds.contains(block.id) &&
+                !pinnedByBlockId.containsKey(block.id) &&
+                block.id != adjustedTarget?.id &&
+                !displacedIds.contains(block.id))
+              block,
       ],
       // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
       existingBlocks: [
@@ -493,8 +538,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
               !pinnedByBlockId.containsKey(block.id) &&
               // 被级联接管的块不再以**原位置**出现在可移动集合里，
               // 否则引擎会把它当参考位置放回去，级联结果当场失效。
-              block.id != adjustedTarget?.id &&
-              !displacedIds.contains(block.id))
+              //
+              // **同一批块也不能既冻结又可移动**：上面的 `lockedBlocks` 已经把
+              // "未被本次调整碰到"的确认块原位冻结了，因此这里排除整批。
+              (adjustment == null ||
+                  (block.id != adjustedTarget?.id &&
+                      !displacedIds.contains(block.id))))
             block,
       ],
       rules: resolvedRules,

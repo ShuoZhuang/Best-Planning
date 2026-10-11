@@ -110,26 +110,17 @@ void main() {
     );
   });
 
-  test('**同一任务的另一块不被牵连**（裁定第 3 点的端到端确认）', () async {
-    // **按时刻比较，不按 id、也不假设引擎会保留确认计划里的位置**。
+  test('**同一任务的另一块原位冻结**（§11.4 第 3、4 条：最小改动）', () async {
+    // **这条的口径在用户第 65 轮复核后改过**。
     //
-    // 实测（见下方断言）：不延后时引擎排出 `09:00` 与 `13:30` 两块；
-    // 它**不会**把确认计划里的 `20:00` 当成必须保留的落点——引擎是"从零生成"，
-    // 只保证任务总时长与硬约束。因此"另一块有没有被牵连"要问的是
-    // **除目标块之外的落点变没变**。
+    // 此前我写的是"除目标块之外，其余落点逐值不变"—— 那只是**碰巧**成立：
+    // 引擎从零重排时把两个小时都放在了同一天。复核要求"未被级联影响的确认块
+    // **原位冻结**"，生产接线因此把那些块连同原位交给引擎。
     //
-    // 修复前延后是**任务级**的：下界被并进 `availableFromUtc`，
-    // 于是同任务的每一块都被推到 09:00+90 分钟之后，13:30 那一块会被挪走。
-    // 现在延后是块级的，13:30 保持不动——这条用例正是为此而存在。
-    final before = await generate();
+    // **注意"对照"这一半不成立**：不延后时没有调整意图 ⇒ 不触发冻结 ⇒
+    // 引擎按老规矩从零重排（实测 `09:00` + `13:30`，**没有** 20:00 那一块）。
+    // 因此不能拿"不延后"的那一次当"20:00 存在"的前置条件。
     final after = await generate(pendingMoves: deferring('b-morning', 90));
-
-    Set<String> nonTargetSlots(ScheduleProposal p) => {
-      for (final block in p.blocks)
-        if (block.startUtc !=
-            p.blocks.firstWhere((x) => x.id == 'b-morning').startUtc)
-          block.startUtc.toIso8601String(),
-    };
 
     final targetStart = after.blocks
         .firstWhere((x) => x.id == 'b-morning')
@@ -140,27 +131,13 @@ void main() {
       reason: '目标块不得早于下界 = 09:00 + 90 分钟',
     );
 
-    final beforeOthers = {
-      for (final block in before.blocks)
-        if (block.startUtc != at(9)) block.startUtc.toIso8601String(),
-    };
-    final afterOthers = {
-      for (final block in after.blocks)
-        if (block.startUtc != targetStart) block.startUtc.toIso8601String(),
-    };
-
     expect(
-      afterOthers,
-      beforeOthers,
+      after.blocks.any((b) => b.startUtc == at(20)),
+      isTrue,
       reason:
-          '除目标块之外，其余落点必须逐值不变：'
-          '延后**只调整当前计划块**（规范 §11.1）。'
-          '修复前延后是任务级的，其余块会被一起推后——那时这条会红',
-    );
-    expect(
-      nonTargetSlots(after),
-      isNotEmpty,
-      reason: '前置条件：这次生成里除了目标块还有别的块，否则本条验不到东西',
+          '未被本次调整影响的确认块必须**原位冻结**在 20:00。'
+          '修复前引擎把这个任务从零重排，那一块会被挪到别处'
+          '（实测过"周二的块被排到周一"这种串位）',
     );
   });
 
