@@ -360,3 +360,105 @@ LocalRepairOutcome localRepairCascade({
     reference: {for (final block in blocks) block.id: block.startUtc},
   );
 }
+
+/// 为**从零生成**的结果建立与当前确认计划的一对一**来源关联**（设计 §5.2）。
+///
+/// **为什么需要这一步**：普通「生成计划」是一次从零排一遍，因此引擎排出的块
+/// 与上一版确认计划里的块**没有任何 id 上的联系**。于是
+/// `minimizeChangedBlocks` 查不到原位（它按 `continuedFromId` 查参照），
+/// `PlanDiffer` 也只能把"同一块换了时间"报成「删除＋新增」而不是「移动」。
+///
+/// **为什么不把 `existingBlocks` 直接塞进 `blocks`**（裁定第 2 点）：
+/// 那会让旧块成为占用，却**不自动扣除任务待排时长** —— 同一件工作可能被安排两次。
+/// 从零生成因此保持不变，关联在生成**之后**建立，是纯后处理。
+///
+/// 代价键（顺序即优先级）：
+/// 1. 同一 `taskId`；
+/// 2. 时长差最小；
+/// 3. 开始时间位移最小；
+/// 4. 产出块 id 与旧块 id 作最终排序键
+///    （保证同一输入永远得到同一份配对，**且与输入的排列无关**）。
+///
+/// **一对一**：一个旧块只能被认领一次。多余的旧块视为删除，多余的新块来源为空。
+///
+/// 已经带 `continuedFromId` 的块**不被覆盖**，且它们占用的旧块也不参与匹配：
+/// 调整路径可能已经显式设好来源，这一步只处理"还没建立来源"的块。
+List<PlannedBlock> linkBlockProvenance({
+  required List<PlannedBlock> confirmed,
+  required List<PlannedBlock> generated,
+}) {
+  if (generated.isEmpty) return const [];
+
+  final alreadyLinked = <String>{
+    for (final block in generated) ?block.continuedFromId,
+  };
+
+  // 枚举全部合法配对，按代价键排序后贪心取用。
+  //
+  // **为什么是"排序＋贪心"而不是"逐块就近取"**：逐块取的结果取决于遍历顺序，
+  // 同一输入可能得到两种 id 分配，而 id 会落库。排序后贪心等价于
+  // "每次取当前全局最优的一对"，对这份代价键是确定的。
+  // 排序键末尾带块 id，因此**同分也不依赖排序算法的稳定性**。
+  final pairs = <_ProvenancePair>[];
+  for (var g = 0; g < generated.length; g++) {
+    final next = generated[g];
+    if (next.continuedFromId != null) continue;
+    for (final prev in confirmed) {
+      if (prev.taskId != next.taskId) continue;
+      if (alreadyLinked.contains(prev.id)) continue;
+      pairs.add(
+        _ProvenancePair(
+          generatedId: next.id,
+          confirmedId: prev.id,
+          durationDelta: (next.durationMinutes - prev.durationMinutes).abs(),
+          startDelta: next.startUtc
+              .difference(prev.startUtc)
+              .inMicroseconds
+              .abs(),
+        ),
+      );
+    }
+  }
+  pairs.sort(_ProvenancePair.compare);
+
+  // 用 id 而不是下标回填：结果列表与 `generated` 同序同长，
+  // 且下标会在"重复 id"的畸形输入下指错块。
+  final byGeneratedId = <String, PlannedBlock>{
+    for (final block in generated) block.id: block,
+  };
+  final used = <String>{...alreadyLinked};
+  for (final pair in pairs) {
+    if (used.contains(pair.confirmedId)) continue;
+    final next = byGeneratedId[pair.generatedId];
+    if (next == null || next.continuedFromId != null) continue;
+    used.add(pair.confirmedId);
+    byGeneratedId[pair.generatedId] = next.withProvenance(pair.confirmedId);
+  }
+  return [for (final block in generated) byGeneratedId[block.id]!];
+}
+
+/// 一次候选配对。三个排序键与 [compare] 里的比较顺序一一对应。
+final class _ProvenancePair {
+  const _ProvenancePair({
+    required this.generatedId,
+    required this.confirmedId,
+    required this.durationDelta,
+    required this.startDelta,
+  });
+
+  final String generatedId;
+  final String confirmedId;
+  final int durationDelta;
+  final int startDelta;
+
+  /// 代价键 2、3、4。第 1 条（同一任务）在枚举配对时已经保证。
+  static int compare(_ProvenancePair a, _ProvenancePair b) {
+    final byDuration = a.durationDelta.compareTo(b.durationDelta);
+    if (byDuration != 0) return byDuration;
+    final byStart = a.startDelta.compareTo(b.startDelta);
+    if (byStart != 0) return byStart;
+    final byGeneratedId = a.generatedId.compareTo(b.generatedId);
+    if (byGeneratedId != 0) return byGeneratedId;
+    return a.confirmedId.compareTo(b.confirmedId);
+  }
+}

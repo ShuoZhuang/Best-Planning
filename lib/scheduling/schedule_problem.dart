@@ -151,6 +151,19 @@ final class PlannedBlock {
     continuedFromId: id,
   );
 
+  /// 登记/改写本块的来源（设计 §5.2 的配对结果用）。
+  ///
+  /// 与 [continueFrom] 的区别是**不改 id、不改位置**，只回答"它延续自谁"。
+  /// 配对是"生成之后"的后处理，那时块的位置与 id 都已经定了。
+  PlannedBlock withProvenance(String? sourceId) => PlannedBlock(
+    id: id,
+    taskId: taskId,
+    range: range,
+    locked: locked,
+    explanationCode: explanationCode,
+    continuedFromId: sourceId,
+  );
+
   DateTime get startUtc => range.startUtc;
   DateTime get endUtc => range.endUtc;
   int get durationMinutes => range.durationMinutes;
