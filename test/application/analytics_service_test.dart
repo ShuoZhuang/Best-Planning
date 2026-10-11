@@ -70,6 +70,45 @@ void main() {
     );
   });
 
+  test('用户自建的保护时间计入「工作／休息」的休息分钟（1.8.0，规范 §9.1 末条）', () async {
+    // **这是 `_restSummary` 那条缺陷的邻座**：`_protectedMinutes` 同样声明了
+    // `customInstances`、同样在守卫里检查了它，却同样**没有转发**给展开器。
+    //
+    // 它是「工作／休息」里休息量的来源，也就是那个比例的分母之一——
+    // 算少了会让"休息占比"偏低，而这正是用户会据以判断"是不是太拼了"的数字。
+    const customHours = 2;
+    final report = await AnalyticsService(
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      source: _MemoryAnalyticsSource(
+        _dataset(
+          start,
+          protectedInstances: [
+            AnalyticsProtectedInstance(
+              label: '每周二下午不排事',
+              startUtc: start.add(const Duration(hours: 2)),
+              endUtc: start.add(const Duration(hours: 2 + customHours)),
+            ),
+          ],
+        ),
+      ),
+    ).query(AnalyticsFilter(startUtc: start, endUtc: end));
+
+    expect(report.workRest, isNotNull, reason: '有保护时间时这一节应当出现');
+    // **期望值 60 不是 120，而且这是对的**：`_dataset` 里有一条 `life` 计划块
+    // 落在 start+2h…+3h，与我这条保护时间（start+2h…+4h）**重叠 60 分钟**。
+    // 「工作／休息」的休息量是"保护容量 − 被安排侵占的部分"，
+    // 因此 120 − 60 = 60。第一版我按 120 写，红了——**夹具比断言更容易错**，
+    // 这已经是本轮第三次了，所以把算式写在用例里而不是只写数字。
+    expect(
+      report.workRest!.restMinutes,
+      60,
+      reason:
+          '自建保护时间 120 分钟 − 被 life 计划块侵占的 60 分钟 = 60；'
+          '若这一项完全没算进去，这里会是 0（而且整节因 protectedMinutes <= 0 而消失）',
+    );
+  });
+
   test('自定义范围按交集区分计划和实际，并公开所有比例分母', () async {
     final service = AnalyticsService(
       source: _MemoryAnalyticsSource(_dataset(start)),

@@ -673,6 +673,11 @@ int _protectedMinutes({
   }
   return _protectedInstances(
     windows: windows,
+    // **这一行同样是补上的**（1.8.0，规范 §9.1 末条）：与 `_restSummary` 是同一个错误——
+    // 守卫里检查了 `customInstances.isEmpty`，却没把它转发给展开器。
+    // 后果是「工作／休息」里的休息分钟偏低（甚至因为 `protectedMinutes <= 0`
+    // 而让**整节消失**），而那是用户判断"自己是不是太拼了"的依据。
+    customInstances: customInstances,
     filter: filter,
     zones: zones,
     timeZoneId: timeZoneId,
@@ -733,14 +738,10 @@ RestSummaryMetric? _restSummary({
   }
   final instances = _protectedInstances(
     windows: windows,
-    // **这一行是补上的**（1.8.0，规范 §9.1 末条）：参数声明了、上游也传进来了，
-    // 但这里漏了转发，于是"用户自建的保护时间"在**休息总结**这一节里被丢掉。
-    //
-    // 为什么没被发现：`_restProtection`、`_protectedMinutes`、
-    // `_scheduledIntersectingProtected` 三处都转发了，只有这一处没有；
-    // 而 analyzer 对"声明了但没往下传的可选参数"不构成警告——形参有没有出现在函数体里，
-    // 它并不检查。结果：`analytics_dao_test` 证明数据取到了，另外三处的数字也对，
-    // 唯独**休息总结**少算，而那正是用户看得到的一节。
+    // **这一行是补上的**（1.8.0，规范 §9.1 末条）：参数声明了、守卫里也检查了它，
+    // 但这里漏了转发，于是"用户自建的保护时间"在**休息总结**里被丢掉。
+    // 同一处漏转发在 `_protectedMinutes` 里也有（那里连整节都会消失）。
+    // `analytics_dao_test` 只证明数据取到了，证明不了它被算进去。
     customInstances: customInstances,
     filter: filter,
     zones: zones,
