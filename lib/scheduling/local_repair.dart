@@ -606,6 +606,85 @@ bool _isLegalRepairCandidate(
   return true;
 }
 
+/// **按本地自然日做"当天优先"**的调整（规范 §11.4 末段）。
+///
+/// 裁定原文（规范 §11.4 末段）："**先在当天做向后级联；当天放不下时才考虑后续日期。**"
+///
+/// **为什么需要单独一层**：[repairBestPlan] 只认 [dayStartUtc]／[dayEndUtc]，
+/// 而生产接线此前传的是**整个规划窗口**（默认 7 天）。于是"当天优先"没有被执行——
+/// 级联可以直接把目标块放到几天之后，只要那还在窗口里。
+///
+/// 本函数把边界收成**目标块原位置所在的那个本地自然日**：
+///
+/// 1. 先用 `[本地日 00:00, 本地日 24:00)` 跑一次 [repairBestPlan]；
+/// 2. 不可行时才把边界放宽到 [planningEndUtc]，再跑一次。
+///
+/// **"当天"取的是目标块原位置那一天**，而不是"今天"：用户对一个 10 月 14 日的块
+/// 执行延后时，"当天"就是 10 月 14 日。用"今天"会把下界与窗口对不上
+/// （下界在 14 日、窗口起点在 12 日）。
+///
+/// **确定性**：两次调用都是确定的，取舍规则固定（当天优先），与输入排列无关。
+LocalRepairOutcome repairBestPlanDayScoped({
+  required String targetBlockId,
+  required DateTime notBeforeUtc,
+  required List<PlannedBlock> blocks,
+  required List<PlannedBlock> immovable,
+
+  /// 目标块**调整前**的开始时刻：用它定位"当天"。
+  required DateTime targetStartUtc,
+  required String timeZoneId,
+  required TimeZoneDatabase zones,
+
+  /// 当天放不下时向外放宽到的终点（通常是规划窗口终点）。
+  required DateTime planningEndUtc,
+  required Iterable<SchedulableTask> tasks,
+  Map<String, DateTime> reference = const {},
+  List<TimeRange> protectedRanges = const [],
+  int breakMinutes = 0,
+  int maxCandidates = maxRepairCandidates,
+}) {
+  // 目标块所在**本地日**的午夜。把目标时刻转成本地，取日期部分，再换回 UTC。
+  final localTarget = zones.toLocal(targetStartUtc, timeZoneId);
+  final localDate = DateTime(
+    localTarget.year,
+    localTarget.month,
+    localTarget.day,
+  );
+  final dayStartUtc = zones.localMidnightToUtc(localDate, timeZoneId);
+  final dayEndUtc = zones.localMidnightToUtc(
+    localDate.add(const Duration(days: 1)),
+    timeZoneId,
+  );
+
+  LocalRepairOutcome attempt(DateTime end) => repairBestPlan(
+    targetBlockId: targetBlockId,
+    notBeforeUtc: notBeforeUtc,
+    blocks: blocks,
+    immovable: immovable,
+    dayStartUtc: dayStartUtc,
+    dayEndUtc: end,
+    tasks: tasks,
+    reference: reference,
+    protectedRanges: protectedRanges,
+    breakMinutes: breakMinutes,
+    maxCandidates: maxCandidates,
+  );
+
+  // ① 当天优先。
+  final sameDay = attempt(dayEndUtc);
+  if (sameDay.feasible) return sameDay;
+
+  // ② 当天放不下才考虑后续日期（规范 §11.4 末段）。
+  //
+  // 终点仍是规划窗口终点：**不越过用户看到的那段范围**——
+  // 再往后就不是"这次调整"能承诺的了。
+  //
+  // 只有窗口确实更宽时才重试：`dayEndUtc` 已经到窗口底时，
+  // 再跑一次会得到同一份不可行结果，纯属浪费（候选最多 32 份）。
+  if (!planningEndUtc.isAfter(dayEndUtc)) return sameDay;
+  return attempt(planningEndUtc);
+}
+
 /// 一段间隔的分类上限：候选择优只看 [maxCandidates] 份方案（设计 §5.5 的"有限"）。
 ///
 /// **必须是有限且小的**：候选越多，"挑一份"的收益越小，而代价是每次调整都要跑

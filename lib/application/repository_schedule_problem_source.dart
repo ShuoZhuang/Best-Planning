@@ -335,7 +335,19 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         //
         // 只用 `localRepairCascade` 的"最早可放"是贪心：它只看"我不撞谁"，
         // 不看"我这样放会在周围留下什么"——本批次实测过它会留下更大的缺口。
-        final outcome = repairBestPlan(
+        //
+        // **两处生产接线在复核时被发现是错的**（见 `defer_day_scope_test.dart`）：
+        //
+        // 1. 边界此前传的是**整个规划窗口**（默认 7 天），于是规范 §11.4 末段的
+        //    "**先在当天做向后级联**"没有被执行——级联可以直接把目标块放到几天之后。
+        //    现在走 `repairBestPlanDayScoped`：先按**目标块原位置所在的本地自然日**跑，
+        //    当天不可行才放宽到窗口终点。
+        // 2. `immovable` 此前传的是**空列表**。`localRepairCascade` 的 `firstFit` 只在
+        //    `occupied` 里找冲突，而**固定日程与保护时间不在 `blocks` 里**，
+        //    因此它们完全不参与避让——候选项可以直接落进固定日程，
+        //    直到引擎的硬约束把它判掉（用户看到的是"预览里那块被拒了"）。
+        //    现在把两类区间都作为**不可占用**传进去。
+        final outcome = repairBestPlanDayScoped(
           targetBlockId: target.id,
           notBeforeUtc: bound,
           blocks: [
@@ -345,12 +357,37 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
                   !pinnedByBlockId.containsKey(block.id))
                 block,
           ],
-          // 固定日程与保护时间不在 `blocks` 里，因此级联不会动它们；
-          // 保护时间另外传给方案比较，让被它覆盖的间隔归 `intentionalBreak`
-          // （**永不计为坏空档**——那条硬边界在比较层生效）。
-          immovable: const [],
-          dayStartUtc: startUtc,
-          dayEndUtc: endUtc,
+          // 固定日程与保护时间是**硬禁区**：级联不得把任何计划块放进去
+          // （规范 §12.1："休息不是浪费"；固定日程是既有事实）。
+          //
+          // 它们不在 `blocks` 里，因此不会"被移动"——`localRepairCascade` 会把
+          // `immovable` 原样带回（见该函数 ③）。
+          immovable: [
+            for (final occurrence in fixedOccurrences)
+              if (occurrence.range.startUtc.isBefore(endUtc) &&
+                  startUtc.isBefore(occurrence.range.endUtc))
+                PlannedBlock(
+                  id: 'fixed:${occurrence.eventId}',
+                  taskId: '',
+                  range: occurrence.range,
+                  locked: true,
+                ),
+            for (final occurrence in protectedOccurrences)
+              if (occurrence.range.startUtc.isBefore(endUtc) &&
+                  startUtc.isBefore(occurrence.range.endUtc))
+                PlannedBlock(
+                  id: 'protected:${occurrence.eventId}',
+                  taskId: '',
+                  range: occurrence.range,
+                  locked: true,
+                ),
+          ],
+          // "当天"＝目标块**调整前**所在的那个本地自然日（不是"今天"：
+          // 用户对 10 月 14 日的块执行延后时，当天就是 14 日）。
+          targetStartUtc: target.startUtc,
+          timeZoneId: timeZoneId,
+          zones: zones,
+          planningEndUtc: endUtc,
           tasks: schedulable,
           reference: referenceBlocks,
           protectedRanges: [
