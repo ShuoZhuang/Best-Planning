@@ -54,6 +54,11 @@ void main() {
       expect(plannerRailIndexForLocation('/calendar/protected/new'), 3);
       expect(plannerRailIndexForLocation('/calendar/day/1759536000000000'), 3);
       expect(plannerRailIndexForLocation('/calendar/courses'), 3);
+      expect(
+        plannerRailIndexForLocation('/calendar/courses/course-calc-a'),
+        3,
+        reason: '课程详情的深链带的是 logicalCourseId，前缀仍是 /calendar（规范 §10.1）',
+      );
 
       expect(plannerRailIndexForLocation('/settings/rules'), 5);
     });

@@ -8,6 +8,7 @@ import 'package:personal_planner/application/analytics_chart_preference_service.
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
@@ -102,6 +103,7 @@ final class PlannerApp extends StatefulWidget {
     this.timetableImagePicker,
     this.autoAdjustStore,
     this.reconcileNotifications,
+    this.courseManagement,
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
@@ -250,6 +252,10 @@ final class PlannerApp extends StatefulWidget {
   /// 设置页保存通知偏好之后立刻调用它，把不该留的系统待处理通知取消掉。为空时（测试、
   /// 或未装配通知服务）保存照常成功，只是不对账。
   final Future<void> Function()? reconcileNotifications;
+
+  /// 课程管理服务（1.8.0，规范 §10）。由组合根装配；未装配时路由给出说明页，
+  /// 且日历工具栏不显示「管理课程」——不给一个点进去说没装的入口。
+  final CourseManagementService? courseManagement;
 
   /// 手动拖动的落点（FR-CAL-05）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
@@ -464,6 +470,9 @@ final class _PlannerAppState extends State<PlannerApp> {
       // 1.8.0（规范 §5.2）：设置页保存通知偏好之后必须重新对账一次。入口由组合根
       // 交下来；未装配时页面照常保存，只是不假装同步过。
       reconcileNotifications: widget.reconcileNotifications,
+      // 1.8.0（规范 §10）：课程管理。未装配时 `/calendar/courses` 给出装配说明，
+      // 且日历工具栏不显示「管理课程」。
+      courseManagement: widget.courseManagement,
       pendingMoves: widget.pendingMoves,
       // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
       // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。

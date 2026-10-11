@@ -8,6 +8,7 @@ import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/analytics_chart_preference_service.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
@@ -45,6 +46,8 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
+import 'package:personal_planner/features/calendar/courses/course_detail_page.dart';
+import 'package:personal_planner/features/calendar/courses/course_management_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
@@ -399,6 +402,9 @@ GoRouter createPlannerRouter({
   TimetableImportService? timetableImport,
   TimetableImagePicker? timetableImagePicker,
   DateTime? nowUtc,
+
+  /// 课程管理服务（1.8.0，规范 §10）。为空时 /calendar/courses 给出装配说明。
+  CourseManagementService? courseManagement,
 
   /// 「保存设置」保存完通知偏好之后的**对账入口**（1.8.0，设计规范 §5.2）。
   ///
@@ -850,6 +856,14 @@ GoRouter createPlannerRouter({
                       workspaceService == null
                   ? null
                   : () => context.go('/calendar/import'),
+              // 1.8.0：课程管理与保护时间两个入口。**各自按装配与否渲染**——
+              // 未装配课程管理时不显示"管理课程"，而不是给一个点进去说没装的入口。
+              onManageCourses: courseManagement == null
+                  ? null
+                  : () => context.go('/calendar/courses'),
+              onManageProtectedTime: calendarService == null
+                  ? null
+                  : () => context.go('/calendar/protected/new'),
             ),
           ),
           GoRoute(
@@ -958,6 +972,50 @@ GoRouter createPlannerRouter({
                     ),
                   ),
                 ),
+              );
+            },
+          ),
+          GoRoute(
+            // 课程管理（1.8.0，规范 §10.1）。
+            //
+            // **入口也放在日历页工具栏**（"管理课程"）：课程是日历里的事项，
+            // 用户找它的地方就在日历上，而不是藏在设置里。
+            path: '/calendar/courses',
+            builder: (context, state) {
+              final service = courseManagement;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '管理课程',
+                  message: '课程管理未装配，暂无法列出课程。',
+                );
+              }
+              return CourseManagementPage(
+                service: service,
+                onOpenCourse: (logicalCourseId) =>
+                    context.go('/calendar/courses/$logicalCourseId'),
+                onImportTimetable: timetableImport == null
+                    ? null
+                    : () => context.go('/calendar/import'),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/calendar/courses/:logicalCourseId',
+            builder: (context, state) {
+              final service = courseManagement;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '管理课程',
+                  message: '课程管理未装配，暂无法编辑课程。',
+                );
+              }
+              return CourseDetailPage(
+                service: service,
+                // **深链用的是 `logicalCourseId` 而不是标题**：两个班的同名课
+                // 因此不会打开错项（规范 §10.1 最后一句）。
+                logicalCourseId: state.pathParameters['logicalCourseId'] ?? '',
+                onDeleted: () => context.go('/calendar/courses'),
+                onCancel: () => context.go('/calendar/courses'),
               );
             },
           ),

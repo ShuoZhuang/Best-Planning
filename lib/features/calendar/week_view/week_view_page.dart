@@ -28,6 +28,8 @@ final class WeekViewPage extends StatefulWidget {
     this.onOpenItem,
     this.onCreateEvent,
     this.onImportTimetable,
+    this.onManageCourses,
+    this.onManageProtectedTime,
     this.toLocal,
     this.viewModePreference,
     super.key,
@@ -51,6 +53,12 @@ final class WeekViewPage extends StatefulWidget {
 
   final VoidCallback? onCreateEvent;
   final VoidCallback? onImportTimetable;
+
+  /// 「管理课程」（1.8.0，规范 §10.1）。为空时不渲染该入口。
+  final VoidCallback? onManageCourses;
+
+  /// 「保护时间」（1.8.0，规范 §9.2）。为空时不渲染该入口。
+  final VoidCallback? onManageProtectedTime;
   final DateTime Function(DateTime instantUtc)? toLocal;
 
   /// 「紧凑／时间轴」选择的本机持久化（§9："记住本机选择"）。
@@ -132,6 +140,24 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                   onPressed: widget.onImportTimetable,
                   icon: const Icon(Icons.upload_file_outlined),
                   label: const Text('导入课表'),
+                ),
+              // 1.8.0（规范 §10.1）：课程管理的入口放在日历页工具栏。课程是日历里的事项，
+              // 用户找它的地方就在日历上。**未注入回调时不渲染**——不给死入口。
+              if (widget.onManageCourses != null)
+                TextButton.icon(
+                  key: const Key('manage-courses'),
+                  onPressed: widget.onManageCourses,
+                  icon: const Icon(Icons.school_outlined),
+                  label: const Text('管理课程'),
+                ),
+              // 1.8.0（规范 §9.2）：保护时间同样有工具栏入口。此前它只能从"新建"进，
+              // 而"新建"通向的是设置页（§2.8）；建完之后**没有任何地方能再找到它**。
+              if (widget.onManageProtectedTime != null)
+                TextButton.icon(
+                  key: const Key('manage-protected-time'),
+                  onPressed: widget.onManageProtectedTime,
+                  icon: const Icon(Icons.shield_outlined),
+                  label: const Text('保护时间'),
                 ),
               if (widget.onCreateEvent != null)
                 FilledButton.icon(

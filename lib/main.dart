@@ -9,6 +9,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
@@ -43,6 +44,7 @@ import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
 import 'package:personal_planner/data/database/daos/recurring_task_dao.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
@@ -742,6 +744,20 @@ Future<void> main() async {
         autoAdjustStore: autoAdjustStore,
         // 1.8.0（规范 §5.2）：设置页保存通知偏好之后立刻对账一次。
         reconcileNotifications: reconcileNotifications,
+        // 1.8.0（规范 §10）：课程管理。只读端口与写入网关都落在既有仓储上
+        // （`DriftCalendarRepository` 同时实现 `CourseWriteGateway`），
+        // 因此"删除一门课"与别处的日程删除共用同一套事务实现。
+        courseManagement: CourseManagementService(
+          courses: DriftCourseSeriesRepository(
+            database,
+            clock: clock,
+            zones: zones,
+            timeZoneId: timeZoneId,
+          ),
+          calendar: calendarService,
+          deletion: calendarRepository,
+          gateway: calendarRepository,
+        ),
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
         // M4「跳过本次」：同样与排程输入来源共用同一实例。
