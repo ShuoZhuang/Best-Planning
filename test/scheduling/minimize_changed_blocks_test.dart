@@ -268,4 +268,28 @@ void main() {
 
     expect(result.movedBlockIds, {'b'});
   });
+
+  test('**参照匹配不上任何块时，函数逐值返回输入**（生产路径上的实际情况）', () {
+    // 生产装配里 `referenceBlocks` 的键是**确认计划的 uuid**，而引擎排出的块 id 是
+    // `block:<taskId>:<开始微秒>:<时长>`——两者永远匹配不上。于是这个函数在真实路径上走的
+    // 就是这一条：**什么都不做**。
+    //
+    // 把这一条写下来，是为了让"它被调用了"与"它起作用了"这两件事**不能互相冒充**。
+    // 见 `engine_minimizes_changes_test.dart` 的「已知缺口」用例与验收文档 §1.11d。
+    final proposed = [block('block:t-a:123:60', hour: 14)];
+
+    final result = minimizeChangedBlocks(
+      problem: problem(reference: [block('uuid-from-database', hour: 9)]),
+      blocks: proposed,
+      dayStartUtc: dayStart,
+      dayEndUtc: dayEnd,
+    );
+
+    expect(
+      result.blocks.map((b) => '${b.id}@${b.startUtc}'),
+      proposed.map((b) => '${b.id}@${b.startUtc}'),
+      reason: '没有一块有参照 ⇒ 逐值返回输入，不移动、不增删',
+    );
+    expect(result.movedBlockIds, isEmpty);
+  });
 }
