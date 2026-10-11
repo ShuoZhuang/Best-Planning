@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
+import 'package:personal_planner/app/planner_rail_index.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/analytics_chart_preference_service.dart';
@@ -151,11 +152,14 @@ void _openScheduleItemDetail(
   }
 }
 
-/// 类型选择器的四条去向（M6，路线图 §3.3 / §11 Task 7）。
+/// 类型选择器的四条去向（M6，路线图 §3.3 / §11 Task 7；1.8.0 按规范 §7.1 归位）。
 ///
 /// **只有"周期目标"是被注入的能力**：另外三条本来就存在（任务表单、固定日程编辑器、
-/// 规划规则页），因此它们总能去；周期目标只有在装配了 `RecurringTaskService` 时才可达，
+/// 保护时间编辑器），因此它们总能去；周期目标只有在装配了 `RecurringTaskService` 时才可达，
 /// 而"不可达就不给卡片"这条判断写在 `TaskTypeChooserPage.isAvailable` 里。
+///
+/// **保护时间不再去 `/settings/rules`**（1.8.0，规范 §2.8）：设置页负责长期默认规则，
+/// 它表达不了"某天 14:00–15:00 不安排"。保护时间现在是日历里的一种事项。
 void _openNewItemEntry(BuildContext context, PlannerNewItemKind kind) {
   switch (kind) {
     case PlannerNewItemKind.task:
@@ -165,7 +169,7 @@ void _openNewItemEntry(BuildContext context, PlannerNewItemKind kind) {
     case PlannerNewItemKind.fixedEvent:
       context.go('/calendar/new');
     case PlannerNewItemKind.protectedTime:
-      context.go('/settings/rules');
+      context.go('/calendar/protected/new');
   }
 }
 
@@ -613,7 +617,7 @@ GoRouter createPlannerRouter({
             // 固定日程、保护时间四条去向。此前它直接就是任务表单，于是"每周英语 180 分钟"
             // 只能被当成一件 180 分钟的普通任务——而周期目标的语义（每周重新开始、按周汇总、
             // 未达标不结转）与普通任务完全不同。
-            path: '/tasks/new',
+            path: '/new',
             builder: (context, state) => TaskTypeChooserPage(
               onSelect: (kind) => _openNewItemEntry(context, kind),
               // **只显示真的能去的那几张卡**：某一条没有落地页时不给死入口。
@@ -623,8 +627,20 @@ GoRouter createPlannerRouter({
                 PlannerNewItemKind.protectedTime => true,
                 PlannerNewItemKind.recurringGoal => recurringTasks != null,
               },
+              // 规范 §7.1 最后一句：返回按钮回到发起入口；直接深链进入时回到所属模块首页。
+              // "/new" 不属于任何模块，因此统一回到任务页——它是最常用的发起处。
+              //
+              // 两个回调都指向同一个动作：顶部那个是**主要**入口（始终在视口内），
+              // 底部那个保留给既有调用点与测试（见 `TaskTypeChooserPage.onCancel` 的说明）。
+              onBack: () => context.go('/tasks'),
               onCancel: () => context.go('/tasks'),
             ),
+          ),
+          GoRoute(
+            // **旧深链不能失效**（计划 Task 5 Step 4）：通知 payload、用户手改地址、
+            // 以及别处写死的 `/tasks/new` 都可能指向这里，因此保留为重定向而不是删掉。
+            path: '/tasks/new',
+            redirect: (context, state) => '/new',
           ),
           GoRoute(
             path: '/tasks/new/task',
@@ -636,7 +652,8 @@ GoRouter createPlannerRouter({
               timeZoneId: timeZoneId,
               nowUtc: nowUtc ?? todayStartUtc,
               onSaved: (task) => context.go('/tasks/${task.id}'),
-              onCancel: () => context.go('/tasks/new'),
+              // 规范 §7.1：返回按钮回到**发起入口**，而不是回到一个中间页。
+              onCancel: () => context.go('/new'),
             ),
           ),
           if (recurringTasks != null) ...[
@@ -650,7 +667,7 @@ GoRouter createPlannerRouter({
                 nowUtc: nowUtc ?? todayStartUtc,
                 onSaved: (template) =>
                     context.go('/tasks/recurring/${template.id}'),
-                onCancel: () => context.go('/tasks/new'),
+                onCancel: () => context.go('/new'),
               ),
             ),
             GoRoute(
@@ -1246,7 +1263,7 @@ GoRouter createPlannerRouter({
             builder: (context, state) => OnboardingReopenPage(
               settings: settingsService.repository,
               tasks: taskService.repository,
-              onCreateTask: () => context.go('/tasks/new'),
+              onCreateTask: () => context.go('/new'),
               onImportTimetable: () => context.go('/calendar/import'),
               onLearnUi: () => context.go('/settings/tutorial'),
             ),
@@ -1827,19 +1844,18 @@ final class _PlannerShell extends StatelessWidget {
     if (location.startsWith('/settings/')) return '/settings';
     if (location == '/special-day') return '/today';
     if (location.startsWith('/planning/preview/')) return '/calendar';
+    // 1.8.0：`/new` 是全局入口，不属于任何模块，因此它上一级是任务页——`/new` 最常用的
+    // 发起处，且它是顶部栏那个"新建"的动作来源。别处的子路由都在上面的前缀分支里。
+    if (location == '/new') return '/tasks';
     return '/today';
   }
 
-  int get _selectedIndex => switch (location) {
-    '/tasks' => 1,
-    '/workspace' => 2,
-    // 周视图与日视图同属"日历"，因此按前缀判断而不是逐条列举。
-    final path when path.startsWith('/calendar') => 3,
-    '/analytics' => 4,
-    // 设置类页面都归在"设置"这一项下，因此按前缀判断而不是逐条列举。
-    final path when path.startsWith('/settings') => 5,
-    _ => 0,
-  };
+  /// 侧栏应当高亮哪一栏；`null` 表示**不高亮任何业务栏**（`/new` 与未知路径）。
+  ///
+  /// 映射表在 `lib/app/planner_rail_index.dart`：它是一个纯函数，因为"不高亮"这件事
+  /// 只有可空返回值能表达。留在这里的话类型是 `int`，就只能回落到"今日"——而回落正是
+  /// `/tasks/new/task` 此前高亮「今日」的原因（规范 §2.9）。
+  int? get _selectedIndex => plannerRailIndexForLocation(location);
 
   @override
   Widget build(BuildContext context) {

@@ -92,9 +92,42 @@ void main() {
 
     var returned = 0;
     await pump(tester, onCancel: () => returned++);
-    await tester.tap(find.byKey(const Key('new-type-cancel')));
+    // **必须先滚动到它**：1.8.0 起选择器分了组、内容比一屏高，底部那个返回按钮在
+    // 1280×720 下落在视口外。这不是测试的将就——正是因此真实返回动作改到了顶部
+    // （`new-item-back`），下面那条用例钉的就是它。
+    final cancel = find.byKey(const Key('new-type-cancel'));
+    await tester.scrollUntilVisible(cancel, 200);
+    await tester.tap(cancel);
     await tester.pumpAndSettle();
     expect(returned, 1);
+  });
+
+  testWidgets('顶部返回按钮始终在视口内，不需要滚动就能点到', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    var backs = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskTypeChooserPage(onSelect: (_) {}, onBack: () => backs++),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final back = find.byKey(const Key('new-item-back'));
+    expect(back, findsOneWidget);
+    // 720 高（外壳默认窗口尺寸）下它必须在视口内，否则"始终可达"就是空话。
+    expect(
+      tester.getRect(back).bottom,
+      lessThanOrEqualTo(720.0),
+      reason: '顶部返回按钮必须落在视口内',
+    );
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(backs, 1);
   });
 
   testWidgets('150% 与 200% 文字缩放下四张卡都能看到并点到', (tester) async {

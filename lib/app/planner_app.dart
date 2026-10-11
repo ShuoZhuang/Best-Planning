@@ -690,7 +690,7 @@ final class _PlannerAppState extends State<PlannerApp> {
               return _shell(
                 OnboardingHomePage(
                   hasExistingTasks: tasksSnapshot.data!,
-                  onCreateTask: () => _router.go('/tasks/new'),
+                  onCreateTask: () => _router.go('/new'),
                   onImportTimetable: () => _router.go('/calendar/import'),
                   onLearnUi: () => setState(() => _learnUiRequested = true),
                   onSkip: () async {

@@ -153,11 +153,14 @@ final class _TaskListPageState extends State<TaskListPage> {
             alignment: Alignment.centerLeft,
             child: FilledButton.icon(
               key: const Key('new-task'),
-              onPressed: () => context.go('/tasks/new'),
+              onPressed: () => context.go('/new'),
               icon: const Icon(Icons.add_rounded),
               // **M6 起这个入口通向类型选择器**（普通任务／周期目标／固定日程／保护时间），
               // 因此按钮改叫"新建"：继续写"新建任务"会让用户以为只能建任务，而周期目标
               // 恰恰是他最容易漏掉、也最难在别处找到的那一类。
+              //
+              // **1.8.0 起它去全局的 `/new`**（规范 §7.1）：入口不再挂在任务模块下，
+              // 因为四类去向里有两类属于日历。`/tasks/new` 保留为重定向，旧深链不失效。
               label: const Text('新建'),
             ),
           ),
