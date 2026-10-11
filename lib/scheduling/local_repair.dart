@@ -1,5 +1,6 @@
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/gap_classifier.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -135,6 +136,19 @@ final class LocalRepairPlan {
     required Map<String, DateTime> reference,
     required String targetBlockId,
     required DateTime notBeforeUtc,
+
+    /// 用于第 6、7 级的坏空档分类（§11.4 第 6 条）。
+    ///
+    /// **必须传进来**：一段间隔算不算"坏空档"取决于**还有哪些任务要排**
+    /// （放不下任何一件的最小片段才是坏空档）。少了它就只能用一个全局固定阈值，
+    /// 而规范 §12.2／计划 Task 13 Step 1 明确禁止那样做。
+    Iterable<SchedulableTask> tasks = const [],
+
+    /// 保护时间与规则休息：覆盖到的间隔归 `intentionalBreak`，**永不计为坏空档**。
+    ///
+    /// 这是"不得为了减少坏空档缩短休息或覆盖保护时间"这条硬边界在比较层的体现。
+    List<TimeRange> protectedRanges = const [],
+    int breakMinutes = 0,
   }) {
     final byCount = a.movedBlockIds.length.compareTo(b.movedBlockIds.length);
     if (byCount != 0) return byCount;
@@ -152,7 +166,63 @@ final class LocalRepairPlan {
     ).compareTo(_targetDistance(b, targetBlockId, notBeforeUtc));
     if (byTarget != 0) return byTarget;
 
+    // ── 第 6、7 级：坏空档（规范 §11.4 第 6 条／设计 §5.5）─────────────────────
+    //
+    // 这两级此前**不存在**：`compare` 从第 5 级直接落到稳定签名，
+    // 而候选级又实测不可行（任何负权重都吃掉休息），于是第 6 条两头都空。
+    //
+    // **为什么放在这里而不是候选级**：候选级只能看到**紧邻**的两段缝，
+    // 于是引擎会把块往后推以"离开"一段短缝，却在更远处制造更大的缺口。
+    // 方案级能看到整天的排布，这才是"这一段空档到底能不能用"的正确层次。
+    final gapsA = _orphanGaps(
+      a,
+      tasks: tasks,
+      protectedRanges: protectedRanges,
+      breakMinutes: breakMinutes,
+    );
+    final gapsB = _orphanGaps(
+      b,
+      tasks: tasks,
+      protectedRanges: protectedRanges,
+      breakMinutes: breakMinutes,
+    );
+    final byGapCount = gapsA.count.compareTo(gapsB.count);
+    if (byGapCount != 0) return byGapCount;
+    final byGapMinutes = gapsA.minutes.compareTo(gapsB.minutes);
+    if (byGapMinutes != 0) return byGapMinutes;
+
     return _signature(a).compareTo(_signature(b));
+  }
+
+  /// 一份方案里的坏空档统计：**只数 `orphanGap`**。
+  ///
+  /// `intentionalBreak`（保护时间／规则休息）与 `freeTime`（没有任务可填、
+  /// 或日容量已达上限）都不计——规范 §12.1 末句："系统不能为了'看起来紧凑'
+  /// 吞掉保护时间或排满所有自由时间。"
+  static ({int count, int minutes}) _orphanGaps(
+    LocalRepairPlan plan, {
+    required Iterable<SchedulableTask> tasks,
+    required List<TimeRange> protectedRanges,
+    required int breakMinutes,
+  }) {
+    // 没有可排任务时"坏空档"这个概念没有意义（分类器会全归 `freeTime`）。
+    // 直接返回 0 而不是让分类器替我们兜底：这样"比较用不上这一级"是显式的。
+    if (!tasks.any((task) => task.requiredMinutes > 0)) {
+      return (count: 0, minutes: 0);
+    }
+    var count = 0;
+    var minutes = 0;
+    for (final gap in classifyGaps(
+      blocks: plan.blocks,
+      tasks: tasks,
+      protectedRanges: protectedRanges,
+      breakMinutes: breakMinutes,
+    )) {
+      if (gap.kind != GapKind.orphan) continue;
+      count++;
+      minutes += gap.minutes;
+    }
+    return (count: count, minutes: minutes);
   }
 
   /// 目标块开始时刻距离 [notBeforeUtc] 的分钟数。
