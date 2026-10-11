@@ -50,6 +50,7 @@ import 'package:personal_planner/features/calendar/courses/course_detail_page.da
 import 'package:personal_planner/features/calendar/courses/course_management_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
+import 'package:personal_planner/features/calendar/protected_time/protected_time_list_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -891,9 +892,12 @@ GoRouter createPlannerRouter({
               onManageCourses: courseManagement == null
                   ? null
                   : () => context.go('/calendar/courses'),
+              // 「管理保护时间」打开**清单**（1.8.0）：此前它直接开新建编辑器，
+              // 于是**标签与动作不一致**——用户能看到"管"，却看不到"被管的东西"。
+              // 新建入口在清单页里（见 `/calendar/protected`）。
               onManageProtectedTime: calendarService == null
                   ? null
-                  : () => context.go('/calendar/protected/new'),
+                  : () => context.go('/calendar/protected'),
             ),
           ),
           GoRoute(
@@ -1050,6 +1054,29 @@ GoRouter createPlannerRouter({
                 // 才能做到 §10.2 末条的"保存前先看冲突"。
                 zones: zones,
                 timeZoneId: timeZoneId,
+              );
+            },
+          ),
+          GoRoute(
+            // 管理保护时间（1.8.0，规范 §9.1／§9.3）：一份能看、能删的清单。
+            //
+            // **它必须先于 `/calendar/protected/new` 之外单独存在**：那条路的标签是
+            // "管理保护时间"，却直接打开新建编辑器——用户看得到"管"，看不到"被管的东西"。
+            path: '/calendar/protected',
+            builder: (context, state) {
+              final service = calendarService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '管理保护时间',
+                  message: '日历写入服务未装配，暂无法管理保护时间。',
+                );
+              }
+              return ProtectedTimeListPage(
+                service: service,
+                timeZoneId: timeZoneId,
+                zones: zones,
+                nowUtc: nowUtc ?? todayStartUtc,
+                onManaged: () => context.go('/calendar/protected/new'),
               );
             },
           ),
