@@ -99,6 +99,91 @@ void main() {
     expect(result.isSuccess, isFalse);
     expect(changes, isEmpty, reason: '与固定日程侧同口径：只有成功的写入才留下原因');
   });
+
+  // ---- 其余五条写入路径（§9.3 说保护时间支持"与固定日程相同的范围"）---------
+  //
+  // 上一轮我只修了 `save` 与 `deleteEvent` 两处，而**一共六条路径**都写死了"固定日程"。
+  // 这一组用例把剩下的五条逐条钉住 —— "只修了最显眼的那一条"是这类缺陷最常见的残余形态。
+
+  /// 先把一条保护时间存进去，再执行 [action]，返回它记下的原因。
+  Future<String> reasonFor(
+    Future<void> Function(CalendarService service, CalendarEvent event) action,
+  ) async {
+    final svc = service();
+    final saveResult = await svc.save(protectedDraft());
+    expect(saveResult.isSuccess, isTrue, reason: '前置条件：保护时间必须能存进去');
+    changes.clear();
+    await action(svc, calendar.saved.single);
+    expect(changes, hasLength(1), reason: '一次用户动作＝一条原因');
+    return changes.single.label;
+  }
+
+  test('改写整个系列：文案说的是保护时间', () async {
+    final label = await reasonFor(
+      (svc, event) => svc.replaceSeries(
+        anchorId: event.id,
+        newStartUtc: DateTime.utc(2026, 10, 6, 5),
+        newEndUtc: DateTime.utc(2026, 10, 6, 6),
+      ),
+    );
+
+    expect(label, contains('保护时间'));
+    expect(label, isNot(contains('固定日程')));
+  });
+
+  test('改写此次及以后：文案说的是保护时间', () async {
+    final label = await reasonFor(
+      (svc, event) => svc.replaceFollowingOccurrences(
+        anchorId: event.id,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+        newStartUtc: DateTime.utc(2026, 10, 6, 5),
+        newEndUtc: DateTime.utc(2026, 10, 6, 6),
+      ),
+    );
+
+    expect(label, contains('保护时间'));
+    expect(label, isNot(contains('固定日程')));
+  });
+
+  test('删除此次及以后：文案说的是保护时间', () async {
+    final label = await reasonFor(
+      (svc, event) => svc.deleteFollowingOccurrences(
+        anchorId: event.id,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+      ),
+    );
+
+    expect(label, contains('保护时间'));
+    expect(label, isNot(contains('固定日程')));
+  });
+
+  test('改写单次：文案说的是保护时间', () async {
+    final label = await reasonFor(
+      (svc, event) => svc.replaceOccurrence(
+        anchorId: event.id,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+        newStartUtc: DateTime.utc(2026, 10, 6, 5),
+        newEndUtc: DateTime.utc(2026, 10, 6, 6),
+        title: '保护时间',
+      ),
+    );
+
+    expect(label, contains('保护时间'));
+    expect(label, isNot(contains('固定日程')));
+  });
+
+  test('删除单次：文案说的是保护时间', () async {
+    final label = await reasonFor(
+      (svc, event) => svc.deleteOccurrence(
+        anchorId: event.id,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+        title: '保护时间',
+      ),
+    );
+
+    expect(label, contains('保护时间'));
+    expect(label, isNot(contains('固定日程')));
+  });
 }
 
 final class _Clock implements Clock {

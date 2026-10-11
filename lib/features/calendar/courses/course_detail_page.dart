@@ -148,6 +148,26 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
               '共 ${detail.segments.length} 个系列片段',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            // 规范 §10.1 把**教师**列为本页要展示的字段之一。它一直存在
+            // （`CourseSeriesSummary.teacher` 来自课表导入写进 `notes` 的名字），
+            // 但此前只有管理列表显示它，**详情页从来不显示**——而详情页正是用户
+            // 点进来"确认这是哪门课、谁教的"的地方。
+            if (detail.summary.teacher.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '教师：${detail.summary.teacher}',
+                key: const Key('course-detail-teacher'),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+            if (detail.summary.location.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '地点：${detail.summary.location}',
+                key: const Key('course-detail-location'),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
             const SizedBox(height: 12),
             Expanded(
               child: ListView(

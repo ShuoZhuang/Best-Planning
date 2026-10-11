@@ -145,12 +145,7 @@ final class CalendarService {
       newEndUtc: newEndUtc,
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程系列改写',
-        kind: DomainChangeKind.fixedEventChanged,
-      ),
-    );
+    await _reportChange(anchorId: anchorId, action: '系列改写');
     return true;
   }
 
@@ -171,12 +166,7 @@ final class CalendarService {
       newEventId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程本次及以后改写',
-        kind: DomainChangeKind.fixedEventChanged,
-      ),
-    );
+    await _reportChange(anchorId: anchorId, action: '本次及以后改写');
     return true;
   }
 
@@ -191,12 +181,7 @@ final class CalendarService {
       occurrenceStartUtc: occurrenceStartUtc,
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程本次及以后删除',
-        kind: DomainChangeKind.fixedEventChanged,
-      ),
-    );
+    await _reportChange(anchorId: anchorId, action: '本次及以后删除');
     return true;
   }
 
@@ -260,12 +245,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程单次改写',
-        kind: DomainChangeKind.fixedEventChanged,
-      ),
-    );
+    await _reportChange(anchorId: anchorId, action: '单次改写');
     return true;
   }
 
@@ -288,12 +268,7 @@ final class CalendarService {
       exceptionId: _idGenerator.next(),
       updatedAtUtc: _clock.nowUtc(),
     );
-    _onScheduleInputChanged?.call(
-      const ScheduleInputChange(
-        label: '固定日程单次删除',
-        kind: DomainChangeKind.fixedEventChanged,
-      ),
-    );
+    await _reportChange(anchorId: anchorId, action: '单次删除');
     return true;
   }
 
@@ -315,6 +290,32 @@ final class CalendarService {
       ),
     );
     return true;
+  }
+
+  /// 记一条"排程输入变了"的原因，文案按**被改的那一条是哪一类**选择。
+  ///
+  /// **为什么要有这个函数**：六条写入路径原先各自内联了一句
+  /// `const ScheduleInputChange(label: '固定日程…')`。保护时间的删除与改写走的是**同样
+  /// 这六条方法**，于是"删一条保护时间"在统计页的"重排原因"里显示成"固定日程删除"——
+  /// 一件用户没做过的事。上一轮我只改了最显眼的 `save` 与 `deleteEvent` 两处，
+  /// **剩下五条照旧**：这正是"只修看得见的那一条"的典型残余形态。
+  ///
+  /// 把"问哪一类 + 拼文案"收到一处，是因为这两件事必须**永远同时**发生：
+  /// 分开写就总会有人只改一半。
+  ///
+  /// 一律用 `fixedEventChanged` 这一类别：`affectsSchedule` 只对 `taskNotesChanged`
+  /// 返回 false，因此保护时间的删除与改写**和固定日程一样**应当触发重排。
+  Future<void> _reportChange({
+    required String anchorId,
+    required String action,
+  }) async {
+    final wasProtected = await _isProtectedEvent(anchorId);
+    _onScheduleInputChanged?.call(
+      ScheduleInputChange(
+        label: wasProtected ? '保护时间$action' : '固定日程$action',
+        kind: DomainChangeKind.fixedEventChanged,
+      ),
+    );
   }
 
   /// [eventId] 是不是一条保护时间（规范 §9.1 的 `kind`）。
