@@ -191,6 +191,20 @@ final class CalendarService {
     return true;
   }
 
+  /// 读某个时间窗内的日程占用（1.8.0）。
+  ///
+  /// **为什么不给调用方一个 `CalendarRepository`**：`CourseManagementService` 需要读
+  /// "改课程时间会撞上谁"，而它已经持有 `CalendarService` 来**写**。再塞一个读端口进去，
+  /// 就会出现两个来源可能指向不同实现的可能——那是"同一份数据在两处读"的经典缺陷。
+  /// 这里读与写共用同一个 `_repository`。
+  ///
+  /// **它不做任何过滤**：调用方（冲突预览）自己按 `logicalCourseId`、`kind`、事件 id
+  /// 去区分"这是我自己还是别人"。
+  Future<List<CalendarOccurrence>> occurrencesBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) => _repository.occurrencesBetween(startUtc, endUtc);
+
   /// 调整固定日程的所属领域（`null` 取消归属）。端口未装配时返回 false。
   ///
   /// 领域是整条日程的属性：重复日程已写下的例外行各自带着自己的归属（改写时从锚点复制），

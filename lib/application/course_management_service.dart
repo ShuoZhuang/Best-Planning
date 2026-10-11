@@ -1,5 +1,7 @@
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/academic_calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/course_series_repository.dart';
@@ -13,6 +15,125 @@ import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
 /// 两者在单片段课程上恰好等价，在多片段课程（单双周被拆成两条规则）上完全不同——
 /// 复用会让"改整个课程"只改到单周那一半。
 enum CourseEditScope { thisOccurrence, followingOccurrences, entireCourse }
+
+/// 改课程时间时会撞上的**既有占用**属于哪一类（1.8.0，规范 §10.2 最后一条）。
+///
+/// **为什么要分类而不是只报"有冲突"**：四类的处置方式完全不同——
+/// 固定日程要让路、保护时间根本不能碰、同一门课自己的片段是**必须**修的数据问题、
+/// 别的课则可以协商。混成一句"有冲突"等于没告诉用户该做什么。
+enum CourseTimeConflictKind {
+  /// 撞上固定日程。
+  fixedEvent,
+
+  /// 撞上保护时间。**这一类最严重**：它的语义是"这段时间不许安排"。
+  protectedTime,
+
+  /// 撞上**同一门课自己的**另一个片段（改完之后这门课和自己撞了）。
+  sameCourse,
+
+  /// 撞上别的课程。
+  otherCourse,
+}
+
+/// 一条"改课程时间会撞上谁"的记录。
+final class CourseTimeConflict {
+  const CourseTimeConflict({
+    required this.kind,
+    required this.title,
+    required this.range,
+    required this.otherEventId,
+    required this.proposedEventId,
+  });
+
+  final CourseTimeConflictKind kind;
+
+  /// 对方事项的**标题**。
+  ///
+  /// **绝不放 id**（规范全局不变量第 7 条）：用户不认识 uuid，而他要做的是去改那一项。
+  final String title;
+
+  /// 对方占用的时间区间。
+  final TimeRange range;
+
+  final String otherEventId;
+
+  /// 我方哪一段改动撞上了它——多片段课程要能指出是哪一个。
+  final String proposedEventId;
+}
+
+/// 检测"把课程改到这些新时段"会撞上哪些既有占用（1.8.0，规范 §10.2 最后一条）。
+///
+/// 纯函数：给定**提议的新时段**与**库里的既有占用**，返回冲突清单。
+/// 界面只负责把它显示出来——因此这条规则可以脱离界面逐值验证。
+///
+/// **三个参数的分工**（第一版把它们混成一个 `ownEventIds`，结果 `sameCourse` **永远不可能**
+/// 触发——因为"属于本课程"的既有一律被提前跳过了）：
+/// - [editingEventId]：**被编辑的那一个锚点**。它自己的旧位置必须排除，
+///   否则"把课往后挪"会永远与"它自己原来的位置"冲突，于是任何改动都不可能通过；
+/// - [sameCourseEventIds]：这门课**其它片段**的 id。它们**不能**排除——
+///   "改完之后这门课和自己撞了"正是最该拦下的一种改动（§10.2 要求报出它）；
+/// - 其余既有占用：固定日程、保护时间、别的课，一律参与判定。
+///
+/// **还必须排除的两条**：
+/// - 首尾相接（半开区间）：10:00–11:00 与 11:00–12:00 不重叠。
+///   把它算冲突会让相邻两节课无法保存；
+/// - 重复：同一条既有占用只提醒一次——一段新时段横跨对方一个长块时报两条，
+///   会让用户以为有两处冲突。
+List<CourseTimeConflict> detectCourseTimeConflicts({
+  required List<({String eventId, TimeRange range})> proposed,
+  required List<CalendarOccurrence> existing,
+  required String editingEventId,
+  Set<String> sameCourseEventIds = const {},
+}) {
+  final found = <String, CourseTimeConflict>{};
+  for (final candidate in proposed) {
+    for (final other in existing) {
+      // 只排除**被编辑的那一个锚点**自己。
+      if (other.eventId == editingEventId) continue;
+      if (!candidate.range.overlaps(other.range)) continue;
+      found.putIfAbsent(
+        other.eventId,
+        () => CourseTimeConflict(
+          kind: _conflictKindOf(other, sameCourseEventIds),
+          title: other.title,
+          range: other.range,
+          otherEventId: other.eventId,
+          proposedEventId: candidate.eventId,
+        ),
+      );
+    }
+  }
+  return found.values.toList()..sort((a, b) {
+    final byStart = a.range.startUtc.compareTo(b.range.startUtc);
+    if (byStart != 0) return byStart;
+    return a.otherEventId.compareTo(b.otherEventId);
+  });
+}
+
+/// 判断一条既有占用属于哪一类。
+///
+/// **判据有意避开"读课表元数据"**：
+/// - 是保护时间 ⇒ `protectedTime`；
+/// - 属于本课程的**其它片段**（id 在 [sameCourseEventIds] 里）⇒ `sameCourse`；
+/// - 带 `logicalCourseId`（＝课表导入来的）⇒ 是**别的课**；
+/// - 其余 ⇒ 手工固定日程。
+///
+/// 不用"比较 `logicalCourseId` 是否相等"来判 `sameCourse`：最要紧的那一类冲突
+/// 恰恰是**同一门课的两个片段**撞在一起，而它由调用方按 id 集合给出更准确。
+CourseTimeConflictKind _conflictKindOf(
+  CalendarOccurrence other,
+  Set<String> sameCourseEventIds,
+) {
+  if (other.kind == CalendarEventKind.protected) {
+    return CourseTimeConflictKind.protectedTime;
+  }
+  if (sameCourseEventIds.contains(other.eventId)) {
+    return CourseTimeConflictKind.sameCourse;
+  }
+  return other.logicalCourseId == null
+      ? CourseTimeConflictKind.fixedEvent
+      : CourseTimeConflictKind.otherCourse;
+}
 
 /// 课程管理命令的结果。**失败时带原因**，而不是一个裸 `false`：
 /// 界面要说清"为什么没改成"，而"操作失败"什么也没告诉用户（规范 §3 第 7 条）。
@@ -200,6 +321,58 @@ final class CourseManagementService {
     if (failures.isEmpty) return const CourseCommandResult.success();
     return CourseCommandResult.failure(
       '有 ${failures.length} 个系列片段没能截断（共 ${detail.segments.length} 个）',
+    );
+  }
+
+  /// 改课程时间前的**冲突预览**（1.8.0，规范 §10.2 最后一条）。
+  ///
+  /// 规范原文："修改课程时间、周次、地点或归属后必须重新检测冲突并预览。"
+  ///
+  /// [proposed] 是**改完之后每一段会落在哪里**，由界面按用户选的本地时间算出来。
+  /// 本方法负责读既有占用、判断谁被撞上，并排除这门课自己的其它片段与**被编辑的锚点**。
+  ///
+  /// **"被编辑的锚点"必须排除**：它的旧位置当然会与"它自己将要去的时段"相同或相邻
+  /// （没移动时就是完全相同），不排除的话"把课挪一下"永远报冲突，功能等于不可用。
+  Future<List<CourseTimeConflict>> previewTimeChange({
+    required String logicalCourseId,
+    required List<({String eventId, TimeRange range})> proposed,
+  }) async {
+    if (proposed.isEmpty) return const [];
+    final detail = await courses.findCourse(logicalCourseId);
+    if (detail == null) return const [];
+
+    // 读窗口取"提议时段整体范围"，前后各留一天：与提议时段相交的既有占用必然落在
+    // 提议范围之内，留一天是为了让跨日的重复块也被读到（展开器按窗口裁剪）。
+    var earliest = proposed.first.range.startUtc;
+    var latest = proposed.first.range.endUtc;
+    for (final item in proposed) {
+      if (item.range.startUtc.isBefore(earliest)) {
+        earliest = item.range.startUtc;
+      }
+      if (item.range.endUtc.isAfter(latest)) latest = item.range.endUtc;
+    }
+    final existing = await calendar.occurrencesBetween(
+      earliest.subtract(const Duration(days: 1)),
+      latest.add(const Duration(days: 1)),
+    );
+
+    // **被编辑的锚点**：`proposed` 的 `eventId` 就是要改的那一段。
+    // "整个课程"会一次改全部片段，因此用集合。
+    final editingIds = {for (final item in proposed) item.eventId};
+    final sameCourseIds = {
+      for (final segment in detail.segments)
+        if (!editingIds.contains(segment.eventId)) segment.eventId,
+    };
+
+    return detectCourseTimeConflicts(
+      proposed: proposed,
+      // 被编辑的那些锚点的**旧位置**不是障碍，因此不进"既有占用"。
+      existing: [
+        for (final occurrence in existing)
+          if (!editingIds.contains(occurrence.eventId)) occurrence,
+      ],
+      editingEventId: proposed.first.eventId,
+      sameCourseEventIds: sameCourseIds,
     );
   }
 
