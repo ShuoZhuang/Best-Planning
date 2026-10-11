@@ -426,17 +426,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('延后当前计划'), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('defer-current-10')));
-    await tester.pump();
-    await tester.pump();
+    await tester.tap(find.byKey(const Key('defer-current-10-minutes')));
+    // **必须让真实异步跑完**：延后要先建提案（`PlanningService` 把引擎放进
+    // `Isolate.run`），而 `pumpAndSettle` 在假异步时钟下推不动它——实测两次 `print`
+    // 之间请求都还在，说明 `onDefer` 卡在 `createProposal` 的 await 上没往下走。
+    // `runAsync` 才允许真实 I/O 与隔离区完成。
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pumpAndSettle();
 
-    final move = moves.forBlock('b1');
-    expect(move, isNotNull);
-    expect(
-      move!.targetStartUtc,
-      _today.add(const Duration(hours: 14, minutes: 10)),
+    // 1.8.0（规范 §11.3）：延后**不再写进全局 `PendingMoveDrafts` 等下一次生成**，
+    // 而是绑定这一次调用。因此这里断言的是"请求已经用过并销毁"，而不是"还留在内存里"。
+    //
+    // 留着一份待处理意图正是规范点名的缺陷：生成失败或用户取消之后，下一次普通
+    // "生成计划"会把一次已经作废的调整又应用一遍（全局不变量第 4 条）。
+    expect(moves.adjustment, isNull, reason: '生成结束后调整请求必须被销毁，不能泄漏到下一次生成');
+    expect(moves.forBlock('b1'), isNull, reason: '延后也不该留下普通移动意图——那是拖动那条路的语义');
+  });
+
+  testWidgets('延后对话框给出分钟／小时／天三种单位与最早目标时间（规范 §11.1）', (tester) async {
+    final moves = PendingMoveDrafts();
+    final planning = PlanningService(
+      source: _EmptyProblemSource(),
+      engine: DeterministicScheduleEngine(TimeZoneDatabase()),
     );
-    expect(move.lock, isFalse, reason: '延后本次只钉住这次生成，不应把任务永久锁定');
+    await pumpTodayRoute(
+      tester,
+      moves: moves,
+      planning: planning,
+      source: const _FutureSource(),
+    );
+
+    await tester.tap(find.byKey(const Key('today-more-block:b1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('延后本次'));
+    await tester.pumpAndSettle();
+
+    // 三档单位都在，且默认落在"分钟"。
+    expect(find.byKey(const Key('defer-current-unit')), findsOneWidget);
+    expect(find.text('分钟'), findsWidgets);
+    expect(find.text('小时'), findsWidgets);
+    expect(find.text('天'), findsWidgets);
+    expect(
+      find.byKey(const Key('defer-current-range')),
+      findsOneWidget,
+      reason: '规范 §11.1：确认区必须显示"原时间 → 最早目标时间"',
+    );
+
+    // 切到"天"之后，快捷值换成 1/2/3/7 天，且自定义输入的提示也换成天。
+    await tester.tap(find.text('天'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('defer-current-1-days')), findsOneWidget);
+    expect(find.byKey(const Key('defer-current-7-days')), findsOneWidget);
+    expect(find.text('自定义天'), findsOneWidget);
   });
 
   testWidgets('M4 未装配跳过端口时，菜单里不出现「跳过本次」', (tester) async {

@@ -140,6 +140,30 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     ];
     final confirmed = await plans.current();
 
+    // 1.8.0（规范 §11）：先算出"哪些任务被延后、下界在哪"，**再**构造排程输入。
+    //
+    // 顺序是必须的：任务级输入里的 `availableFromUtc` 只在构造那一刻取值，
+    // 之后再改这个 map 也不会回头影响已经建好的 `SchedulableTask`。
+    final deferredTaskStarts = <String, DateTime>{};
+    final confirmedBlocksForDefer = confirmed?.blocks ?? const <PlannedBlock>[];
+    final deferDrafts = pendingMoves;
+    if (deferDrafts != null && deferDrafts.adjustment != null) {
+      final openTaskIds = {for (final task in openTasks) task.id};
+      for (final block in confirmedBlocksForDefer) {
+        // **只延后"排程器认得"的块**：已经被跳过、被拖动或以别的方式移出输入的块
+        // 不该因为一条延后请求而被重新拉回来。
+        if (!openTaskIds.contains(block.taskId)) continue;
+        final notBefore = deferDrafts.notBeforeForBlock(block.id, zones);
+        if (notBefore == null) continue;
+        // 同一个任务有多个块被延后时取**最晚**的下界：任何一块都不能早于自己的下界，
+        // 而"可用起点"只有一个，取最晚的那个才是"所有块都满足"的充分条件。
+        final existing = deferredTaskStarts[block.taskId];
+        if (existing == null || notBefore.isAfter(existing)) {
+          deferredTaskStarts[block.taskId] = notBefore;
+        }
+      }
+    }
+
     final schedulable = <SchedulableTask>[
       for (final task in openTasks)
         SchedulableTask(
@@ -149,7 +173,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           minChunkMinutes: task.minChunkMinutes,
           maxChunkMinutes: task.maxChunkMinutes,
           dueAtUtc: task.dueAtUtc,
-          availableFromUtc: task.availableFromUtc,
+          // 延后的下界**并进**任务原有的最早开始时间：两者都成立才允许开工，
+          // 因此取较晚的那个。任务自己设的 `availableFromUtc` 因此不会被延后抹掉。
+          availableFromUtc: _laterOf(
+            task.availableFromUtc,
+            deferredTaskStarts[task.id],
+          ),
           priority: task.priority,
           energyLevel: task.energyLevel,
           // 生活配额因子此前恒为 0，因为这里从未设置该字段。
@@ -196,6 +225,14 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     if (drafts != null) {
       for (final block in confirmedBlocks) {
         if (!schedulableIds.contains(block.taskId)) continue;
+        // **被延后的块不进"精确锁定"这条路**（规范 §11.2）。
+        //
+        // 修复前的行为：今日页把分钟换算成 `RequestedMove.atInstant`，于是延后与拖动走同一
+        // 条路径，这里给它 `locked: true` 钉在**精确目标时刻**。目标点一旦被固定日程、保护
+        // 时间或另一个锁定块占用，方案直接失败（规范 §2.5）——它不会去找目标之后最近的合法
+        // 时段。现在延后只抬高任务的可用起点（上面那段），这一块留在可移动块里由引擎在
+        // 下界之后重新放置。级联策略（少动、当天优先）属于 Task 12。
+        if (deferredTaskStarts.containsKey(block.taskId)) continue;
         final move = drafts.forBlock(block.id);
         if (move == null) continue;
         final targetStartUtc = move.targetStartUtc;
@@ -548,4 +585,14 @@ DateTime _ceilToGranularity(DateTime instantUtc, {int granularityMinutes = 5}) {
   final micros = instantUtc.toUtc().microsecondsSinceEpoch;
   final rounded = ((micros + step - 1) ~/ step) * step;
   return DateTime.fromMicrosecondsSinceEpoch(rounded, isUtc: true);
+}
+
+/// 两个可空下界里**较晚**的那一个（都为 `null` 时返回 `null`）。
+///
+/// 用于把"任务自己设的最早开始时间"与"延后给出的下界"合起来：两者都必须成立，
+/// 因此取较晚的那个——而不是覆盖，否则一次延后会把用户原本设的可用起点抹掉。
+DateTime? _laterOf(DateTime? a, DateTime? b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a.isAfter(b) ? a : b;
 }

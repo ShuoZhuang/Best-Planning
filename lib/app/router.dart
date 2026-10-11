@@ -84,6 +84,7 @@ import 'package:personal_planner/features/workspace/workspace_management_page.da
 import 'package:personal_planner/scheduling/explanations.dart';
 import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 /// 组装应用路由。
 ///
@@ -487,23 +488,43 @@ GoRouter createPlannerRouter({
               // （`taskId` 为 `null`）会当场抛 `Null check operator used on a null value`。
               onOpenDetail: (item) =>
                   _openScheduleItemDetail(context, item, todayStartUtc),
-              // 延后的是**当前计划块**，不是任务截止时间。用精确 UTC 时刻
-              // 钉住本次生成，落地后仍为未锁定，后续调整仍可移动。
+              // 延后的是**当前计划块**，不是任务截止时间（规范 §11）。
+              //
+              // 1.8.0 的改动有三处，都是规范 §2.5／§11.3 点名的缺陷：
+              // 1. 结果不再是 `RequestedMove.atInstant`（那个会被排程输入当成**精确锁定点**，
+              //    目标一被占用就失败），而是 `PlanAdjustmentRequest`——**下界**语义；
+              // 2. 请求**不再写进全局 `PendingMoveDrafts` 等下一次生成**，而是绑定这一次调用，
+              //    并在 `finally` 里销毁（`endAdjustment`），因此"生成失败"这条路径也不会
+              //    把它留给下一次生成（全局不变量第 4 条）；
+              // 3. 对话框提供分钟／小时／天三种单位（§11.1），天的语义是**本地日历日**。
               onDefer: pendingMoves == null || planningService == null
                   ? null
                   : (item) async {
                       final blockId = movableTaskBlockId(item);
                       if (blockId == null) return;
-                      final by = await _showDeferCurrentDialog(context);
-                      if (by == null || !context.mounted) return;
-                      pendingMoves.setRequestedMove(
-                        RequestedMove.atInstant(
+                      final choice = await _showDeferCurrentDialog(
+                        context,
+                        sourceStartUtc: item.range.startUtc,
+                        timeZoneId: timeZoneId,
+                      );
+                      if (choice == null || !context.mounted) return;
+                      pendingMoves.beginAdjustment(
+                        PlanAdjustmentRequest(
                           blockId: blockId,
-                          targetStartUtc: item.range.startUtc.add(by),
-                          lock: false,
+                          amount: choice.amount,
+                          unit: choice.unit,
+                          sourceStartUtc: item.range.startUtc,
+                          timeZoneId: timeZoneId,
                         ),
                       );
-                      final proposal = await planningService.createProposal();
+                      ScheduleProposal proposal;
+                      try {
+                        proposal = await planningService.createProposal();
+                      } finally {
+                        // **所有失败路径共用这一个清理点**：把请求的生命周期收成
+                        // try/finally，就不可能有一条路径漏掉它。
+                        pendingMoves.endAdjustment();
+                      }
                       if (!context.mounted) return;
                       final outcome =
                           await PlanGenerationFlow(
@@ -1791,72 +1812,208 @@ final class _FocusData {
 ///
 /// 「延后本次」与任务详情页的「延后截止时间」严格分开：这里只改当前块，
 /// 且按排程器的 5 分钟粒度校验自定义值。
-Future<Duration?> _showDeferCurrentDialog(BuildContext context) async {
-  final controller = TextEditingController();
-  String? error;
-  final result = await showDialog<Duration>(
-    context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: const Text('延后当前计划'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('只移动这一个计划块，不修改任务截止时间。'),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final minutes in const [10, 15, 30, 60])
-                  ActionChip(
-                    key: Key('defer-current-$minutes'),
-                    label: Text(minutes == 60 ? '1 小时' : '$minutes 分钟'),
-                    onPressed: () => Navigator.pop(
-                      dialogContext,
-                      Duration(minutes: minutes),
-                    ),
-                  ),
-              ],
+/// 延后对话框的结果：**单位 ＋ 数量**（规范 §11.1）。
+final class _DeferChoice {
+  const _DeferChoice({required this.amount, required this.unit});
+
+  final int amount;
+  final DeferUnit unit;
+}
+
+/// 「延后当前计划」对话框（1.8.0，设计规范 §11.1）。
+///
+/// **三种单位而不是只有分钟**：修复前的对话框只有"分钟"快捷值与"自定义分钟"，
+/// 于是"延到明天"这件事在界面上根本表达不出来（规范 §2 第 1 条：
+/// "'延后当前计划'只有分钟且经常因精确落点冲突而失败"）。
+///
+/// **确认区必须显示"原时间 → 最早目标时间"**（§11.1）：用户要知道自己按下"延后"之后
+/// 最早会排到哪里，而不是按完才发现。
+Future<_DeferChoice?> _showDeferCurrentDialog(
+  BuildContext context, {
+  required DateTime sourceStartUtc,
+  required String timeZoneId,
+}) => showDialog<_DeferChoice>(
+  context: context,
+  builder: (dialogContext) =>
+      _DeferDialog(sourceStartUtc: sourceStartUtc, timeZoneId: timeZoneId),
+);
+
+/// 「延后当前计划」对话框本体。
+///
+/// **为什么是一个 `StatefulWidget` 而不是 `StatefulBuilder`**：自定义输入需要一个
+/// `TextEditingController`，而它必须在**对话框自己**被销毁时释放。第一版把控制器建在
+/// `showDialog` 外面、在 future 完成时 dispose——实测 future 完成时退场动画还没跑完，
+/// `TextField` 仍在树上，于是退场帧撞上
+/// `A TextEditingController was used after being disposed`。
+final class _DeferDialog extends StatefulWidget {
+  const _DeferDialog({required this.sourceStartUtc, required this.timeZoneId});
+
+  final DateTime sourceStartUtc;
+  final String timeZoneId;
+
+  @override
+  State<_DeferDialog> createState() => _DeferDialogState();
+}
+
+final class _DeferDialogState extends State<_DeferDialog> {
+  /// 快捷值：与规范 §11.1 的表格逐值一致。
+  static const _quickValues = <DeferUnit, List<int>>{
+    DeferUnit.minutes: [5, 10, 15, 30, 45],
+    DeferUnit.hours: [1, 2, 3, 6],
+    DeferUnit.days: [1, 2, 3, 7],
+  };
+
+  static const _unitLabels = <DeferUnit, String>{
+    DeferUnit.minutes: '分钟',
+    DeferUnit.hours: '小时',
+    DeferUnit.days: '天',
+  };
+
+  final _controller = TextEditingController();
+  final _zones = TimeZoneDatabase();
+  DeferUnit _unit = DeferUnit.minutes;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 自定义输入当前解析出来的值（不合法时为 null）。
+    final custom = int.tryParse(_controller.text.trim());
+    final amount = custom ?? _quickValues[_unit]!.first;
+    final valid = _deferAmountIsValid(amount, _unit);
+    final formatted = _formatLocal(
+      _zones,
+      widget.sourceStartUtc,
+      widget.timeZoneId,
+    );
+    final target = valid
+        ? _formatLocal(
+            _zones,
+            deferNotBeforeUtc(
+              sourceStartUtc: widget.sourceStartUtc,
+              amount: amount,
+              unit: _unit,
+              timeZoneId: widget.timeZoneId,
+              zones: _zones,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              key: const Key('defer-current-custom-minutes'),
-              controller: controller,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: '自定义分钟',
-                helperText: '请输入 5 的倍数',
-                errorText: error,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
+            widget.timeZoneId,
+          )
+        : '—';
+    return AlertDialog(
+      title: const Text('延后当前计划'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('只移动这一个计划块，不修改任务截止时间。'),
+          const Text('若目标时刻已被占用，会排到它之后最近的可用时段。'),
+          const SizedBox(height: 12),
+          SegmentedButton<DeferUnit>(
+            key: const Key('defer-current-unit'),
+            segments: [
+              for (final entry in DeferUnit.values)
+                ButtonSegment(value: entry, label: Text(_unitLabels[entry]!)),
+            ],
+            selected: {_unit},
+            onSelectionChanged: (selection) => setState(() {
+              _unit = selection.single;
+              _controller.clear();
+              _error = null;
+            }),
           ),
-          FilledButton(
-            key: const Key('defer-current-custom-confirm'),
-            onPressed: () {
-              final minutes = int.tryParse(controller.text.trim());
-              if (minutes == null || minutes <= 0 || minutes % 5 != 0) {
-                setState(() => error = '请输入大于 0 的 5 分钟倍数');
-                return;
-              }
-              Navigator.pop(dialogContext, Duration(minutes: minutes));
-            },
-            child: const Text('延后'),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final value in _quickValues[_unit]!)
+                ActionChip(
+                  key: Key('defer-current-$value-${_unit.name}'),
+                  label: Text('$value ${_unitLabels[_unit]}'),
+                  onPressed: () => Navigator.pop(
+                    context,
+                    _DeferChoice(amount: value, unit: _unit),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('defer-current-custom-amount'),
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() => _error = null),
+            decoration: InputDecoration(
+              labelText: '自定义${_unitLabels[_unit]}',
+              helperText: switch (_unit) {
+                DeferUnit.minutes => '1～1440 的整数',
+                DeferUnit.hours => '1～72 的整数',
+                DeferUnit.days => '1～365 的整数',
+              },
+              errorText: _error,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // **"原时间 → 最早目标时间"必须在确认前可见**（规范 §11.1）。
+          Text(
+            key: const Key('defer-current-range'),
+            '$formatted → $target',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
       ),
-    ),
-  );
-  controller.dispose();
-  return result;
+      actions: [
+        TextButton(
+          key: const Key('defer-current-cancel'),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('defer-current-custom-confirm'),
+          onPressed: () {
+            final amount = int.tryParse(_controller.text.trim());
+            if (amount == null || !_deferAmountIsValid(amount, _unit)) {
+              setState(
+                () => _error = switch (_unit) {
+                  DeferUnit.minutes => '请输入 1～1440 的整数',
+                  DeferUnit.hours => '请输入 1～72 的整数',
+                  DeferUnit.days => '请输入 1～365 的整数',
+                },
+              );
+              return;
+            }
+            Navigator.pop(context, _DeferChoice(amount: amount, unit: _unit));
+          },
+          child: const Text('延后'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 自定义输入的取值范围（规范 §11.1 的"自定义约束"列）。
+bool _deferAmountIsValid(int amount, DeferUnit unit) => switch (unit) {
+  DeferUnit.minutes => amount >= 1 && amount <= 1440,
+  DeferUnit.hours => amount >= 1 && amount <= 72,
+  DeferUnit.days => amount >= 1 && amount <= 365,
+};
+
+/// 把 UTC 时刻按**事项自己的时区**格式化成 `MM-DD HH:mm`。
+String _formatLocal(
+  TimeZoneDatabase zones,
+  DateTime instantUtc,
+  String timeZoneId,
+) {
+  final local = zones.toLocal(instantUtc, timeZoneId);
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }
 
 Future<void> _generatePlan(
