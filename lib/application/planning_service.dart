@@ -172,4 +172,12 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       // 症状是 `schedule_reference_blocks_test.dart` 全红而 `analyze` 干净。
       // **新增 `ScheduleProblem` 字段时，这里是一处必须同步的复制点。**
       referenceBlocks: problem.referenceBlocks,
+      // **同样必须原样搬运**（裁定第 3 点；设计 §5.3）：块级调整上下文是"这次生成的
+      // 目标"，丢掉它会让延后**静默失效**——引擎按普通全量生成排一遍，用户看到的是
+      // "点了延后但什么都没变"。
+      //
+      // 这一行是**又一处**补上的：`adjustment` 加进 `ScheduleProblem` 之后我同样忘了改
+      // 这里，于是 `block_level_defer_test.dart` 两条用例当场报 `Actual: <null>`。
+      // 与 `referenceBlocks` 那次是同一个陷阱——**新增字段时这里是必查的复制点**。
+      adjustment: problem.adjustment,
     );

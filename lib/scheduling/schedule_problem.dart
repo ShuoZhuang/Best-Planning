@@ -183,6 +183,34 @@ final class PlannedBlock {
       Object.hash(id, taskId, range, locked, explanationCode, continuedFromId);
 }
 
+/// 一次「调整当前计划块」的上下文（1.8.0，裁定第 3 点；设计 §5.3）。
+///
+/// **为什么必须是块级而不是任务级**：修复前装配层把"指定块的延后请求"转成
+/// **整个任务的** `availableFromUtc`，于是**延后一块会把它自己其余的块也一起推后**。
+/// 规范 §11.1 的文案是"只调整当前计划块"，§11.4 第 3、4 条要求"移动的其他块数量最少"
+/// —— 任务级下界与这两条都不符。
+///
+/// **它是"意图"而不是"约束"**：`notBeforeUtc` 是**下界**，不是必须精确占用的点
+/// （规范 §11.2 末条）。引擎据此判断"这一块最早可以从哪里开始"。
+final class BlockAdjustmentContext {
+  const BlockAdjustmentContext({
+    required this.targetBlockId,
+    required this.notBeforeUtc,
+    required this.kind,
+  });
+
+  /// 要调整的那一块在**当前确认计划**里的 id。**不是任务 id。**
+  final String targetBlockId;
+
+  /// 目标块最早可以开始的位置（下界）。
+  final DateTime notBeforeUtc;
+
+  final BlockAdjustmentKind kind;
+}
+
+/// 调整的种类。目前只有延后；提前是独立操作、不在本批次（规范 §11.2）。
+enum BlockAdjustmentKind { defer }
+
 final class ScheduleProblem {
   ScheduleProblem({
     required this.planningWindow,
@@ -197,6 +225,7 @@ final class ScheduleProblem {
     required this.inputHash,
     Set<String> pinnedUnlockedBlockIds = const {},
     Map<String, DateTime> referenceBlocks = const {},
+    this.adjustment,
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
@@ -247,4 +276,14 @@ final class ScheduleProblem {
   /// **刻意不进 `inputHash`**：它是**比较用的参照**，不改变"哪些块可以放在哪里"。
   /// 把它算进哈希会让同一份排程输入因为参照不同而生成两份提案，而两份的**内容**相同。
   final Map<String, DateTime> referenceBlocks;
+
+  /// 本次生成是否是一次**块级调整**（裁定第 3 点；设计 §5.3）。
+  ///
+  /// 为空表示这是一次普通全量生成。非空时 [BlockAdjustmentContext.targetBlockId]
+  /// 指向**当前确认计划里**要调整的那一块，[BlockAdjustmentContext.notBeforeUtc]
+  /// 是它的下界。
+  ///
+  /// **它不进 `inputHash`**：与 [referenceBlocks] 同理——它是"比较与目标"的输入，
+  /// 不是"哪些时间可用"的输入。把它算进哈希会让同一次调整在确认阶段被判为过期。
+  final BlockAdjustmentContext? adjustment;
 }

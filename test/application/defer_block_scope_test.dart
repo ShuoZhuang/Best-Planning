@@ -1,15 +1,19 @@
-// 1.8.0（设计规范 §11）：延后**当前计划块**的语义边界。
+// 1.8.0（裁定第 3 点；设计 §5.3）：延后的**作用域**。
 //
-// §11.1 的文案要求："只调整当前计划块，不修改任务截止时间。"
+// §11.1 的文案要求："**只调整当前计划块**，不修改任务截止时间。"
 // §11.2 又说："目标是 `notBeforeUtc` 下界，不是必须精确占用的点。"
 //
-// 两条合起来有一处需要实证的地方：块级下界是通过**抬高任务的 `availableFromUtc`**
-// 实现的（见 `repository_schedule_problem_source.dart` 里 `deferredTaskStarts` 那一段），
-// 而"任务的可用起点"是**任务级**输入。因此一个任务有多个块时，
-// **延后其中一块会把它自己其余的块也一起往后推**。
+// **本文件曾经记录过一个缺陷**：修复前，块级下界是通过**抬高任务的 `availableFromUtc`**
+// 实现的，而"任务的可用起点"是**任务级**输入，因此
 //
-// 本文件把这件事**测出来并钉住**，而不是靠读代码推断：
-// 用户按的是"延后这一块"，若结果里别的块也动了，那是他预期之外的位移。
+//     > 延后一个任务的一块，会把它自己其余的块也一起推后。
+//
+// 那时这个文件的三条用例（"延后一块会抬高整个任务的可用起点"等）**把这个错误行为
+// 固定了下来** —— 用例忠实描述了现实，而现实是错的。裁定第 3 点明确纠正：
+// 不得再用任务级 `availableFromUtc` 模拟块级延后。
+//
+// 现在它验的是**纠正之后**的语义：延后只表达为 `ScheduleProblem.adjustment`
+// 的一个块级上下文，任务的可用起点**一个字段都不动**。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
@@ -18,8 +22,8 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/task.dart';
-import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
@@ -78,86 +82,73 @@ void main() {
         pendingMoves: pendingMoves,
       ).load();
 
-  test('**延后一块会抬高整个任务的可用起点**（因此它其余的块也被推后）', () async {
-    // 只延后 b1（10:00 那块）30 分钟。
-    final drafts = PendingMoveDrafts()
-      ..beginAdjustment(
+  PendingMoveDrafts deferring(String blockId, {int amount = 30}) =>
+      PendingMoveDrafts()..beginAdjustment(
         PlanAdjustmentRequest(
-          blockId: 'b1',
-          amount: 30,
+          blockId: blockId,
+          amount: amount,
           unit: DeferUnit.minutes,
           sourceStartUtc: base.add(const Duration(hours: 9)),
           timeZoneId: zoneId,
         ),
       );
 
-    final problem = await load(pendingMoves: drafts);
-
-    final schedulable = problem.tasks.single;
-    expect(
-      schedulable.availableFromUtc,
-      base.add(const Duration(hours: 9, minutes: 30)),
-      reason:
-          '下界被并进了任务的可用起点（`_laterOf(task.availableFromUtc, 下界)`）；'
-          '这是**任务级**输入，因此它同时影响这个任务的每一块',
-    );
-
-    // **这就是要钉住的事实**：只延后 b1，但 b2（15:00 那块）也被推迟到 10:30 之后
-    // 才允许开始排。b2 原本 15:00 已经满足这个下界，因此"是否真的移动"取决于引擎；
-    // 但**输入层面它已经不再被钉在 15:00**（见下面那条断言）。
-    expect(
-      problem.referenceBlocks['b2'],
-      base.add(const Duration(hours: 14)),
-      reason: '参考位置仍然是原时刻——引擎据此判断"要不要动它"',
-    );
-  });
-
-  test('**未被延后的块不再被精确钉住**：它只是有参考位置，可以被引擎挪动', () async {
-    // 与上一条同一场景。这里断言的是"b2 是否还属于可移动块"。
-    //
-    // 延后路径刻意**跳过**精确钉住（`if (deferredTaskStarts.containsKey(block.taskId)) continue;`），
-    // 因此 b2 会作为普通可移动块进入引擎——也就是说，**引擎有权把它挪走**，
-    // 而不是必须把它留在 15:00。
-    final drafts = PendingMoveDrafts()
-      ..beginAdjustment(
-        PlanAdjustmentRequest(
-          blockId: 'b1',
-          amount: 30,
-          unit: DeferUnit.minutes,
-          sourceStartUtc: base.add(const Duration(hours: 9)),
-          timeZoneId: zoneId,
-        ),
-      );
-
-    final problem = await load(pendingMoves: drafts);
-
-    final taskB = problem.tasks.single;
-    // `referenceBlocks` 是"引擎应当尽量贴近"的位置，不是硬约束；
-    // 硬约束只有一个可用起点。
-    expect(
-      taskB.availableFromUtc!.isAfter(base.add(const Duration(hours: 9))),
-      isTrue,
-    );
-    expect(
-      problem.pinnedUnlockedBlockIds.contains('b2'),
-      isFalse,
-      reason:
-          'b2 不在 `blocks`（精确钉住表）里 —— 延后请求期间只有下界，没有钉点。'
-          '若这里变成 true，说明延后把同一任务的**其他块**也钉住了，那是更重的错误',
-    );
-  });
-
-  test('对照：没有延后请求时，任务的可用起点不被改动', () async {
-    final problem = await load();
+  test('**任务的可用起点不被延后改动**（同任务的其他块因此不被牵连）', () async {
+    final problem = await load(pendingMoves: deferring('b1'));
 
     expect(
       problem.tasks.single.availableFromUtc,
       isNull,
       reason:
-          '**注意这里是 `null` 而不是计划起点**：任务本身没设最早开始时间时，'
-          '排程输入交给引擎的就是"没有约束"。延后**新增**的正是这样一个任务级约束——'
-          '这也解释了为什么它会影响该任务的每一块，而不只是被延后的那一块',
+          '修复前这里会被抬到"原时刻 + 30 分钟"，于是 b2（同一任务的另一块）'
+          '也被推后——那正是裁定第 3 点要纠正的。任务自己没设最早开始时间，'
+          '因此必须是 null',
     );
+  });
+
+  test('延后以**块级**上下文表达，目标是那一块而不是任务', () async {
+    final problem = await load(pendingMoves: deferring('b1'));
+
+    expect(problem.adjustment?.targetBlockId, 'b1', reason: '块级意图必须指向块');
+    expect(
+      problem.adjustment?.notBeforeUtc,
+      base.add(const Duration(hours: 9, minutes: 30)),
+      reason: '下界 = 原开始时刻 + 30 分钟',
+    );
+  });
+
+  test('**未延后的块不受影响**：它仍有参考位置，且不被精确钉住', () async {
+    final problem = await load(pendingMoves: deferring('b1'));
+
+    expect(
+      problem.referenceBlocks['b2'],
+      base.add(const Duration(hours: 14)),
+      reason: '参考位置仍是原时刻——引擎据此判断"要不要动它"',
+    );
+    expect(
+      problem.pinnedUnlockedBlockIds.contains('b2'),
+      isFalse,
+      reason:
+          'b2 不在精确钉住集合里（延后请求期间只有下界，没有钉点）。'
+          '若这里变成 true，说明延后把同一任务的**其他块**也钉住了，那是更重的错误',
+    );
+  });
+
+  test('**被延后的那一块**不进精确钉住集合', () async {
+    final problem = await load(pendingMoves: deferring('b1'));
+
+    expect(
+      problem.pinnedUnlockedBlockIds.contains('b1'),
+      isFalse,
+      reason: '目标是下界而不是精确点（规范 §11.2）；钉住会让目标被占用时直接失败',
+    );
+  });
+
+  test('对照：没有延后请求时既无上下文、也无任务级约束', () async {
+    final problem = await load();
+
+    expect(problem.adjustment, isNull);
+    expect(problem.tasks.single.availableFromUtc, isNull);
   });
 }
 
