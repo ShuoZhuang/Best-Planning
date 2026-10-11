@@ -103,4 +103,39 @@ void main() {
     expect(result.totalScore, isA<int>());
     expect(result.factors.keys.toSet(), ScoringFactor.values.toSet());
   });
+
+  test('规范 §12.2 点名的四项都在 breakdown 里，且各有明确定义', () {
+    // §12.2 原文要求在 `CandidateScoreBreakdown` 增加可解释项：
+    // `orphanGapBefore`、`orphanGapAfter`、`adjustmentDisplacement`、
+    // `adjustmentMovedBlockCount`。计划 Task 13 的 Interfaces 一栏把它们列为交付项。
+    //
+    // **不能只验"键存在"**：上面那条完备性断言已经覆盖了键，而它无法区分
+    // "这一项算出来了"与"这一项被塞了个 0 占位"。因此这里分开验两类：
+    // 前者（空档那两项）属于候选级、当前也必须能被解释；后者属于**整份方案**级，
+    // 在候选级**按定义恒为 0**，由 `LocalRepairPlan.compare` 处理。
+    final result = scorer.score(
+      candidate,
+      CandidateScoringContext(task: task()),
+    );
+
+    for (final factor in const [
+      ScoringFactor.orphanGapBefore,
+      ScoringFactor.orphanGapAfter,
+      ScoringFactor.adjustmentDisplacement,
+      ScoringFactor.adjustmentMovedBlockCount,
+    ]) {
+      expect(
+        result.factors.containsKey(factor),
+        isTrue,
+        reason: '§12.2 点名的 ${factor.name} 必须出现在 breakdown 里',
+      );
+    }
+
+    // 整份方案级的这两项在候选级恒为 0 —— 这是**设计**而不是遗漏：
+    // 候选是一次放置，而"总位移"与"移动块数"是整份方案的性质。
+    // 若哪天它们变成非 0，说明有人把方案级比较搬到了候选级，
+    // 那会让 §11.4 的字典序失去唯一入口。
+    expect(result.factors[ScoringFactor.adjustmentDisplacement], 0);
+    expect(result.factors[ScoringFactor.adjustmentMovedBlockCount], 0);
+  });
 }

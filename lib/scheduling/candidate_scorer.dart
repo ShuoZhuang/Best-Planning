@@ -25,6 +25,25 @@ enum ScoringFactor {
   /// 也就是**块的形状**；这一个惩罚的是"这次放置会在周围留下多长的、谁也放不进去的缝"。
   /// 一个 45 分钟的块完全正常，而它前后各留 20 分钟的缝才是问题。
   unusableGap,
+
+  /// **放置之前**紧邻位置上的无法利用短空档（规范 §12.2 点名的四项之一）。
+  ///
+  /// 与 [unusableGap] 分开是为了让解释层能说出"是**这次放置新造出来的**缝，
+  /// 还是它本来就存在"。把两者合成一个数就无法区分这两件事。
+  orphanGapBefore,
+
+  /// **放置之后**留下的无法利用短空档（规范 §12.2）。
+  orphanGapAfter,
+
+  /// 局部修复造成的总位移分钟（规范 §12.2）。
+  ///
+  /// **候选级评分里恒为 0**：候选是一次放置，而"总位移"是**整份方案**的性质。
+  /// 它由 `LocalRepairPlan.compare` 按 §11.4 的字典序比较（见 `local_repair.dart`）。
+  /// 这一项存在的意义是让 breakdown 能表达这个维度，而不是让候选评分去算它。
+  adjustmentDisplacement,
+
+  /// 局部修复移动的块数（规范 §12.2）。**同上，候选级恒为 0。**
+  adjustmentMovedBlockCount,
 }
 
 final class CandidateScoringContext {
@@ -133,6 +152,16 @@ final class CandidateScorer {
         -weights.maximumUnusableGapPenalty,
         context.unusableGapPenaltyPermille,
       ),
+      // §12.2 要求的三项在这里**显式记为 0**，而不是从 map 里省掉。
+      //
+      // 省掉会让 `factors.keys` 不等于 `ScoringFactor.values`，而
+      // `candidate_scorer_test.dart` 有一条断言正是钉这个完备性——
+      // **省掉就等于让那条断言失去意义**。它们的真实取值属于"整份方案"的层面
+      // （见枚举上的说明），由 `LocalRepairPlan.compare` 按 §11.4 处理。
+      ScoringFactor.orphanGapBefore: 0,
+      ScoringFactor.orphanGapAfter: 0,
+      ScoringFactor.adjustmentDisplacement: 0,
+      ScoringFactor.adjustmentMovedBlockCount: 0,
     };
     return CandidateScore.eligible(factors);
   }
