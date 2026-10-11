@@ -13,6 +13,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
+import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -68,6 +69,19 @@ ScheduleViewItem _item({
 
 final _dayStartUtc = DateTime.utc(2026, 10, 5);
 
+/// 用日期选择器把"改这一次"对话框里的结束日期改成 [day] 号。
+///
+/// **必须真的走选择器**：1.8.0 起对话框用 `PlannerDateField`（规范 §8.2：与固定日程编辑器
+/// 复用同一组件），文本输入那条路已经不存在。测试若还能"输入日期"，说明实现没换。
+Future<void> _setOccurrenceEndDate(WidgetTester tester, int day) async {
+  await tester.tap(find.byKey(const Key('occurrence-end-date-box')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('$day').last);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('确定'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   Future<void> pump(
     WidgetTester tester, {
@@ -93,6 +107,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _Items(items),
@@ -171,6 +188,9 @@ void main() {
     addTearDown(controller.close);
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _StreamItems(controller.stream),
@@ -666,6 +686,9 @@ void main() {
     // 内联构造而不是复用 pump：这条用例要的正是"同时注入两个删除入口"的那种装配。
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _Items([
@@ -724,6 +747,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _Items([
@@ -752,29 +778,33 @@ void main() {
     await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
     await tester.pumpAndSettle();
 
-    // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法值交给下游。
-    await tester.enterText(find.byKey(const Key('occurrence-start')), '不是时间');
+    // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法区间交给下游。
+    //
+    // 1.8.0 起对话框用选择器字段（规范 §8.2：复用同一组件和校验），**文本输入这条路
+    // 已经不存在**——"输入非法值"在界面上无从发生。因此这里验证剩下那条真的可能出错的
+    // 输入：**结束日期落在开始之前**。它必须被对话框挡住并说明。
+    await _setOccurrenceEndDate(tester, 4);
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('时间格式应为'), findsOneWidget);
+    expect(find.byKey(const Key('occurrence-error')), findsOneWidget);
     expect(replaced, isEmpty);
 
-    // 再改成合法时间：解析结果交给回调（本地时刻，UTC 换算由路由负责）。
-    await tester.enterText(
-      find.byKey(const Key('occurrence-start')),
-      '2026-10-05 14:00',
-    );
-    await tester.enterText(
-      find.byKey(const Key('occurrence-end')),
-      '2026-10-05 15:00',
-    );
+    // 再改成合法时间：结果交给回调（本地时刻，UTC 换算由路由负责）。
+    await _setOccurrenceEndDate(tester, 6);
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 
     expect(replaced, hasLength(1));
     expect(replaced.single.$1, 'event-1');
-    expect(replaced.single.$3.hour, 14);
-    expect(replaced.single.$4.hour, 15);
+    // **按 UTC 断言，不按 `.day`**：这一页用 `timeZoneId: 'UTC'` 渲染，而回调收到的是
+    // **UTC** 时刻——`.day` 在两种口径下会差一天（本地 10-06 18:00 = UTC 10-06 10:00，
+    // 而同一天的起点 UTC 09:00 的 `.day` 是 05）。原用例同样按 UTC 比（14:00/15:00）。
+    expect(replaced.single.$3, DateTime.utc(2026, 10, 5, 9));
+    expect(
+      replaced.single.$4,
+      DateTime.utc(2026, 10, 6, 10),
+      reason: '结束日期改到次日 ⇒ 结束时刻整体后移一天',
+    );
   });
 
   testWidgets('未注入改写入口时不显示该按钮', (tester) async {
@@ -802,6 +832,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _Items([
@@ -835,14 +868,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('occurrence-scope-series')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('occurrence-start')),
-      '2026-10-05 14:00',
-    );
-    await tester.enterText(
-      find.byKey(const Key('occurrence-end')),
-      '2026-10-05 15:00',
-    );
+    // 1.8.0 起这里**不接受文本输入**（规范 §8.1：不给输入非法值的可能），
+    // 因此不再"输入时间"，而是改结束日期为次日来推进这次改写。
+    await _setOccurrenceEndDate(tester, 6);
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 
@@ -860,6 +888,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
         home: Scaffold(
           body: DayViewPage(
             source: _Items([
@@ -898,14 +929,9 @@ void main() {
     expect(find.text('本次及以后'), findsOneWidget);
     expect(find.text('整个系列'), findsOneWidget);
     await tester.tap(find.byKey(const Key('occurrence-scope-following')));
-    await tester.enterText(
-      find.byKey(const Key('occurrence-start')),
-      '2026-10-05 14:00',
-    );
-    await tester.enterText(
-      find.byKey(const Key('occurrence-end')),
-      '2026-10-05 15:00',
-    );
+    // 1.8.0 起这里**不接受文本输入**（规范 §8.1：不给输入非法值的可能），
+    // 因此不再"输入时间"，而是改结束日期为次日来推进这次改写。
+    await _setOccurrenceEndDate(tester, 6);
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 

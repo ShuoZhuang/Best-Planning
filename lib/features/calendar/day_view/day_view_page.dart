@@ -5,6 +5,7 @@ import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
+import 'package:personal_planner/design/planner_date_time_fields.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
 /// 日视图（FR-CAL-03）。
@@ -316,8 +317,10 @@ Future<void> _editOccurrence(
     // 这样写的，五条既有用例一起把它顶了出来。
     builder: (dialogContext) => _OccurrenceEditDialog(
       title: item.title,
-      initialStart: _formatLocal(item.range.startUtc, zones, timeZoneId),
-      initialEnd: _formatLocal(item.range.endUtc, zones, timeZoneId),
+      initialStartUtc: item.range.startUtc,
+      initialEndUtc: item.range.endUtc,
+      zones: zones,
+      timeZoneId: timeZoneId,
       allowsFollowing: onReplaceFollowing != null,
       allowsWholeSeries: onReplaceSeries != null,
     ),
@@ -436,22 +439,30 @@ final class _AreaPickerDialogState extends State<_AreaPickerDialog> {
   );
 }
 
-/// "改这一次"的对话框：两个文本框（本地时刻），保存时把解析结果交回调用方。
+/// 改写某一次的对话框：**日期与时间都用选择器字段**（1.8.0，规范 §2.7／§8.1）。
 ///
-/// 用文本框而不是日期/时间选择器：**格式与事件编辑器一致**（`YYYY-MM-DD HH:mm`），用户在两个
-/// 地方看到同一种写法；也让这条路径能在测试里被直接驱动。
+/// 此前这里是两个文本框，要求用户敲 `YYYY-MM-DD HH:mm`。改成选择器之后，
+/// 日视图与固定日程编辑器（`EventEditorForm`）用的是**同一个组件与同一套校验**，
+/// 这正是规范 §8.2 最后一句要求的"复用同一组件和校验"。
 final class _OccurrenceEditDialog extends StatefulWidget {
   const _OccurrenceEditDialog({
     required this.title,
-    required this.initialStart,
-    required this.initialEnd,
+    required this.initialStartUtc,
+    required this.initialEndUtc,
+    required this.zones,
+    required this.timeZoneId,
     this.allowsFollowing = false,
     this.allowsWholeSeries = false,
   });
 
   final String title;
-  final String initialStart;
-  final String initialEnd;
+
+  /// 这一段的**本地**起止。由调用方按事项时区换算好再交进来，
+  /// 对话框因此不需要自己认识时区。
+  final DateTime initialStartUtc;
+  final DateTime initialEndUtc;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
   final bool allowsFollowing;
 
   /// 是否允许选"改整个系列"。未注入对应回调时为 false——**不给一个选了也不生效的勾选框**。
@@ -462,100 +473,158 @@ final class _OccurrenceEditDialog extends StatefulWidget {
 }
 
 final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
-  late final TextEditingController _start;
-  late final TextEditingController _end;
+  late final LocalDateRangeController _range;
   String? _error;
   _OccurrenceScope _scope = _OccurrenceScope.single;
 
   @override
   void initState() {
     super.initState();
-    _start = TextEditingController(text: widget.initialStart);
-    _end = TextEditingController(text: widget.initialEnd);
+    final start = widget.zones.toLocal(
+      widget.initialStartUtc,
+      widget.timeZoneId,
+    );
+    final end = widget.zones.toLocal(widget.initialEndUtc, widget.timeZoneId);
+    _range = LocalDateRangeController(
+      startDate: start,
+      startTime: TimeOfDay(hour: start.hour, minute: start.minute),
+      endDate: end,
+      endTime: TimeOfDay(hour: end.hour, minute: end.minute),
+    )..addListener(_onRangeChanged);
+  }
+
+  void _onRangeChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _start.dispose();
-    _end.dispose();
+    _range
+      ..removeListener(_onRangeChanged)
+      ..dispose();
     super.dispose();
   }
 
   void _save() {
-    final start = _parseLocalDateTime(_start.text);
-    final end = _parseLocalDateTime(_end.text);
-    // **在对话框内校验**：解析失败或结束不晚于开始时留在对话框里说明，而不是把非法输入交给
-    // 下游、让用户在外面收到一个更含糊的错误。
-    if (start == null || end == null) {
-      setState(() => _error = '时间格式应为 YYYY-MM-DD HH:mm');
+    // **在对话框内校验**：结束不晚于开始时留在对话框里说明，而不是把非法区间交给
+    // 下游、让用户在外面收到一个更含糊的错误（规范 §8.2：不做静默猜测）。
+    if (_range.endsNotAfterStart) {
+      setState(() {
+        _error = _range.crossesMidnight
+            ? '结束时间必须晚于开始时间'
+            : '结束时间不晚于开始时间。若跨到次日，请把结束日期改到次日。';
+      });
       return;
     }
-    if (!end.isAfter(start)) {
-      setState(() => _error = '结束时间必须晚于开始时间');
-      return;
-    }
-    Navigator.of(context).pop((start, end, _scope));
+    final startUtc = widget.zones.localDateTimeToUtc(
+      _range.startDate,
+      _range.startTime.hour * 60 + _range.startTime.minute,
+      widget.timeZoneId,
+    );
+    final endUtc = widget.zones.localDateTimeToUtc(
+      _range.endDate,
+      _range.endTime.hour * 60 + _range.endTime.minute,
+      widget.timeZoneId,
+    );
+    Navigator.of(context).pop((startUtc, endUtc, _scope));
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text('改「${widget.title}」的这一次'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          key: const Key('occurrence-start'),
-          controller: _start,
-          decoration: const InputDecoration(
-            labelText: '开始（本地，如 2026-10-12 14:00）',
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          key: const Key('occurrence-end'),
-          controller: _end,
-          decoration: const InputDecoration(labelText: '结束（本地）'),
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        ],
-        if (widget.allowsFollowing || widget.allowsWholeSeries) ...[
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 12,
+            runSpacing: 12,
             children: [
-              ChoiceChip(
-                key: const Key('occurrence-scope-single'),
-                label: const Text('仅本次'),
-                selected: _scope == _OccurrenceScope.single,
-                onSelected: (_) =>
-                    setState(() => _scope = _OccurrenceScope.single),
+              SizedBox(
+                width: 200,
+                child: PlannerDateField(
+                  key: const Key('occurrence-start-date'),
+                  boxKey: const Key('occurrence-start-date-box'),
+                  value: _range.startDate,
+                  label: '开始日期',
+                  onChanged: _range.setStartDate,
+                ),
               ),
-              if (widget.allowsFollowing)
-                ChoiceChip(
-                  key: const Key('occurrence-scope-following'),
-                  label: const Text('本次及以后'),
-                  selected: _scope == _OccurrenceScope.following,
-                  onSelected: (_) =>
-                      setState(() => _scope = _OccurrenceScope.following),
+              SizedBox(
+                width: 150,
+                child: PlannerTimeField(
+                  key: const Key('occurrence-start-time'),
+                  boxKey: const Key('occurrence-start-time-box'),
+                  value: _range.startTime,
+                  label: '开始时间',
+                  onChanged: _range.setStartTime,
                 ),
-              if (widget.allowsWholeSeries)
-                ChoiceChip(
-                  key: const Key('occurrence-scope-series'),
-                  label: const Text('整个系列'),
-                  selected: _scope == _OccurrenceScope.series,
-                  onSelected: (_) =>
-                      setState(() => _scope = _OccurrenceScope.series),
+              ),
+              SizedBox(
+                width: 200,
+                child: PlannerDateField(
+                  key: const Key('occurrence-end-date'),
+                  boxKey: const Key('occurrence-end-date-box'),
+                  value: _range.endDate,
+                  label: '结束日期',
+                  onChanged: _range.setEndDate,
                 ),
+              ),
+              SizedBox(
+                width: 150,
+                child: PlannerTimeField(
+                  key: const Key('occurrence-end-time'),
+                  boxKey: const Key('occurrence-end-time-box'),
+                  value: _range.endTime,
+                  label: '结束时间',
+                  onChanged: _range.setEndTime,
+                ),
+              ),
             ],
           ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              key: const Key('occurrence-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+          if (widget.allowsFollowing || widget.allowsWholeSeries) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  key: const Key('occurrence-scope-single'),
+                  label: const Text('仅本次'),
+                  selected: _scope == _OccurrenceScope.single,
+                  onSelected: (_) =>
+                      setState(() => _scope = _OccurrenceScope.single),
+                ),
+                if (widget.allowsFollowing)
+                  ChoiceChip(
+                    key: const Key('occurrence-scope-following'),
+                    label: const Text('本次及以后'),
+                    selected: _scope == _OccurrenceScope.following,
+                    onSelected: (_) =>
+                        setState(() => _scope = _OccurrenceScope.following),
+                  ),
+                if (widget.allowsWholeSeries)
+                  ChoiceChip(
+                    key: const Key('occurrence-scope-series'),
+                    label: const Text('整个系列'),
+                    selected: _scope == _OccurrenceScope.series,
+                    onSelected: (_) =>
+                        setState(() => _scope = _OccurrenceScope.series),
+                  ),
+              ],
+            ),
+          ],
         ],
-      ],
+      ),
     ),
     actions: [
       TextButton(
@@ -569,34 +638,6 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
         child: const Text('保存'),
       ),
     ],
-  );
-}
-
-/// 把 UTC 时刻按**应用时区**格式化成预填文本。
-///
-/// 刻意不用 `DateTime.toLocal()`：那走的是**系统**时区，而列表本身按应用解析出的 `timeZoneId`
-/// 显示。两者不一致时，预填文本会与用户看到的时刻差一个偏移，保存后又会再偏一次。
-String _formatLocal(
-  DateTime instantUtc,
-  TimeZoneDatabase zones,
-  String timeZoneId,
-) {
-  final local = zones.toLocal(instantUtc, timeZoneId);
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} '
-      '${two(local.hour)}:${two(local.minute)}';
-}
-
-DateTime? _parseLocalDateTime(String raw) {
-  final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$')
-      .firstMatch(raw.trim());
-  if (match == null) return null;
-  return DateTime(
-    int.parse(match.group(1)!),
-    int.parse(match.group(2)!),
-    int.parse(match.group(3)!),
-    int.parse(match.group(4)!),
-    int.parse(match.group(5)!),
   );
 }
 

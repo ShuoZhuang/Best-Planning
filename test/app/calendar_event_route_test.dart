@@ -14,6 +14,11 @@ import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 
 void main() {
   testWidgets('从日历新建固定日程，保存后返回周视图', (tester) async {
+    // **用外壳的默认窗口尺寸**：日期与时间改成选择器字段之后（规范 §8.1），表单比原来高，
+    // 默认的 800×600 测试视口会把保存按钮挤到视口外——那是"测试视口不真实"，不是应用的
+    // 缺陷（真实窗口就是 1280×720，`task_editor_route_test` 也按这个尺寸测同一件事）。
+    await tester.binding.setSurfaceSize(const Size(1280, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final repository = _MemoryCalendarRepository();
     final settings = MemorySettingsRepository();
     await settings.write(
@@ -52,6 +57,8 @@ void main() {
 
     expect(find.text('新建固定日程'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('event-title')), '周末聚餐');
+    await tester.ensureVisible(find.text('保存日程'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('保存日程'));
     await tester.pumpAndSettle();
 

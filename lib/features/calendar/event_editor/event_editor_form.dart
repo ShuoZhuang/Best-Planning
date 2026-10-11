@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_date_time_fields.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 
 final class EventEditorForm extends StatefulWidget {
@@ -58,11 +59,8 @@ final class EventEditorForm extends StatefulWidget {
 
 final class _EventEditorFormState extends State<EventEditorForm> {
   final _titleController = TextEditingController();
-  late final TextEditingController _startDateController;
-  late final TextEditingController _startTimeController;
-  late final TextEditingController _endDateController;
-  late final TextEditingController _endTimeController;
-  late final TextEditingController _recurrenceEndController;
+  late final LocalDateRangeController _range;
+  DateTime? _recurrenceEnd;
   late final TextEditingController _intervalController;
   Map<String, String> _errors = const {};
   String? _status;
@@ -121,56 +119,61 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _weekdays = {start.weekday};
     // 预填标题（可能为空串）：带默认值而不是可空，表单因此不必在渲染时判空。
     _titleController.text = widget.initialTitle;
-    _startDateController = TextEditingController(text: _date(start));
-    _startTimeController = TextEditingController(text: _time(start));
-    _endDateController = TextEditingController(text: _date(end));
-    _endTimeController = TextEditingController(text: _time(end));
-    _recurrenceEndController = TextEditingController();
+    // **时间用类型化字段承载，不再用文本框**（1.8.0，规范 §2.7／§8.1）：
+    // 此前这里是四个 `TextEditingController`，用户得自己敲 `YYYY-MM-DD` 与 `HH:mm`，
+    // 而项目里早就有 `plannerPickerBuilder`。日期与时间现在由选择器给出，
+    // 因此"非法输入"在界面上根本无从产生。
+    _range = LocalDateRangeController(
+      startDate: start,
+      startTime: TimeOfDay(hour: start.hour, minute: start.minute),
+      endDate: end,
+      endTime: TimeOfDay(hour: end.hour, minute: end.minute),
+    )..addListener(_onRangeChanged);
     _intervalController = TextEditingController(text: '1');
     _areaId = widget.initialAreaId;
     _projectId = widget.initialProjectId;
     _loadWorkspace();
   }
 
+  /// 时长联动改动之后重建一次：字段值来自 [_range]，不重建就看不到新值。
+  void _onRangeChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
-    _startDateController.dispose();
-    _startTimeController.dispose();
-    _endDateController.dispose();
-    _endTimeController.dispose();
-    _recurrenceEndController.dispose();
+    _range
+      ..removeListener(_onRangeChanged)
+      ..dispose();
     _intervalController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    final startAtUtc = _parseLocal(
-      _startDateController.text,
-      _startTimeController.text,
+    // 本地墙上时间 → UTC 的换算只在这里做一次；两个字段给出的都是**类型化**的值，
+    // 因此这里不可能出现"解析失败"这一支（`_parseLocal` 随文本框一起删掉了）。
+    final startAtUtc = widget.zones.localDateTimeToUtc(
+      _range.startDate,
+      _range.startTime.hour * 60 + _range.startTime.minute,
+      widget.timeZoneId,
     );
-    final endAtUtc = _parseLocal(
-      _endDateController.text,
-      _endTimeController.text,
+    final endAtUtc = widget.zones.localDateTimeToUtc(
+      _range.endDate,
+      _range.endTime.hour * 60 + _range.endTime.minute,
+      widget.timeZoneId,
     );
-    if (startAtUtc == null || endAtUtc == null) {
+    // 规范 §8.2：结束早于或等于开始时必须**明确询问**，不做静默猜测。
+    // 用户选了结束日期在次日就已经把"跨日"这件事表达清楚了，因此这里只在
+    // **结束日期没有前进**（同一天或更早）时报错并请他重选。
+    if (_range.endsNotAfterStart) {
       setState(() {
-        _errors = const {'time': '请按 YYYY-MM-DD 和 HH:mm 填写有效时间'};
+        _errors = const {'time': '结束时间必须晚于开始时间。若跨到次日，请把结束日期改到次日。'};
         _status = null;
       });
       return;
     }
-    final recurrenceEndInput = _recurrenceEndController.text.trim();
-    final recurrenceEnd = recurrenceEndInput.isEmpty
-        ? null
-        : _parseDate(recurrenceEndInput);
-    if (_weekly && recurrenceEndInput.isNotEmpty && recurrenceEnd == null) {
-      setState(() {
-        _errors = const {'recurrence': '请按 YYYY-MM-DD 填写重复结束日期'};
-        _status = null;
-      });
-      return;
-    }
+    final recurrenceEnd = _recurrenceEnd;
     final result = await widget.service.save(
       EventDraft(
         title: _titleController.text,
@@ -260,33 +263,49 @@ final class _EventEditorFormState extends State<EventEditorForm> {
           spacing: 12,
           runSpacing: 12,
           children: [
-            _timeField(
-              key: const Key('event-start-date'),
-              controller: _startDateController,
-              label: '开始日期',
-              hint: 'YYYY-MM-DD',
-              width: 190,
+            // **只读、可点、键盘可达的选择器字段**（规范 §8.1）：不要求用户输入
+            // `YYYY-MM-DD` 或 `HH:mm`，因此"非法输入"在界面上无从产生。
+            // 字号宽度按"日期宽、时间窄"分配，与既有布局意图一致。
+            SizedBox(
+              width: 200,
+              child: PlannerDateField(
+                key: const Key('event-start-date'),
+                boxKey: const Key('event-start-date-box'),
+                value: _range.startDate,
+                label: '开始日期',
+                errorText: _errors['time'],
+                onChanged: _range.setStartDate,
+              ),
             ),
-            _timeField(
-              key: const Key('event-start-time'),
-              controller: _startTimeController,
-              label: '开始时间',
-              hint: 'HH:mm',
-              width: 140,
+            SizedBox(
+              width: 150,
+              child: PlannerTimeField(
+                key: const Key('event-start-time'),
+                boxKey: const Key('event-start-time-box'),
+                value: _range.startTime,
+                label: '开始时间',
+                onChanged: _range.setStartTime,
+              ),
             ),
-            _timeField(
-              key: const Key('event-end-date'),
-              controller: _endDateController,
-              label: '结束日期',
-              hint: 'YYYY-MM-DD',
-              width: 190,
+            SizedBox(
+              width: 200,
+              child: PlannerDateField(
+                key: const Key('event-end-date'),
+                boxKey: const Key('event-end-date-box'),
+                value: _range.endDate,
+                label: '结束日期',
+                onChanged: _range.setEndDate,
+              ),
             ),
-            _timeField(
-              key: const Key('event-end-time'),
-              controller: _endTimeController,
-              label: '结束时间',
-              hint: 'HH:mm',
-              width: 140,
+            SizedBox(
+              width: 150,
+              child: PlannerTimeField(
+                key: const Key('event-end-time'),
+                boxKey: const Key('event-end-time-box'),
+                value: _range.endTime,
+                label: '结束时间',
+                onChanged: _range.setEndTime,
+              ),
             ),
           ],
         ),
@@ -342,20 +361,42 @@ final class _EventEditorFormState extends State<EventEditorForm> {
             spacing: 12,
             runSpacing: 12,
             children: [
-              _timeField(
-                key: const Key('event-recurrence-end-date'),
-                controller: _recurrenceEndController,
-                label: '重复结束日期（可选）',
-                hint: 'YYYY-MM-DD',
-                width: 240,
+              // 重复结束日期也是日期选择器（规范 §8.2 最后一条）。
+              // **可清空**：它本来就是一个可选字段，而 `showDatePicker` 只能选一个具体日期，
+              // 因此"清除"必须有独立的入口——否则用户一旦选错就再也回不到"不设结束日期"。
+              SizedBox(
+                width: 250,
+                child: PlannerDateField(
+                  key: const Key('event-recurrence-end-date'),
+                  boxKey: const Key('event-recurrence-end-date-box'),
+                  value: _recurrenceEnd ?? _range.startDate,
+                  label: '重复结束日期（可选）',
+                  onChanged: (value) => setState(() => _recurrenceEnd = value),
+                ),
               ),
+              if (_recurrenceEnd != null)
+                TextButton(
+                  key: const Key('event-recurrence-end-clear'),
+                  onPressed: () => setState(() => _recurrenceEnd = null),
+                  child: const Text('不设结束日期'),
+                ),
+              if (_recurrenceEnd == null)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('当前：不设结束日期'),
+                ),
               if (_recurrencePreset == 'custom')
-                _timeField(
-                  key: const Key('event-recurrence-interval'),
-                  controller: _intervalController,
-                  label: '每隔几周',
-                  hint: '1–52',
-                  width: 160,
+                SizedBox(
+                  width: 170,
+                  child: TextField(
+                    key: const Key('event-recurrence-interval'),
+                    controller: _intervalController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '每隔几周',
+                      hintText: '1–52',
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -420,79 +461,7 @@ final class _EventEditorFormState extends State<EventEditorForm> {
       ],
     );
   }
-
-  Widget _timeField({
-    required Key key,
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required double width,
-  }) => SizedBox(
-    width: width,
-    child: TextField(
-      key: key,
-      controller: controller,
-      decoration: InputDecoration(labelText: label, hintText: hint),
-    ),
-  );
-
-  DateTime? _parseLocal(String dateInput, String timeInput) {
-    final date = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
-        .firstMatch(dateInput.trim());
-    final time = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(timeInput.trim());
-    if (date == null || time == null) return null;
-    final year = int.parse(date.group(1)!);
-    final month = int.parse(date.group(2)!);
-    final day = int.parse(date.group(3)!);
-    final hour = int.parse(time.group(1)!);
-    final minute = int.parse(time.group(2)!);
-    if (month < 1 ||
-        month > 12 ||
-        day < 1 ||
-        day > 31 ||
-        hour > 23 ||
-        minute > 59) {
-      return null;
-    }
-    final localDate = DateTime(year, month, day);
-    if (localDate.year != year ||
-        localDate.month != month ||
-        localDate.day != day) {
-      return null;
-    }
-    return widget.zones.localDateTimeToUtc(
-      localDate,
-      hour * 60 + minute,
-      widget.timeZoneId,
-    );
-  }
-
-  DateTime? _parseDate(String raw) {
-    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
-        .firstMatch(raw.trim());
-    if (match == null) return null;
-    final date = DateTime(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    );
-    return _date(date) ==
-            '${match.group(1)!.padLeft(4, '0')}-'
-                '${match.group(2)!.padLeft(2, '0')}-'
-                '${match.group(3)!.padLeft(2, '0')}'
-        ? date
-        : null;
-  }
 }
-
-String _date(DateTime value) =>
-    '${value.year.toString().padLeft(4, '0')}-'
-    '${value.month.toString().padLeft(2, '0')}-'
-    '${value.day.toString().padLeft(2, '0')}';
-
-String _time(DateTime value) =>
-    '${value.hour.toString().padLeft(2, '0')}:'
-    '${value.minute.toString().padLeft(2, '0')}';
 
 String _weekdayLabel(int weekday) => switch (weekday) {
   DateTime.monday => '周一',
