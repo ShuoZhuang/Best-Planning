@@ -24,6 +24,7 @@ final class EventDraft {
     this.locked = true,
     this.areaId,
     this.projectId,
+    this.notes = '',
     this.editScope = EventEditScope.singleOccurrence,
     this.recurrenceWeekdays = const {},
     this.recurrenceValidUntilLocalDate,
@@ -55,6 +56,14 @@ final class EventDraft {
   /// "复用固定日程及重复规则，不另建平行时间模型"——另建一套就意味着第二套展开、
   /// 第二套例外、第二套冲突检测。
   final CalendarEventKind kind;
+
+  /// 备注（1.8.0，规范 §9.2 把它列为保护时间编辑器的字段之一）。
+  ///
+  /// **为什么需要往 `EventDraft` 里加**：`CalendarEvent.notes` 与
+  /// `calendar_events.notes` 一直都在，课表导入还用它装教师名——但**没有任何编辑器
+  /// 能写它**，因为保存路径从 `EventDraft` 构造事件时就丢掉了这一项。
+  /// 于是"备注"是一列只读不可写的字段：导入的课有备注，手建的永远没有。
+  final String notes;
 }
 
 final class EventSaveResult {
@@ -354,6 +363,7 @@ final class CalendarService {
       locked: draft.locked,
       areaId: draft.areaId,
       projectId: draft.projectId,
+      notes: draft.notes,
       kind: draft.kind,
       updatedAtUtc: now,
     );

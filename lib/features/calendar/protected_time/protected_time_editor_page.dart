@@ -26,6 +26,7 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
     required this.zones,
     this.workspace,
     this.initialTitle = defaultTitle,
+    this.initialNotes = '',
     this.onSaved,
     this.onCancel,
     super.key,
@@ -42,6 +43,13 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
   final WorkspaceService? workspace;
 
   final String initialTitle;
+
+  /// 已有备注（编辑既有事项时用）。
+  ///
+  /// **必须有这一项**：编辑器若只接受标题、却在保存时把 `notes` 写成空串，
+  /// 那么"编辑一次导入的课"就会**静默抹掉它的备注**——课表导入正是用 `notes`
+  /// 存教师名的。这与本批次其他几处同型：**能读的字段必须也能原样写回**。
+  final String initialNotes;
   final VoidCallback? onSaved;
   final VoidCallback? onCancel;
 
@@ -53,6 +61,7 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
 final class _ProtectedTimeEditorPageState
     extends State<ProtectedTimeEditorPage> {
   late final TextEditingController _titleController;
+  late final TextEditingController _notesController;
   late final LocalDateRangeController _range;
   Map<String, String> _errors = const {};
   bool _weekly = false;
@@ -63,6 +72,7 @@ final class _ProtectedTimeEditorPageState
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle);
+    _notesController = TextEditingController(text: widget.initialNotes);
     // 默认给"今天 14:00–15:00"：一个 60 分钟的具体区间比空字段更容易改。
     final now = widget.zones.toLocal(DateTime.now().toUtc(), widget.timeZoneId);
     final date = DateTime(now.year, now.month, now.day);
@@ -82,6 +92,7 @@ final class _ProtectedTimeEditorPageState
   @override
   void dispose() {
     _titleController.dispose();
+    _notesController.dispose();
     _range
       ..removeListener(_onRangeChanged)
       ..dispose();
@@ -117,6 +128,7 @@ final class _ProtectedTimeEditorPageState
           widget.timeZoneId,
         ),
         timeZoneId: widget.timeZoneId,
+        notes: _notesController.text.trim(),
         // **这一行就是"保护时间"的全部数据表示**（规范 §9.1）。
         kind: CalendarEventKind.protected,
         recurrenceWeekdays: _weekly ? _weekdays : const {},
@@ -154,6 +166,18 @@ final class _ProtectedTimeEditorPageState
           decoration: InputDecoration(
             labelText: '标题',
             errorText: _errors['title'],
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          // 规范 §9.2 把「备注」列为这一页的字段之一。
+          key: const Key('protected-notes'),
+          controller: _notesController,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: '备注（可选）',
+            hintText: '例如：这段时间用来吃饭，不安排任务',
           ),
         ),
         const SizedBox(height: 16),

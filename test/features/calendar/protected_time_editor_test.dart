@@ -32,7 +32,10 @@ void main() {
     zones: TimeZoneDatabase(),
   );
 
-  Future<void> pumpEditor(WidgetTester tester) async {
+  Future<void> pumpEditor(
+    WidgetTester tester, {
+    String initialNotes = '',
+  }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -45,6 +48,7 @@ void main() {
             service: service(),
             timeZoneId: 'Asia/Shanghai',
             zones: TimeZoneDatabase(),
+            initialNotes: initialNotes,
           ),
         ),
       ),
@@ -143,6 +147,62 @@ void main() {
       reason: '规范 §8.2：结束早于或等于开始必须明确报出，不做静默猜测',
     );
     expect(repository.saved, isEmpty, reason: '非法输入不得写库');
+  });
+
+  testWidgets('备注被真的保存下去（规范 §9.2 把它列为这一页的字段）', (tester) async {
+    // **这条用例是本轮补的，它此前不可能存在**：`EventDraft` 根本没有 `notes` 字段，
+    // 因此保存路径从草稿构造事件时就把它丢掉了 —— `CalendarEvent.notes` 与
+    // `calendar_events.notes` 一直都在（课表导入还用它装教师名），但**没有任何编辑器
+    // 能写它**。症状是"备注"是一列只读不可写的字段：导入的课有备注，手建的永远没有。
+    await pumpEditor(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('protected-notes')),
+      '这段时间用来吃饭，不安排任务',
+    );
+    await tester.ensureVisible(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+
+    expect(repository.saved, hasLength(1));
+    expect(
+      repository.saved.single.notes,
+      '这段时间用来吃饭，不安排任务',
+      reason: '备注必须一路走到 `CalendarEvent.notes`；丢掉它等于这一页少了一个字段',
+    );
+  });
+
+  testWidgets('不填备注时存成空串，而不是把 null 或占位文字写进去', (tester) async {
+    await pumpEditor(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+
+    expect(repository.saved.single.notes, '');
+  });
+
+  testWidgets('**编辑既有事项时原备注被原样写回**，不会被静默抹掉', (tester) async {
+    // 这一条守的是加备注字段时最容易引入的回归：编辑器新建时备注为空、
+    // 保存时就把空串写回去，于是"编辑一次"= **清空备注**。
+    // 课表导入正是用 `notes` 存教师名，所以抹掉的可能是用户看得见的信息。
+    //
+    // 与"能读的字段必须也能原样写回"是同一条：新增一个可写字段时，
+    // 必须同时问"已经有值的那一条会发生什么"。
+    await pumpEditor(tester, initialNotes: '教师：张伟');
+
+    await tester.ensureVisible(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+
+    expect(
+      repository.saved.single.notes,
+      '教师：张伟',
+      reason: '没有改动备注时，保存必须把它原样写回；写成空串就是静默丢数据',
+    );
   });
 
   testWidgets('空标题时在页面内报错，且不写库', (tester) async {
