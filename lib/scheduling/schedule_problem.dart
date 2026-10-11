@@ -124,6 +124,7 @@ final class ScheduleProblem {
     required this.preferences,
     required this.inputHash,
     Set<String> pinnedUnlockedBlockIds = const {},
+    Map<String, DateTime> referenceBlocks = const {},
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
@@ -131,7 +132,8 @@ final class ScheduleProblem {
        existingBlocks = UnmodifiableListView(List.of(existingBlocks)),
        pinnedUnlockedBlockIds = UnmodifiableSetView(
          Set.of(pinnedUnlockedBlockIds),
-       );
+       ),
+       referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks));
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -149,8 +151,7 @@ final class ScheduleProblem {
   final PreferenceProfile preferences;
   final String inputHash;
 
-  /// 被**手动拖动钉住、但用户选择不锁定**的计划块 id（FR-CAL-05）。
-  ///
+  /// 被**手动拖动钉住、但用户选择不锁定**的计划块 id（FR-CAL-05）。  ///
   /// 这些块同时出现在 `lockedBlocks` 里，而且在那里带着 `locked: true`——这是**故意的**：
   /// 引擎把 `lockedBlocks` 原样收进计划，且 `_improve` 会跳过 `locked` 的块，因此只有在
   /// 输入侧标成锁定，这次手动移动才不会被局部改进当场搬走（否则用户看到的是"拖了没用"）。
@@ -160,4 +161,18 @@ final class ScheduleProblem {
   /// 用独立的集合而不是"`lockedBlocks` 里带 `locked: false` 的项"，是因为后者会被 `_improve`
   /// 当成可移动块，两条分支的区别就消失了。
   final Set<String> pinnedUnlockedBlockIds;
+
+  /// **调整前**每个已确认块的位置：块 id → 开始时刻（1.8.0，规范 §11.4 第 3、4 条）。
+  ///
+  /// 用来数"这次调整动了几个块、一共挪了多少分钟"。规范把这两项排在**硬约束之后的
+  /// 第一、二位**，而它们**天生是整体量**：必须是"与调整前相比"，不可能从单块候选的
+  /// 分数里加出来。修复前引擎只有一个 900 分的移动惩罚项，把"少动"与"少走"揉成一个数——
+  /// 于是三次小改动（每次都略微提高总分）整体上可能比一次大改动动得更多。
+  ///
+  /// **只有"已确认过的块"才在这里**：新排进来的块没有"调整前"，把它的当前位置塞进去
+  /// 会让位移恒为 0，等于给自己发一张免罚单。
+  ///
+  /// **刻意不进 `inputHash`**：它是**比较用的参照**，不改变"哪些块可以放在哪里"。
+  /// 把它算进哈希会让同一份排程输入因为参照不同而生成两份提案，而两份的**内容**相同。
+  final Map<String, DateTime> referenceBlocks;
 }

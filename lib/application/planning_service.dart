@@ -164,4 +164,12 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让
       // 手动拖动产生的提案被判为过期（C8 那次"重放不一致"是同型缺陷）。
       pinnedUnlockedBlockIds: problem.pinnedUnlockedBlockIds,
+      // **同样必须原样搬运**（1.8.0，规范 §11.4 第 3、4 条）：它是"调整前的位置"，
+      // 丢失之后"少动块／少位移"就没有参照，两项比较会退化成恒等。
+      //
+      // 这一行是补上的：`referenceBlocks` 加进 `ScheduleProblem` 之后我忘了改这里，
+      // 于是装配层明明算出了参照，最终交到引擎手里的却是一个空 map——
+      // 症状是 `schedule_reference_blocks_test.dart` 全红而 `analyze` 干净。
+      // **新增 `ScheduleProblem` 字段时，这里是一处必须同步的复制点。**
+      referenceBlocks: problem.referenceBlocks,
     );

@@ -272,6 +272,21 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           if (skips.forBlock(block.id) != null) block.id,
     };
 
+    // **调整前的参照**（1.8.0，规范 §11.4 第 3、4 条）：确认计划里每个块的开始时刻。
+    //
+    // 只收**已确认过的**块：新排进来的块没有"调整前"，把它的当前位置塞进去会让位移
+    // 恒为 0，等于给自己发一张免罚单。被跳过的块也不收——它这一次不参与，谈不上移动。
+    //
+    // **在这里算好再传**，而不是把推导式直接写在构造参数里：参数出现在 `skippedBlockIds`
+    // 之后，而推导式在参数位置求值——直接写会变成"引用了后面才声明的变量"（第一版如此，
+    // analyzer 当场报 `referenced_before_declaration`）。
+    final referenceBlocks = <String, DateTime>{
+      for (final block in confirmedBlocks)
+        if (schedulableIds.contains(block.taskId) &&
+            !skippedBlockIds.contains(block.id))
+          block.id: block.startUtc,
+    };
+
     final problem = ScheduleProblem(
       planningWindow: TimeRange(startUtc: startUtc, endUtc: endUtc),
       timeZoneId: timeZoneId,
@@ -338,6 +353,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       preferences: const PreferenceProfile(),
       inputHash: '',
       pinnedUnlockedBlockIds: pinnedUnlocked,
+      referenceBlocks: referenceBlocks,
     );
 
     return withCurrentInputHash(problem, snapshots);
