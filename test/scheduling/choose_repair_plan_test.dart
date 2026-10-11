@@ -317,5 +317,77 @@ void main() {
             '这里**不偷偷跨天**，跨天是 §11.4 末段交给调用方的下一步',
       );
     });
+
+    test('**目标块挤压另一块时，被挤开的那一块仍在结果里**', () {
+      // 目标 60 分钟、原在 09:00（540），下界 09:30（570）；
+      // 另一块占 09:30–10:30（570–630）⇒ 目标放到下界就会撞上它。
+      final outcome = repairBestPlan(
+        targetBlockId: 'b1',
+        notBeforeUtc: at(570),
+        blocks: [block('b1', 540, 60), block('b2', 570, 60)],
+        immovable: const [],
+        dayStartUtc: at(0),
+        dayEndUtc: at(24 * 60),
+        tasks: [task()],
+      );
+
+      expect(outcome.feasible, isTrue);
+      expect(outcome.blocks.map((b) => b.id).toSet(), {
+        'b1',
+        'b2',
+      }, reason: '级联不增删块：被挤开的那一块仍在结果里');
+      // **实测到的方案**（写下来，因为"被挤开的块留在原位"与直觉相反）：
+      // 目标块被放到 10:30（让开 b2），b2 **留在原位 09:30** ——
+      // 这比"把目标放到 09:30、再把 b2 推到 10:30"动得更少（位移 0 对 60 分钟），
+      // 正是 §11.4 第 3、4 级要的"少动"。
+      expect(
+        outcome.blocks.firstWhere((b) => b.id == 'b2').startUtc,
+        at(570),
+        reason: 'b2 不必让位：把目标放到它之后更省位移',
+      );
+      expect(
+        outcome.blocks.firstWhere((b) => b.id == 'b1').startUtc,
+        at(630),
+        reason: '目标块让开 b2，落在 10:30',
+      );
+    });
+
+    test('**级联优先动目标块**：目标可让位时，别人一块都不动', () {
+      // 这条替换掉了我原先写的"真的发生位移"用例 —— 那一版**夹具本身非法**
+      // （`task()` 的 `minChunkMinutes` 是 60，而夹具里造了一个 30 分钟的块），
+      // 于是它测的是一个不该出现的输入，结论没有意义。
+      //
+      // 实测到的行为：目标留在 09:00–10:00，b2 从 09:40 被让到 **10:00**。
+      //
+      // **为什么不是"把目标放到 b2 之后"**：那样目标位移 60 分钟、b2 位移 0；
+      // 而"目标留原位、b2 让开 20 分钟"**总位移更小**（20 对 60）——
+      // §11.4 第 4 级比的是**总位移分钟**，不是"动了几块"（两者都只动 1 块）。
+      // 这条断言记录的就是这个取舍。
+      final outcome = repairBestPlan(
+        targetBlockId: 'b1',
+        notBeforeUtc: at(540),
+        blocks: [block('b1', 540, 60), block('b2', 580, 60)],
+        immovable: const [],
+        dayStartUtc: at(0),
+        dayEndUtc: at(24 * 60),
+        tasks: [task()],
+      );
+
+      expect(outcome.feasible, isTrue);
+      final b1 = outcome.blocks.firstWhere((b) => b.id == 'b1');
+      final b2 = outcome.blocks.firstWhere((b) => b.id == 'b2');
+      expect(
+        b1.startUtc,
+        at(540),
+        reason: '目标块留在原位：它本来就满足下界（下界 09:00），不该被前移或后移',
+      );
+      expect(
+        b2.startUtc,
+        b1.endUtc,
+        reason:
+            'b2 紧贴在目标块之后（首尾相接）——让开的距离最小，因此总位移最小。'
+            '若它被推到更远处，说明级联多移了',
+      );
+    });
   });
 }

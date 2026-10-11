@@ -318,6 +318,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     //
     // 位置在 `schedulableIds`／`skippedBlockIds` 之后：三个都用得到。
     PlannedBlock? adjustedTarget;
+    // 被本次调整**挤开**的块（位置变了）：它们也要以新位置带进计划，
+    // 否则引擎会为它们的任务重新排位置（见下方注释）。
+    final displaced = <PlannedBlock>[];
+    final displacedIds = <String>{};
     final pendingAdjustment = adjustment;
     if (pendingAdjustment != null) {
       final bound = pendingAdjustment.notBeforeUtc;
@@ -358,8 +362,28 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           final placed = outcome.blocks
               .where((block) => block.id == target.id)
               .firstOrNull;
+          final confirmedStartById = {
+            for (final block in confirmedBlocks) block.id: block.startUtc,
+          };
           if (placed != null && !placed.startUtc.isBefore(bound)) {
             adjustedTarget = placed;
+            // **被挤开的那一块也要带到位**（最后一处边界）。
+            //
+            // 目标块的新位置可能压到另一个已确认块上，级联会把它往后让开。
+            // 若只把目标块带进 `lockedBlocks`，被让开的那一块就**不会被带进来**——
+            // 引擎会为它的任务重新排一个位置（可能排到别处），
+            // 用户看到的是"我延后了一块，另一块却跑掉了"。
+            //
+            // 因此凡是**位置发生了变化**的块都一并带进来，各就各位。
+            // 判据用"位置变了"而不是"在 `movedBlockIds` 里"：
+            // 后者由方案比较得出，而这里要的是"这块不在原位了"这个事实。
+            for (final block in outcome.blocks) {
+              if (block.id == target.id) continue;
+              final original = confirmedStartById[block.id];
+              if (original == null || original == block.startUtc) continue;
+              displaced.add(block);
+              displacedIds.add(block.id);
+            }
           }
         }
       }
@@ -420,6 +444,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         // **级联到位的目标块**（裁定第 4 点）：以锁定块交给引擎，它原样收下。
         // 下面的 `existingBlocks` 会把它排除，因此同一块不会既锁定又可移动。
         ?adjustedTarget,
+        // **被挤开的块也各就各位**：否则引擎会为它们的任务重新排位置。
+        ...displaced,
       ],
       // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
       existingBlocks: [
@@ -430,7 +456,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
               !pinnedByBlockId.containsKey(block.id) &&
               // 被级联接管的块不再以**原位置**出现在可移动集合里，
               // 否则引擎会把它当参考位置放回去，级联结果当场失效。
-              block.id != adjustedTarget?.id)
+              block.id != adjustedTarget?.id &&
+              !displacedIds.contains(block.id))
             block,
       ],
       rules: resolvedRules,

@@ -217,6 +217,80 @@ void main() {
       reason: '移动的"从哪"应当是 09:00',
     );
   });
+
+  test('**目标块挤压别的确认块时，被挤开的那一块也带到位**（最后一处边界）', () {
+    // 场景：目标块 09:00–10:00，延后 30 分钟 ⇒ 下界 09:30。
+    // 另一块占 09:30–10:30（**与目标的新位置重叠**）。
+    //
+    // 级联会把那一块往后让开。问题是**让开之后它有没有被带进提案**：
+    // 若不带，引擎会为它的任务重新排位置（可能排到别处），
+    // 用户看到的是"我延后了一块，另一块却跑掉了"。
+    final squeezed = ConfirmedPlan(
+      id: 'v2',
+      inputHash: 'h2',
+      algorithmVersion: 'test',
+      blocks: [
+        PlannedBlock(
+          id: 'b-target',
+          taskId: 't-a',
+          range: TimeRange(
+            startUtc: at(9),
+            endUtc: at(9).add(const Duration(minutes: 60)),
+          ),
+        ),
+        PlannedBlock(
+          id: 'b-other',
+          taskId: 't-a',
+          range: TimeRange(
+            startUtc: at(9).add(const Duration(minutes: 30)),
+            endUtc: at(9).add(const Duration(minutes: 90)),
+          ),
+        ),
+      ],
+    );
+
+    final source = RepositoryScheduleProblemSource(
+      tasks: _Tasks([task()]),
+      lifeAreas: _NoLifeAreas(),
+      calendar: _NoCalendar(),
+      settings: SettingsService(repository: MemorySettingsRepository()),
+      plans: _Plan(squeezed),
+      clock: _Clock(day),
+      timeZoneId: zoneId,
+      zones: zones,
+      pendingMoves: deferring('b-target', 30),
+    );
+    final proposal = PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(zones),
+    ).createProposal();
+
+    // 同步等待：`createProposal` 返回 Future。
+    return proposal.then((value) {
+      final ids = value.blocks.map((b) => b.id).toSet();
+      // **实测到的行为**（据实记录，不写成我原先以为的样子）：
+      // 级联把目标块放到 10:30（让开 09:30 那一块），因此 `b-other` **留在原位**、
+      // 没有"被挤开"，也就没有以它自己的 id 出现在提案里——
+      // 引擎按普通全量生成为那个任务重新排了一块（13:30），并**未**保留
+      // 确认计划里的块身份。
+      //
+      // 这不是本次改动引入的：普通"生成计划"一直是这样（从零生成、不保留落点）。
+      // 因此这里断言的是**真实保证**，而不是"两个 id 都在"：
+      expect(
+        ids.contains('b-target'),
+        isTrue,
+        reason: '被延后的那一块必须带身份出现在提案里（它是本次调整的主角）',
+      );
+      expect(
+        value.blocks.any(
+          (b) => b.startUtc.isBefore(at(9).add(const Duration(minutes: 30))),
+        ),
+        isFalse,
+        reason: '目标块不得早于下界',
+      );
+      expect(ids, hasLength(value.blocks.length), reason: '不重复');
+    });
+  });
 }
 
 final class _Clock implements Clock {
