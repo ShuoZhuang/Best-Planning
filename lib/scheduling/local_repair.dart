@@ -549,6 +549,9 @@ LocalRepairOutcome chooseRepairPlan({
   required DateTime dayEndUtc,
   List<TimeRange> protectedRanges = const [],
   int breakMinutes = 0,
+
+  /// 不可移动障碍的 id：**只占位**，不受当天窗口约束（用户第 64 轮复核第 3 条）。
+  Set<String> immovableIds = const {},
 }) {
   // 先过滤，再排序：把不合法的候选挡在比较之外，而不是靠比较把它们排到最后
   // ——那样它们仍会参与第 6、7 级的坏空档统计，得到一个没有意义的名次。
@@ -560,6 +563,7 @@ LocalRepairOutcome chooseRepairPlan({
         notBeforeUtc: notBeforeUtc,
         dayStartUtc: dayStartUtc,
         dayEndUtc: dayEndUtc,
+        immovableIds: immovableIds,
       ))
         candidate,
   ];
@@ -592,14 +596,20 @@ bool _isLegalRepairCandidate(
   required DateTime notBeforeUtc,
   required DateTime dayStartUtc,
   required DateTime dayEndUtc,
+
+  /// 不可移动障碍的 id：它们**只占位**，不受当天窗口约束（见下方注释）。
+  Set<String> immovableIds = const {},
 }) {
   final target = candidate.blocks
       .where((block) => block.id == targetBlockId)
       .firstOrNull;
   if (target == null) return false;
   if (target.startUtc.isBefore(notBeforeUtc)) return false;
-  // 整份方案必须落在当天窗口内：越界的块不是"更好的方案"，而是不可行的方案。
+  // **只有可移动块要受当天窗口约束**（用户第 64 轮复核第 3 条）：
+  // 不可移动障碍（固定日程／保护时间）**只负责占位**，
+  // 它们可能位于后续日期、也可能跨午夜，但那不是"方案越界"。
   for (final block in candidate.blocks) {
+    if (immovableIds.contains(block.id)) continue;
     if (block.startUtc.isBefore(dayStartUtc)) return false;
     if (block.endUtc.isAfter(dayEndUtc)) return false;
   }
@@ -656,23 +666,57 @@ LocalRepairOutcome repairBestPlanDayScoped({
     timeZoneId,
   );
 
-  LocalRepairOutcome attempt(DateTime end) => repairBestPlan(
-    targetBlockId: targetBlockId,
-    notBeforeUtc: notBeforeUtc,
-    blocks: blocks,
-    immovable: immovable,
-    dayStartUtc: dayStartUtc,
-    dayEndUtc: end,
-    tasks: tasks,
-    reference: reference,
-    protectedRanges: protectedRanges,
-    breakMinutes: breakMinutes,
-    maxCandidates: maxCandidates,
-  );
+  /// **同一天尝试**只处理落在 `[dayStart, end)` 里的可移动块
+  /// （用户第 64 轮复核第 1、2 条）。
+  ///
+  /// **为什么必须过滤**：生产接线传进来的是**整个规划窗口（默认 7 天）**的确认块。
+  /// 不过滤的话，周一的目标块被延后时，**周二那一块会被一起搬进周一的窗口**——
+  /// 它要么被挪走、要么因为放不下而**静默消失**（`localRepairCascade` 放不下就直接
+  /// `continue`，而 `place` 返回 false 时那块根本不会进结果）。
+  /// 两种后果都是"用户没动过的另一天被改了"。
+  ///
+  /// 后续日期的块因此**保持原位、完全不进候选**：它们仍由引擎按既有路径处理
+  /// （`problem.lockedBlocks` / `existingBlocks` 与 `confirmedBlocks` 都没变）。
+  List<PlannedBlock> movableWithin(DateTime end) => [
+    for (final block in blocks)
+      if (block.startUtc.isBefore(end) && dayStartUtc.isBefore(block.endUtc))
+        block,
+  ];
+
+  LocalRepairOutcome attempt(DateTime end, List<PlannedBlock> movableInput) =>
+      repairBestPlan(
+        targetBlockId: targetBlockId,
+        notBeforeUtc: notBeforeUtc,
+        blocks: movableInput,
+        // 障碍列表**始终是全部**：它们只负责占位。
+        // 一个从周一 23:00 跨到周二 01:00 的保护时间必须挡住周一末尾，
+        // 因此不能按"起点落在当天"来筛（那会把跨午夜的障碍丢掉）。
+        immovable: immovable,
+        dayStartUtc: dayStartUtc,
+        dayEndUtc: end,
+        tasks: tasks,
+        reference: reference,
+        protectedRanges: protectedRanges,
+        breakMinutes: breakMinutes,
+        maxCandidates: maxCandidates,
+      );
 
   // ① 当天优先。
-  final sameDay = attempt(dayEndUtc);
-  if (sameDay.feasible) return sameDay;
+  final sameDay = attempt(dayEndUtc, movableWithin(dayEndUtc));
+  if (sameDay.feasible) {
+    // 只交出**当天窗口里**的块。不可移动障碍会被 `localRepairCascade` 原样带回结果，
+    // 其中可能有位于后续日期或跨午夜的——它们不该出现在"当天的方案"里。
+    return (
+      feasible: true,
+      blocks: [
+        for (final block in sameDay.blocks)
+          if (block.startUtc.isBefore(dayEndUtc) &&
+              !block.startUtc.isBefore(dayStartUtc))
+            block,
+      ],
+      reference: sameDay.reference,
+    );
+  }
 
   // ② 当天放不下才考虑后续日期（规范 §11.4 末段）。
   //
@@ -682,7 +726,9 @@ LocalRepairOutcome repairBestPlanDayScoped({
   // 只有窗口确实更宽时才重试：`dayEndUtc` 已经到窗口底时，
   // 再跑一次会得到同一份不可行结果，纯属浪费（候选最多 32 份）。
   if (!planningEndUtc.isAfter(dayEndUtc)) return sameDay;
-  return attempt(planningEndUtc);
+  // 放宽到窗口终点时，**放回全部可移动块**：这时才允许动后续日期的块
+  // （规范 §11.4 末段："当天放不下时才考虑后续日期"）。
+  return attempt(planningEndUtc, blocks);
 }
 
 /// 一段间隔的分类上限：候选择优只看 [maxCandidates] 份方案（设计 §5.5 的"有限"）。
@@ -791,6 +837,8 @@ LocalRepairOutcome repairBestPlan({
     dayEndUtc: dayEndUtc,
     protectedRanges: protectedRanges,
     breakMinutes: breakMinutes,
+    // 不可移动障碍只占位，不受当天窗口约束。
+    immovableIds: {for (final block in immovable) block.id},
   );
 }
 

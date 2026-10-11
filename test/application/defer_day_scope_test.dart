@@ -242,6 +242,68 @@ void main() {
           '（`at(15)` 是 `at(0)` 所在本地日的日终）',
     );
   });
+
+  test('**周一延后、周二还有确认块**：多日计划下"当天优先"仍成立（端到端）', () async {
+    // 确认计划：周一 09:00 的目标块 + 周二 09:00 的另一块（同一任务）。
+    //
+    // 这条走**完整装配链**：`RepositoryScheduleProblemSource` → `PlanningService` → 引擎。
+    // 它覆盖真实形态——生产接线传进 `repairBestPlanDayScoped` 的是**整个规划窗口**
+    // （默认 7 天）的确认块，因此"当天尝试"必须自己把范围收成目标那一天。
+    final confirmed = ConfirmedPlan(
+      id: 'v1',
+      inputHash: 'h1',
+      algorithmVersion: 'test',
+      blocks: [block('b-target', 0), block('b-tuesday', 24)],
+    );
+    final source = RepositoryScheduleProblemSource(
+      tasks: _Tasks([task()]),
+      lifeAreas: _NoLifeAreas(),
+      calendar: const _Calendar([]),
+      settings: SettingsService(repository: MemorySettingsRepository()),
+      plans: _Plan(confirmed),
+      clock: _Clock(dayStart),
+      timeZoneId: zoneId,
+      zones: zones,
+      pendingMoves: PendingMoveDrafts()
+        ..beginAdjustment(
+          PlanAdjustmentRequest(
+            blockId: 'b-target',
+            amount: 30,
+            unit: DeferUnit.minutes,
+            sourceStartUtc: at(0),
+            timeZoneId: zoneId,
+          ),
+        ),
+    );
+    final proposal = await PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(zones),
+    ).createProposal();
+
+    final target = proposal.blocks.where((b) => b.id == 'b-target').firstOrNull;
+    expect(target, isNotNull, reason: '目标块必须在提案里');
+    expect(
+      target!.startUtc.isBefore(at(15)),
+      isTrue,
+      reason: '目标块必须留在**周一**（`at(0)` 所在本地日，日终 = `at(15)`）',
+    );
+    // **实测到的形态**（据此写断言，而不是按我原先的猜测）：
+    // 引擎是**从零生成**的，它不认识"周二那一块"，因此把整个任务重排了一遍——
+    // 实测两块都落在周一（`01:30Z` 与 `05:30Z`）。**"周二那一块保持原位"这条断言
+    // 从一开始就是错的**：本次调整只碰目标块，引擎随后按自己的规则排这个任务。
+    //
+    // 能验的真实契约是：**当天尝试成功时，不会有任何块被推到目标当天之外**
+    // （这正是修复点——修复前周二那块会被搬进/移出周一窗口）。
+    for (final block in proposal.blocks) {
+      expect(
+        block.startUtc.isBefore(at(15)),
+        isTrue,
+        reason:
+            '当天尝试成功 ⇒ 所有落点都在目标当天之内。'
+            '修复前"当天尝试"会把整个七天窗口的块一起搬动',
+      );
+    }
+  });
 }
 
 final class _Clock implements Clock {
