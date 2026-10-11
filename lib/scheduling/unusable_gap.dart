@@ -54,11 +54,27 @@ List<UnusableGap> findUnusableGaps({
       continue;
     }
     final range = TimeRange(startUtc: cursorEnd, endUtc: block.startUtc);
+    final tooShortForAnyTask = range.durationMinutes < smallestChunk;
+    final isRuleBreak =
+        breakMinutes > 0 && range.durationMinutes < breakMinutes;
+    final isProtected = protectedRanges.any(
+      (protected) => protected.overlaps(range),
+    );
+    final isWasted = tooShortForAnyTask && !isRuleBreak && !isProtected;
+    if (isWasted) {
+      gaps.add(UnusableGap(range: range, smallestChunkMinutes: smallestChunk));
+    }
+    // **推进游标是循环的最后一步**（原先是第一步）。
+    //
+    // 原先这一行紧跟在 `range` 之后、在三个排除条件**之前**，于是被排除掉的那一段空档
+    // 会把游标一路推到当前块的结束时刻，**连带吃掉它后面那一段**：
+    // 09:00–09:30 / 09:40–10:00 / 10:10–10:30 在"休息间隔 15 分钟"下，
+    // 第一段 09:30–09:40（10 分钟）被排除是对的，但游标被推到 10:00，
+    // 于是第二段被量成 10:00–10:10（10 分钟），而它其实是 09:40–10:10 的 **30 分钟**。
+    //
+    // 后果是双重的：既漏报真正的 30 分钟空档，又凭空造出一段 10 分钟的空档；
+    // 而"排除一条就吃掉下一条"会**连续累积**。浪费分钟数正是评分里那一条惩罚的原料。
     cursorEnd = block.endUtc;
-    if (range.durationMinutes >= smallestChunk) continue;
-    if (breakMinutes > 0 && range.durationMinutes < breakMinutes) continue;
-    if (protectedRanges.any((protected) => protected.overlaps(range))) continue;
-    gaps.add(UnusableGap(range: range, smallestChunkMinutes: smallestChunk));
   }
   return UnmodifiableListView(gaps);
 }
