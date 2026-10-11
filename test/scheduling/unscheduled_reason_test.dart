@@ -16,6 +16,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/explanations.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -279,6 +280,86 @@ void main() {
         hasLength(UnscheduledReasonCode.values.length),
         reason: '优先级表里不该有重复项',
       );
+    });
+
+    test('**翻译链覆盖了枚举里的每一个取值**，且都不是空话（规范 §13.2）', () {
+      // §13.2 要求"只有现有枚举确实无法表达新事实时，才增加**单一**新枚举值
+      // **并补齐所有翻译测试**"。优先级表那一条已经钉住"每个取值都能当主原因"，
+      // 但**没有任何用例钉住"每个取值都翻译得出来"** —— 而后者才是
+      // "补齐所有翻译测试"的字面内容。
+      //
+      // 漏一个的后果很具体：原因位置是一句空文案，或者（更糟）有人为了让 switch 编过
+      // 补一个 `_ => code.name` 之类兜底，于是**内部枚举名直接显示给用户**。
+      final labels = <String, UnscheduledReasonCode>{};
+      for (final code in UnscheduledReasonCode.values) {
+        final label = unscheduledReasonLabel(
+          UnscheduledReason(
+            code: code,
+            requiredMinutes: 45,
+            availableMinutes: 20,
+            constraintLabel: '固定日程',
+          ),
+        );
+        expect(label.trim(), isNotEmpty, reason: '$code 没有翻译文案，用户会看到一片空白');
+        expect(
+          label,
+          isNot(contains(code.name)),
+          reason:
+              '$code 的文案里出现了枚举名本身，说明有人用 `code.name` 兜底——'
+              '那是把内部标识显示给用户（与 §13.1 同类）',
+        );
+        labels[label] = code;
+      }
+      expect(
+        labels,
+        hasLength(UnscheduledReasonCode.values.length),
+        reason: '两个不同的原因用了同一句文案，用户就分不出它们',
+      );
+    });
+
+    test('**带证据的原因必须把数字说出来**（§13.2 的 requiredMinutes/availableMinutes）', () {
+      // §13.2 点名要求复用 `requiredMinutes`／`availableMinutes`／`constraintLabel` 证据。
+      // 只验"文案非空"不够：一句"时间不够"也能通过，而那正是规范要避免的
+      // （"不能退回'可用时间不足'"）。
+      for (final code in const [
+        UnscheduledReasonCode.continuousGapTooShort,
+        UnscheduledReasonCode.deadlineWindowTooShort,
+        UnscheduledReasonCode.minimumChunkTooLarge,
+        UnscheduledReasonCode.insufficientCapacity,
+      ]) {
+        final label = unscheduledReasonLabel(
+          UnscheduledReason(
+            code: code,
+            requiredMinutes: 45,
+            availableMinutes: 20,
+          ),
+        );
+        expect(
+          label,
+          contains('45'),
+          reason: '$code 必须报出"需要多少分钟"（requiredMinutes）',
+        );
+        expect(
+          label,
+          contains('20'),
+          reason: '$code 必须报出"实际有多少分钟"（availableMinutes）',
+        );
+      }
+    });
+
+    test('`constraintLabel` 证据出现在它的两类原因里', () {
+      for (final code in const [
+        UnscheduledReasonCode.lockedPlanOccupied,
+        UnscheduledReasonCode.availableTimeNotReached,
+      ]) {
+        expect(
+          unscheduledReasonLabel(
+            UnscheduledReason(code: code, constraintLabel: '固定日程'),
+          ),
+          contains('固定日程'),
+          reason: '$code 必须把"被什么挡住"这个证据说出来',
+        );
+      }
     });
   });
 
