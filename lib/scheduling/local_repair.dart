@@ -1,3 +1,4 @@
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 /// 一次**最小改动局部修复**的结果（1.8.0，设计规范 §11.4）。
@@ -97,4 +98,165 @@ int localRepairDisplacementMinutes(
     total += block.startUtc.difference(before).inMinutes.abs();
   }
   return total;
+}
+
+/// 一次**向后级联**的结果（1.8.0，设计规范 §11.4）。
+///
+/// [feasible] 为 `false` 表示在给定范围内找不到合法方案；调用方应当据此**如实失败**，
+/// 而不是拿一份勉强排出来的结果去覆盖已确认的计划（全局不变量第 3 条）。
+typedef LocalRepairOutcome = ({
+  bool feasible,
+  List<PlannedBlock> blocks,
+  Map<String, DateTime> reference,
+});
+
+/// 把 [targetBlockId] 推到不早于 [notBeforeUtc] 的位置，**并尽量少动别的块**。
+///
+/// 规范 §11.4 的三条要求：
+/// - "**先在当天做向后级联**"——候选位置限制在 `[dayStartUtc, dayEndUtc)` 这一个本地日里；
+///   当天放不下就返回 `feasible: false`，由调用方决定是否考虑后续日期；
+/// - "**只有未锁定可移动块能被级联**。固定日程、保护时间、睡眠、过去的块和锁定块保持原位"
+///   ——[immovable] 里的块是**硬边界**：级联只绕过它们，绝不移走它们；
+/// - "**目标块开始时间不早于 `notBeforeUtc`**"——第一个硬约束。
+///
+/// **算法**：目标块先放到它最早能放的位置，其余可移动块按原开始时刻排序，
+/// 各块**先试原位、留不住才往后让**。因此每一块的位置只可能"保持"或"后移"，
+/// 不可能前移——前移会连带出别处的缺口，而那正是规范第 3、4 条要避免的。
+///
+/// **为什么不整体重排**：整体重排能得出"看起来更优"的一天，却往往动了更多块。
+/// 规范第 3、4 条要的是**少动**，所以这里只做"让开"这一件事。
+///
+/// **不制造新缺口**由 §11.4 第 6 条单独负责（`ScoringFactor.unusableGap`），
+/// 本函数只保证硬约束与"少动"。
+LocalRepairOutcome localRepairCascade({
+  required String targetBlockId,
+  required DateTime notBeforeUtc,
+  required List<PlannedBlock> blocks,
+  required List<PlannedBlock> immovable,
+  required DateTime dayStartUtc,
+  required DateTime dayEndUtc,
+  String explanationCode = 'deferred',
+}) {
+  assert(notBeforeUtc.isUtc && dayStartUtc.isUtc && dayEndUtc.isUtc);
+
+  final target = blocks.where((block) => block.id == targetBlockId).firstOrNull;
+  if (target == null) {
+    return (feasible: false, blocks: blocks, reference: const {});
+  }
+  final immovableIds = {for (final block in immovable) block.id};
+
+  /// 当前已被占用的区间：初始是全部不可移动块，之后随放置逐个加入。
+  final occupied = <({DateTime start, DateTime end})>[
+    for (final block in immovable) (start: block.startUtc, end: block.endUtc),
+  ];
+
+  /// [start] 处能否放下 [minutes] 分钟（不越过 `dayEndUtc`、不与 [occupied] 相交）。
+  bool fitsAt(DateTime start, int minutes) {
+    final end = start.add(Duration(minutes: minutes));
+    if (end.isAfter(dayEndUtc)) return false;
+    for (final slot in occupied) {
+      // 半开区间相交：`start < slot.end && slot.start < end`。
+      if (start.isBefore(slot.end) && slot.start.isBefore(end)) return false;
+    }
+    return true;
+  }
+
+  /// 从 [from] 起找第一个能放下 [minutes] 分钟、且不越过 [dayEndUtc] 的位置。
+  ///
+  /// 每绕过一个障碍就把候选推到该障碍之后，因此循环次数受障碍数约束，
+  /// 不会退化成"逐分钟扫描"。
+  DateTime? firstFit(DateTime from, int minutes) {
+    if (fitsAt(from, minutes)) return from;
+    var candidate = from;
+    for (var guard = 0; guard <= occupied.length; guard++) {
+      final end = candidate.add(Duration(minutes: minutes));
+      if (end.isAfter(dayEndUtc)) return null;
+      DateTime? blockingEnd;
+      for (final slot in occupied) {
+        if (candidate.isBefore(slot.end) && slot.start.isBefore(end)) {
+          if (blockingEnd == null || slot.end.isAfter(blockingEnd)) {
+            blockingEnd = slot.end;
+          }
+        }
+      }
+      if (blockingEnd == null) return candidate;
+      candidate = blockingEnd;
+    }
+    return null;
+  }
+
+  final earliestStart = notBeforeUtc.isAfter(dayStartUtc)
+      ? notBeforeUtc
+      : dayStartUtc;
+  if (!earliestStart.isBefore(dayEndUtc)) {
+    return (feasible: false, blocks: blocks, reference: const {});
+  }
+
+  final planned = <PlannedBlock>[];
+
+  /// 放一块并登记占用。
+  bool place(PlannedBlock source, DateTime start) {
+    final range = TimeRange(
+      startUtc: start,
+      endUtc: start.add(Duration(minutes: source.durationMinutes)),
+    );
+    if (range.endUtc.isAfter(dayEndUtc)) return false;
+    planned.add(
+      PlannedBlock(
+        id: source.id,
+        taskId: source.taskId,
+        range: range,
+        locked: source.locked,
+        explanationCode: source.id == targetBlockId
+            ? explanationCode
+            : source.explanationCode,
+      ),
+    );
+    occupied.add((start: range.startUtc, end: range.endUtc));
+    return true;
+  }
+
+  // ① 目标块最先放：它带着下界，是这次调整的全部目的。
+  //
+  // **它的起点是"原位与下界里更晚的那一个"，不是下界本身。**
+  // 用户把 11:00 的块延后 10 分钟、而它的下界是 10:00 时，它**原位就已经满足**要求，
+  // 不该被搬到 10:00——那就成了一次"提前"，而"提前属于独立操作"（规范 §11.2）。
+  // 第一版直接取下界，测试`让位时绝不前移`当场把它抓出来（期望 11:00，得到 10:00）。
+  final targetAnchor = target.startUtc.isAfter(earliestStart)
+      ? target.startUtc
+      : earliestStart;
+  final targetStart = firstFit(targetAnchor, target.durationMinutes);
+  if (targetStart == null) {
+    return (feasible: false, blocks: blocks, reference: const {});
+  }
+  place(target, targetStart);
+
+  // ② 其余可移动块：按原开始时刻排序，能留就留，不能留就往右让。
+  final movable = [
+    for (final block in blocks)
+      if (block.id != targetBlockId && !immovableIds.contains(block.id)) block,
+  ]..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+
+  for (final block in movable) {
+    // **先试原位**：`firstFit(原位)` 若正好返回原位，说明它不用动。
+    final anchor = block.startUtc.isBefore(dayStartUtc)
+        ? dayStartUtc
+        : block.startUtc;
+    final start = firstFit(anchor, block.durationMinutes);
+    if (start == null) {
+      // **当天放不下就如实失败**：跨天这件事不在本函数的职责里。
+      return (feasible: false, blocks: blocks, reference: const {});
+    }
+    place(block, start);
+  }
+
+  // ③ 不可移动的块原样带回：位置一个字节都没变。
+  planned.addAll(immovable);
+
+  return (
+    feasible: true,
+    blocks: planned,
+    // 参照＝"级联之前每个块的位置"，供 `LocalRepairPlan.compare` 数块数与位移。
+    reference: {for (final block in blocks) block.id: block.startUtc},
+  );
 }
