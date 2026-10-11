@@ -38,6 +38,10 @@ class TrayIcon {
   void Remove();
 
   // Handles a callback message for this icon. Returns true when it was ours.
+  //
+  // The message table is in `tray_icon_message_policy.h` so it can be asserted
+  // without the engine. `RestoreMainWindow` is idempotent on purpose: a double click
+  // delivers two open actions, and the second must not hide the window again.
   bool HandleMessage(WPARAM wparam, LPARAM lparam);
 
  private:

@@ -4,6 +4,8 @@
 
 #include <utility>
 
+#include "tray_icon_message_policy.h"
+
 namespace {
 
 // Context-menu command ids. They are only ever read back from this menu, so any two
@@ -65,29 +67,59 @@ bool TrayIcon::HandleMessage(WPARAM wparam, LPARAM lparam) {
   if (wparam != data_.uID) {
     return false;
   }
-  switch (static_cast<UINT>(lparam)) {
-    case WM_LBUTTONDBLCLK:
-    case NIN_SELECT:
+  // The message table lives in `tray_icon_message_policy.h` so it can be asserted
+  // without the engine (`tray_icon_message_policy_test.cpp`). The defect this fixes:
+  // `WM_LBUTTONUP` was absent, so on shells that report a single left click through
+  // it the icon did nothing at all. Which of these messages a given shell sends
+  // depends on its version, so all four "activate" messages must be accepted.
+  //
+  // A double click therefore arrives as two independent `kOpen` actions. That is
+  // fine and intended: `RestoreMainWindow` is idempotent, so the second one shows an
+  // already-visible window instead of hiding it. There is deliberately no toggle.
+  switch (ActionForTrayMessage(static_cast<UINT>(lparam))) {
+    case TrayAction::kOpen:
       RestoreMainWindow();
       return true;
-    case WM_RBUTTONUP:
-    case WM_CONTEXTMENU:
+    case TrayAction::kMenu:
       ShowContextMenu();
       return true;
-    default:
+    case TrayAction::kNone:
       return false;
   }
+  return false;
 }
 
 void TrayIcon::RestoreMainWindow() {
   if (window_ == nullptr) {
     return;
   }
-  // Restore before showing: a window hidden while minimized would otherwise come back
-  // minimized, which reads as "the icon did nothing".
-  ::ShowWindow(window_, SW_RESTORE);
-  ::ShowWindow(window_, SW_SHOW);
-  ::SetForegroundWindow(window_);
+  // Order matters (design spec section 6.1): restore a minimized window, show a hidden
+  // one, and only then ask for the foreground. `SW_RESTORE` also shows the window, but
+  // `SW_SHOW` is what makes "hidden but not minimized" (which is how closing to the
+  // tray leaves it) actually appear.
+  if (::IsIconic(window_)) {
+    ::ShowWindow(window_, SW_RESTORE);
+  }
+  if (!::IsWindowVisible(window_)) {
+    ::ShowWindow(window_, SW_SHOW);
+  }
+  // Always ask, even when the window was already visible: the caller's expectation for
+  // "left click on the icon" is that the window comes to the front, and a visible but
+  // buried window would otherwise look like the click did nothing.
+  //
+  // `SetForegroundWindow` can be refused by the Windows foreground rules. The spec is
+  // explicit that this must not be reported as a failure (section 6.2): the window has
+  // already been restored and shown by the two calls above, so the outer step is to
+  // draw the user's attention with a flash rather than to pretend nothing happened.
+  if (::SetForegroundWindow(window_) == FALSE) {
+    FLASHWINFO flash = {};
+    flash.cbSize = sizeof(flash);
+    flash.hwnd = window_;
+    flash.dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG;
+    flash.uCount = 3;
+    flash.dwTimeout = 0;
+    ::FlashWindowEx(&flash);
+  }
 }
 
 void TrayIcon::ShowContextMenu() {

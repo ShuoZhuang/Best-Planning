@@ -50,3 +50,41 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# ---------------------------------------------------------------------------
+# Native tests (1.8.0, task 4).
+#
+# The notification-area message table is the one piece of the runner that has a
+# real, mechanically checkable contract, and the defect it fixes ("left click does
+# nothing on some shells") is a missing `case` — invisible to widget tests and
+# easy to miss by hand.
+#
+# The target links **nothing** from Flutter or the engine: it compiles one header
+# and one .cpp. That is deliberate, because a test that needs the engine cannot be
+# run as a plain build step, and a test nobody runs is not a test.
+#
+# Off by default so the app build is unchanged; turn it on with
+#   cmake --build build/windows/x64 --config Debug \
+#         --target tray_icon_message_policy_test
+# after configuring with -DPLANNER_BUILD_NATIVE_TESTS=ON.
+# ---------------------------------------------------------------------------
+option(PLANNER_BUILD_NATIVE_TESTS "Build the runner's native unit tests" OFF)
+
+if(PLANNER_BUILD_NATIVE_TESTS)
+  enable_testing()
+
+  add_executable(tray_icon_message_policy_test
+    "tray_icon_message_policy_test.cpp"
+  )
+  target_include_directories(tray_icon_message_policy_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+  )
+  # Same standard as the runner so the header is compiled identically in both.
+  set_target_properties(tray_icon_message_policy_test PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+  )
+  add_test(NAME tray_icon_message_policy COMMAND tray_icon_message_policy_test)
+endif()
+
