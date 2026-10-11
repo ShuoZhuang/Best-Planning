@@ -306,6 +306,17 @@ LocalRepairOutcome localRepairCascade({
   required DateTime dayStartUtc,
   required DateTime dayEndUtc,
   String explanationCode = 'deferred',
+
+  /// **目标块的锚点**（设计 §5.5："生成有限、确定的合法方案集合"）。
+  ///
+  /// 为空时按既有规则取"原位与下界里更晚的那一个"——那是**最早可放**，
+  /// 也是唯一产出过的那一份。传入别的锚点即可得到**同一套级联逻辑的另一份方案**：
+  /// 目标块被推到该锚点之后，其余块照样让开。
+  ///
+  /// **为什么需要这个参数**：最早可放是贪心，它只看"我不撞谁"，
+  /// 不看"我这样放会在周围留下什么"。规范 §11.4 第 6 条要求在**方案之间**
+  /// 比较坏空档，因此必须先能产出多份方案。
+  DateTime? targetAnchorOverride,
 }) {
   assert(notBeforeUtc.isUtc && dayStartUtc.isUtc && dayEndUtc.isUtc);
 
@@ -392,9 +403,13 @@ LocalRepairOutcome localRepairCascade({
   // 用户把 11:00 的块延后 10 分钟、而它的下界是 10:00 时，它**原位就已经满足**要求，
   // 不该被搬到 10:00——那就成了一次"提前"，而"提前属于独立操作"（规范 §11.2）。
   // 第一版直接取下界，测试`让位时绝不前移`当场把它抓出来（期望 11:00，得到 10:00）。
-  final targetAnchor = target.startUtc.isAfter(earliestStart)
-      ? target.startUtc
-      : earliestStart;
+  final targetAnchor = switch (targetAnchorOverride) {
+    // 显式锚点：仍不得早于下界（§11.4 第 2 级是硬条件）。
+    final override? =>
+      override.isAfter(earliestStart) ? override : earliestStart,
+    null =>
+      target.startUtc.isAfter(earliestStart) ? target.startUtc : earliestStart,
+  };
   final targetStart = firstFit(targetAnchor, target.durationMinutes);
   if (targetStart == null) {
     return (feasible: false, blocks: blocks, reference: const {});
@@ -505,6 +520,199 @@ List<PlannedBlock> linkBlockProvenance({
     byGeneratedId[pair.generatedId] = next.withProvenance(pair.confirmedId);
   }
   return [for (final block in generated) byGeneratedId[block.id]!];
+}
+
+/// 在**有限、确定的合法方案集合**里挑一份（裁定"Task 13 的决定"第 2 点；设计 §5.5）。
+///
+/// **为什么需要它**：`localRepairCascade` 只产出**一份**方案（"最早可放"）。
+/// 最早可放是贪心——它只看"我不撞谁"，不看"我这样放会在周围留下什么"。
+/// 本批次实测过这一点：按"离开短缝"的局部贪心去排，会在更远处制造**更大的缺口**
+/// （见验收表 §9 的 `maximumUnusableGapPenalty` 实测记录）。
+///
+/// 规范 §11.4 第 6 条要的是**在方案之间比较**"坏空档"，因此必须先有多份方案。
+///
+/// 过滤（硬条件，不满足的直接淘汰）：
+/// - 方案必须**含目标块**（否则第 5 级"目标块距下界"无从判定）；
+/// - 目标块开始时刻**不早于** [notBeforeUtc]（§11.4 第 2 级）；
+/// - 整份方案落在 [dayStartUtc]～[dayEndUtc] 之内。
+///
+/// 排序交给 [LocalRepairPlan.compare]（第 3～7 级 + 稳定签名）。
+///
+/// **确定**：候选的排列不影响结果——`compare` 的末级是稳定签名，同分也有唯一答案。
+LocalRepairOutcome chooseRepairPlan({
+  required String targetBlockId,
+  required DateTime notBeforeUtc,
+  required List<LocalRepairPlan> candidates,
+  required Map<String, DateTime> reference,
+  required Iterable<SchedulableTask> tasks,
+  required DateTime dayStartUtc,
+  required DateTime dayEndUtc,
+  List<TimeRange> protectedRanges = const [],
+  int breakMinutes = 0,
+}) {
+  // 先过滤，再排序：把不合法的候选挡在比较之外，而不是靠比较把它们排到最后
+  // ——那样它们仍会参与第 6、7 级的坏空档统计，得到一个没有意义的名次。
+  final legal = [
+    for (final candidate in candidates)
+      if (_isLegalRepairCandidate(
+        candidate,
+        targetBlockId: targetBlockId,
+        notBeforeUtc: notBeforeUtc,
+        dayStartUtc: dayStartUtc,
+        dayEndUtc: dayEndUtc,
+      ))
+        candidate,
+  ];
+  if (legal.isEmpty) {
+    return (feasible: false, blocks: const [], reference: const {});
+  }
+
+  // 逐个替换"当前最优"：`compare` 返回**负**表示前者更优。
+  var best = legal.first;
+  for (final candidate in legal.skip(1)) {
+    final order = LocalRepairPlan.compare(
+      candidate,
+      best,
+      reference: reference,
+      targetBlockId: targetBlockId,
+      notBeforeUtc: notBeforeUtc,
+      tasks: tasks,
+      protectedRanges: protectedRanges,
+      breakMinutes: breakMinutes,
+    );
+    if (order < 0) best = candidate;
+  }
+  return (feasible: true, blocks: best.blocks, reference: const {});
+}
+
+/// 候选是否满足 [chooseRepairPlan] 的三条硬条件。
+bool _isLegalRepairCandidate(
+  LocalRepairPlan candidate, {
+  required String targetBlockId,
+  required DateTime notBeforeUtc,
+  required DateTime dayStartUtc,
+  required DateTime dayEndUtc,
+}) {
+  final target = candidate.blocks
+      .where((block) => block.id == targetBlockId)
+      .firstOrNull;
+  if (target == null) return false;
+  if (target.startUtc.isBefore(notBeforeUtc)) return false;
+  // 整份方案必须落在当天窗口内：越界的块不是"更好的方案"，而是不可行的方案。
+  for (final block in candidate.blocks) {
+    if (block.startUtc.isBefore(dayStartUtc)) return false;
+    if (block.endUtc.isAfter(dayEndUtc)) return false;
+  }
+  return true;
+}
+
+/// 一段间隔的分类上限：候选择优只看 [maxCandidates] 份方案（设计 §5.5 的"有限"）。
+///
+/// **必须是有限且小的**：候选越多，"挑一份"的收益越小，而代价是每次调整都要跑
+/// 多轮级联。取 32 是因为它对一天 1440 分钟的粒度来说足够细分，
+/// 同时保证调整的耗时与当天块数成线性关系。
+const int maxRepairCandidates = 32;
+
+/// 为一个已确认块切出**有限、确定**的候选锚点集合（设计 §5.5）。
+///
+/// 锚点候选 = 下界，以及**每个与"下界之后的窗口"相交的排程区间结束时刻**
+/// （让开一个占用之后重新尝试）。这样"稍晚一点反而没有坏空档"的位置会被枚举到，
+/// 而集合大小受 [maxCandidates] 约束。
+///
+/// **确定性**：锚点由"下界 + 排程区间结束时刻"推出，按时间升序去重，
+/// 与输入块的排列无关；`occupied` 会先排序。同分时由
+/// [LocalRepairPlan.compare] 的稳定签名决定。
+///
+/// 只考虑**下界之后**的锚点：早于下界的位置不合法（§11.4 第 2 级）。
+List<DateTime> repairCandidateAnchors({
+  required DateTime notBeforeUtc,
+  required DateTime dayEndUtc,
+  required Iterable<TimeRange> occupied,
+  int maxCandidates = maxRepairCandidates,
+}) {
+  if (maxCandidates <= 0 || !notBeforeUtc.isBefore(dayEndUtc)) return const [];
+  final anchors = <DateTime>{notBeforeUtc};
+  final ordered = [...occupied]
+    ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+  for (final slot in ordered) {
+    // 只取"在下界之后结束"的占用：更早结束的那些不影响下界之后能放什么。
+    if (!slot.endUtc.isAfter(notBeforeUtc)) continue;
+    if (!slot.endUtc.isBefore(dayEndUtc)) continue;
+    anchors.add(slot.endUtc);
+    if (anchors.length >= maxCandidates) break;
+  }
+  return anchors.toList()..sort();
+}
+
+/// 为一次调整生成候选方案集合，并挑出最优的一份（设计 §5.5）。
+///
+/// 这是 [chooseRepairPlan] 的"生成"那一半：先按 [repairCandidateAnchors] 枚举锚点，
+/// 每个锚点跑一次 [localRepairCascade] 得到一份方案，再交给 [chooseRepairPlan] 排序。
+///
+/// 当天一份可行方案都没有时返回不可行——调用方据此决定"是否搜索后续日期"
+/// （§11.4 末段），而不是在这里偷偷跨天。
+LocalRepairOutcome repairBestPlan({
+  required String targetBlockId,
+  required DateTime notBeforeUtc,
+  required List<PlannedBlock> blocks,
+  required List<PlannedBlock> immovable,
+  required DateTime dayStartUtc,
+  required DateTime dayEndUtc,
+  required Iterable<SchedulableTask> tasks,
+  Map<String, DateTime> reference = const {},
+  List<TimeRange> protectedRanges = const [],
+  int breakMinutes = 0,
+  int maxCandidates = maxRepairCandidates,
+}) {
+  final anchors = repairCandidateAnchors(
+    notBeforeUtc: notBeforeUtc,
+    dayEndUtc: dayEndUtc,
+    occupied: [
+      for (final block in immovable) block.range,
+      for (final block in blocks)
+        if (block.id != targetBlockId) block.range,
+    ],
+    maxCandidates: maxCandidates,
+  );
+
+  // 参照＝"调整前每个块的位置"，供第 3、4 级数块数与位移。
+  final before = {for (final block in blocks) block.id: block.startUtc};
+
+  final candidates = <LocalRepairPlan>[];
+  for (final anchor in anchors) {
+    final outcome = localRepairCascade(
+      targetBlockId: targetBlockId,
+      notBeforeUtc: notBeforeUtc,
+      blocks: blocks,
+      immovable: immovable,
+      dayStartUtc: dayStartUtc,
+      dayEndUtc: dayEndUtc,
+      targetAnchorOverride: anchor,
+    );
+    if (!outcome.feasible) continue;
+    final movedIds = <String>{};
+    for (final block in outcome.blocks) {
+      final original = before[block.id];
+      if (original == null || original != block.startUtc) {
+        movedIds.add(block.id);
+      }
+    }
+    candidates.add(
+      LocalRepairPlan(blocks: outcome.blocks, movedBlockIds: movedIds),
+    );
+  }
+
+  return chooseRepairPlan(
+    targetBlockId: targetBlockId,
+    notBeforeUtc: notBeforeUtc,
+    candidates: candidates,
+    reference: reference.isEmpty ? before : reference,
+    tasks: tasks,
+    dayStartUtc: dayStartUtc,
+    dayEndUtc: dayEndUtc,
+    protectedRanges: protectedRanges,
+    breakMinutes: breakMinutes,
+  );
 }
 
 /// 一次候选配对。三个排序键与 [compare] 里的比较顺序一一对应。

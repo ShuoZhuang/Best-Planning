@@ -325,7 +325,13 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           .where((block) => block.id == pendingAdjustment.targetBlockId)
           .firstOrNull;
       if (target != null) {
-        final outcome = localRepairCascade(
+        // **在多份合法方案里挑一份**（裁定"Task 13 的决定"第 2 点；设计 §5.5）：
+        // `repairBestPlan` 生成有限、确定的候选锚点集合，逐个跑级联，
+        // 再按规范 §11.4 的九级顺序比较（含第 6、7 级的坏空档）。
+        //
+        // 只用 `localRepairCascade` 的"最早可放"是贪心：它只看"我不撞谁"，
+        // 不看"我这样放会在周围留下什么"——本批次实测过它会留下更大的缺口。
+        final outcome = repairBestPlan(
           targetBlockId: target.id,
           notBeforeUtc: bound,
           blocks: [
@@ -335,10 +341,18 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
                   !pinnedByBlockId.containsKey(block.id))
                 block,
           ],
-          // 固定日程与保护时间由引擎自己的硬约束守着；级联只调整计划块。
+          // 固定日程与保护时间不在 `blocks` 里，因此级联不会动它们；
+          // 保护时间另外传给方案比较，让被它覆盖的间隔归 `intentionalBreak`
+          // （**永不计为坏空档**——那条硬边界在比较层生效）。
           immovable: const [],
           dayStartUtc: startUtc,
           dayEndUtc: endUtc,
+          tasks: schedulable,
+          reference: referenceBlocks,
+          protectedRanges: [
+            for (final occurrence in protectedOccurrences) occurrence.range,
+          ],
+          breakMinutes: resolvedRules.breakMinutes,
         );
         if (outcome.feasible) {
           final placed = outcome.blocks
