@@ -27,6 +27,7 @@ import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -168,6 +169,53 @@ void main() {
 
     final ids = proposal.blocks.map((x) => x.id).toList();
     expect(ids.toSet(), hasLength(ids.length), reason: '级联结果与引擎自己的放置不得同时出现同一块');
+  });
+
+  test('**提案里的块带来源关联**（裁定第 1、4 点的接线）', () async {
+    // `linkBlockProvenance` 是纯函数且已完整测试（11 条），但它**必须被生成路径调用**
+    // ——否则 `PlanDiffer` 看不到 `continuedFromId`，预览仍会把"同一块换时间"
+    // 报成删除＋新增。本批次已经出现过多次"函数对、接线空"（`localRepairCascade`
+    // 生产零调用就是上一次），因此这条端到端断言是必需的。
+    final proposal = await generate(pendingMoves: deferring('b-morning', 90));
+
+    final linked = proposal.blocks
+        .where((block) => block.continuedFromId != null)
+        .toList();
+    expect(
+      linked,
+      isNotEmpty,
+      reason:
+          '生成之后必须为新旧块建立来源关联；一条都没有说明 `linkBlockProvenance` '
+          '没有被调用',
+    );
+
+    final target = proposal.blocks.firstWhere((x) => x.id == 'b-morning');
+    expect(target.continuedFromId, 'b-morning', reason: '被延后的那一块应当关联回确认计划里的自己');
+  });
+
+  test('**预览把延后报成「移动」**，不是删除＋新增（裁定第 4 点）', () async {
+    final proposal = await generate(pendingMoves: deferring('b-morning', 90));
+
+    // 与"延后之前"的那一版比较：同一块从 09:00 移到 10:30。
+    final diff = const PlanDiffer().diff(confirmed.blocks, proposal.blocks);
+
+    final moved = diff.changes
+        .where((c) => c.type == PlanChangeType.moved)
+        .toList();
+    expect(
+      moved,
+      isNotEmpty,
+      reason:
+          '来源关联说这是同一块换了时间 ⇒ 必须报「移动」。'
+          '用户看到"删了一项、又加了一项"会以为自己的待办被动过两次',
+    );
+    expect(
+      diff.changes.any(
+        (c) => c.type == PlanChangeType.moved && c.before?.startUtc == at(9),
+      ),
+      isTrue,
+      reason: '移动的"从哪"应当是 09:00',
+    );
   });
 }
 

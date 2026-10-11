@@ -426,6 +426,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       referenceBlocks: referenceBlocks,
       // 块级调整上下文（裁定第 3 点）：延后经它进入引擎，而不是折算成任务级下界。
       adjustment: adjustment,
+      // 当前确认计划里的块（裁定第 1、4 点）：生成**之后**用它建立来源关联，
+      // 好让预览把"同一块换了时间"报成「移动」而不是删除＋新增。
+      confirmedBlocks: confirmedBlocks,
     );
 
     return withCurrentInputHash(problem, snapshots);

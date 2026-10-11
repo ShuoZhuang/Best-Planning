@@ -6,6 +6,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -75,7 +76,19 @@ final class PlanningService implements ProposalCreator {
     });
     // 引擎只认排程输入，不认识"这次输入是怎么来的"；一次性覆盖由本层附加，
     // 好让确认阶段（PlanApplicationService）能用同一个覆盖重放出同样的输入哈希。
-    final preview = proposal.withRuleOverride(override);
+    //
+    // **生成之后再建立来源关联**（1.8.0，裁定第 1、4 点；设计 §5.2）：
+    // 引擎是"从零生成"，它排出的块与上一版确认计划**没有任何 id 上的联系**，
+    // 于是 `PlanDiffer` 会把"同一块换了时间"报成删除＋新增。
+    // 这一步为它们配对，`continuedFromId` 由此而来——**不改位置、不改 id**，纯后处理。
+    final preview = proposal
+        .withRuleOverride(override)
+        .withLinkedBlocks(
+          linkBlockProvenance(
+            confirmed: problem.confirmedBlocks,
+            generated: proposal.blocks,
+          ),
+        );
     _previews[preview.proposalId] = preview;
     onProposalCreated?.call(preview);
     return preview;
@@ -180,4 +193,8 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       // 这里，于是 `block_level_defer_test.dart` 两条用例当场报 `Actual: <null>`。
       // 与 `referenceBlocks` 那次是同一个陷阱——**新增字段时这里是必查的复制点**。
       adjustment: problem.adjustment,
+      // **同样必须原样搬运**（裁定第 1、4 点）：来源关联要用它把新块与上一版配对。
+      // 丢掉它的症状是"预览又把移动报成删除＋新增"——**不报错，只是说法错了**，
+      // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
+      confirmedBlocks: problem.confirmedBlocks,
     );

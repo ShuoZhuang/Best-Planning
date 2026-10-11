@@ -183,4 +183,22 @@ final class ScheduleProposal {
         metrics: metrics,
         ruleOverride: override,
       );
+
+  /// 换一份块集合，其余原样（1.8.0，裁定第 1、4 点；设计 §5.2）。
+  ///
+  /// 用于"生成**之后**建立来源关联"：`linkBlockProvenance` 只给块补上
+  /// `continuedFromId`，不改位置也不改 id，因此其余字段（未安排、冲突、指标、
+  /// 规则覆盖）逐值不变。
+  ScheduleProposal withLinkedBlocks(List<PlannedBlock> linked) =>
+      ScheduleProposal(
+        proposalId: proposalId,
+        inputHash: inputHash,
+        algorithmVersion: algorithmVersion,
+        blocks: linked,
+        unscheduled: unscheduled,
+        conflicts: conflicts,
+        explanations: explanations,
+        metrics: metrics,
+        ruleOverride: ruleOverride,
+      );
 }

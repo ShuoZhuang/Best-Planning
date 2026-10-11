@@ -226,6 +226,7 @@ final class ScheduleProblem {
     Set<String> pinnedUnlockedBlockIds = const {},
     Map<String, DateTime> referenceBlocks = const {},
     this.adjustment,
+    List<PlannedBlock> confirmedBlocks = const [],
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
@@ -234,7 +235,8 @@ final class ScheduleProblem {
        pinnedUnlockedBlockIds = UnmodifiableSetView(
          Set.of(pinnedUnlockedBlockIds),
        ),
-       referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks));
+       referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks)),
+       confirmedBlocks = UnmodifiableListView(List.of(confirmedBlocks));
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -277,8 +279,7 @@ final class ScheduleProblem {
   /// 把它算进哈希会让同一份排程输入因为参照不同而生成两份提案，而两份的**内容**相同。
   final Map<String, DateTime> referenceBlocks;
 
-  /// 本次生成是否是一次**块级调整**（裁定第 3 点；设计 §5.3）。
-  ///
+  /// 本次生成是否是一次**块级调整**（裁定第 3 点；设计 §5.3）。  ///
   /// 为空表示这是一次普通全量生成。非空时 [BlockAdjustmentContext.targetBlockId]
   /// 指向**当前确认计划里**要调整的那一块，[BlockAdjustmentContext.notBeforeUtc]
   /// 是它的下界。
@@ -286,4 +287,13 @@ final class ScheduleProblem {
   /// **它不进 `inputHash`**：与 [referenceBlocks] 同理——它是"比较与目标"的输入，
   /// 不是"哪些时间可用"的输入。把它算进哈希会让同一次调整在确认阶段被判为过期。
   final BlockAdjustmentContext? adjustment;
+
+  /// **当前确认计划里的块**（1.8.0，裁定第 1、4 点；设计 §5.2）。
+  ///
+  /// 生成本身**不读它**（从零生成的结构不变）；它是给"生成**之后**建立来源关联"
+  /// 用的输入：新排出的块要与它逐块配对，才能让
+  /// `PlanDiffer` 把"同一块换了时间"报成「移动」而不是删除＋新增。
+  ///
+  /// **不进 `inputHash`**：它是"上一版长什么样"，不改变"哪些时间可用"。
+  final List<PlannedBlock> confirmedBlocks;
 }

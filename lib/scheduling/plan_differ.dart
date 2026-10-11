@@ -37,22 +37,48 @@ final class PlanDiff {
 ///
 /// 变更类型：
 /// - `removed`：当前存在、提案中已消失的块；
-/// - `moved`：同一块 ID 仍在，但任务、时间或锁定状态发生变化；
+/// - `moved`：**同一块**仍在，但任务、时间或锁定状态发生变化；
 /// - `added`：提案中新出现、且其任务在原计划里没有块的块；
 /// - `split`：提案中新出现、但其任务在原计划里已有块、且该任务的块数变多的块
 ///   ——即这段工作被拆成了更多片段，与"新增一个任务"不是一回事。
+///
+/// **"同一块"怎么判**（1.8.0，裁定第 4 点；设计 §5.2）：
+///
+/// 1. **来源关联优先**：提案里的块带 `continuedFromId` 且它指向当前计划里的某个块
+///    ⇒ 那两块是同一块；
+/// 2. 否则退回 **id 相等**（旧行为，保留）。
+///
+/// **为什么不能靠"让 id 保持不变"**：`applyProposal` 落库时构造
+/// `persistedId = '<提案 id>:<block.id>'` 并把 `PlannedBlock.id` 设成它，
+/// 复用旧 id 会让每确认一次就套一层提案前缀。因此判据必须是**来源**，
+/// 而不是主键。
 final class PlanDiffer {
   const PlanDiffer();
 
   PlanDiff diff(List<PlannedBlock> current, List<PlannedBlock> proposed) {
     final proposedById = {for (final block in proposed) block.id: block};
     final currentIds = {for (final block in current) block.id};
+    // 当前计划按 id 索引：来源关联指的就是"当前计划里的哪一块"。
+    final currentById = {for (final block in current) block.id: block};
+    // 提案里"由某个当前块延续而来"的那些块：来源 id → 提案块。
+    // 同一来源只取第一块（来源匹配本来就是一对一的，见 `linkBlockProvenance`）。
+    final proposedBySource = <String, PlannedBlock>{};
+    for (final block in proposed) {
+      final source = block.continuedFromId;
+      if (source != null && currentById.containsKey(source)) {
+        proposedBySource.putIfAbsent(source, () => block);
+      }
+    }
     final currentCountByTask = _countByTask(current);
     final proposedCountByTask = _countByTask(proposed);
     final changes = <PlanChange>[];
 
     for (final before in current) {
-      final after = proposedById[before.id];
+      // **来源关联优先，其次 id 相等**（裁定第 4 点）。
+      //
+      // 来源关联说的是"当前计划的这一块延续成了提案里的哪一块"，
+      // 因此它比 id 相等更强：id 相等只是"恰好同名"，而来源是**明确的因果**。
+      final after = proposedBySource[before.id] ?? proposedById[before.id];
       if (after == null) {
         changes.add(
           PlanChange(
@@ -79,6 +105,11 @@ final class PlanDiffer {
 
     for (final after in proposed) {
       if (currentIds.contains(after.id)) continue;
+      // **已被认作某一块的延续时不算新增**：否则同一块会既报 moved 又报 added。
+      if (after.continuedFromId case final source?
+          when currentById.containsKey(source)) {
+        continue;
+      }
       final hadBlocksBefore = (currentCountByTask[after.taskId] ?? 0) > 0;
       final gainedChunks =
           (proposedCountByTask[after.taskId] ?? 0) >
