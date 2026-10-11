@@ -12,7 +12,7 @@ part 'app_database.g.dart';
 /// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
 /// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
 /// 已经打开的连接之后。放在这里让两处共用同一个数字。
-const int plannerSchemaVersion = 8;
+const int plannerSchemaVersion = 9;
 
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
@@ -95,7 +95,7 @@ class AppDatabase extends _$AppDatabase {
   /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
   /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -124,6 +124,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 8 && to >= 8) {
         await _upgradeToV8();
+      }
+      if (from < 9 && to >= 9) {
+        await _upgradeToV9(migrator);
       }
     },
     beforeOpen: (details) async {
@@ -194,6 +197,28 @@ class AppDatabase extends _$AppDatabase {
       'max_chunk_minutes = MIN(max_chunk_minutes, target_minutes) '
       'WHERE min_chunk_minutes > target_minutes '
       '   OR max_chunk_minutes > target_minutes',
+    );
+  }
+
+  /// v9：给 `calendar_events` 加**非空**的 `kind` 列，默认 `fixed`（规范 §9.1）。
+  ///
+  /// **这是本批次唯一的结构变化**，而且它必须**原位兼容**（规范 §14）：v8 的每一条日程
+  /// 都是固定日程，因此迁移后每一行的 `kind` 都必须是 `fixed`，而 id、起止时间、时区、
+  /// 重复关系、归属与例外关系**一个字段都不许动**。
+  ///
+  /// **为什么用 `alterTable` 而不是 `addColumn`**：`addColumn` 生成的是
+  /// `ALTER TABLE ... ADD COLUMN kind TEXT`——**不带默认值**。于是在它之后，v8 里已有的
+  /// 每一行 `kind` 都是 `NULL`，而生成的读取代码写的是 `... as String`（非空），
+  /// 一读就抛 `Null check operator used on a null value`。这不是猜想：三条既有迁移用例
+  /// （v1／v5／v6 带数据升级）当场就是这么失败的。
+  ///
+  /// `alterTable` 走的是"建新表（带 NOT NULL + DEFAULT）→ 拷数据（`columnTransformer`
+  /// 把没有 `kind` 的旧行写成 `fixed`）→ 换名"这条路，**一次性**得到想要的形状。
+  /// 全程在 `onUpgrade` 的同一个事务里，因此失败会整体回滚（规范 §14）。
+  Future<void> _upgradeToV9(Migrator migrator) async {
+    await migrator.addColumn(calendarEvents, calendarEvents.kind);
+    await customStatement(
+      "UPDATE calendar_events SET kind = 'fixed' WHERE kind IS NULL",
     );
   }
 

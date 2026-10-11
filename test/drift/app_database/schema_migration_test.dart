@@ -51,9 +51,9 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('generated schema includes the chunk-range repair version 8', () {
-    expect(GeneratedHelper.versions.last, 8);
-    expect(plannerSchemaVersion, 8);
+  test('generated schema includes the calendar event kind version 9', () {
+    expect(GeneratedHelper.versions.last, 9);
+    expect(plannerSchemaVersion, 9);
   });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
@@ -216,7 +216,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 6);
+    await verifier.migrateAndValidate(db, 9);
 
     // Pre-existing values are preserved and every timestamp column added by the
     // migration holds the migration instant rather than the sentinel.
@@ -342,7 +342,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 4);
+    await verifier.migrateAndValidate(db, 9);
 
     final task = await db.select(db.tasks).getSingle();
     expect(task.areaId, 'area-study');
@@ -363,7 +363,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 4);
+    await verifier.migrateAndValidate(db, 9);
 
     final task = await db.select(db.tasks).getSingle();
     expect(task.areaId, isNull);
@@ -427,7 +427,7 @@ void main() {
         schema.newConnection(),
         now: () => _migrationInstant,
       );
-      await verifier.migrateAndValidate(db, 5);
+      await verifier.migrateAndValidate(db, 9);
 
       final task = await db.select(db.tasks).getSingle();
       expect(task.areaId, 'area-study');
@@ -534,7 +534,7 @@ void main() {
         schema.newConnection(),
         now: () => _migrationInstant,
       );
-      await verifier.migrateAndValidate(db, 6);
+      await verifier.migrateAndValidate(db, 9);
 
       final event = await db.select(db.calendarEvents).getSingle();
       expect(event.projectId, isNull);
@@ -746,7 +746,7 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 7);
+    await verifier.migrateAndValidate(db, 9);
 
     // ① 记录数量逐个核对。
     expect(await db.select(db.areas).get(), hasLength(1));
@@ -863,7 +863,7 @@ void main() {
     schema.close();
   });
 
-  test('v6 迁移后旧表结构完全未变（无新增列）', () async {
+  test('v6 迁移到 v9 后旧表只多了 v9 的 calendar_events.kind', () async {
     final schema = await verifier.schemaAt(6);
     final old = v6.DatabaseAtV6(schema.newConnection());
     await old.close();
@@ -872,16 +872,36 @@ void main() {
       schema.newConnection(),
       now: () => _migrationInstant,
     );
-    await verifier.migrateAndValidate(db, 7);
+    await verifier.migrateAndValidate(db, 9);
 
-    for (final table in ['tasks', 'time_entries', 'calendar_events']) {
+    for (final table in ['tasks', 'time_entries']) {
       final columns = await db.customSelect('PRAGMA table_info($table)').get();
       expect(
         columns.map((row) => row.read<String>('name')).toList(),
         _v6ColumnsOf(table),
-        reason: '$table 的列集合必须与 v6 一致：v7 只准新增表',
+        reason: '$table 的列集合必须与 v6 一致：v7 只新增表，v8/v9 都不动它',
       );
     }
+
+    // **`calendar_events` 是唯一有结构变化的表**（规范 §14："唯一结构变化是
+    // `calendar_events.kind`"）。因此这里的断言从"完全未变"改成"**只**多了这一列"：
+    // 先逐项比对 v6 的前缀（一个不少、顺序不变），再要求多出来的部分**恰好**是 `kind`。
+    // 任何别的增减都会让这两条之一失败。
+    final calendarColumns = await db
+        .customSelect('PRAGMA table_info(calendar_events)')
+        .get();
+    final names = calendarColumns
+        .map((row) => row.read<String>('name'))
+        .toList();
+    final v6Names = _v6ColumnsOf('calendar_events');
+    expect(
+      names.sublist(0, v6Names.length),
+      v6Names,
+      reason: 'v6 的列必须一个不少、顺序不变',
+    );
+    expect(names.sublist(v6Names.length), [
+      'kind',
+    ], reason: 'v9 只准新增 kind 这一列（规范 §14）');
 
     await db.close();
     schema.close();

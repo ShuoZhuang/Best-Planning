@@ -202,6 +202,13 @@ class CalendarEvents extends Table {
   TextColumn get location => text().withDefault(const Constant(''))();
   TextColumn get notes => text().withDefault(const Constant(''))();
   TextColumn get sourceKind => text().withDefault(const Constant('manual'))();
+
+  /// 固定日程还是保护时间（1.8.0，规范 §9.1）。
+  ///
+  /// **非空且带默认值 `fixed`**：v8 及以前的记录迁移后全部落到这个默认值，
+  /// 而它们本来就都是固定日程。默认值也让 v9 的新建行不必逐个显式传这一列。
+  TextColumn get kind => text().withDefault(const Constant('fixed'))();
+
   TextColumn get importBatchId =>
       text().nullable().references(TimetableImportBatches, #id)();
   TextColumn get logicalCourseId => text().nullable()();

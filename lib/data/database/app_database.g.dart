@@ -4431,6 +4431,16 @@ class $CalendarEventsTable extends CalendarEvents
     requiredDuringInsert: false,
     defaultValue: const Constant('manual'),
   );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('fixed'),
+  );
   static const VerificationMeta _importBatchIdMeta = const VerificationMeta(
     'importBatchId',
   );
@@ -4494,6 +4504,7 @@ class $CalendarEventsTable extends CalendarEvents
     location,
     notes,
     sourceKind,
+    kind,
     importBatchId,
     logicalCourseId,
     createdAtUtc,
@@ -4608,6 +4619,12 @@ class $CalendarEventsTable extends CalendarEvents
         sourceKind.isAcceptableOrUnknown(data['source_kind']!, _sourceKindMeta),
       );
     }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
     if (data.containsKey('import_batch_id')) {
       context.handle(
         _importBatchIdMeta,
@@ -4707,6 +4724,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.string,
         data['${effectivePrefix}source_kind'],
       )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
       importBatchId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}import_batch_id'],
@@ -4746,6 +4767,12 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
   final String location;
   final String notes;
   final String sourceKind;
+
+  /// 固定日程还是保护时间（1.8.0，规范 §9.1）。
+  ///
+  /// **非空且带默认值 `fixed`**：v8 及以前的记录迁移后全部落到这个默认值，
+  /// 而它们本来就都是固定日程。默认值也让 v9 的新建行不必逐个显式传这一列。
+  final String kind;
   final String? importBatchId;
   final String? logicalCourseId;
   final int createdAtUtc;
@@ -4764,6 +4791,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     required this.location,
     required this.notes,
     required this.sourceKind,
+    required this.kind,
     this.importBatchId,
     this.logicalCourseId,
     required this.createdAtUtc,
@@ -4793,6 +4821,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     map['location'] = Variable<String>(location);
     map['notes'] = Variable<String>(notes);
     map['source_kind'] = Variable<String>(sourceKind);
+    map['kind'] = Variable<String>(kind);
     if (!nullToAbsent || importBatchId != null) {
       map['import_batch_id'] = Variable<String>(importBatchId);
     }
@@ -4827,6 +4856,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       location: Value(location),
       notes: Value(notes),
       sourceKind: Value(sourceKind),
+      kind: Value(kind),
       importBatchId: importBatchId == null && nullToAbsent
           ? const Value.absent()
           : Value(importBatchId),
@@ -4857,6 +4887,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       location: serializer.fromJson<String>(json['location']),
       notes: serializer.fromJson<String>(json['notes']),
       sourceKind: serializer.fromJson<String>(json['sourceKind']),
+      kind: serializer.fromJson<String>(json['kind']),
       importBatchId: serializer.fromJson<String?>(json['importBatchId']),
       logicalCourseId: serializer.fromJson<String?>(json['logicalCourseId']),
       createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
@@ -4880,6 +4911,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       'location': serializer.toJson<String>(location),
       'notes': serializer.toJson<String>(notes),
       'sourceKind': serializer.toJson<String>(sourceKind),
+      'kind': serializer.toJson<String>(kind),
       'importBatchId': serializer.toJson<String?>(importBatchId),
       'logicalCourseId': serializer.toJson<String?>(logicalCourseId),
       'createdAtUtc': serializer.toJson<int>(createdAtUtc),
@@ -4901,6 +4933,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     String? location,
     String? notes,
     String? sourceKind,
+    String? kind,
     Value<String?> importBatchId = const Value.absent(),
     Value<String?> logicalCourseId = const Value.absent(),
     int? createdAtUtc,
@@ -4923,6 +4956,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     location: location ?? this.location,
     notes: notes ?? this.notes,
     sourceKind: sourceKind ?? this.sourceKind,
+    kind: kind ?? this.kind,
     importBatchId: importBatchId.present
         ? importBatchId.value
         : this.importBatchId,
@@ -4957,6 +4991,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
       sourceKind: data.sourceKind.present
           ? data.sourceKind.value
           : this.sourceKind,
+      kind: data.kind.present ? data.kind.value : this.kind,
       importBatchId: data.importBatchId.present
           ? data.importBatchId.value
           : this.importBatchId,
@@ -4988,6 +5023,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           ..write('location: $location, ')
           ..write('notes: $notes, ')
           ..write('sourceKind: $sourceKind, ')
+          ..write('kind: $kind, ')
           ..write('importBatchId: $importBatchId, ')
           ..write('logicalCourseId: $logicalCourseId, ')
           ..write('createdAtUtc: $createdAtUtc, ')
@@ -5011,6 +5047,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
     location,
     notes,
     sourceKind,
+    kind,
     importBatchId,
     logicalCourseId,
     createdAtUtc,
@@ -5033,6 +5070,7 @@ class CalendarEvent extends DataClass implements Insertable<CalendarEvent> {
           other.location == this.location &&
           other.notes == this.notes &&
           other.sourceKind == this.sourceKind &&
+          other.kind == this.kind &&
           other.importBatchId == this.importBatchId &&
           other.logicalCourseId == this.logicalCourseId &&
           other.createdAtUtc == this.createdAtUtc &&
@@ -5053,6 +5091,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
   final Value<String> location;
   final Value<String> notes;
   final Value<String> sourceKind;
+  final Value<String> kind;
   final Value<String?> importBatchId;
   final Value<String?> logicalCourseId;
   final Value<int> createdAtUtc;
@@ -5072,6 +5111,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.location = const Value.absent(),
     this.notes = const Value.absent(),
     this.sourceKind = const Value.absent(),
+    this.kind = const Value.absent(),
     this.importBatchId = const Value.absent(),
     this.logicalCourseId = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
@@ -5092,6 +5132,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     this.location = const Value.absent(),
     this.notes = const Value.absent(),
     this.sourceKind = const Value.absent(),
+    this.kind = const Value.absent(),
     this.importBatchId = const Value.absent(),
     this.logicalCourseId = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
@@ -5117,6 +5158,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Expression<String>? location,
     Expression<String>? notes,
     Expression<String>? sourceKind,
+    Expression<String>? kind,
     Expression<String>? importBatchId,
     Expression<String>? logicalCourseId,
     Expression<int>? createdAtUtc,
@@ -5137,6 +5179,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       if (location != null) 'location': location,
       if (notes != null) 'notes': notes,
       if (sourceKind != null) 'source_kind': sourceKind,
+      if (kind != null) 'kind': kind,
       if (importBatchId != null) 'import_batch_id': importBatchId,
       if (logicalCourseId != null) 'logical_course_id': logicalCourseId,
       if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
@@ -5159,6 +5202,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     Value<String>? location,
     Value<String>? notes,
     Value<String>? sourceKind,
+    Value<String>? kind,
     Value<String?>? importBatchId,
     Value<String?>? logicalCourseId,
     Value<int>? createdAtUtc,
@@ -5179,6 +5223,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
       location: location ?? this.location,
       notes: notes ?? this.notes,
       sourceKind: sourceKind ?? this.sourceKind,
+      kind: kind ?? this.kind,
       importBatchId: importBatchId ?? this.importBatchId,
       logicalCourseId: logicalCourseId ?? this.logicalCourseId,
       createdAtUtc: createdAtUtc ?? this.createdAtUtc,
@@ -5229,6 +5274,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
     if (sourceKind.present) {
       map['source_kind'] = Variable<String>(sourceKind.value);
     }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
     if (importBatchId.present) {
       map['import_batch_id'] = Variable<String>(importBatchId.value);
     }
@@ -5263,6 +5311,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEvent> {
           ..write('location: $location, ')
           ..write('notes: $notes, ')
           ..write('sourceKind: $sourceKind, ')
+          ..write('kind: $kind, ')
           ..write('importBatchId: $importBatchId, ')
           ..write('logicalCourseId: $logicalCourseId, ')
           ..write('createdAtUtc: $createdAtUtc, ')
@@ -16557,6 +16606,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<String> location,
       Value<String> notes,
       Value<String> sourceKind,
+      Value<String> kind,
       Value<String?> importBatchId,
       Value<String?> logicalCourseId,
       Value<int> createdAtUtc,
@@ -16578,6 +16628,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<String> location,
       Value<String> notes,
       Value<String> sourceKind,
+      Value<String> kind,
       Value<String?> importBatchId,
       Value<String?> logicalCourseId,
       Value<int> createdAtUtc,
@@ -16734,6 +16785,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<String> get sourceKind => $composableBuilder(
     column: $table.sourceKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -16923,6 +16979,11 @@ class $$CalendarEventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get logicalCourseId => $composableBuilder(
     column: $table.logicalCourseId,
     builder: (column) => ColumnOrderings(column),
@@ -17096,6 +17157,9 @@ class $$CalendarEventsTableAnnotationComposer
     column: $table.sourceKind,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
 
   GeneratedColumn<String> get logicalCourseId => $composableBuilder(
     column: $table.logicalCourseId,
@@ -17278,6 +17342,7 @@ class $$CalendarEventsTableTableManager
                 Value<String> location = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<String> sourceKind = const Value.absent(),
+                Value<String> kind = const Value.absent(),
                 Value<String?> importBatchId = const Value.absent(),
                 Value<String?> logicalCourseId = const Value.absent(),
                 Value<int> createdAtUtc = const Value.absent(),
@@ -17297,6 +17362,7 @@ class $$CalendarEventsTableTableManager
                 location: location,
                 notes: notes,
                 sourceKind: sourceKind,
+                kind: kind,
                 importBatchId: importBatchId,
                 logicalCourseId: logicalCourseId,
                 createdAtUtc: createdAtUtc,
@@ -17318,6 +17384,7 @@ class $$CalendarEventsTableTableManager
                 Value<String> location = const Value.absent(),
                 Value<String> notes = const Value.absent(),
                 Value<String> sourceKind = const Value.absent(),
+                Value<String> kind = const Value.absent(),
                 Value<String?> importBatchId = const Value.absent(),
                 Value<String?> logicalCourseId = const Value.absent(),
                 Value<int> createdAtUtc = const Value.absent(),
@@ -17337,6 +17404,7 @@ class $$CalendarEventsTableTableManager
                 location: location,
                 notes: notes,
                 sourceKind: sourceKind,
+                kind: kind,
                 importBatchId: importBatchId,
                 logicalCourseId: logicalCourseId,
                 createdAtUtc: createdAtUtc,

@@ -282,6 +282,39 @@ void main() {
         reason: '真实库里坏行数（本轮实测记录在验收表 §5.4）',
       );
 
+      // ③c **v9 的 kind 回填范围**（Task 7、规范 §14）。
+      //
+      // 这一项只有在**真实**数据上才是完整的：合成库里的日程是我自己插的，而真实库里的
+      // 日程带着课表导入、单双周重复与例外。规范要求"迁移后所有旧日程仍可见、kind 均为
+      // fixed"，因此三件事一起断言：一条 NULL 都不许有、一条非 fixed 都不许有、
+      // 且被回填的行数正好等于迁移前的日程总数。
+      expect(
+        _scalarInt(
+          after,
+          'SELECT count(*) FROM calendar_events WHERE kind IS NULL',
+        ),
+        0,
+        reason:
+            'kind 是非空列；迁移后留 NULL 会让读取端当场抛空断言'
+            '（生成的映射代码是 `... as String`）',
+      );
+      expect(
+        _scalarInt(
+          after,
+          "SELECT count(*) FROM calendar_events WHERE kind <> 'fixed'",
+        ),
+        0,
+        reason: 'v8 及以前的每一条日程都是固定日程，迁移后必须逐行都是 fixed（规范 §14）',
+      );
+      expect(
+        _scalarInt(
+          after,
+          "SELECT count(*) FROM calendar_events WHERE kind = 'fixed'",
+        ),
+        beforeCounts['calendar_events'],
+        reason: 'kind 被回填的行数必须正好等于迁移前的日程总数',
+      );
+
       // ④ 新表在真实库上**可用**（不只是建出来了）：插入一个模板，读回来。
       await database.customStatement(
         "INSERT INTO recurring_task_templates ("

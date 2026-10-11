@@ -181,6 +181,102 @@ void main() {
     expect(occurrence.logicalCourseId, event.logicalCourseId);
   });
 
+  // 1.8.0（规范 §9.1，计划 Task 7 Step 2）：`kind` 必须保存、读取、展开后都不丢。
+  test('固定日程与保护时间的 kind 在往返后不丢失', () async {
+    final calendarRepository = DriftCalendarRepository(database);
+    await calendarRepository.save(
+      CalendarEvent(
+        id: 'evt-fixed',
+        title: '例会',
+        startAtUtc: DateTime.utc(2026, 10, 6, 1),
+        endAtUtc: DateTime.utc(2026, 10, 6, 2),
+        timeZoneId: 'Asia/Shanghai',
+        updatedAtUtc: DateTime.utc(2026, 10, 5),
+      ),
+    );
+    await calendarRepository.save(
+      CalendarEvent(
+        id: 'evt-protected',
+        title: '保护时间',
+        startAtUtc: DateTime.utc(2026, 10, 6, 4),
+        endAtUtc: DateTime.utc(2026, 10, 6, 5),
+        timeZoneId: 'Asia/Shanghai',
+        kind: CalendarEventKind.protected,
+        updatedAtUtc: DateTime.utc(2026, 10, 5),
+      ),
+    );
+
+    final occurrences = await calendarRepository.occurrencesBetween(
+      DateTime.utc(2026, 10, 6),
+      DateTime.utc(2026, 10, 7),
+    );
+    final byId = {for (final item in occurrences) item.eventId: item};
+
+    expect(
+      byId['evt-fixed']!.kind,
+      CalendarEventKind.fixed,
+      reason: '没有显式给 kind 的日程默认就是固定日程（源码兼容，规范 §9.1）',
+    );
+    expect(
+      byId['evt-protected']!.kind,
+      CalendarEventKind.protected,
+      reason: '保护时间必须原样读回来，否则它会被当成固定日程进入统计',
+    );
+  });
+
+  test('重复保护时间的**每一次展开**都带 kind，而不只是锚点行', () async {
+    // 展开器如果不把 kind 带下来，"重复的保护时间"会被当成固定日程：
+    // 规范 §9.1 明确它不计入任何投入，也不该作为 fixed event 进排程输入。
+    final calendarRepository = DriftCalendarRepository(database);
+    final anchor = CalendarEvent(
+      id: 'evt-weekly-protected',
+      title: '每周二下午保护',
+      startAtUtc: DateTime.utc(2026, 10, 6, 6),
+      endAtUtc: DateTime.utc(2026, 10, 6, 7),
+      timeZoneId: 'Asia/Shanghai',
+      kind: CalendarEventKind.protected,
+      updatedAtUtc: DateTime.utc(2026, 10, 5),
+    );
+    await calendarRepository.saveRecurring(
+      anchor.copyWith(recurrenceRuleId: 'rule-protected'),
+      RecurrenceRule(
+        id: 'rule-protected',
+        weekdays: {DateTime.tuesday},
+        localStartMinute: 14 * 60,
+        durationMinutes: 60,
+        validFromLocalDate: DateTime(2026, 10, 6),
+        timeZoneId: 'Asia/Shanghai',
+      ),
+    );
+
+    final occurrences = await calendarRepository.occurrencesBetween(
+      DateTime.utc(2026, 10, 5),
+      DateTime.utc(2026, 10, 20),
+    );
+    expect(occurrences, isNotEmpty, reason: '夹具本身必须至少展开出一次');
+    for (final occurrence in occurrences) {
+      expect(
+        occurrence.kind,
+        CalendarEventKind.protected,
+        reason: '展开出来的每一次都必须是保护时间（锚点：${occurrence.eventId}）',
+      );
+    }
+  });
+
+  test('未知的 kind 存储值回落到 fixed，绝不回落到 protected', () {
+    // 保守方向：认不出的值当成固定日程最多是"这段时间被占着"，仍然可见可编辑；
+    // 当成保护时间会让一段时段突然变成硬禁区，而用户没有任何线索（规范 §9.1）。
+    expect(
+      CalendarEventKind.fromStorage('wat-is-this'),
+      CalendarEventKind.fixed,
+    );
+    expect(CalendarEventKind.fromStorage(null), CalendarEventKind.fixed);
+    expect(
+      CalendarEventKind.fromStorage('protected'),
+      CalendarEventKind.protected,
+    );
+  });
+
   test('计划 repository 返回最新的已确认版本', () async {
     await database.customInsert("""
       INSERT INTO plan_versions

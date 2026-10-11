@@ -216,6 +216,6 @@ void main() {
     // 两处必须是同一个数字：装配层在**打开连接之前**问不到实例，只能读常量；
     // 常量与 `schemaVersion` 漂移的后果是"该备份时不备份"，而那条规则正是本文件守护的。
     expect(database.schemaVersion, plannerSchemaVersion);
-    expect(plannerSchemaVersion, 8);
+    expect(plannerSchemaVersion, 9);
   });
 }

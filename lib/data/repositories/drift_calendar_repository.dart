@@ -59,6 +59,7 @@ final class DriftCalendarRepository
           sourceKind: domain.CalendarEventSourceKind.fromStorage(
             row.sourceKind,
           ),
+          kind: domain.CalendarEventKind.fromStorage(row.kind),
           importBatchId: row.importBatchId,
           logicalCourseId: row.logicalCourseId,
         ),
@@ -138,6 +139,7 @@ final class DriftCalendarRepository
             sourceKind: domain.CalendarEventSourceKind.fromStorage(
               event.sourceKind,
             ),
+            kind: domain.CalendarEventKind.fromStorage(event.kind),
             importBatchId: event.importBatchId,
             logicalCourseId: event.logicalCourseId,
           ),
@@ -375,6 +377,7 @@ final class DriftCalendarRepository
         sourceKind: domain.CalendarEventSourceKind.fromStorage(
           anchor.sourceKind,
         ),
+        kind: domain.CalendarEventKind.fromStorage(anchor.kind),
         importBatchId: anchor.importBatchId,
         logicalCourseId: anchor.logicalCourseId,
         updatedAtUtc: updatedAtUtc,
@@ -488,6 +491,7 @@ final class DriftCalendarRepository
           sourceKind: domain.CalendarEventSourceKind.fromStorage(
             anchor.sourceKind,
           ),
+          kind: domain.CalendarEventKind.fromStorage(anchor.kind),
           importBatchId: anchor.importBatchId,
           logicalCourseId: anchor.logicalCourseId,
           updatedAtUtc: updatedAtUtc,
@@ -536,6 +540,7 @@ final class DriftCalendarRepository
         sourceKind: domain.CalendarEventSourceKind.fromStorage(
           anchor.sourceKind,
         ),
+        kind: domain.CalendarEventKind.fromStorage(anchor.kind),
         importBatchId: anchor.importBatchId,
         logicalCourseId: anchor.logicalCourseId,
         updatedAtUtc: updatedAtUtc,
@@ -740,6 +745,7 @@ final class DriftCalendarRepository
             projectId: Value(event.projectId),
             location: Value(event.location),
             notes: Value(event.notes),
+            kind: Value(event.kind.storageValue),
             sourceKind: Value(event.sourceKind.storageValue),
             importBatchId: Value(event.importBatchId),
             logicalCourseId: Value(event.logicalCourseId),
@@ -762,6 +768,7 @@ final class DriftCalendarRepository
               projectId: Value(event.projectId),
               location: Value(event.location),
               notes: Value(event.notes),
+              kind: Value(event.kind.storageValue),
               sourceKind: Value(event.sourceKind.storageValue),
               importBatchId: Value(event.importBatchId),
               logicalCourseId: Value(event.logicalCourseId),
