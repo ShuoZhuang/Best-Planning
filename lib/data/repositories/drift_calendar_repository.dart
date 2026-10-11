@@ -4,6 +4,7 @@ import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/domain/models/calendar_event.dart' as domain;
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
+import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
 
@@ -11,7 +12,8 @@ final class DriftCalendarRepository
     implements
         CalendarRepository,
         RecurringCalendarRepository,
-        CalendarEventDeletion {
+        CalendarEventDeletion,
+        CourseWriteGateway {
   DriftCalendarRepository(this._database, {TimeZoneDatabase? zones})
     : _zones = zones ?? TimeZoneDatabase(),
       _recurrence = RecurrenceExpander(zones ?? TimeZoneDatabase());
@@ -633,6 +635,28 @@ final class DriftCalendarRepository
     await (_database.delete(
       _database.calendarEvents,
     )..where((row) => row.id.equals(eventId))).go();
+  }
+
+  @override
+  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {
+    if (anchorEventIds.isEmpty) return;
+    // **一个事务**（规范 §10.2：事务中任一写入失败时全部回滚）。
+    //
+    // 顺序是刻意的：**先删例外行，再删锚点行**。`exception_of_id` 是指向
+    // `calendar_events(id)` 的外键，反过来的话锚点一删，例外行立刻变成孤儿，
+    // 而 `PRAGMA foreign_keys = ON` 会让那次删除整个失败。
+    //
+    // 例外行必须一起删：它们不会出现在 `occurrencesBetween` 的锚点查询里，
+    // 但展开器会**按锚点分组读取全部例外**，因此留下的孤儿例外会在下一次同名锚点
+    // 出现时被应用到一条不相干的系列上。
+    await _database.transaction(() async {
+      await (_database.delete(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.isIn(anchorEventIds))).go();
+      await (_database.delete(
+        _database.calendarEvents,
+      )..where((row) => row.id.isIn(anchorEventIds))).go();
+    });
   }
 
   @override
