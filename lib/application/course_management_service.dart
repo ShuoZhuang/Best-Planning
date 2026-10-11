@@ -1,4 +1,5 @@
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -199,6 +200,8 @@ final class CourseManagementService {
     required this.deletion,
     required this.gateway,
     this.academicCalendar,
+    this.zones,
+    this.timeZoneId,
   });
 
   final CourseSeriesRepository courses;
@@ -209,6 +212,18 @@ final class CourseManagementService {
   /// 用于把"从哪个本地日期起暂停"换算成学期周次。为空时暂停仍可用，
   /// 只是不做"当前学期"的额外校验。
   final AcademicCalendarRepository? academicCalendar;
+
+  /// 时区服务与**事项所在时区**（1.8.0）。
+  ///
+  /// [pauseFrom] 收的是"用户说的那一天"（本地日历日），而它要交给
+  /// `deleteFollowingOccurrences` 的是一个**时刻**——后者按该时刻在规则自己时区里的
+  /// **本地日期**去截断。因此"那一天"必须用**同一个时区**换算成时刻。
+  ///
+  /// **为空时的兜底**是 `DateTime.utc(y, m, d)`（UTC 零点）。那个兜底在**负偏移**时区下
+  /// 会让本地日期退到前一天（`2026-10-18T00:00Z` 在 America/New_York 是 10-17 20:00），
+  /// 于是截断早一天、该停的那一周还留着一次课。生产组合根必须传这两个值。
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
 
   /// 当前学期；没有可判定的学期时为 `null`。
   Future<String?> currentTermId() => courses.currentTermId();
@@ -368,7 +383,7 @@ final class CourseManagementService {
       // 切点取"停用日所在周的上一周周日"：用户说"从 10-20 起停"，10-20 那一周就不该再排。
       final ok = await calendar.deleteFollowingOccurrences(
         anchorId: segment.eventId,
-        occurrenceStartUtc: _utcForLocalDate(lastValidDate),
+        occurrenceStartUtc: _instantForLocalDate(lastValidDate),
       );
       if (!ok) failures.add(segment.eventId);
     }
@@ -520,11 +535,28 @@ final class CourseManagementService {
   static DateTime _dateOnly(DateTime value) =>
       DateTime(value.year, value.month, value.day);
 
-  /// 把一个本地日期换算成"当天本地 00:00"的 UTC 时刻。
+  /// 把一个**本地日历日**换算成"当天本地 00:00"的时刻。
   ///
-  /// 这里刻意用 `DateTime.utc` 而不是任何时区服务：`deleteFollowingOccurrences` 的契约是
-  /// 按**该时刻的本地日期**去截断规则，而它自己会在仓储侧用规则自己的时区换算
-  /// （见 `_validatedSplitDate`）。传一个"同一天的 UTC 零点"就够，多一层换算只会多一处错。
-  static DateTime _utcForLocalDate(DateTime date) =>
-      DateTime.utc(date.year, date.month, date.day);
+  /// **必须用事项自己的时区**。`deleteFollowingOccurrences` 的契约是按该时刻在
+  /// 规则自己时区里的**本地日期**去截断（见 `_validateSplitDate`），因此"那一天"
+  /// 必须用**同一个时区**换算。
+  ///
+  /// **第一版写的是 `DateTime.utc(y, m, d)`（UTC 零点）**，理由是"多一层换算只会多一处错"。
+  /// 那个理由在**正偏移**时区下恰好成立（东八区：`00:00Z` 是同日 `08:00`），
+  /// 于是本机与主用例全绿；但在**负偏移**时区下它会把本地日期退到**前一天**：
+  /// `2026-10-18T00:00Z` 在 America/New_York 是 `10-17 20:00`，
+  /// 截断因此早一天——该停的那一周还留着一次课，而且不报错。
+  ///
+  /// 未装配时区服务时退回 UTC 零点（与旧行为一致），并把这件事写在字段注释里。
+  DateTime _instantForLocalDate(DateTime date) {
+    final service = zones;
+    final zone = timeZoneId;
+    if (service == null || zone == null) {
+      return DateTime.utc(date.year, date.month, date.day);
+    }
+    return service.localMidnightToUtc(
+      DateTime.utc(date.year, date.month, date.day),
+      zone,
+    );
+  }
 }

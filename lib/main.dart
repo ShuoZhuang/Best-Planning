@@ -757,6 +757,12 @@ Future<void> main() async {
           calendar: calendarService,
           deletion: calendarRepository,
           gateway: calendarRepository,
+          // 1.8.0：`pauseFrom` 要把"用户说的那一天"换算成一个**时刻**交给
+          // `deleteFollowingOccurrences`，而后者按该时刻在事项时区里的**本地日期**截断。
+          // 不传这两个值会退回 UTC 零点兜底——在负偏移时区下本地日期退到前一天，
+          // 截断因此早一天且不报错（`course_pause_time_zone_test.dart` 钉住这一点）。
+          zones: zones,
+          timeZoneId: timeZoneId,
         ),
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
