@@ -112,13 +112,14 @@ void TrayIcon::RestoreMainWindow() {
   // already been restored and shown by the two calls above, so the outer step is to
   // draw the user's attention with a flash rather than to pretend nothing happened.
   if (::SetForegroundWindow(window_) == FALSE) {
-    FLASHWINFO flash = {};
-    flash.cbSize = sizeof(flash);
-    flash.hwnd = window_;
-    flash.dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG;
-    flash.uCount = 3;
-    flash.dwTimeout = 0;
-    ::FlashWindowEx(&flash);
+    // The exact flags are decided by the policy table so they can be asserted
+    // mechanically (see `FlashPlanFor` and its test). This call site only
+    // supplies the two inputs that are runtime facts.
+    const FlashPlan plan = FlashPlanFor(/*foreground_granted=*/false, window_);
+    if (plan.flash) {
+      FLASHWINFO flash = plan.info;
+      ::FlashWindowEx(&flash);
+    }
   }
 }
 

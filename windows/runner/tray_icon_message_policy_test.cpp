@@ -15,7 +15,6 @@
 #include "tray_icon_message_policy.h"
 
 namespace {
-
 int failures = 0;
 int checks = 0;
 
@@ -41,6 +40,20 @@ void ExpectAction(const char* label, UINT message, TrayAction expected) {
   ++failures;
   std::printf("FAIL %-28s expected %s, got %s\n", label, Name(expected),
               Name(actual));
+}
+
+// Generic boolean check, used by the flash-behaviour assertions below. Kept
+// separate from ExpectAction so those can compare Win32 flags and integers
+// without pretending they are tray actions.
+void Check(const char* label, bool actual, bool expected) {
+  ++checks;
+  if (actual == expected) {
+    std::printf("ok   %-40s -> %s\n", label, actual ? "true" : "false");
+    return;
+  }
+  ++failures;
+  std::printf("FAIL %-40s expected %s, got %s\n", label,
+              expected ? "true" : "false", actual ? "true" : "false");
 }
 
 }  // namespace
@@ -72,6 +85,56 @@ int main() {
   // TrayIcon::RestoreMainWindow, and this asserts the table never turns the
   // second click into something else.
   ExpectAction("WM_LBUTTONDBLCLK #2", WM_LBUTTONDBLCLK, TrayAction::kOpen);
+
+  // ---- Flash behaviour when SetForegroundWindow is refused (spec 6.2) -------
+  //
+  // The spec says the app must not treat a refused foreground request as a
+  // failure: the window is already restored and shown, so the remaining step is
+  // to draw attention with a flash. Three properties of that flash are load
+  // bearing for the user, and all three are invisible to a widget test because
+  // they are Win32 flags:
+  //
+  //  1. FLASHW_TIMERNOFG -- keep flashing until the window comes to the
+  //     foreground. Without it the flash stops after uCount and a user who
+  //     stepped away never sees it.
+  //  2. FLASHW_ALL -- flash both the caption and the taskbar button, so the
+  //     attention cue is visible regardless of which one the user is looking at.
+  //  3. A finite uCount and a zero dwTimeout -- the flash must not become a
+  //     permanent distraction, which is what dwTimeout != 0 or uCount == 0
+  //     (flash until cancelled) would produce.
+  {
+    // A non-null handle is required: the decision refuses to flash without a
+    // window (see the null case below). The handle is never dereferenced here --
+    // FlashPlanFor only copies it into the struct.
+    HWND const fake_window = reinterpret_cast<HWND>(static_cast<uintptr_t>(1));
+    const FlashPlan plan = FlashPlanFor(false, fake_window);
+    Check("refused foreground flashes", plan.flash, true);
+    Check("flash keeps going (FLASHW_TIMERNOFG)",
+          (plan.info.dwFlags & FLASHW_TIMERNOFG) != 0, true);
+    Check("flash covers caption and taskbar (FLASHW_ALL)",
+          (plan.info.dwFlags & FLASHW_ALL) == FLASHW_ALL, true);
+    Check("flash is bounded (uCount > 0)", plan.info.uCount > 0, true);
+    Check("flash is not driven by a timeout", plan.info.dwTimeout == 0, true);
+    Check("flash info is sized", plan.info.cbSize == sizeof(FLASHWINFO), true);
+    Check("flash targets the window it was given", plan.info.hwnd == fake_window,
+          true);
+  }
+
+  // When the foreground request succeeds there must be no flash: flashing a
+  // window the user is already looking at is noise, and it would also hide a
+  // genuine regression in the flash decision.
+  {
+    HWND const fake_window = reinterpret_cast<HWND>(static_cast<uintptr_t>(1));
+    const FlashPlan plan = FlashPlanFor(true, fake_window);
+    Check("granted foreground does not flash", plan.flash, false);
+  }
+
+  // A null window cannot be flashed at all; the decision must say so instead of
+  // handing a null handle to the shell.
+  {
+    const FlashPlan plan = FlashPlanFor(false, nullptr);
+    Check("no window means no flash", plan.flash, false);
+  }
 
   std::printf("\n%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

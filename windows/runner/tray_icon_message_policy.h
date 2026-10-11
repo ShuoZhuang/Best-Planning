@@ -48,4 +48,44 @@ inline TrayAction ActionForTrayMessage(UINT message) {
   }
 }
 
+// What to do when `SetForegroundWindow` is refused (design spec section 6.2).
+//
+// The spec is explicit that a refused foreground request must **not** be treated
+// as a failure: the window has already been restored and shown, so the remaining
+// step is to draw the user's attention with a flash. That decision is three
+// Win32 flags, and all three are load bearing:
+//
+//   FLASHW_TIMERNOFG  keep flashing until the window reaches the foreground.
+//                     Without it the flash stops after `uCount` and a user who
+//                     stepped away never sees it.
+//   FLASHW_ALL        flash both the caption and the taskbar button, so the cue
+//                     is visible whichever one the user is looking at.
+//   uCount > 0 and dwTimeout == 0
+//                     the flash must be bounded. `uCount == 0` means "flash until
+//                     cancelled" and a non-zero `dwTimeout` changes the cadence;
+//                     either would turn an attention cue into a permanent
+//                     distraction.
+//
+// It lives here, next to `ActionForTrayMessage`, for the same reason: a pure
+// table is exactly what should be asserted mechanically instead of clicked by
+// hand. `tray_icon.cpp` consumes it.
+struct FlashPlan {
+  bool flash = false;
+  FLASHWINFO info = {};
+};
+
+inline FlashPlan FlashPlanFor(bool foreground_granted, HWND window = nullptr) {
+  FlashPlan plan;
+  if (foreground_granted || window == nullptr) {
+    return plan;
+  }
+  plan.flash = true;
+  plan.info.cbSize = sizeof(FLASHWINFO);
+  plan.info.hwnd = window;
+  plan.info.dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG;
+  plan.info.uCount = 3;
+  plan.info.dwTimeout = 0;
+  return plan;
+}
+
 #endif  // RUNNER_TRAY_ICON_MESSAGE_POLICY_H_
