@@ -420,6 +420,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
               candidate,
               blocks,
               targets[task.id]!,
+              problem.tasks,
             );
             if (score.isEligible) {
               ranked.add(
@@ -651,6 +652,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     SchedulingCandidate candidate,
     List<PlannedBlock> blocks,
     int targetMinutes,
+    List<SchedulableTask> pendingTasks,
   ) {
     final plannedLifeMinutes = _plannedLifeMinutes(problem.tasks, blocks);
     return _candidateScorer.score(
@@ -666,6 +668,11 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         lifeQuotaTargetMinutes: problem.rules.weeklyLifeQuotaMinutes,
         plannedLifeMinutes: plannedLifeMinutes,
         fragmentationPenaltyPermille: _fragmentation(task, candidate),
+        unusableGapPenaltyPermille: _unusableGapPermille(
+          candidate,
+          blocks,
+          pendingTasks,
+        ),
         sameTaskAdjacent: _sameTaskOnSameDay(problem, task, candidate, blocks),
         categorySwitch: _neighboursAnotherTask(
           problem,
@@ -977,6 +984,102 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         (task.maxChunkMinutes - task.minChunkMinutes);
   }
 
+  /// 这次放置会留下的**无法利用的短空档**深度，折算成千分比（1.8.0，规范 §11.4 第 6 条）。
+  ///
+  /// **与 `_fragmentation` 是两件不同的事**：那个惩罚"这一块比最大片段短多少"（块的形状），
+  /// 这个惩罚"这次放置让谁也放不进去的缝有多深"（空档的可用性）。
+  ///
+  /// **用固定窗口而不是全量扫描**，理由是**可比较性**：每个候选都只看"自己的位置 ＋ 左右各
+  /// 两段邻块"，于是这一项反映的是"这一个候选有多碎"，而不是"当前计划整体有多碎"。
+  /// 全量扫描会把一天里早已存在的坏空档也算进来——那是常量，对比较候选毫无用处。
+  ///
+  /// 深度取**最深的那一段缝**占"最小片段"的比例：缝越接近最小片段，说明这次放置越是
+  /// "差一点点就能用"，越该被罚。
+  int _unusableGapPermille(
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks,
+    List<SchedulableTask> pendingTasks,
+  ) {
+    final smallestChunk = _smallestPendingChunk(pendingTasks);
+    if (smallestChunk == null) return 0;
+    final wasted = _wastedGapMinutes(candidate, blocks, smallestChunk);
+    if (wasted <= 0) return 0;
+    // 折算成千分比：以"最小片段"为一个完整单位。
+    // 一段 29 分钟（最小片段 30）的缝因此得 966，几乎吃满；一段 1 分钟得 33。
+    return (wasted * 1000 ~/ smallestChunk).clamp(0, 1000);
+  }
+
+  /// 候选块两侧被浪费的分钟数（只算短于 [smallestChunk] 的缝）。见 [_unusableGapPermille]。
+  static int _wastedGapMinutes(
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks,
+    int smallestChunk,
+  ) {
+    // 负向扫描：只看**开始时刻早于候选**的块，取其中结束最晚的一个；
+    // 正向扫描：只看**开始时刻不早于候选结束**的块，取其中开始最早的一个。
+    // 用"结束最晚／开始最早"而不是"最近的一个"：相邻块可能互相重叠，只取一个会算错缝。
+    DateTime? leftEnd;
+    DateTime? rightStart;
+    for (final block in blocks) {
+      // **候选自己可能就在 `blocks` 里**：局部改进阶段传进来的 `others` 已经排除了它，
+      // 但放置阶段不会。把自己当成邻居会让缝算成零或负值，从而**每**次都吃到满额惩罚
+      // ——那正是"golden week"那条用例变红的原因（缺口 30 → 90）。
+      if (block.id == candidate.id) continue;
+      if (block.range.overlaps(candidate.range)) continue;
+      if (!block.startUtc.isAfter(candidate.startUtc)) {
+        if (leftEnd == null || block.endUtc.isAfter(leftEnd)) {
+          leftEnd = block.endUtc;
+        }
+        continue;
+      }
+      if (rightStart == null || block.startUtc.isBefore(rightStart)) {
+        rightStart = block.startUtc;
+      }
+    }
+
+    var wasted = 0;
+    if (leftEnd != null && leftEnd.isBefore(candidate.startUtc)) {
+      wasted += _wastedMinutes(
+        candidate.startUtc.difference(leftEnd).inMinutes,
+        smallestChunk,
+      );
+    }
+    if (rightStart != null && rightStart.isAfter(candidate.endUtc)) {
+      wasted += _wastedMinutes(
+        rightStart.difference(candidate.endUtc).inMinutes,
+        smallestChunk,
+      );
+    }
+    return wasted;
+  }
+
+  /// 一段 `gap` 分钟的缝**浪费掉多少分钟**。
+  ///
+  /// **不是"缺口越大越浪费"，而是"缺口越大越浪费"**——两者方向一致，但第一版把它写反了：
+  /// 当时算的是"还差多少才够一个最小片段"（`smallestChunk - gap`），于是**越短**的缝罚得越重。
+  /// `golden week` 那条用例当场把它抓出来：引擎宁可不要 10 分钟的休息，也不肯留一段
+  /// "浪费更多"的缝，于是两个块贴在一起、缺口从 30 变成 90。
+  ///
+  /// 现在算的是**真浪费**：一段 29 分钟（最小片段 30）的缝浪费 29 分钟，一段 1 分钟的缝
+  /// 只浪费 1 分钟，而达到最小片段长度的缝浪费 0（它完全可以放下一块）。
+  static int _wastedMinutes(int gap, int smallestChunk) =>
+      gap >= smallestChunk ? 0 : gap;
+
+  /// 还没排完的任务里**最小**的片段长度；没有可排任务时返回 `null`。
+  ///
+  /// 与 `unusable_gap.dart` 的 `_smallestChunkMinutes` 同一条判据（用 `minChunkMinutes`
+  /// 而不是剩余时长、用 `min` 而不是 `max`），只是那边是"给定块集合求坏空档"的纯函数、
+  /// 这边是评分路径上的快速判定。两处都只认**没排完的**任务。
+  static int? _smallestPendingChunk(List<SchedulableTask> pendingTasks) {
+    int? smallest;
+    for (final task in pendingTasks) {
+      if (task.requiredMinutes <= 0) continue;
+      final chunk = task.minChunkMinutes <= 0 ? 1 : task.minChunkMinutes;
+      if (smallest == null || chunk < smallest) smallest = chunk;
+    }
+    return smallest;
+  }
+
   int _continuationCapacity(
     SchedulableTask task,
     List<AvailabilitySlot> slots,
@@ -1112,6 +1215,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         currentCandidate,
         others,
         targets[task.id]!,
+        problem.tasks,
       ).totalScore!;
       final alternatives = _candidateGenerator
           .generate(task, slots)
@@ -1142,6 +1246,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           candidate,
           others,
           targets[task.id]!,
+          problem.tasks,
         );
         if (!score.isEligible || score.totalScore! <= currentScore) continue;
         final replacement = PlannedBlock(
