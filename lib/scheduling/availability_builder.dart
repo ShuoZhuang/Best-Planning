@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/protected_time_expander.dart';
 
 final class AvailabilityInput {
   AvailabilityInput({
@@ -132,51 +133,21 @@ final class AvailabilityBuilder {
     return List.unmodifiable(output);
   }
 
-  List<TimeRange> _sleepIntervals(AvailabilityInput input) {
-    final result = <TimeRange>[];
-    var date = _dateOnly(
-      _zones
-          .toLocal(input.planningWindow.startUtc, input.timeZoneId)
-          .subtract(const Duration(days: 1)),
-    );
-    final end = _dateOnly(
-      _zones
-          .toLocal(input.planningWindow.endUtc, input.timeZoneId)
-          .add(const Duration(days: 1)),
-    );
-
-    while (!date.isAfter(end)) {
-      for (final segment in input.rules.sleepRange.splitAtMidnight()) {
-        final segmentDate = date.add(Duration(days: segment.dayOffset));
-        result.add(
-          TimeRange(
-            startUtc: _utcBoundary(
-              segmentDate,
-              segment.startMinute,
-              input.timeZoneId,
-            ),
-            endUtc: _utcBoundary(
-              segmentDate,
-              segment.endMinute,
-              input.timeZoneId,
-            ),
-          ),
-        );
-      }
-      date = date.add(const Duration(days: 1));
-    }
-    return result;
-  }
-
-  DateTime _utcBoundary(DateTime date, int minute, String zoneId) {
-    if (minute == LocalTimeRange.minutesPerDay) {
-      return _zones.localMidnightToUtc(
-        date.add(const Duration(days: 1)),
-        zoneId,
-      );
-    }
-    return _zones.localDateTimeToUtc(date, minute, zoneId);
-  }
+  List<TimeRange> _sleepIntervals(AvailabilityInput input) =>
+      // **睡眠展开只有一处实现**（`ProtectedTimeExpander.sleep`）。
+      // 此前这里是自带的一份同样逻辑，而 `ScheduleProblem.protectedIntervals`
+      // 里**没有**睡眠 —— 于是"容量认为睡眠不可用、校验却认为压上去没关系"，
+      // 两处口径不一致（用户第 65 轮复核第 3 条）。
+      // 现在两边共用同一份展开，口径不可能再漂。
+      ProtectedTimeExpander(_zones)
+          .sleep(
+            rules: input.rules,
+            startUtc: input.planningWindow.startUtc,
+            endUtc: input.planningWindow.endUtc,
+            timeZoneId: input.timeZoneId,
+          )
+          .map((interval) => interval.range)
+          .toList();
 }
 
 List<TimeRange> _merge(List<TimeRange> ranges) {

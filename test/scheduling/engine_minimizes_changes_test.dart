@@ -114,20 +114,24 @@ void main() {
     expect(first.blocks, isNotEmpty);
   });
 
-  test('算法版本是 12（本次算法升级完成，一次抬到位）', () {
+  test('算法版本是 13（本轮算法升级完成，一次抬到位）', () {
     // 设计 §5.1：任何会改变排程结果的改动都必须抬版本，否则历史计划无法按当时的算法复现。
     //
-    // **12 涵盖同一次算法升级的四件事**（裁定第 3 点原文："稳定身份、块级延后、
-    // 局部级联、方案级坏空档比较作为同一次算法升级完成，最后统一升到 12"）：
+    // **13 涵盖同一次算法升级**（裁定第 3 点的四件事 + 用户第 64／65 轮复核的修正）：
     //   1. 稳定来源关联（`continuedFromId` + `linkBlockProvenance`）；
     //   2. 块级延后（`BlockAdjustmentContext`，不再是任务级下界）；
     //   3. 局部级联（`repairBestPlan` 在有限候选里择优）；
-    //   4. 方案级坏空档比较（`LocalRepairPlan.compare` 的第 6、7 级）。
+    //   4. 方案级坏空档比较（`LocalRepairPlan.compare` 的第 6、7 级）；
+    //   5. **当天优先**（`repairBestPlanDayScoped`：当天尝试只处理目标当天的可移动块）；
+    //   6. **统一硬占用集合**（固定日程含课程缓冲／规则与自定义保护时间／**睡眠**／
+    //      锁定块／已过去的块）；
+    //   7. **未被调整的确认块原位冻结**（§11.4 第 3、4 条"最小改动"）。
     //
-    // **11 是上一次**：`minimizeChangedBlocks` 接入时抬的那一次。
+    // 第 5、6、7 项都**改变排程结果**，因此必须在同一次升级里抬到位。
+    // **12 是上一次**（前四项做完时抬的）。
     //
     // 这条用例刻意写死字符串（而不是引用常量），于是抬版本时**必须**回到这里
     // 补一句"为什么"，否则它不会通过。
-    expect(DeterministicScheduleEngine.algorithmVersion, '12');
+    expect(DeterministicScheduleEngine.algorithmVersion, '13');
   });
 }

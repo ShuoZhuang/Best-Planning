@@ -340,6 +340,24 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 既进 fixed 又进 protected（规范 §8 审查问题 4）。
       for (final occurrence in protectedOccurrences)
         BusyInterval(id: occurrence.eventId, range: occurrence.range),
+      // ……加上**睡眠**（用户第 65 轮复核第 3 条）。
+      //
+      // **它此前只存在于 `AvailabilityBuilder` 内部**：容量计算扣掉睡眠，
+      // 但 `protectedIntervals` 里没有它，于是
+      //   · `PlanValidator` 不会把"块压在睡眠上"报成冲突；
+      //   · 调整路径的硬障碍集合里也没有睡眠。
+      // 把同一份展开（`ProtectedTimeExpander.sleep`）也放进这里，
+      // 容量与校验从此只有一个口径。
+      //
+      // **重复不会导致重复扣除**：`AvailabilityBuilder.build` 会把所有忙碌区间
+      // 交给 `_merge` 合并，重叠区间被吞掉（那边仍然独立调用 `_sleepIntervals`，
+      // 但两者现在展开的是同一份结果）。
+      ...protectedTimes.sleep(
+        rules: resolvedRules,
+        startUtc: startUtc,
+        endUtc: endUtc,
+        timeZoneId: timeZoneId,
+      ),
     ];
 
     // ── 调整路径：级联到位（裁定第 4 点；设计 §5.4）────────────────────────────

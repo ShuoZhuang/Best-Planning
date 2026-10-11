@@ -146,13 +146,30 @@ void main() {
   test('把保护时间逐日展开为窗口内的具体区间', () async {
     final problem = await source().load();
 
-    // 默认午餐与晚餐各 7 天。
-    expect(problem.protectedIntervals.length, 14);
+    // 默认午餐与晚餐各 7 天 = 14 条规则保护时间。
+    expect(
+      problem.protectedIntervals
+          .where(
+            (item) =>
+                item.id.startsWith('protected:lunch:') ||
+                item.id.startsWith('protected:dinner:'),
+          )
+          .length,
+      14,
+    );
     expect(
       problem.protectedIntervals.any(
         (item) => item.id.startsWith('protected:lunch:'),
       ),
       isTrue,
+    );
+    // **睡眠也在里面**（用户第 65 轮复核第 3 条）：它此前只由 `AvailabilityBuilder`
+    // 内部扣除，`protectedIntervals` 里没有 ⇒ 容量与校验两处口径不一致。
+    // 现在走同一份 `ProtectedTimeExpander.sleep` 展开。
+    expect(
+      problem.protectedIntervals.any((item) => item.id.startsWith('sleep:')),
+      isTrue,
+      reason: '睡眠必须进入硬占用集合，否则"容量认为不可用、校验认为没关系"',
     );
   });
 
