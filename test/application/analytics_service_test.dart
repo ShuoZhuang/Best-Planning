@@ -70,6 +70,45 @@ void main() {
     );
   });
 
+  test('用户自建的保护时间计入「休息保护」的分子分母（1.8.0，规范 §9.1 末条）', () async {
+    // 第四条路径。前两条（休息总结、工作／休息）**曾经漏转发**参数而整节出错；
+    // 这一条转发了参数，但 `_restSummary` 还在**分组**层面丢过东西，
+    // 因此邻居们都要各自核对一遍，不能因为"参数传了"就当成没事。
+    final report = await AnalyticsService(
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+      source: _MemoryAnalyticsSource(
+        _dataset(
+          start,
+          protectedInstances: [
+            AnalyticsProtectedInstance(
+              label: '每周二下午不排事',
+              startUtc: start.add(const Duration(hours: 2)),
+              endUtc: start.add(const Duration(hours: 4)),
+            ),
+          ],
+        ),
+      ),
+    ).query(AnalyticsFilter(startUtc: start, endUtc: end));
+
+    expect(report.restProtection, isNotNull);
+    expect(
+      report.restProtection!.protectedMinutes,
+      120,
+      reason: '两小时的自建保护时间必须进这个分母；漏掉会让"保护被守住的比例"失去意义',
+    );
+    expect(
+      // 夹具里 `life` 的实际投入落在 12:00–13:00 共 60 分钟跨度、其中 `activeMinutes: 45`。
+      // `_actualOverlapScaled` 按**实际专注占比**折算，因此这一项是 45 而不是 60——
+      // 第一版我按"重叠了 60 分钟"写成 60、红了。**代码是对的，我的算式错了。**
+      report.restProtection!.overlappedMinutes,
+      45,
+      reason:
+          '被侵占的部分按实际专注分钟折算（60 分钟跨度 × 45 分钟实际）；'
+          '若恒等于 0 说明自建实例没进这一项，恒等于 60 说明它把"计划"当成了"实际"',
+    );
+  });
+
   test('用户自建的保护时间计入「工作／休息」的休息分钟（1.8.0，规范 §9.1 末条）', () async {
     // **这是 `_restSummary` 那条缺陷的邻座**：`_protectedMinutes` 同样声明了
     // `customInstances`、同样在守卫里检查了它，却同样**没有转发**给展开器。
