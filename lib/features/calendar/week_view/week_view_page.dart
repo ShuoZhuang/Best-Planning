@@ -4,6 +4,7 @@ import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_timeline_plan.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/timeline_day_column.dart';
 import 'package:personal_planner/features/calendar/week_view/timeline_layout.dart';
@@ -237,10 +238,8 @@ final class _WeekViewPageState extends State<WeekViewPage> {
             _DayColumn(
               key: ValueKey('week-day-$index'),
               day: widget.weekStart.add(Duration(days: index)),
-              localDay: (widget.toLocal ?? (date) => date)(
-                widget.weekStart.add(Duration(days: index)),
-              ),
-              relativeLabel: _relativeLabel(index),
+              localDay: _localDayFor(index),
+              relativeLabel: _relativeLabel(_localDayFor(index), index),
               isToday: index == 0,
               toLocal: widget.toLocal,
               onOpenDay: widget.onOpenDay,
@@ -279,37 +278,32 @@ final class _WeekViewPageState extends State<WeekViewPage> {
   /// 拖动**不**在这里支持——§9 只要求时间轴能看到时长与节奏，
   /// 而"拖到某一天"这个动作在按小时排列的视图里语义不同（拖到几点？），
   /// 因此保留紧凑模式作为唯一的拖动入口，不在这里发明一套新的拖放语义。
+  ///
+  /// **本方法是这个视图里 UTC → 本地时区的唯一转换边界**（1.8.0，设计规范 §4.1）：
+  /// [weeklyTimelinePlan] 一次算出每列的本地日期与每条的本地分钟区间，位置、卡片文字、
+  /// 悬浮提示与无障碍语义全部由那份结果派生。此前这里算窗口用一次 `toLocal`，
+  /// `TimelineDayColumn` 里算位置又算一次、卡片格式化时还第三次包装——同一时刻被换了
+  /// 三次时区（§2.1）。
   Widget _timeline(BuildContext context, List<ScheduleViewItem> items) {
-    final toLocal = widget.toLocal ?? (value) => value;
+    // 列的**本地日期**必须按本地日历推（`weekStart` 的本地日期 ± n 天），
+    // 不能用 `weekStart.add(Duration(days: n))`：那是加经过时长，夏令时切换周会漂。
+    final weekStartLocal = _localDateOf(_applyToLocal(widget.weekStart));
     final days = [
       for (var index = -1; index < 7; index++)
-        widget.weekStart.add(Duration(days: index)),
+        DateTime(
+          weekStartLocal.year,
+          weekStartLocal.month,
+          weekStartLocal.day + index,
+        ),
     ];
-    // 每条安排按它所属的**本地日**归列。
-    final perDay = <int, List<ScheduleViewItem>>{};
-    for (final day in days) {
-      final index = days.indexOf(day);
-      perDay[index] = items.where((item) {
-        return item.range.startUtc.isBefore(day.add(const Duration(days: 1))) &&
-            item.range.endUtc.isAfter(day);
-      }).toList();
-    }
 
-    // 可见范围取**所有列**的最早开始与最晚结束（§9："默认显示用户有安排的有效时间范围"）。
-    // 用全局而不是每列各自的范围：各列范围不同的话，同一钟点在相邻两列会落在不同高度，
-    // 时间轴就失去了"横向可比"的意义——而那正是它存在的理由。
-    final ranges = <({int start, int end})>[];
-    for (final entry in perDay.values) {
-      for (final item in entry) {
-        ranges.add(
-          minuteRangeInDay(
-            toLocal(item.range.startUtc),
-            toLocal(item.range.endUtc),
-          ),
-        );
-      }
-    }
-    final window = timelineWindowFor(ranges);
+    final plan = weeklyTimelinePlan(
+      items: items,
+      days: days,
+      toLocal: _applyToLocal,
+    );
+
+    final window = timelineWindowFor(plan.ranges);
     final metrics = TimelineMetrics(
       windowStartMinute: window.start,
       windowEndMinute: window.end,
@@ -325,7 +319,7 @@ final class _WeekViewPageState extends State<WeekViewPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TimelineHourAxis(metrics: metrics),
-            for (var index = 0; index < days.length; index++)
+            for (var index = 0; index < plan.days.length; index++)
               SizedBox(
                 width: 132,
                 child: Column(
@@ -334,19 +328,23 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                     // 列头与紧凑模式**同样的 key 与可点行为**（§9 退出条件：
                     // "日期气泡、日期标题和卡片均能进入正确日期或详情"）。
                     _TimelineDayHeader(
-                      key: ValueKey('week-timeline-day-${index - 1}'),
-                      localDay: toLocal(days[index]),
-                      relativeLabel: _relativeLabel(index - 1),
-                      isToday: index - 1 == 0,
+                      key: ValueKey(
+                        'week-timeline-day-${plan.days[index].index}',
+                      ),
+                      localDay: plan.days[index].localDate,
+                      relativeLabel: _relativeLabel(
+                        plan.days[index].localDate,
+                        plan.days[index].index,
+                      ),
+                      isToday: plan.days[index].index == 0,
                       onOpenDay: widget.onOpenDay == null
                           ? null
-                          : () => widget.onOpenDay!(days[index]),
+                          : () =>
+                                widget.onOpenDay!(plan.days[index].dayStartUtc),
                     ),
                     TimelineDayColumn(
-                      items: perDay[index] ?? const [],
+                      entries: plan.days[index].entries,
                       metrics: metrics,
-                      localDayStart: toLocal(days[index]),
-                      toLocal: widget.toLocal,
                       onOpenItem: widget.onOpenItem,
                     ),
                   ],
@@ -358,20 +356,41 @@ final class _WeekViewPageState extends State<WeekViewPage> {
     );
   }
 
+  /// UTC → 本地。**只在 `_timeline` 里调用**，是这一页唯一的换算入口。
+  DateTime _applyToLocal(DateTime value) =>
+      (widget.toLocal ?? (instant) => instant)(value);
+
+  /// 第 [index] 列（`-1` 是昨天）的**本地日期**。
+  ///
+  /// 按本地日历推（周起点的本地日期 ± n 天），而不是把 `weekStart` 当本地午夜再加经过
+  /// 时长——夏令时切换周里后者会落到 01:00 或 23:00，列头日期与星期就错了。
+  DateTime _localDayFor(int index) {
+    final weekStartLocal = _localDateOf(_applyToLocal(widget.weekStart));
+    return DateTime(
+      weekStartLocal.year,
+      weekStartLocal.month,
+      weekStartLocal.day + index,
+    );
+  }
+
   /// 列头第一行：`昨天` / `今天` / `明天` 优先，其余显示星期。  ///
   /// 用户 2026-10-07 的要求原话："七日日历里要是昨天 今天 明天，然后后面就是周几周几"。
   /// 这也正是天气应用的做法：最近三天用相对日称呼（一眼知道是哪天），更远的日子用星期几
   /// （才读得出"离今天还有多远"）。
-  String _relativeLabel(int index) {
+  ///
+  /// `weekday` 取的是**已经算好的本地日期**，而不是重新换算周起点——夏令时切换周里
+  /// "周起点加 n 天"得到的日期不是那一天。
+  String _relativeLabel(DateTime localDate, int index) {
     if (index == -1) return '昨天';
     if (index == 0) return '今天';
     if (index == 1) return '明天';
     const names = ['一', '二', '三', '四', '五', '六', '日'];
-    final day = widget.weekStart.add(Duration(days: index));
-    final local = (widget.toLocal ?? (date) => date)(day);
-    return '周${names[local.weekday - 1]}';
+    return '周${names[localDate.weekday - 1]}';
   }
 }
+
+DateTime _localDateOf(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
 
 final class _DayColumn extends StatelessWidget {
   const _DayColumn({

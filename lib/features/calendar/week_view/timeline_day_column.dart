@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_timeline_plan.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/timeline_layout.dart';
 
@@ -11,55 +12,43 @@ import 'package:personal_planner/features/calendar/week_view/timeline_layout.dar
 ///
 /// **颜色必须复用统一目录**（§9）：走 [scheduleCategoryCardStyle]，与紧凑模式、今日页、
 /// 单日页同一个派生器——同一事项在四个视图里必须逐值同色。
+///
+/// **本控件不做任何时区换算**（1.8.0，设计规范 §4.1）。它收到的是已经算好的
+/// [PlannedDayEntry]，其中的 `startMinute` / `endMinute` 同时决定位置与文字。
+/// 此前这里自己调 `toLocal`，而卡片又把"本地分钟"包成 `DateTime.utc` 再调一次，
+/// 于是在 Asia/Shanghai 下文字偏 8 小时（§2.1）。转换只在
+/// [weeklyTimelinePlan] 里发生一次。
 final class TimelineDayColumn extends StatelessWidget {
   const TimelineDayColumn({
-    required this.items,
+    required this.entries,
     required this.metrics,
-    required this.localDayStart,
-    required this.toLocal,
     this.onOpenItem,
     super.key,
   });
 
-  /// 当天（已按当天裁剪）的条目。
-  final List<ScheduleViewItem> items;
+  /// 当天（已按当天裁剪）的条目及其本地分钟区间。
+  final List<PlannedDayEntry> entries;
 
   final TimelineMetrics metrics;
 
-  /// 当天本地 00:00，用来把 UTC 时刻换算成"当天第几分钟"。
-  final DateTime localDayStart;
-
-  /// 视图数据以 UTC 保存；生产环境传入应用选定时区的换算函数。
-  final DateTime Function(DateTime instantUtc)? toLocal;
-
   final ValueChanged<ScheduleViewItem>? onOpenItem;
-
-  DateTime _local(DateTime value) => (toLocal ?? (instant) => instant)(value);
 
   @override
   Widget build(BuildContext context) {
-    // 把每条的时间范围算**一次**，几何与文字共用同一份结果——算两次迟早会不一致。
-    final ranges = <String, ({int start, int end})>{
-      for (final item in items)
-        item.id: minuteRangeInDay(
-          _local(item.range.startUtc),
-          _local(item.range.endUtc),
-        ),
-    };
     final blocks = layoutTimelineDay(
-      items: items,
+      items: entries.map((entry) => entry.item),
       metrics: metrics,
-      startMinuteOf: (item) => ranges[item.id]!.start,
-      endMinuteOf: (item) => ranges[item.id]!.end,
+      startMinuteOf: (item) => _entryFor(item).startMinute,
+      endMinuteOf: (item) => _entryFor(item).endMinute,
     );
-    final byId = {for (final item in items) item.id: item};
+    final byId = {for (final entry in entries) entry.item.id: entry};
 
     return SizedBox(
       height: metrics.contentHeight,
       child: Stack(
         children: [
           for (final block in blocks)
-            if (byId[block.itemId] case final item?)
+            if (byId[block.itemId] case final entry?)
               Positioned(
                 top: block.top,
                 // 留 1 像素缝：相邻两块的边框紧贴会看起来像一整块。
@@ -75,13 +64,10 @@ final class TimelineDayColumn extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.only(right: 2),
                     child: _TimelineCard(
-                      item: item,
-                      startMinute: ranges[item.id]!.start,
-                      endMinute: ranges[item.id]!.end,
-                      formatTime: (value) => _hhmm(_local(value)),
+                      entry: entry,
                       onTap: onOpenItem == null
                           ? null
-                          : () => onOpenItem!(item),
+                          : () => onOpenItem!(entry.item),
                     ),
                   ),
                 ),
@@ -90,40 +76,25 @@ final class TimelineDayColumn extends StatelessWidget {
       ),
     );
   }
+
+  PlannedDayEntry _entryFor(ScheduleViewItem item) =>
+      entries.firstWhere((entry) => entry.item.id == item.id);
 }
-
-String _hhmm(DateTime value) =>
-    '${value.hour.toString().padLeft(2, '0')}:'
-    '${value.minute.toString().padLeft(2, '0')}';
-
-/// 把"当天第几分钟"变成一个可格式化的时刻。
-///
-/// 日期取一个固定值：时间轴只画时分，日期由**列**决定，因此这里不能也不需要知道是哪天。
-DateTime _clockAt(int minute) =>
-    DateTime.utc(2000).add(Duration(minutes: minute));
 
 /// 时间轴上的一张卡片。
 final class _TimelineCard extends StatelessWidget {
-  const _TimelineCard({
-    required this.item,
-    required this.startMinute,
-    required this.endMinute,
-    required this.formatTime,
-    this.onTap,
-  });
+  const _TimelineCard({required this.entry, this.onTap});
 
-  final ScheduleViewItem item;
-  final int startMinute;
-  final int endMinute;
-  final String Function(DateTime value) formatTime;
+  final PlannedDayEntry entry;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final item = entry.item;
     // 与紧凑模式共用同一个派生器：同一事项在四个视图里必须逐值同色。
     final visual = scheduleCategoryCardStyle(item.categoryColor);
-    final timeLabel =
-        '${formatTime(_clockAt(startMinute))}–${formatTime(_clockAt(endMinute))}';
+    // 位置与文字共用同一个区间（规范 §4.1）。
+    final timeLabel = entry.label;
 
     final card = Container(
       key: ValueKey('week-timeline-card-${item.id}'),
