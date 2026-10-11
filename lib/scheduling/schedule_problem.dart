@@ -98,6 +98,7 @@ final class PlannedBlock {
     required this.range,
     this.locked = false,
     this.explanationCode,
+    this.continuedFromId,
   });
 
   final String id;
@@ -106,9 +107,67 @@ final class PlannedBlock {
   final bool locked;
   final String? explanationCode;
 
+  /// 这一块**延续自**当前确认计划里的哪一块；`null` 表示它是新排进来的。
+  ///
+  /// **为什么必须与 [id] 分开**（裁定第 1 点，设计 §5.1）：
+  /// `applyProposal` 落库时构造 `persistedId = '<提案 id>:<block.id>'`，
+  /// **并把 `PlannedBlock.id` 设成这个 persistedId 存回确认计划**。
+  /// 因此若让新提案的 `block.id` 去复用确认计划里的旧 id，下一次确认就会得到
+  /// `'<新提案 id>:<旧提案 id>:<原引擎 id>'` —— **每确认一次就再套一层提案前缀**。
+  ///
+  /// 分工因此写死：
+  /// - **落库**用 [id]（保持 `'<提案 id>:<id>'`，绝不叠加）；
+  /// - **查原位**（`referenceBlocks`）与**判"移动"**（`PlanDiffer`）用 [continuedFromId]；
+  /// - **引擎内部**占用与冲突用 [id]（同一次生成内的唯一标识）。
+  ///
+  /// 它只作为**提案期关联**存在：落库时被丢掉，下次生成由来源匹配重新建立，
+  /// 因此**不需要数据库迁移**（裁定第 1 点末句）。
+  final String? continuedFromId;
+
+  /// 基于本块派生一个**延续块**：换上新 id，并把**本块**登记为它的来源。
+  ///
+  /// **纯操作**：不修改本块。原地改 id 会让同一份输入在不同阶段看到不同的块。
+  ///
+  /// **来源永远是本块**，与 [nextId] 无关。这是刻意的：把 `continuedFromId`
+  /// 设成 [nextId] 会让来源关联退化成"指向自己"，而 §5.1 的用途
+  /// （查原位、判"移动"）要的恰恰是**指回上一版的那一块**。
+  ///
+  /// [nextId] 是新提案里给这一块起的名字；[newRange] 为空时沿用本块位置。
+  ///
+  /// **位置用 `TimeRange` 而不是"小时数"**：本块的 `range` 已经是 UTC 时刻，
+  /// 再引入一个"本地钟点"参数就会多出一次时区换算——而规范 §4.1 的教训正是
+  /// "同一件事不要在两层各算一次"。调用方（引擎／装配层）本来就有
+  /// `TimeRange`，传进来即可。
+  PlannedBlock continueFrom(
+    String nextId, {
+    TimeRange? newRange,
+    String? explanationCode,
+  }) => PlannedBlock(
+    id: nextId,
+    taskId: taskId,
+    range: newRange ?? range,
+    locked: locked,
+    explanationCode: explanationCode ?? this.explanationCode,
+    continuedFromId: id,
+  );
+
   DateTime get startUtc => range.startUtc;
   DateTime get endUtc => range.endUtc;
   int get durationMinutes => range.durationMinutes;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PlannedBlock &&
+      other.id == id &&
+      other.taskId == taskId &&
+      other.range == range &&
+      other.locked == locked &&
+      other.explanationCode == explanationCode &&
+      other.continuedFromId == continuedFromId;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, taskId, range, locked, explanationCode, continuedFromId);
 }
 
 final class ScheduleProblem {
