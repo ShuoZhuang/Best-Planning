@@ -12,6 +12,7 @@ import 'package:personal_planner/data/database/app_database.dart'
     hide CalendarEvent, RecurrenceRule;
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 
 /// 2026-10-05 是周一，因此"每周一 09:00（UTC）"的规则会在 10-05 与 10-12 各出一条。
 final _weekStart = DateTime.utc(2026, 10, 5, 9);
@@ -226,9 +227,12 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      newStartUtc: DateTime.utc(2026, 10, 12, 16),
-      newEndUtc: DateTime.utc(2026, 10, 12, 17),
-      title: '数据结构课',
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 16),
+        endAtUtc: DateTime.utc(2026, 10, 12, 17),
+        timeZoneId: 'UTC',
+      ),
       exceptionId: 'exception-replace-1',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
@@ -247,18 +251,24 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      newStartUtc: DateTime.utc(2026, 10, 12, 16),
-      newEndUtc: DateTime.utc(2026, 10, 12, 17),
-      title: '数据结构课',
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 16),
+        endAtUtc: DateTime.utc(2026, 10, 12, 17),
+        timeZoneId: 'UTC',
+      ),
       exceptionId: 'exception-replace-1',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      newStartUtc: DateTime.utc(2026, 10, 12, 18),
-      newEndUtc: DateTime.utc(2026, 10, 12, 19),
-      title: '数据结构课',
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 18),
+        endAtUtc: DateTime.utc(2026, 10, 12, 19),
+        timeZoneId: 'UTC',
+      ),
       exceptionId: 'exception-replace-2',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
@@ -287,9 +297,12 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'single-2',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 14),
-      newStartUtc: DateTime.utc(2026, 10, 12, 16),
-      newEndUtc: DateTime.utc(2026, 10, 12, 17),
-      title: '一次性讲座',
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 16),
+        endAtUtc: DateTime.utc(2026, 10, 12, 17),
+        timeZoneId: 'UTC',
+      ),
       exceptionId: 'exception-replace-3',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
@@ -307,8 +320,12 @@ void main() {
 
     await repository.replaceSeries(
       anchorId: 'anchor-1',
-      newStartUtc: DateTime.utc(2026, 10, 5, 14),
-      newEndUtc: DateTime.utc(2026, 10, 5, 15),
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 5, 14),
+        endAtUtc: DateTime.utc(2026, 10, 5, 15),
+        timeZoneId: 'UTC',
+      ),
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
 
@@ -345,8 +362,12 @@ void main() {
 
     await repository.replaceSeries(
       anchorId: 'single-3',
-      newStartUtc: DateTime.utc(2026, 10, 12, 18),
-      newEndUtc: DateTime.utc(2026, 10, 12, 19),
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 18),
+        endAtUtc: DateTime.utc(2026, 10, 12, 19),
+        timeZoneId: 'UTC',
+      ),
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
 

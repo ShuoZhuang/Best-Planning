@@ -313,11 +313,7 @@ void main() {
   void expectOrderedAfter(WidgetTester tester, String first, String second) {
     final firstY = tester.getTopLeft(find.text(first)).dy;
     final secondY = tester.getTopLeft(find.text(second)).dy;
-    expect(
-      secondY,
-      greaterThan(firstY),
-      reason: '「$second」应当排在「$first」之后',
-    );
+    expect(secondY, greaterThan(firstY), reason: '「$second」应当排在「$first」之后');
   }
 
   testWidgets('**早餐保护这一行始终存在，且默认关闭、建议 07:30–08:00**', (tester) async {
@@ -413,11 +409,7 @@ void main() {
     final breakfast = resolved.rules.protectedTimes
         .where((item) => item.kind.name == 'breakfast')
         .toList();
-    expect(
-      breakfast,
-      hasLength(1),
-      reason: '启用之后规则里必须有且只有一条早餐保护',
-    );
+    expect(breakfast, hasLength(1), reason: '启用之后规则里必须有且只有一条早餐保护');
     expect(breakfast.single.range.startMinute, 7 * 60 + 30);
     expect(breakfast.single.range.endMinute, 8 * 60);
     expect(breakfast.single.enabled, isTrue);
@@ -474,10 +466,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 把工作日睡眠改成 23:30–08:00（默认结束时间是 07:30 附近，因此这里显式改）。
-    await tester.enterText(
-      find.byKey(const Key('weekday-sleep-end')),
-      '08:00',
-    );
+    await tester.enterText(find.byKey(const Key('weekday-sleep-end')), '08:00');
     await tester.enterText(
       find.byKey(const Key('weekday-sleep-start')),
       '23:30',
@@ -494,8 +483,7 @@ void main() {
     expect(
       find.text('设置已保存'),
       findsNothing,
-      reason:
-          '计划 §2.4："早餐不与睡眠自动合并；两者重叠时**阻止保存**并指出冲突"',
+      reason: '计划 §2.4："早餐不与睡眠自动合并；两者重叠时**阻止保存**并指出冲突"',
     );
     expect(
       find.textContaining('重叠'),

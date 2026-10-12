@@ -5,10 +5,21 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 
-enum EventEditScope { singleOccurrence, followingOccurrences, entireSeries }
+// `EventEditScope` 本轮移到了领域层（`calendar_event_edit.dart`），
+// 因为 `CalendarEditTarget` 是领域模型、必须带上它。这里转发一下，
+// 既有 `import '.../calendar_service.dart'` 的调用点因此一个字都不用改。
+export 'package:personal_planner/domain/models/calendar_event_edit.dart'
+    show
+        CalendarEditTarget,
+        CalendarEventEditDraft,
+        CalendarMutationResult,
+        CalendarMutationStatus,
+        EventEditScope,
+        RecurrenceEditDraft;
 
 final class EventDraft {
   const EventDraft({
@@ -78,7 +89,7 @@ final class EventSaveResult {
 }
 
 final class CalendarService {
-  const CalendarService({
+  CalendarService({
     required CalendarRepository repository,
     RecurringCalendarRepository? recurringRepository,
     CalendarEventDeletion? deletion,
@@ -96,7 +107,7 @@ final class CalendarService {
          onScheduleInputChanged,
        );
 
-  const CalendarService._(
+  CalendarService._(
     this._repository,
     this._recurringRepository,
     this._deletion,
@@ -132,42 +143,79 @@ final class CalendarService {
   /// 改写整个系列（FR-CAL-02 的"整个系列"编辑一半）。所有各次一起换到新时间。
   ///
   /// 与 [replaceOccurrence] 同路：锚点与规则都在仓储侧读写（它才摸得到规则行），本服务只转发。
+  ///
+  /// **deprecated 包装器**（课程与保护时间管理修复计划 Task 2 Step 4）：内部构造完整草稿并转到
+  /// [updateEvent]。等 Task 8 把全部调用方迁到 `updateEvent` 之后再删——一次提交就让整个仓库
+  /// 编译不过，会把"有没有回归"和"还没改完"混在一起。
+  @Deprecated(
+    'Use updateEvent with CalendarEditTarget(scope: entireSeries) instead.',
+  )
   Future<bool> replaceSeries({
     required String anchorId,
     required DateTime newStartUtc,
     required DateTime newEndUtc,
   }) async {
-    final deletion = _deletion;
-    if (deletion == null) return false;
-    await deletion.replaceSeries(
-      anchorId: anchorId,
-      newStartUtc: newStartUtc,
-      newEndUtc: newEndUtc,
-      updatedAtUtc: _clock.nowUtc(),
+    final result = await updateEvent(
+      target: CalendarEditTarget(
+        anchorId: anchorId,
+        scope: EventEditScope.entireSeries,
+      ),
+      event: CalendarEventEditDraft(
+        title: _titleCache[anchorId] ?? _fallbackTitle,
+        startAtUtc: newStartUtc,
+        endAtUtc: newEndUtc,
+        timeZoneId: _fallbackTimeZoneId,
+      ),
     );
-    await _reportChange(anchorId: anchorId, action: '系列改写');
-    return true;
+    return result.isSuccess;
   }
 
+  @Deprecated(
+    'Use updateEvent with CalendarEditTarget(scope: followingOccurrences).',
+  )
   Future<bool> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
     required DateTime newStartUtc,
     required DateTime newEndUtc,
   }) async {
-    final deletion = _deletion;
-    if (deletion == null) return false;
-    await deletion.replaceFollowingOccurrences(
-      anchorId: anchorId,
-      occurrenceStartUtc: occurrenceStartUtc,
-      newStartUtc: newStartUtc,
-      newEndUtc: newEndUtc,
-      newRuleId: _idGenerator.next(),
-      newEventId: _idGenerator.next(),
-      updatedAtUtc: _clock.nowUtc(),
+    final result = await updateEvent(
+      target: CalendarEditTarget(
+        anchorId: anchorId,
+        scope: EventEditScope.followingOccurrences,
+        occurrenceStartUtc: occurrenceStartUtc,
+      ),
+      event: CalendarEventEditDraft(
+        title: _titleCache[anchorId] ?? _fallbackTitle,
+        startAtUtc: newStartUtc,
+        endAtUtc: newEndUtc,
+        timeZoneId: _fallbackTimeZoneId,
+      ),
     );
-    await _reportChange(anchorId: anchorId, action: '本次及以后改写');
-    return true;
+    return result.isSuccess;
+  }
+
+  /// 兼容期用的兜底标题与时区。
+  ///
+  /// 旧接口只给"新起止"，**没有标题也没有时区**——而完整草稿两者都是必填。
+  /// 这里刻意选一个**明显不是真实值**的标题，而不是空串：空标题会让草稿判为非法，
+  /// 于是旧调用点在迁移期直接失效（那是"一次提交让仓库编译不过"的另一种形态）。
+  /// Task 8 迁完之后这些包装器会被删除。
+  static const String _fallbackTitle = '未命名事项';
+  static const String _fallbackTimeZoneId = 'UTC';
+
+  /// 旧接口把标题写在调用点，这里用一个进程内缓存把它捡回来。
+  ///
+  /// **为什么需要**：`replaceSeries` 的旧签名里根本没有标题，而"改系列"必须写出一个标题。
+  /// 与其猜一个（那会把用户起过的名字抹掉），不如让调用方在迁移期显式登记一次。
+  final Map<String, String> _titleCache = {};
+
+  /// 在调用 deprecated 包装器之前登记这条事项的标题。
+  ///
+  /// 迁移期专用：Task 8 之后调用方直接传 [CalendarEventEditDraft]，这个方法随之删除。
+  @Deprecated('Only for the deprecated replace* wrappers during migration.')
+  void rememberTitleForLegacyWrappers(String anchorId, String title) {
+    _titleCache[anchorId] = title;
   }
 
   Future<bool> deleteFollowingOccurrences({
@@ -183,6 +231,101 @@ final class CalendarService {
     );
     await _reportChange(anchorId: anchorId, action: '本次及以后删除');
     return true;
+  }
+
+  /// **统一的日历改写入口**（课程与保护时间管理修复计划 Task 2 Step 3）。
+  ///
+  /// 按 [target] 的范围分派到对应端口，并把三类失败如实区分开：
+  ///
+  /// | 情况 | 结果 | 数据 |
+  /// | --- | --- | --- |
+  /// | 草稿非法 | `invalid` ＋ 字段错误 | 零写入 |
+  /// | 缺 `occurrenceStartUtc` 的"这一次／此次以后" | `invalid` | 零写入 |
+  /// | 端口未装配 | `unsupported` | 零写入 |
+  /// | 写入成功但**重排原因回调抛错** | `savedWithWarning` | **已保存** |
+  ///
+  /// **为什么最后一行必须与"保存失败"分开**：把已经落库的改动报成失败，用户会再改一次，
+  /// 而那会写第二遍。计划 §5 的失败表对此有明确要求。
+  Future<CalendarMutationResult> updateEvent({
+    required CalendarEditTarget target,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
+  }) async {
+    if (!event.isValid) {
+      return CalendarMutationResult.invalid(event.fieldErrors);
+    }
+    if (recurrence != null && !recurrence.isValid) {
+      return CalendarMutationResult.invalid(recurrence.fieldErrors);
+    }
+    // "这一次／此次及以后"必须有真实发生时间。**不猜**：猜一个日期出来会让例外
+    // 落在用户没看着的那一天上，而界面上什么都不会提示。
+    final needsOccurrence =
+        target.scope == EventEditScope.singleOccurrence ||
+        target.scope == EventEditScope.followingOccurrences;
+    if (needsOccurrence && target.occurrenceStartUtc == null) {
+      return CalendarMutationResult.invalid(const {
+        'occurrenceStartUtc': '缺少要修改的那一次课的时间',
+      });
+    }
+    final deletion = _deletion;
+    if (deletion == null) {
+      return CalendarMutationResult.failed(
+        CalendarMutationStatus.unsupported,
+        '日历写入服务未装配，暂无法修改「${event.title}」',
+      );
+    }
+
+    final updatedAtUtc = _clock.nowUtc();
+    try {
+      switch (target.scope) {
+        case EventEditScope.singleOccurrence:
+          await deletion.replaceOccurrence(
+            anchorId: target.anchorId,
+            occurrenceStartUtc: target.occurrenceStartUtc!,
+            event: event,
+            exceptionId: _idGenerator.next(),
+            updatedAtUtc: updatedAtUtc,
+          );
+        case EventEditScope.followingOccurrences:
+          await deletion.replaceFollowingOccurrences(
+            anchorId: target.anchorId,
+            occurrenceStartUtc: target.occurrenceStartUtc!,
+            event: event,
+            recurrence: recurrence,
+            newRuleId: _idGenerator.next(),
+            newEventId: _idGenerator.next(),
+            updatedAtUtc: updatedAtUtc,
+          );
+        case EventEditScope.entireSeries:
+          await deletion.replaceSeries(
+            anchorId: target.anchorId,
+            event: event,
+            recurrence: recurrence,
+            updatedAtUtc: updatedAtUtc,
+          );
+      }
+    } on Object catch (error) {
+      // **事务失败要如实说**：计划 §5 的文案是"保存失败，原内容未改变"，
+      // 而不是把异常 toString 摊给用户。
+      return CalendarMutationResult.failed(
+        CalendarMutationStatus.failed,
+        '保存「${event.title}」失败，原内容未改变：$error',
+      );
+    }
+
+    final action = switch (target.scope) {
+      EventEditScope.singleOccurrence => '单次改写',
+      EventEditScope.followingOccurrences => '本次及以后改写',
+      EventEditScope.entireSeries => '系列改写',
+    };
+    try {
+      await _reportChange(anchorId: target.anchorId, action: action);
+    } on Object catch (error) {
+      // **数据已经落库了**。这一步只是记一条重排原因，它失败不该让用户以为
+      // 自己的修改没保存——那会导致重复修改。
+      return CalendarMutationResult.savedWithWarning('内容已保存，但变更记录失败：$error');
+    }
+    return CalendarMutationResult.saved();
   }
 
   /// 读某个时间窗内的日程占用（1.8.0）。
@@ -227,6 +370,11 @@ final class CalendarService {
   ///
   /// 与 [deleteOccurrence] 同路：判定"是不是重复日程"与例外的时区都在仓储侧（它才摸得到规则
   /// 行）。未装配该端口时返回 `false`，而不是假装改掉了。
+  ///
+  /// **deprecated 包装器**：见 [replaceSeries] 的说明。
+  @Deprecated(
+    'Use updateEvent with CalendarEditTarget(scope: singleOccurrence) instead.',
+  )
   Future<bool> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
@@ -234,19 +382,32 @@ final class CalendarService {
     required DateTime newEndUtc,
     required String title,
   }) async {
-    final deletion = _deletion;
-    if (deletion == null) return false;
-    await deletion.replaceOccurrence(
-      anchorId: anchorId,
-      occurrenceStartUtc: occurrenceStartUtc,
-      newStartUtc: newStartUtc,
-      newEndUtc: newEndUtc,
-      title: title,
-      exceptionId: _idGenerator.next(),
-      updatedAtUtc: _clock.nowUtc(),
+    final result = await updateEvent(
+      target: CalendarEditTarget(
+        anchorId: anchorId,
+        scope: EventEditScope.singleOccurrence,
+        occurrenceStartUtc: occurrenceStartUtc,
+      ),
+      event: CalendarEventEditDraft(
+        title: title,
+        startAtUtc: newStartUtc,
+        endAtUtc: newEndUtc,
+        timeZoneId: _timeZoneOf(anchorId),
+      ),
     );
-    await _reportChange(anchorId: anchorId, action: '单次改写');
-    return true;
+    return result.isSuccess;
+  }
+
+  /// 兼容期用的时区兜底：按锚点登记过的时区，没有则用 [timeZoneId] 的默认值。
+  String _timeZoneOf(String anchorId) =>
+      _timeZoneCache[anchorId] ?? _fallbackTimeZoneId;
+
+  final Map<String, String> _timeZoneCache = {};
+
+  /// 迁移期专用：登记某个锚点事项自己的时区。
+  @Deprecated('Only for the deprecated replace* wrappers during migration.')
+  void rememberTimeZoneForLegacyWrappers(String anchorId, String timeZoneId) {
+    _timeZoneCache[anchorId] = timeZoneId;
   }
 
   /// 只删除重复日程里的**某一次**（FR-CAL-02 的"修改单次实例"的删除一半）。

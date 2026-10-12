@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/domain/models/calendar_event.dart' as domain;
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
@@ -162,14 +163,18 @@ final class DriftCalendarRepository
   /// 锚点才发生，因此"整串消失"。**逐次例外与"改整个系列"仍属后续**（`EventEditScope` 目前
   /// 只被采集、未被使用），这一点在 §13.0 的 R4 行里写明，不在实现里假装已经支持。
   /// 改写整个系列（FR-CAL-02），见端口的文档说明。
+  ///
+  /// **草稿里的资料字段（标题、备注、地点、领域、项目、类别）逐项写下去**：
+  /// 其中 `notes` 此前**根本没有写入路径**，而课表导入正用它存教师名——
+  /// 于是"改一次系列"会把教师名原样保留，但用户想改它却也没地方改。
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
   }) async {
-    if (!newEndUtc.isAfter(newStartUtc)) {
+    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
     final anchor =
@@ -180,23 +185,11 @@ final class DriftCalendarRepository
     if (anchor == null) return;
 
     final ruleId = anchor.recurrenceRuleId;
-    final updatedEvent = domain.CalendarEvent(
-      id: anchor.id,
-      title: anchor.title,
-      startAtUtc: newStartUtc,
-      endAtUtc: newEndUtc,
-      timeZoneId: anchor.timeZoneId,
-      recurrenceRuleId: ruleId,
-      exceptionOfId: anchor.exceptionOfId,
-      locked: anchor.locked,
-      areaId: anchor.areaId,
-      projectId: anchor.projectId,
-      location: anchor.location,
-      notes: anchor.notes,
-      sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
-      importBatchId: anchor.importBatchId,
-      logicalCourseId: anchor.logicalCourseId,
+    final updatedEvent = _appliedTo(
+      anchor: anchor,
+      event: event,
       updatedAtUtc: updatedAtUtc,
+      recurrenceRuleId: ruleId,
     );
 
     if (ruleId == null) {
@@ -218,33 +211,85 @@ final class DriftCalendarRepository
 
     // **规则里的本地钟点必须跟着一起改**：否则锚点换了时间，展开器仍按旧钟点生成各次，
     // 结果是"第一次是新的、后面还是旧的"。
-    final localStart = _zones.toLocal(newStartUtc, stored.timeZoneId);
+    //
+    // 传了 [recurrence] 时连星期、间隔、有效期一起换（管理页改的就是整个系列）；
+    // 没传时只换钟点，其余规则字段原样保留。
+    final localStart = _zones.toLocal(event.startAtUtc, stored.timeZoneId);
     final rule = domain.RecurrenceRule(
       id: stored.id,
-      weekdays: _weekdays(stored.weekdaysMask),
+      weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
       localStartMinute: localStart.hour * 60 + localStart.minute,
-      durationMinutes: newEndUtc.difference(newStartUtc).inMinutes,
-      intervalWeeks: stored.intervalWeeks,
-      validFromLocalDate: DateTime.parse(stored.validFromLocalDate),
-      validUntilLocalDate: stored.validUntilLocalDate == null
-          ? null
-          : DateTime.parse(stored.validUntilLocalDate!),
+      durationMinutes: event.endAtUtc.difference(event.startAtUtc).inMinutes,
+      intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
+      validFromLocalDate:
+          recurrence?.validFromLocalDate ??
+          DateTime.parse(stored.validFromLocalDate),
+      validUntilLocalDate:
+          recurrence?.validUntilLocalDate ??
+          (stored.validUntilLocalDate == null
+              ? null
+              : DateTime.parse(stored.validUntilLocalDate!)),
       timeZoneId: stored.timeZoneId,
     );
     await saveRecurring(updatedEvent, rule);
   }
 
+  /// 把一份**完整草稿**套到既有锚点行上，得到要写下去的事件。
+  ///
+  /// **保留锚点上的"身份"字段**（`sourceKind`、`importBatchId`、`logicalCourseId`、
+  /// 来源关联），只用草稿覆盖**用户可改的资料**：标题、备注、地点、领域、项目、
+  /// 时间、类别与例外归属。
+  ///
+  /// **为什么身份字段不跟着草稿走**：课表导入的批次与逻辑课程 id 是"这条事项从哪来"的
+  /// 事实，用户改一次名字不该让它变成手工建的。计划 Task 4 Step 5 对课程替换有同样的要求。
+  ///
+  /// **[exceptionOfId] 传空串表示"清掉例外归属"**：`exception_of_id` 是指向
+  /// `calendar_events.id` 的**外键**，写空串会直接违反约束（实测
+  /// `SqliteException(787): FOREIGN KEY constraint failed`）。而"清掉"这个意图是真实存在的：
+  /// 对单次日程执行"只改这一次"时，那一行会让它既是锚点又是别人的例外——
+  /// 读取端两个方向都会把它算进去。因此空串在这里被翻译成 `null`。
+  domain.CalendarEvent _appliedTo({
+    required db.CalendarEvent anchor,
+    required CalendarEventEditDraft event,
+    required DateTime updatedAtUtc,
+    required String? recurrenceRuleId,
+    String? id,
+    String? exceptionOfId,
+    String? timeZoneIdOverride,
+  }) => domain.CalendarEvent(
+    id: id ?? anchor.id,
+    title: event.title,
+    startAtUtc: event.startAtUtc,
+    endAtUtc: event.endAtUtc,
+    // 时区优先用覆盖值（例外必须取**规则自己的**时区），否则用草稿的。
+    timeZoneId: timeZoneIdOverride ?? event.timeZoneId,
+    recurrenceRuleId: recurrenceRuleId,
+    exceptionOfId: (exceptionOfId == null || exceptionOfId.isEmpty)
+        ? (exceptionOfId == null ? anchor.exceptionOfId : null)
+        : exceptionOfId,
+    locked: anchor.locked,
+    areaId: event.areaId,
+    projectId: event.projectId,
+    location: event.location,
+    notes: event.notes,
+    sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
+    kind: event.kind,
+    importBatchId: anchor.importBatchId,
+    logicalCourseId: anchor.logicalCourseId,
+    updatedAtUtc: updatedAtUtc,
+  );
+
   @override
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
   }) async {
-    if (!newEndUtc.isAfter(newStartUtc)) {
+    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
     final anchor =
@@ -257,8 +302,8 @@ final class DriftCalendarRepository
     if (ruleId == null) {
       await replaceSeries(
         anchorId: anchorId,
-        newStartUtc: newStartUtc,
-        newEndUtc: newEndUtc,
+        event: event,
+        recurrence: recurrence,
         updatedAtUtc: updatedAtUtc,
       );
       return;
@@ -274,33 +319,31 @@ final class DriftCalendarRepository
     final originalUntil = stored.validUntilLocalDate == null
         ? null
         : DateTime.parse(stored.validUntilLocalDate!);
-    final newLocalStart = _zones.toLocal(newStartUtc, stored.timeZoneId);
+    final newLocalStart = _zones.toLocal(event.startAtUtc, stored.timeZoneId);
     final newRule = domain.RecurrenceRule(
       id: newRuleId,
-      weekdays: _weekdays(stored.weekdaysMask),
+      weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
       localStartMinute: newLocalStart.hour * 60 + newLocalStart.minute,
-      durationMinutes: newEndUtc.difference(newStartUtc).inMinutes,
-      intervalWeeks: stored.intervalWeeks,
+      durationMinutes: event.endAtUtc.difference(event.startAtUtc).inMinutes,
+      intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
+      // **从所选的本地日期开始**，而不是沿用原规则的起点——否则新系列会把
+      // 拆分日之前的各次再生成一遍。
       validFromLocalDate: splitDate,
-      validUntilLocalDate: originalUntil,
+      // 有效期沿用原规则的结束日（没传 recurrence 时）；传了就按新的，
+      // 但**不得早于拆分日**（草稿校验已经挡过，这里再夹一次会因为静默夹紧而违规，
+      // 因此直接采用草稿值，让上层报错）。
+      validUntilLocalDate: recurrence?.validUntilLocalDate ?? originalUntil,
       timeZoneId: stored.timeZoneId,
     );
-    final newEvent = domain.CalendarEvent(
-      id: newEventId,
-      title: anchor.title,
-      startAtUtc: newStartUtc,
-      endAtUtc: newEndUtc,
-      timeZoneId: anchor.timeZoneId,
-      recurrenceRuleId: newRuleId,
-      locked: anchor.locked,
-      areaId: anchor.areaId,
-      projectId: anchor.projectId,
-      location: anchor.location,
-      notes: anchor.notes,
-      sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
-      importBatchId: anchor.importBatchId,
-      logicalCourseId: anchor.logicalCourseId,
+    final newEvent = _appliedTo(
+      anchor: anchor,
+      event: event,
       updatedAtUtc: updatedAtUtc,
+      recurrenceRuleId: newRuleId,
+      id: newEventId,
+      exceptionOfId: null,
+      // 新系列的锚点用**规则自己的时区**：展开器按它把起点换算成本地日期。
+      timeZoneIdOverride: stored.timeZoneId,
     );
     final exceptions = await (_database.select(
       _database.calendarEvents,
@@ -456,13 +499,11 @@ final class DriftCalendarRepository
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    required String title,
+    required CalendarEventEditDraft event,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {
-    if (!newEndUtc.isAfter(newStartUtc)) {
+    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
     final anchor =
@@ -477,26 +518,16 @@ final class DriftCalendarRepository
     if (ruleId == null) {
       // 单次日程：直接改它自己那一行。"只改这一次"与"改整条"在单次日程上是同一件事，
       // 因此不必（也不该）留下一条替换例外——那会让这条日程变成"系列的一次"。
+      //
+      // **例外归属也要清掉**：这一行本身就是锚点，留着 `exceptionOfId` 会让它
+      // "既是锚点又是别人的例外"，读取端两个方向都会把它算进去。
       await save(
-        domain.CalendarEvent(
-          id: anchor.id,
-          title: title,
-          startAtUtc: newStartUtc,
-          endAtUtc: newEndUtc,
-          timeZoneId: anchor.timeZoneId,
-          exceptionOfId: anchor.exceptionOfId,
-          locked: anchor.locked,
-          areaId: anchor.areaId,
-          projectId: anchor.projectId,
-          location: anchor.location,
-          notes: anchor.notes,
-          sourceKind: domain.CalendarEventSourceKind.fromStorage(
-            anchor.sourceKind,
-          ),
-          kind: domain.CalendarEventKind.fromStorage(anchor.kind),
-          importBatchId: anchor.importBatchId,
-          logicalCourseId: anchor.logicalCourseId,
+        _appliedTo(
+          anchor: anchor,
+          event: event,
           updatedAtUtc: updatedAtUtc,
+          recurrenceRuleId: null,
+          exceptionOfId: '',
         ),
       );
       return;
@@ -526,26 +557,16 @@ final class DriftCalendarRepository
     }
 
     await save(
-      domain.CalendarEvent(
-        id: targetId,
-        title: title,
-        startAtUtc: newStartUtc,
-        endAtUtc: newEndUtc,
-        // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
-        timeZoneId: rule.timeZoneId,
-        exceptionOfId: anchorId,
-        locked: anchor.locked,
-        areaId: anchor.areaId,
-        projectId: anchor.projectId,
-        location: anchor.location,
-        notes: anchor.notes,
-        sourceKind: domain.CalendarEventSourceKind.fromStorage(
-          anchor.sourceKind,
-        ),
-        kind: domain.CalendarEventKind.fromStorage(anchor.kind),
-        importBatchId: anchor.importBatchId,
-        logicalCourseId: anchor.logicalCourseId,
+      _appliedTo(
+        anchor: anchor,
+        event: event,
         updatedAtUtc: updatedAtUtc,
+        // 例外**不带规则**：它的语义就是"只这一次"。
+        recurrenceRuleId: null,
+        id: targetId,
+        exceptionOfId: anchorId,
+        // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
+        timeZoneIdOverride: rule.timeZoneId,
       ),
     );
   }

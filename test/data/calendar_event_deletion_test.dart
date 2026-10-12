@@ -10,6 +10,7 @@ import 'package:personal_planner/data/database/app_database.dart'
     hide CalendarEvent, RecurrenceRule;
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 
@@ -226,8 +227,12 @@ void main() {
     await repository.replaceFollowingOccurrences(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      newStartUtc: DateTime.utc(2026, 10, 12, 14),
-      newEndUtc: DateTime.utc(2026, 10, 12, 15),
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 14),
+        endAtUtc: DateTime.utc(2026, 10, 12, 15),
+        timeZoneId: 'UTC',
+      ),
       newRuleId: 'rule-following',
       newEventId: 'anchor-following',
       updatedAtUtc: DateTime.utc(2026, 10, 2),
@@ -279,9 +284,12 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 5, 9),
-      newStartUtc: DateTime.utc(2026, 10, 5, 11),
-      newEndUtc: DateTime.utc(2026, 10, 5, 12),
-      title: '数据结构课',
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 5, 11),
+        endAtUtc: DateTime.utc(2026, 10, 5, 12),
+        timeZoneId: 'UTC',
+      ),
       exceptionId: 'exception-before',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
@@ -289,8 +297,12 @@ void main() {
     await repository.replaceFollowingOccurrences(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      newStartUtc: DateTime.utc(2026, 10, 12, 14),
-      newEndUtc: DateTime.utc(2026, 10, 12, 15),
+      event: CalendarEventEditDraft(
+        title: '迁移夹具',
+        startAtUtc: DateTime.utc(2026, 10, 12, 14),
+        endAtUtc: DateTime.utc(2026, 10, 12, 15),
+        timeZoneId: 'UTC',
+      ),
       newRuleId: 'rule-following',
       newEventId: 'anchor-following',
       updatedAtUtc: DateTime.utc(2026, 10, 2),

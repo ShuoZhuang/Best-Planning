@@ -163,11 +163,11 @@ final class _DeletionSpy implements CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
   }) async {
-    replaceSeriesCalls.add((anchorId, newStartUtc, newEndUtc));
+    replaceSeriesCalls.add((anchorId, event.startAtUtc, event.endAtUtc));
   }
 
   @override
@@ -190,9 +190,7 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    required String title,
+    required CalendarEventEditDraft event,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -200,8 +198,8 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,

@@ -1,3 +1,5 @@
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
+
 /// 删除固定日程（FR-CAL-01 的"删除"）。
 ///
 /// **为什么是单独的端口，而不是往 `CalendarRepository` 加一个方法**：后者有 **5 个测试替身**
@@ -9,10 +11,18 @@
 ///
 /// 与 `CalendarRepository` 分开还有一层语义上的好处：**读日程**的调用方（周视图、日视图、
 /// 统计）与**改日程**的调用方本身是两类，端口分开后前者的替身不必为后者提供空实现。
-/// **写入型**日程改动的端口：删除（整条／某一次）与**改写某一次**。
+/// **写入型**日程改动的端口：删除（整条／某一次）与**改写**（某一次／以后／整系列）。
 ///
 /// 文件名是历史遗留（最初只有删除），这里保留它而不是重命名——重命名要牵动实现、服务与组合根，
 /// 对行为没有影响。端口本身很小，因此不值得为名字发动一次改名。
+///
+/// ## 本轮（课程与保护时间管理修复计划 Task 2）的形状变化
+///
+/// 三条改写方法从"新起止 ＋ 一个标题字符串"改为收 **`CalendarEventEditDraft`**：
+/// 备注（`notes`）、地点、领域、项目、类别因此都能一起写下去，而此前它们**没有写入路径**
+/// （`notes` 能读不能写，课表导入正用它存教师名）。
+///
+/// 删除方法**原样保留**：删除只需要 id，给它塞一个草稿只会让调用方多造一个没人看的对象。
 abstract interface class CalendarEventDeletion {
   /// 删除一条固定日程。
   ///
@@ -53,12 +63,12 @@ abstract interface class CalendarEventDeletion {
   ///
   /// **同一天已有例外时必须复用它那一行的 id**：写第二条会让展开器按遍历顺序二选一，结果
   /// 不确定——那是一种"有时生效有时不生效"的缺陷。
+  ///
+  /// **不允许改规则**：例外的语义就是"只这一次"，带上规则草稿会让"仅本次"变成"改系列"。
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    required String title,
+    required CalendarEventEditDraft event,
     required String exceptionId,
     required DateTime updatedAtUtc,
   });
@@ -70,22 +80,27 @@ abstract interface class CalendarEventDeletion {
   /// 否则锚点换了时间、展开器仍按旧钟点生成各次——那会得到"第一次是新的、后面还是旧的"这种
   /// 半成品。
   ///
+  /// [recurrence] 非空时**连规则一起改**（星期、间隔、有效期），为空时只改锚点。
   /// 锚点不带规则时**退化为改那一行**：单次日程没有"系列"可言。
   Future<void> replaceSeries({
     required String anchorId,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
   });
 
   /// Replaces the selected occurrence and every later occurrence by splitting
   /// the rule at the selected local date. The selected occurrence belongs only
   /// to the newly-created series.
+  ///
+  /// **同时接新事件、新规则与两个新 id**：拆分要新建一个锚点行与一条规则行，
+  /// 而它们的主键必须由调用方（服务层）生成——仓储自己造 id 会让"同一份草稿重试"
+  /// 产生两条不同的系列。
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
+    required CalendarEventEditDraft event,
+    RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,

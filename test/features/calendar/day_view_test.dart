@@ -1066,8 +1066,13 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
-                true,
+            onReplaceOccurrence: (
+              id,
+              startUtc,
+              newStart,
+              newEnd,
+              title,
+            ) async => true,
           ),
         ),
       ),
