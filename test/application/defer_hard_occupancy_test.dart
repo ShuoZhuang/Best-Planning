@@ -172,19 +172,105 @@ void main() {
     });
   });
 
-  test('对照：没有锁定块时延后照常生效', () {
-    return defer(confirmedBlocks: [block('b-target', 0), block('b-other', 6)])
-        .then((proposal) {
-          final target = proposal.blocks
-              .where((b) => b.id == 'b-target')
-              .firstOrNull;
-          expect(target, isNotNull);
-          expect(
-            target!.startUtc.isBefore(at(0).add(const Duration(minutes: 30))),
-            isFalse,
-            reason: '对照组：下界仍然生效',
-          );
-        });
+  test('**没有任何块 ID 出现两次**（五类块按 ID 互斥）', () {
+    // 用户第 67 轮独立核验发现的缺陷：同一个锁定块被放进最终提案两次。
+    //
+    // 原因：`lockedBlocks` 先按 `block.locked` 加入锁定块，
+    // 随后"未被本次调整碰到 ⇒ 原位冻结"那一段**没有排除 `locked`**，又加了一次。
+    //
+    // 五类块必须按 ID 互斥：锁定 / 钉住（拖动）/ 调整目标 / 被挤开 / 原位冻结。
+    final confirmedBlocks = [
+      block('b-target', 0),
+      block('b-locked', 0, minutes: 60, locked: true),
+      block('b-plain', 6),
+    ];
+
+    return defer(confirmedBlocks: confirmedBlocks, amount: 60).then((proposal) {
+      final ids = proposal.blocks.map((b) => b.id).toList();
+      expect(
+        ids.toSet(),
+        hasLength(ids.length),
+        reason:
+            '同一块出现两次 ⇒ 用户会在日程里看到两份相同安排。'
+            '实测过的坏输出：`b-locked@09:00` 出现两次',
+      );
+    });
+  });
+
+  test('**锁定块恰好出现一次**（不能既锁定又冻结）', () {
+    final confirmedBlocks = [
+      block('b-target', 0),
+      block('b-locked', 0, minutes: 60, locked: true),
+    ];
+
+    return defer(confirmedBlocks: confirmedBlocks, amount: 60).then((proposal) {
+      final locked = proposal.blocks.where((b) => b.id == 'b-locked');
+      expect(
+        locked,
+        hasLength(1),
+        reason: '锁定块必须**恰好一次**：它同时属于"锁定"与"未受影响的块"，只能记一次',
+      );
+    });
+  });
+
+  test('**级联失败的回退路径仍然把目标块排进计划**', () {
+    // 用户第 67 轮第 4 条：只有局部修复**成功**时才能冻结未受影响的块。
+    // 失败回退时若把目标块也冻结在原位，用户点了延后却什么都没变 —— 延后失效。
+    //
+    // **据实说明这条用例证明了什么、没证明什么**：
+    // 它覆盖"下界落在次日、当天放不下"的场景，断言目标块**没有被冻结在原位**
+    // 且仍进了计划。但我**试过**把生产代码改成"只要 `adjustment != null` 就冻结"
+    // 来验证它会红 —— 结果它**仍然通过**：这个夹具里当天尝试其实**成功**了
+    // （下界之后窗口还剩足够空间），`adjustedTarget` 不为空，冻结分支根本没走到。
+    //
+    // 因此**"失败路径不冻结目标"目前只有代码事实（`adjustedTarget != null` 门槛）
+    // 与代码审查支持，没有真正走通的用例**。要真正覆盖，需要构造一个
+    // "当天尝试失败且回退也失败"的夹具，而那要求把规划窗口收窄到当天 ——
+    // 窗口由 `days` 参数决定，会连带改变装配层别处的行为，属于扩大改动面，
+    // 本轮**没有做**，据实记在验收文档里。
+    final confirmed = ConfirmedPlan(
+      id: 'v1',
+      inputHash: 'h1',
+      algorithmVersion: 'test',
+      blocks: [block('b-target', 14, minutes: 30), block('b-other', 6)],
+    );
+    final source = RepositoryScheduleProblemSource(
+      tasks: _Tasks([task()]),
+      lifeAreas: _NoLifeAreas(),
+      calendar: _NoCalendar(),
+      settings: SettingsService(repository: MemorySettingsRepository()),
+      plans: _Plan(confirmed),
+      clock: _Clock(dayStart),
+      timeZoneId: zoneId,
+      zones: zones,
+      pendingMoves: PendingMoveDrafts()
+        ..beginAdjustment(
+          PlanAdjustmentRequest(
+            blockId: 'b-target',
+            amount: 60,
+            unit: DeferUnit.minutes,
+            sourceStartUtc: at(14).add(const Duration(minutes: 30)),
+            timeZoneId: zoneId,
+          ),
+        ),
+    );
+
+    return PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(zones),
+    ).createProposal().then((proposal) {
+      final target = proposal.blocks
+          .where((b) => b.id == 'b-target')
+          .firstOrNull;
+      expect(target, isNotNull, reason: '回退路径仍必须把目标块排进计划（不能因为级联失败就丢掉它）');
+      expect(
+        target!.startUtc.isBefore(at(15)),
+        isFalse,
+        reason:
+            '下界落在次日 ⇒ 目标块不能被冻结在原位（本地 23:30 = `at(14.5)`）。'
+            '若这里回到 `at(14.5)`，说明失败路径把目标块冻结了，延后失效',
+      );
+    });
   });
 }
 

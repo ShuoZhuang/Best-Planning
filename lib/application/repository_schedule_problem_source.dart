@@ -507,6 +507,87 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       }
     }
 
+    // ── 块的角色划分：**一个 ID 只能有一个角色**（用户第 67 轮独立核验）──────
+    //
+    // 缺陷：`lockedBlocks` 先按 `block.locked` 加入锁定块，随后"未被本次调整碰到
+    // ⇒ 原位冻结"那一段**没有排除 `locked`**，于是同一个锁定块被加了两次；
+    // 而 `existingBlocks` 也仍然收着它（既冻结又可移动）。
+    // 实测坏输出：`b-locked@09:00` 在最终提案里出现两次。
+    //
+    // 现在把"哪些块由本次调整接管"**先算出来**，三处消费同一份结果：
+    //   ① 锁定（`block.locked`）—— 用户说了别动；
+    //   ② 钉住（`pinnedByBlockId`）—— 手动拖动后选择"不锁定"；
+    //   ③ 调整目标（`adjustedTarget`）—— 本次延后的主角；
+    //   ④ 被挤开（`displaced`）—— 给目标让路的块；
+    //   ⑤ 原位冻结（`frozenIds`）—— 未被本次调整碰到的确认块。
+    //
+    // **只有调整成功时才冻结**（用户第 67 轮第 4 条）：`adjustedTarget == null`
+    // 表示级联当天不可行（回退路径），此时**不能**把目标块也冻结在原位，
+    // 否则延后彻底失效——用户点了延后却什么都没变。
+    final lockableIds = <String>{
+      for (final block in confirmedBlocks)
+        if (block.locked &&
+            schedulableIds.contains(block.taskId) &&
+            !skippedBlockIds.contains(block.id) &&
+            !pinnedByBlockId.containsKey(block.id))
+          block.id,
+    };
+    final pinnedIds = {for (final block in pinnedByBlockId.values) block.id};
+    final targetId = adjustedTarget?.id;
+    // 未被本次调整接管的确认块。
+    final frozenIds = adjustment != null && adjustedTarget != null
+        ? <String>{
+            for (final block in confirmedBlocks)
+              if (schedulableIds.contains(block.taskId) &&
+                  !skippedBlockIds.contains(block.id) &&
+                  !pinnedByBlockId.containsKey(block.id) &&
+                  block.id != targetId &&
+                  !displacedIds.contains(block.id))
+                block.id,
+          }
+        : <String>{};
+    // 由调整路径接管的块：它们不再以**原位置**出现在 `existingBlocks` 里，
+    // 否则引擎会把它们当参考位置放回去，级联结果当场失效。
+    final takenOverIds = <String>{
+      ...pinnedIds,
+      ...frozenIds,
+      ?targetId,
+      ...displacedIds,
+    };
+    // 按 ID 去重（**五类互斥**的兜底）：即使上游将来重复提供同一块，
+    // 也不会让同一个 ID 出现在结果里两次。
+    List<PlannedBlock> dedupe(Iterable<PlannedBlock> blocks, Set<String> seen) {
+      final out = <PlannedBlock>[];
+      for (final block in blocks) {
+        if (!seen.add(block.id)) continue;
+        out.add(block);
+      }
+      return out;
+    }
+
+    final claimedIds = <String>{};
+    final lockedBlocksOut = dedupe([
+      for (final block in confirmedBlocks)
+        if (lockableIds.contains(block.id)) block,
+      ...pinnedByBlockId.values,
+      ?adjustedTarget,
+      ...displaced,
+      for (final block in confirmedBlocks)
+        if (frozenIds.contains(block.id)) block,
+    ], claimedIds);
+    final existingBlocksOut = dedupe([
+      for (final block in confirmedBlocks)
+        if (!block.locked &&
+            schedulableIds.contains(block.taskId) &&
+            !skippedBlockIds.contains(block.id) &&
+            !pinnedByBlockId.containsKey(block.id) &&
+            // 已被调整路径接管的块（冻结／目标／被挤开／钉住）不再可移动。
+            !takenOverIds.contains(block.id) &&
+            // **冻结的块必须从 `existingBlocks` 排除**（用户第 67 轮第 3 条）。
+            !frozenIds.contains(block.id))
+          block,
+    ], claimedIds);
+
     final problem = ScheduleProblem(
       planningWindow: TimeRange(startUtc: startUtc, endUtc: endUtc),
       timeZoneId: timeZoneId,
@@ -515,55 +596,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       tasks: schedulable,
       fixedIntervals: fixedIntervalsWithTransition,
       protectedIntervals: protectedIntervalsAll,
-      lockedBlocks: [
-        for (final block in confirmedBlocks)
-          if (block.locked &&
-              schedulableIds.contains(block.taskId) &&
-              !skippedBlockIds.contains(block.id) &&
-              !pinnedByBlockId.containsKey(block.id))
-            block,
-        // 被拖动的块替换掉它原来的位置（同一个 id 不能出现两次，否则引擎会排出两条）。
-        ...pinnedByBlockId.values,
-        // **级联到位的目标块**（裁定第 4 点）：以锁定块交给引擎，它原样收下。
-        // 下面的 `existingBlocks` 会把它排除，因此同一块不会既锁定又可移动。
-        ?adjustedTarget,
-        // **被挤开的块也各就各位**：否则引擎会为它们的任务重新排位置。
-        ...displaced,
-        // ── 未被本次调整碰到的确认块：**原位冻结**（用户第 65 轮复核第 1 条）──────
-        //
-        // 规范 §11.4 第 3、4 条要求"移动的其他块数量最少"。
-        // 但引擎是**从零生成**的：确认计划里的块如果不交给它，它就会按自己的规则
-        // 把那个任务重排一遍 —— 实测过一次延后把**周二的块排到了周一**，
-        // 那正是"移动了不该动的块"。
-        //
-        // 因此把"既不是目标、也没被挤开"的确认块连同**原位**交给引擎。
-        // 它们不参与本次调整，也就不该被本次调整改变。
-        if (adjustment != null)
-          for (final block in confirmedBlocks)
-            if (schedulableIds.contains(block.taskId) &&
-                !skippedBlockIds.contains(block.id) &&
-                !pinnedByBlockId.containsKey(block.id) &&
-                block.id != adjustedTarget?.id &&
-                !displacedIds.contains(block.id))
-              block,
-      ],
+      lockedBlocks: lockedBlocksOut,
       // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
-      existingBlocks: [
-        for (final block in confirmedBlocks)
-          if (!block.locked &&
-              schedulableIds.contains(block.taskId) &&
-              !skippedBlockIds.contains(block.id) &&
-              !pinnedByBlockId.containsKey(block.id) &&
-              // 被级联接管的块不再以**原位置**出现在可移动集合里，
-              // 否则引擎会把它当参考位置放回去，级联结果当场失效。
-              //
-              // **同一批块也不能既冻结又可移动**：上面的 `lockedBlocks` 已经把
-              // "未被本次调整碰到"的确认块原位冻结了，因此这里排除整批。
-              (adjustment == null ||
-                  (block.id != adjustedTarget?.id &&
-                      !displacedIds.contains(block.id))))
-            block,
-      ],
+      existingBlocks: existingBlocksOut,
       rules: resolvedRules,
       preferences: const PreferenceProfile(),
       inputHash: '',
