@@ -128,13 +128,18 @@ void main() {
     });
   });
 
-  test('**已过去的块不被搬动**（它只作为硬占用）', () {
-    // 现在 = 本地 09:30（`at(0)` + 30 分钟）。过去块在本地 09:00–09:30（`at(0)` 起 30 分钟），
-    // 端点恰好落在"现在"，因此它**在窗口内**（`startUtc` = 窗口起点）。
-    // 目标块在本地 14:00（`at(5)`），延后 30 分钟。
+  test('**已过去的块不再进入未来提案**（历史事实不参与本次排程）', () async {
+    // 现在 = 本地 09:30。过去块在本地 09:00–09:30，**结束时刻恰好等于窗口起点**，
+    // 因此按冻结决策 §1.3 它属于 `historical`：`end <= window.start`。
     //
-    // 若过去的块进了可移动输入，级联会把它当成"能不能留在原位"的普通块，
-    // 一旦挡路就会搬走它 —— 但已经发生的安排是**事实**，不该被搬。
+    // **这条契约本轮改过，理由必须写清楚**：本用例此前断言"已过去的块必须仍在计划里
+    // （它在窗口内）"。那是当时窗口从**本地午夜**起算的产物——现在窗口起点是"向上取整到
+    // 粒度的当前时刻"，于是同一个块落在窗口之前。把过去的块继续塞回提案正是 2026-10-12
+    // 实机故障里"新增区域出现 10-10、10-11"的成因（R1/R2）。
+    //
+    // 正确的契约是**两件事各归各位**：
+    //   · 历史事实由 `PlanBlockHistory` 从旧版本读出来展示，不会丢；
+    //   · 未来排程输入里不存在它，于是它既不占未来容量，也不产生"排程输入无效"。
     final confirmed = ConfirmedPlan(
       id: 'v1',
       inputHash: 'h1',
@@ -166,9 +171,29 @@ void main() {
       source: source,
       engine: DeterministicScheduleEngine(zones),
     ).createProposal().then((proposal) {
-      final past = proposal.blocks.where((b) => b.id == 'b-past').firstOrNull;
-      expect(past, isNotNull, reason: '已过去的块必须仍在计划里（它在窗口内）');
-      expect(past!.startUtc, at(0), reason: '过去的块必须冻结在原位');
+      // ① 历史块不再出现在提案里；它也没有被"搬走"——它压根不参与这次排程。
+      expect(
+        proposal.blocks.map((b) => b.id),
+        isNot(contains('b-past')),
+        reason: '已结束的块属于历史，不该以任何形式进入前向提案',
+      );
+      expect(
+        proposal.blocks.where((b) => b.continuedFromId == 'b-past'),
+        isEmpty,
+        reason: '也不能作为别的块的来源出现——那样它仍然是"这次的安排"',
+      );
+      // ② 少了一个过去块之后，提案里不得因此冒出新的"排程输入无效"。
+      expect(
+        proposal.conflicts.where((c) => c.code == ConflictCode.invalidInput),
+        isEmpty,
+        reason: '历史块被排除是装配层的决定，不该反过来被校验器判成非法输入',
+      );
+      // ③ 本次调整的主角仍然照旧排得进去。
+      expect(
+        proposal.blocks.where((b) => b.continuedFromId == 'b-target'),
+        isNotEmpty,
+        reason: '排除历史块不得影响真正的延后请求',
+      );
     });
   });
 
