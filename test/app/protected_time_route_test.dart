@@ -95,6 +95,70 @@ void main() {
       findsOneWidget,
       reason: '新建走原来的编辑器，没有被清单页取代',
     );
+    expect(
+      find.text('新建保护时间'),
+      findsWidgets,
+      reason: 'create 模式要有自己的标题，不能与"编辑「标题」"混用同一个文案',
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划 §2.3／Task 8 Step 4）：**编辑深链与返回路径**
+  //
+  // 管理页一行一个系列，点进去编辑的路由是
+  // `/calendar/protected/<anchorId>/edit`。保存与取消都回**管理页**。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**`/calendar/protected/<anchorId>/edit` 到的是编辑模式**', (tester) async {
+    await pumpRouter(
+      tester,
+      initialLocation: '/calendar/protected/anchor-1/edit',
+    );
+
+    expect(
+      find.byKey(const Key('protected-title')),
+      findsOneWidget,
+      reason: '编辑模式与新建共用同一个表单',
+    );
+    expect(
+      find.textContaining('编辑'),
+      findsWidgets,
+      reason:
+          '计划 Task 8 Step 1：edit 模式用「编辑「标题」」作为标题。'
+          '与 create 模式共用一个标题会让用户分不清自己在新建还是在改',
+    );
+  });
+
+  testWidgets('未装配日历服务时保护时间深链给出装配说明', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final router = createPlannerRouter(
+      taskService: TaskService(
+        repository: _EmptyTasks(),
+        clock: const _FixedClock(),
+        idGenerator: _Ids(),
+      ),
+      settingsService: SettingsService(repository: MemorySettingsRepository()),
+      appearance: AppearanceService(MemorySettingsRepository()),
+      scheduleSource: const EmptyScheduleViewSource(),
+      moveController: const DisabledWeekMoveController(),
+      autoAdjustStore: MemoryAutoAdjustStore(),
+      todayStartUtc: _now,
+      nowUtc: _now,
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'Asia/Shanghai',
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    router.go('/calendar/protected/anchor-1/edit');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('未装配'),
+      findsOneWidget,
+      reason: '与既有的"未装配即说明"同一条口径，不留白屏也不假装能编辑',
+    );
   });
 }
 

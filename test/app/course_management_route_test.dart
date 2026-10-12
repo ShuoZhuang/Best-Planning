@@ -176,6 +176,53 @@ void main() {
       reason: '已经读完了就不该还在转圈',
     );
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划 §2.1／Task 5 Step 6）：**课程编辑路由**
+  //
+  // 详情页要能进 `/calendar/courses/<logicalCourseId>/edit`，
+  // 保存或取消之后**回到同一门课的详情**（不是回到列表）。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**详情页点「编辑课程」进入编辑深链**', (tester) async {
+    final router = await pumpRouter(
+      tester,
+      courses: service(),
+      initialLocation: '/calendar/courses/course-b',
+    );
+
+    final entry = find.byKey(const Key('course-edit-course'));
+    expect(entry, findsOneWidget);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      '/calendar/courses/course-b/edit',
+      reason: '编辑页要按 logicalCourseId 深链进去，同名课才不会打开错项',
+    );
+    expect(
+      find.byKey(const Key('course-editor-page')),
+      findsOneWidget,
+      reason: '编辑页必须真的渲染出来，而不是只换了个 URL',
+    );
+  });
+
+  testWidgets('**不存在的课程编辑深链给"已删除或链接过期"说明**', (tester) async {
+    await pumpRouter(
+      tester,
+      courses: service(),
+      initialLocation: '/calendar/courses/course-missing/edit',
+    );
+
+    expect(
+      find.textContaining('已删除'),
+      findsOneWidget,
+      reason:
+          '计划 Task 5 Step 6："直接深链不存在 id 时显示『课程已删除或链接过期』"。'
+          '不加这一句，用户看到的是一个空白页，不知道是加载中还是真的没了',
+    );
+  });
 }
 
 final class _FixedClock implements Clock {

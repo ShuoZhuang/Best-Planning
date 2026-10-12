@@ -83,6 +83,7 @@ final class ScheduleViewItem {
     this.taskId,
     this.isCompleted = false,
     this.recurringGoal,
+    this.notes = '',
   });
 
   final String id;
@@ -126,6 +127,16 @@ final class ScheduleViewItem {
   /// 与 [movableTaskBlockId] 的分工：那个函数给的是**计划块 id**（用于拖动与锁定），
   /// 这个字段给的是**任务 id**（用于打开详情、开始专注、改任务状态）。
   final String? taskId;
+
+  /// 事项的备注（`calendar_events.notes`）。
+  ///
+  /// **为什么现在才带出来**（课程与保护时间管理修复计划 §2.3）：规范要求
+  /// "三种范围都允许修改标题、备注、日期与时间"，而改写对话框此前**只有日期与时间** ——
+  /// 备注在视图条目里根本不存在，因此对话框无从预填，用户也就无从修改。
+  ///
+  /// 课表导入还把**教师名**写在这一列里；因此日视图改写对话框预填它时必须让用户
+  /// 看得见内容，而不是显示一个空框（空框会让用户以为备注丢了）。
+  final String notes;
 }
 
 abstract interface class ScheduleViewSource {

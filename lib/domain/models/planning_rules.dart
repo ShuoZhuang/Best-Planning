@@ -6,7 +6,19 @@ enum EnergyLevel { low, medium, high }
 
 enum DayKind { any, weekday, weekend }
 
-enum ProtectedTimeKind { lunch, dinner, fixedRest }
+/// 长期保护时间的类别（设置里的"作息与保护时间"）。
+///
+/// **`breakfast` 是本轮新增的**（课程与保护时间管理修复计划 §1.3／§2.4）：
+/// 此前只有午餐、晚餐与固定休息，因此不存在可被界面打开的早餐规则。
+///
+/// **顺序即界面顺序**（计划 Task 9 Step 2 要求早餐排在睡眠之后、午餐之前），
+/// 因此 `breakfast` 放在第一位而不是最后——枚举的声明顺序同时是"作息"的自然顺序，
+/// 让界面按 `ProtectedTimeKind.values` 渲染时天然正确，不必再维护第二份排序表。
+///
+/// **兼容策略**：新枚举值不等于新数据。既有用户的 JSON 里没有 breakfast，
+/// 反序列化后它**不在** `protectedTimes` 里，因此默认关闭——
+/// 装完更新就悄悄改变用户已经确认过的计划是这一批最要避免的事。
+enum ProtectedTimeKind { breakfast, lunch, dinner, fixedRest }
 
 final class ProtectedTimeRule {
   ProtectedTimeRule({

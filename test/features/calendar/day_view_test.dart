@@ -1033,6 +1033,117 @@ void main() {
     expect(find.text('这一天没有固定日程、保护时间或已确认的计划块。'), findsOneWidget);
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划 §1.2）：**"改这一次"必须能改标题与备注**
+  //
+  // 现状：对话框只有日期与时间；保存时把原 `item.title` **原样传回**
+  // （见 `_editOccurrence` 的最后一次调用）。因此用户**无法改名**。
+  //
+  // 计划 §2.3 要求三种范围都允许修改标题、备注、日期与时间。这一组把
+  // "预填 + 回传新标题"钉住。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**改写对话框预填当前标题与备注**（不是空框、也不是只读）', (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'fixed:evt-protected',
+                title: '午休保护',
+                kind: ScheduleItemKind.protectedTime,
+                startHourUtc: 4,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
+                true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+
+    final title = find.byKey(const Key('occurrence-title'));
+    expect(
+      title,
+      findsOneWidget,
+      reason: '计划 §2.3："三种范围都允许修改标题、备注、日期与时间"——标题是其中第一项',
+    );
+    expect(
+      tester.widget<TextField>(title).controller!.text,
+      '午休保护',
+      reason: '必须**预填**当前值：空框会让用户以为原标题丢了，从而重新输入一遍',
+    );
+    expect(
+      find.byKey(const Key('occurrence-notes')),
+      findsOneWidget,
+      reason: '备注也是 §2.3 列出的可改字段',
+    );
+  });
+
+  testWidgets('**改标题后回调收到新标题**，而不是旧的 `item.title`', (tester) async {
+    final titles = <String>[];
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'fixed:evt-protected',
+                title: '午休保护',
+                kind: ScheduleItemKind.protectedTime,
+                startHourUtc: 4,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
+              titles.add(title);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('occurrence-title')), '看医生');
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      titles,
+      ['看医生'],
+      reason:
+          '修复前这里回传的是 `item.title`（原样传回），于是"改名"这件事在界面上'
+          '根本无从发生——用户改了框里的字，保存之后一切照旧',
+    );
+  });
+
   testWidgets('从周视图可以切到日视图', (tester) async {
     tester.view.physicalSize = const Size(1200, 1600);
     tester.view.devicePixelRatio = 1;

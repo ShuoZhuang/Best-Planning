@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/planner_theme.dart';
@@ -310,13 +311,14 @@ Future<void> _editOccurrence(
   required TimeZoneDatabase zones,
   required String timeZoneId,
 }) async {
-  final result = await showDialog<(DateTime, DateTime, _OccurrenceScope)>(
+  final result = await showDialog<OccurrenceEditResult>(
     context: context,
     // 控制器由对话框**自己**持有并释放。在 `showDialog` 返回后立刻 dispose 会在退出动画
     // 期间触发 "A TextEditingController was used after being disposed"——本文件第一版正是
     // 这样写的，五条既有用例一起把它顶了出来。
     builder: (dialogContext) => _OccurrenceEditDialog(
       title: item.title,
+      initialNotes: item.notes,
       initialStartUtc: item.range.startUtc,
       initialEndUtc: item.range.endUtc,
       zones: zones,
@@ -326,25 +328,30 @@ Future<void> _editOccurrence(
     ),
   );
   if (result == null) return;
-  final (start, end, scope) = result;
-  if (scope == _OccurrenceScope.series) {
-    await onReplaceSeries!(eventId, start, end);
+  if (result.scope == EventEditScope.entireSeries) {
+    await onReplaceSeries!(eventId, result.startUtc, result.endUtc);
     return;
   }
-  if (scope == _OccurrenceScope.following) {
-    await onReplaceFollowing!(eventId, item.range.startUtc, start, end);
+  if (result.scope == EventEditScope.followingOccurrences) {
+    await onReplaceFollowing!(
+      eventId,
+      item.range.startUtc,
+      result.startUtc,
+      result.endUtc,
+    );
     return;
   }
   await onReplaceOccurrence!(
     eventId,
     item.range.startUtc,
-    start,
-    end,
-    item.title,
+    result.startUtc,
+    result.endUtc,
+    // **用对话框里改过的标题，不是 `item.title`**（计划 §1.2）：
+    // 此前这里回传的是原值，于是"改名"保存之后一切照旧。
+    result.title,
   );
 }
 
-enum _OccurrenceScope { single, following, series }
 
 /// 选择领域并保存（`null` 表示取消归属）。
 ///
@@ -439,11 +446,16 @@ final class _AreaPickerDialogState extends State<_AreaPickerDialog> {
   );
 }
 
-/// 改写某一次的对话框：**日期与时间都用选择器字段**（1.8.0，规范 §2.7／§8.1）。
+/// 改写某一次的对话框：**日期、时间、标题与备注都可改**（1.8.0，规范 §2.7／§8.1；
+/// 课程与保护时间管理修复计划 §2.3）。
 ///
 /// 此前这里是两个文本框，要求用户敲 `YYYY-MM-DD HH:mm`。改成选择器之后，
 /// 日视图与固定日程编辑器（`EventEditorForm`）用的是**同一个组件与同一套校验**，
 /// 这正是规范 §8.2 最后一句要求的"复用同一组件和校验"。
+///
+/// **标题与备注是本轮补上的**（计划 §1.2／§2.3）：对话框此前只有日期与时间，
+/// 保存时把原 `item.title` **原样传回**，于是"改名"在界面上根本无从发生——
+/// 用户改了框里的字，保存之后一切照旧；而备注连框都没有。
 final class _OccurrenceEditDialog extends StatefulWidget {
   const _OccurrenceEditDialog({
     required this.title,
@@ -451,11 +463,18 @@ final class _OccurrenceEditDialog extends StatefulWidget {
     required this.initialEndUtc,
     required this.zones,
     required this.timeZoneId,
+    this.initialNotes = '',
     this.allowsFollowing = false,
     this.allowsWholeSeries = false,
   });
 
   final String title;
+
+  /// 当前备注，**预填**进备注框。
+  ///
+  /// 课表导入把教师名写在这一列里，因此它常常不是空的；显示空框会让用户
+  /// 以为备注丢了，从而重新输入一遍。
+  final String initialNotes;
 
   /// 这一段的**本地**起止。由调用方按事项时区换算好再交进来，
   /// 对话框因此不需要自己认识时区。
@@ -472,10 +491,33 @@ final class _OccurrenceEditDialog extends StatefulWidget {
   State<_OccurrenceEditDialog> createState() => _OccurrenceEditDialogState();
 }
 
+/// 对话框返回的编辑结果：标题、备注与两个**UTC**时刻，外加作用范围。
+///
+/// **为什么不再用 `(DateTime, DateTime, scope)` 元组**：加上标题与备注之后是五个值，
+/// 位置元组在调用点会变成一串难以核对的下标（`$1`…`$5`）。具名字段让
+/// "哪一个是标题"在类型上就说得清。
+final class OccurrenceEditResult {
+  const OccurrenceEditResult({
+    required this.title,
+    required this.notes,
+    required this.startUtc,
+    required this.endUtc,
+    required this.scope,
+  });
+
+  final String title;
+  final String notes;
+  final DateTime startUtc;
+  final DateTime endUtc;
+  final EventEditScope scope;
+}
+
 final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
   late final LocalDateRangeController _range;
+  late final TextEditingController _title;
+  late final TextEditingController _notes;
   String? _error;
-  _OccurrenceScope _scope = _OccurrenceScope.single;
+  EventEditScope _scope = EventEditScope.singleOccurrence;
 
   @override
   void initState() {
@@ -491,6 +533,8 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
       endDate: end,
       endTime: TimeOfDay(hour: end.hour, minute: end.minute),
     )..addListener(_onRangeChanged);
+    _title = TextEditingController(text: widget.title);
+    _notes = TextEditingController(text: widget.initialNotes);
   }
 
   void _onRangeChanged() {
@@ -502,6 +546,8 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
     _range
       ..removeListener(_onRangeChanged)
       ..dispose();
+    _title.dispose();
+    _notes.dispose();
     super.dispose();
   }
 
@@ -516,6 +562,12 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
       });
       return;
     }
+    // **标题必填**：空标题会让卡片变成一片空白，用户分不清"这条没名字"与"渲染失败"。
+    final title = _title.text.trim();
+    if (title.isEmpty) {
+      setState(() => _error = '标题不能为空');
+      return;
+    }
     final startUtc = widget.zones.localDateTimeToUtc(
       _range.startDate,
       _range.startTime.hour * 60 + _range.startTime.minute,
@@ -526,7 +578,15 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
       _range.endTime.hour * 60 + _range.endTime.minute,
       widget.timeZoneId,
     );
-    Navigator.of(context).pop((startUtc, endUtc, _scope));
+    Navigator.of(context).pop(
+      OccurrenceEditResult(
+        title: title,
+        notes: _notes.text.trim(),
+        startUtc: startUtc,
+        endUtc: endUtc,
+        scope: _scope,
+      ),
+    );
   }
 
   @override
@@ -537,6 +597,25 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 标题与备注在前：它们是"这次改了什么"里用户最先说得出的两件事。
+          SizedBox(
+            width: 320,
+            child: TextField(
+              key: const Key('occurrence-title'),
+              controller: _title,
+              decoration: const InputDecoration(labelText: '标题'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 320,
+            child: TextField(
+              key: const Key('occurrence-notes'),
+              controller: _notes,
+              decoration: const InputDecoration(labelText: '备注'),
+            ),
+          ),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -600,25 +679,25 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
                 ChoiceChip(
                   key: const Key('occurrence-scope-single'),
                   label: const Text('仅本次'),
-                  selected: _scope == _OccurrenceScope.single,
+                  selected: _scope == EventEditScope.singleOccurrence,
                   onSelected: (_) =>
-                      setState(() => _scope = _OccurrenceScope.single),
+                      setState(() => _scope = EventEditScope.singleOccurrence),
                 ),
                 if (widget.allowsFollowing)
                   ChoiceChip(
                     key: const Key('occurrence-scope-following'),
                     label: const Text('本次及以后'),
-                    selected: _scope == _OccurrenceScope.following,
+                    selected: _scope == EventEditScope.followingOccurrences,
                     onSelected: (_) =>
-                        setState(() => _scope = _OccurrenceScope.following),
+                        setState(() => _scope = EventEditScope.followingOccurrences),
                   ),
                 if (widget.allowsWholeSeries)
                   ChoiceChip(
                     key: const Key('occurrence-scope-series'),
                     label: const Text('整个系列'),
-                    selected: _scope == _OccurrenceScope.series,
+                    selected: _scope == EventEditScope.entireSeries,
                     onSelected: (_) =>
-                        setState(() => _scope = _OccurrenceScope.series),
+                        setState(() => _scope = EventEditScope.entireSeries),
                   ),
               ],
             ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/notifications/notification_preferences_section.dart';
 
@@ -211,6 +212,12 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
       final matches = values.where((item) => item.kind == kind);
       final item = matches.isEmpty ? null : matches.first;
       final fallback = switch (kind) {
+        // 早餐的建议值是**公开常量**（计划 Task 9 的 Interfaces）：
+        // 首次引导与设置页都要用它，两处各写一遍 450/480 迟早会漂移。
+        ProtectedTimeKind.breakfast => (
+          DefaultSettings.breakfastStartMinute,
+          DefaultSettings.breakfastEndMinute,
+        ),
         ProtectedTimeKind.lunch => (12 * 60, 13 * 60),
         ProtectedTimeKind.dinner => (18 * 60, 19 * 60),
         ProtectedTimeKind.fixedRest => (15 * 60, 15 * 60 + 20),

@@ -61,6 +61,7 @@ void main() {
     String teacher = '赵敏',
     String location = 'D206',
     bool withZones = false,
+    VoidCallback? onEditCourse,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -86,6 +87,7 @@ void main() {
             logicalCourseId: 'course-calc',
             zones: withZones ? TimeZoneDatabase() : null,
             timeZoneId: withZones ? 'Asia/Shanghai' : null,
+            onEditCourse: onEditCourse,
           ),
         ),
       ),
@@ -154,6 +156,58 @@ void main() {
       reason:
           '规范 §10.2："修改课程时间…后必须重新检测冲突并预览。"'
           '这个入口此前**不存在**——`course_edit_dialog.dart` 是计划 Task 10 声明的交付物',
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划）：**整门课程资料编辑的入口**
+  //
+  // 计划 §1.1 记录的偏差：详情页的范围选择器**没有接进** `_editTime()`——
+  // 无论用户选哪一项，代码都调 `editWholeCourse()`。也就是说"仅本次"是一个
+  // **说了但没做**的选项，用户以为只改一次，实际改了整门课。
+  //
+  // 处置（计划 §2.1／§2.2）：详情页**删掉**那个汇总范围选择器，改为
+  //   · 「编辑课程」→ 新的整门课程编辑页（资料 + 上课安排）；
+  //   · 具体课次的范围编辑只能从**日历上的那一节**进入（那里才有真实发生时间）。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**详情页有「编辑课程」入口**（整门课程资料的唯一入口）', (tester) async {
+    var opened = 0;
+    await pumpDetail(tester, onEditCourse: () => opened++);
+
+    final entry = find.byKey(const Key('course-edit-course'));
+    expect(
+      entry,
+      findsOneWidget,
+      reason:
+          '计划 §2.1："课程管理页的『编辑课程』保存的是整个课程快照"。'
+          '没有这个入口，用户就只能改钟点，名称/教师/地点/星期/周次全都改不了',
+    );
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(opened, 1);
+  });
+
+  testWidgets('**未装配编辑入口时不显示按钮**（不给点了没反应的入口）', (tester) async {
+    await pumpDetail(tester);
+
+    expect(
+      find.byKey(const Key('course-edit-course')),
+      findsNothing,
+      reason: '与「改时间」同一条口径：没有去处就不留按钮',
+    );
+  });
+
+  testWidgets('**详情页不再有全局范围选择器**（它说了但没做）', (tester) async {
+    await pumpDetail(tester, withZones: true);
+
+    expect(
+      find.byKey(const Key('course-edit-scope')),
+      findsNothing,
+      reason:
+          '计划 §2.1 最后一句：这个选择器"没有接进 `_editTime()`"——'
+          '无论选哪一项都调 `editWholeCourse()`。留着它等于对用户说谎；'
+          '范围编辑改由日历上的具体课次入口承担',
     );
   });
 }

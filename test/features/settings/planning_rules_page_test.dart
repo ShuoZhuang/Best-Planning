@@ -296,4 +296,222 @@ void main() {
       );
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划 §1.3／§2.4）：**早餐保护**
+  //
+  // 现状：`ProtectedTimeKind` 只有 `lunch` / `dinner` / `fixedRest`，
+  // 因此**不存在**可被界面打开的早餐规则。
+  //
+  // 计划 §2.4 的兼容策略：设置页**始终**显示"早餐保护"一行，既有用户升级后
+  // **默认关闭**——避免装完更新就悄悄改变用户已经确认过的计划。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /// 早餐必须排在**睡眠之后、午餐之前**（计划 Task 9 Step 2 的顺序要求）。
+  ///
+  /// 只用 `findsOneWidget` 无法证明顺序，因此把标题行的 `dy` 读出来比较。
+  void expectOrderedAfter(WidgetTester tester, String first, String second) {
+    final firstY = tester.getTopLeft(find.text(first)).dy;
+    final secondY = tester.getTopLeft(find.text(second)).dy;
+    expect(
+      secondY,
+      greaterThan(firstY),
+      reason: '「$second」应当排在「$first」之后',
+    );
+  }
+
+  testWidgets('**早餐保护这一行始终存在，且默认关闭、建议 07:30–08:00**', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.widgetWithText(SwitchListTile, '早餐保护');
+    await tester.ensureVisible(row);
+    expect(
+      row,
+      findsOneWidget,
+      reason:
+          '计划 §2.4："设置页始终显示『早餐保护』一行"——'
+          '连行都没有，用户就没有任何地方能打开它',
+    );
+    expect(
+      tester.widget<SwitchListTile>(row).value,
+      isFalse,
+      reason:
+          '**既有用户升级后默认关闭**：装完更新就悄悄改变已经确认的计划'
+          '是这一批最要避免的事（计划 §2.4）',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('protected-breakfast-start')))
+          .controller!
+          .text,
+      '07:30',
+      reason: '建议时间 07:30–08:00 必须**显示出来**，用户才知道默认是什么',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('protected-breakfast-end')))
+          .controller!
+          .text,
+      '08:00',
+    );
+  });
+
+  testWidgets('早餐行排在睡眠之后、午餐之前', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(SwitchListTile, '早餐保护'));
+    await tester.pumpAndSettle();
+
+    expectOrderedAfter(tester, '最低睡眠（分钟）', '早餐保护');
+    expectOrderedAfter(tester, '早餐保护', '午餐保护');
+  });
+
+  testWidgets('**启用并保存后 `breakfast` 进入规则**', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.widgetWithText(SwitchListTile, '早餐保护');
+    await tester.ensureVisible(row);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('设置已保存'), findsOneWidget);
+    final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+    final breakfast = resolved.rules.protectedTimes
+        .where((item) => item.kind.name == 'breakfast')
+        .toList();
+    expect(
+      breakfast,
+      hasLength(1),
+      reason: '启用之后规则里必须有且只有一条早餐保护',
+    );
+    expect(breakfast.single.range.startMinute, 7 * 60 + 30);
+    expect(breakfast.single.range.endMinute, 8 * 60);
+    expect(breakfast.single.enabled, isTrue);
+  });
+
+  testWidgets('**关闭再保存时从规则里移除**（不留 enabled=false 的重复表示）', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 先开再关，然后保存。
+    final row = find.widgetWithText(SwitchListTile, '早餐保护');
+    await tester.ensureVisible(row);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+
+    final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+    expect(
+      resolved.rules.protectedTimes.where(
+        (item) => item.kind.name == 'breakfast',
+      ),
+      isEmpty,
+      reason:
+          '关掉就是移除。留一条 `enabled: false` 的记录会让"关掉"与'
+          '"从没开过"在数据上分叉，而下游只看 enabled 就会得到两种行为',
+    );
+  });
+
+  testWidgets('**与睡眠重叠时阻止保存并指出重叠分钟**（不静默合并）', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 把工作日睡眠改成 23:30–08:00（默认结束时间是 07:30 附近，因此这里显式改）。
+    await tester.enterText(
+      find.byKey(const Key('weekday-sleep-end')),
+      '08:00',
+    );
+    await tester.enterText(
+      find.byKey(const Key('weekday-sleep-start')),
+      '23:30',
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.widgetWithText(SwitchListTile, '早餐保护');
+    await tester.ensureVisible(row);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('设置已保存'),
+      findsNothing,
+      reason:
+          '计划 §2.4："早餐不与睡眠自动合并；两者重叠时**阻止保存**并指出冲突"',
+    );
+    expect(
+      find.textContaining('重叠'),
+      findsWidgets,
+      reason:
+          '只说"保存失败"用户不知道改哪一个；必须说出重叠了多少分钟'
+          '（计划 Task 9 Step 3 的例子："早餐保护 07:30–08:00 与睡眠 23:30–08:00 重叠 30 分钟"）',
+    );
+    // 旧规则必须完整：被拦下的保存不得留下半条改动。
+    final resolved = await service.resolveForDate(DateTime(2026, 10, 2));
+    expect(
+      resolved.rules.protectedTimes.where(
+        (item) => item.kind.name == 'breakfast',
+      ),
+      isEmpty,
+      reason: '被拦下的保存是**零写入**',
+    );
+  });
 }

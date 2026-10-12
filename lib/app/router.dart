@@ -48,6 +48,7 @@ import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/courses/course_detail_page.dart';
+import 'package:personal_planner/features/calendar/courses/course_editor_page.dart';
 import 'package:personal_planner/features/calendar/courses/course_management_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
@@ -1072,10 +1073,46 @@ GoRouter createPlannerRouter({
                 logicalCourseId: state.pathParameters['logicalCourseId'] ?? '',
                 onDeleted: () => context.go('/calendar/courses'),
                 onCancel: () => context.go('/calendar/courses'),
+                // 「编辑课程」：整门课程资料的唯一入口（计划 §2.1）。
+                // 与 `onCancel` 同一口径——没有去处就不该有这个按钮。
+                onEditCourse: () => context.go(
+                  '/calendar/courses/'
+                  '${state.pathParameters['logicalCourseId']}/edit',
+                ),
                 // 「改时间」入口需要它们把本地钟点换算成 UTC 提议时段，
                 // 才能做到 §10.2 末条的"保存前先看冲突"。
                 zones: zones,
                 timeZoneId: timeZoneId,
+              );
+            },
+          ),
+          GoRoute(
+            // 整门课程的资料编辑（课程与保护时间管理修复计划 §2.1／Task 5）。
+            //
+            // **为什么与详情页分成两条路由**：详情页回答"这门课是什么"，
+            // 编辑页回答"要把它改成什么"，而两者的作用范围不同——名称、教师、
+            // 星期、周次是整门课的属性；"仅本次／此次及以后"必须知道一次课的
+            // 真实发生时间，只能从日历上的那一节进入（§2.2）。
+            path: '/calendar/courses/:logicalCourseId/edit',
+            builder: (context, state) {
+              final service = courseManagement;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '编辑课程',
+                  message: '课程管理未装配，暂无法编辑课程。',
+                );
+              }
+              final logicalCourseId =
+                  state.pathParameters['logicalCourseId'] ?? '';
+              return CourseEditorPage(
+                service: service,
+                logicalCourseId: logicalCourseId,
+                // 保存与取消都回**同一门课的详情**，而不是列表：
+                // 用户刚改完这门课，最可能想做的就是核对改后的样子（Task 5 Step 6）。
+                onSaved: () =>
+                    context.go('/calendar/courses/$logicalCourseId'),
+                onCancel: () =>
+                    context.go('/calendar/courses/$logicalCourseId'),
               );
             },
           ),
@@ -1099,6 +1136,33 @@ GoRouter createPlannerRouter({
                 zones: zones,
                 nowUtc: nowUtc ?? todayStartUtc,
                 onManaged: () => context.go('/calendar/protected/new'),
+                onEditSeries: (anchorId) =>
+                    context.go('/calendar/protected/$anchorId/edit'),
+              );
+            },
+          ),
+          GoRoute(
+            // 编辑一个**保护时间系列**（计划 §2.3：管理页编辑默认修改整个系列）。
+            //
+            // **必须排在 `/calendar/protected/new` 之前**：GoRouter 按声明顺序匹配，
+            // 而 `:anchorId` 会吞掉 `new` 这个字面量。
+            path: '/calendar/protected/:anchorId/edit',
+            builder: (context, state) {
+              final service = calendarService;
+              if (service == null) {
+                return const _UnavailablePage(
+                  title: '编辑保护时间',
+                  message: '日历写入服务未装配，暂无法编辑保护时间。',
+                );
+              }
+              return ProtectedTimeEditorPage(
+                service: service,
+                timeZoneId: timeZoneId,
+                zones: zones,
+                workspace: workspaceService,
+                editAnchorId: state.pathParameters['anchorId'],
+                onSaved: () => context.go('/calendar/protected'),
+                onCancel: () => context.go('/calendar/protected'),
               );
             },
           ),

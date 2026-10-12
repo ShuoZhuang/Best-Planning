@@ -27,6 +27,7 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
     this.workspace,
     this.initialTitle = defaultTitle,
     this.initialNotes = '',
+    this.editAnchorId,
     this.onSaved,
     this.onCancel,
     super.key,
@@ -50,6 +51,16 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
   /// 那么"编辑一次导入的课"就会**静默抹掉它的备注**——课表导入正是用 `notes`
   /// 存教师名的。这与本批次其他几处同型：**能读的字段必须也能原样写回**。
   final String initialNotes;
+
+  /// 非空表示这一页处在**编辑模式**，值是要编辑的锚点事件 id。
+  ///
+  /// **为什么用"有没有 id"而不是一个布尔**：布尔与 id 分开传会出现
+  /// `isEdit: true` 而 `anchorId: null` 这种自相矛盾的组合，而那样的组合在保存时
+  /// 只能二选一：要么新建（丢掉用户的编辑），要么崩溃。让模式**由数据本身决定**，
+  /// 这种组合在类型上就不存在。
+  ///
+  /// 为空 ⇒ 新建模式，标题是「新建保护时间」（Task 8 Step 1）。
+  final String? editAnchorId;
   final VoidCallback? onSaved;
   final VoidCallback? onCancel;
 
@@ -143,7 +154,13 @@ final class _ProtectedTimeEditorPageState
   @override
   Widget build(BuildContext context) => PlannerEditorScaffold(
     // 规范 §7.2：所有编辑器共用同一骨架的标题区、返回行为、底部保存栏与错误摘要。
-    title: '新建保护时间',
+    //
+    // **两个模式的标题必须不同**（计划 Task 8 Step 1）：共用"新建保护时间"
+    // 会让用户在改一条既有规则时以为自己在新建，从而不敢保存、或者保存后又建了一条
+    // 重复的。
+    title: widget.editAnchorId == null
+        ? '新建保护时间'
+        : '编辑「${widget.initialTitle}」',
     subtitle: '这段时段排程绝不会占用它。可一次性，也可按周重复。',
     onCancel: widget.onCancel,
     errorSummary: PlannerEditorErrorSummary(

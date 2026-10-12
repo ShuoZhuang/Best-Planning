@@ -18,6 +18,7 @@ final class CourseDetailPage extends StatefulWidget {
     required this.logicalCourseId,
     this.onDeleted,
     this.onCancel,
+    this.onEditCourse,
     this.zones,
     this.timeZoneId,
     super.key,
@@ -27,6 +28,16 @@ final class CourseDetailPage extends StatefulWidget {
   final String logicalCourseId;
   final VoidCallback? onDeleted;
   final VoidCallback? onCancel;
+
+  /// 「编辑课程」的去处（计划 §2.1：整门课程资料的唯一入口）。
+  ///
+  /// 与 [onCancel] 同一口径：为空时**不显示**按钮——不给点了没反应的入口。
+  ///
+  /// **为什么资料编辑与钟点编辑分成两个入口**：范围选择器（仅本次／此次及以后／
+  /// 整个课程）说的是"改多少次"，而名称、教师、地点、星期、周次这些东西是
+  /// **整门课的属性**，"只改这一次的名称"在数据上根本没有对应物。把两者塞进同一页，
+  /// 就会出现"选了『仅本次』却改了整门课"这种说了但没做的状态（§1.1 的实际偏差）。
+  final VoidCallback? onEditCourse;
 
   /// 改时间对话框要用它把"本地钟点"换算成 UTC 提议时段（规范 §10.2 末条）。
   /// 为空时不显示「改时间」入口——**不给点了没反应的按钮**。
@@ -40,7 +51,6 @@ final class CourseDetailPage extends StatefulWidget {
 final class _CourseDetailPageState extends State<CourseDetailPage> {
   CourseSeriesDetail? _detail;
   CourseDeletionPreview? _preview;
-  CourseEditScope _scope = CourseEditScope.entireCourse;
   String? _status;
   bool _busy = false;
 
@@ -259,38 +269,19 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
               ),
             ),
             const SizedBox(height: 12),
-            SegmentedButton<CourseEditScope>(
-              key: const Key('course-edit-scope'),
-              segments: const [
-                ButtonSegment(
-                  value: CourseEditScope.thisOccurrence,
-                  label: Text('仅本次'),
-                ),
-                ButtonSegment(
-                  value: CourseEditScope.followingOccurrences,
-                  label: Text('此次及以后'),
-                ),
-                ButtonSegment(
-                  value: CourseEditScope.entireCourse,
-                  label: Text('整个课程'),
-                ),
-              ],
-              selected: {_scope},
-              onSelectionChanged: (selection) =>
-                  setState(() => _scope = selection.single),
-            ),
-            const SizedBox(height: 8),
-            Text(switch (_scope) {
-              CourseEditScope.thisOccurrence => '只改这一次课，其余各次保持原样。',
-              CourseEditScope.followingOccurrences => '把这一次及其之后的课换到新时间。',
-              CourseEditScope.entireCourse =>
-                '改这门课在当前学期的全部 ${detail.segments.length} 个系列片段。',
-            }, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 12),
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
+                // 「编辑课程」：整门课程资料（名称、教师、地点、领域、项目、星期、周次）
+                // 的**唯一**入口。范围编辑不在这里——见 [onEditCourse] 的说明。
+                if (widget.onEditCourse != null)
+                  FilledButton.icon(
+                    key: const Key('course-edit-course'),
+                    onPressed: _busy ? null : widget.onEditCourse,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑课程'),
+                  ),
                 // 「改时间」（1.8.0，规范 §10.2 末条）：**保存前先看冲突**。
                 // 未装配时区时不给这个入口——对话框无法把本地钟点换算成提议时段，
                 // 而"检测不到冲突"比"没有这个按钮"更糟。

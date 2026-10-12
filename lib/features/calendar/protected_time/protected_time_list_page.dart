@@ -20,6 +20,7 @@ final class ProtectedTimeListPage extends StatefulWidget {
     required this.zones,
     required this.nowUtc,
     this.onManaged,
+    this.onEditSeries,
     super.key,
   });
 
@@ -34,6 +35,14 @@ final class ProtectedTimeListPage extends StatefulWidget {
 
   /// 「新建保护时间」的去处。为空时**不显示该按钮**——不给点了没反应的入口。
   final VoidCallback? onManaged;
+
+  /// 打开某个系列的编辑页（计划 §2.3：管理页编辑**默认修改整个系列**）。
+  ///
+  /// 入参是**锚点 id**：管理页一行就是一个系列，而系列的身份是它的锚点行
+  /// （`calendar_events.id`），不是标题——按标题找会把两条同名的保护时间混成一条。
+  ///
+  /// 为空时不显示编辑入口，与 [onManaged] 同一条口径。
+  final void Function(String anchorId)? onEditSeries;
 
   @override
   State<ProtectedTimeListPage> createState() => _ProtectedTimeListPageState();

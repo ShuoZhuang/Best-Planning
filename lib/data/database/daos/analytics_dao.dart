@@ -412,6 +412,7 @@ final class AnalyticsDao implements AnalyticsDataSource {
   }
 
   static String _protectedLabel(ProtectedTimeKind kind) => switch (kind) {
+    ProtectedTimeKind.breakfast => '早餐',
     ProtectedTimeKind.lunch => '午餐',
     ProtectedTimeKind.dinner => '晚餐',
     ProtectedTimeKind.fixedRest => '固定休息',

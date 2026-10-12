@@ -54,6 +54,7 @@ void main() {
     WidgetTester tester, {
     List<CalendarOccurrence> occurrences = const [],
     CalendarEventDeletion? deletion,
+    void Function(String anchorId)? onEditSeries,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -76,6 +77,7 @@ void main() {
             zones: zones,
             nowUtc: now,
             onManaged: () {},
+            onEditSeries: onEditSeries,
           ),
         ),
       ),
@@ -192,6 +194,76 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('protected-list-new')), findsNothing);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程与保护时间管理修复计划 §1.2／§2.3）：**按系列列出，一条一行**
+  //
+  // 现状：页面读的是未来 180 天的**展开结果**，因此一条"每周二健身"会按发生次数
+  // 出现 26 行。计划 §3 明确禁止这样做（"不允许从未来 180 天 occurrence 列表
+  // 反推保护系列；这会制造重复行并漏掉 180 天后的系列"）。
+  //
+  // 这一组用**同一锚点的多次 occurrence** 把"重复行"钉死，并补上"编辑"入口。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /// 同一个锚点（`p1`）的三次发生：正是"每周重复"在展开结果里的样子。
+  List<CalendarOccurrence> recurring() => [
+    protected(id: 'p1', title: '健身', hour: 4),
+    protected(id: 'p1', title: '健身', hour: 4 + 24 * 7),
+    protected(id: 'p1', title: '健身', hour: 4 + 24 * 14),
+  ];
+
+  testWidgets('**同一个重复锚点只显示一行**（不按发生次数重复）', (tester) async {
+    await pump(tester, occurrences: recurring());
+
+    expect(
+      find.byKey(const Key('protected-series-p1')),
+      findsOneWidget,
+      reason:
+          '按展开结果列出的后果就是这里出现 3 行（真实数据里是 26 行）。'
+          '用户看到的"保护时间"应该是一条规则，不是它未来的每一次发生',
+    );
+    expect(
+      find.byKey(const Key('protected-list-p1')),
+      findsNothing,
+      reason: '旧的"按发生列行"的 key 不该再存在——两套命名并存会让点击落到另一行上',
+    );
+  });
+
+  testWidgets('每行有**带标题的「编辑」语义按钮**', (tester) async {
+    String? edited;
+    await pump(
+      tester,
+      occurrences: recurring(),
+      onEditSeries: (id) => edited = id,
+    );
+
+    final edit = find.byKey(const Key('protected-edit-p1'));
+    expect(edit, findsOneWidget, reason: '管理页必须能重新打开并修改，而不是只能删');
+
+    // 语义标签里要有标题，读屏用户才知道自己在编辑哪一条。
+    final semantics = tester.getSemantics(edit);
+    expect(
+      semantics.label,
+      contains('健身'),
+      reason: '计划 §Global Constraints："非空语义标签"；只说"编辑"等于没说编辑什么',
+    );
+
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+    expect(edited, 'p1');
+  });
+
+  testWidgets('**规则来源的保护时间不出现**（它们没有锚点，要去设置里改）', (tester) async {
+    await pump(tester, occurrences: recurring());
+
+    expect(
+      find.textContaining('早餐'),
+      findsNothing,
+      reason:
+          '规则生成的睡眠／早餐／午餐／晚餐／固定休息没有 `CalendarEvent` 锚点'
+          '（计划 §2.3 末段），因此这份清单里不该出现它们，更不该显示删除',
+    );
   });
 }
 
