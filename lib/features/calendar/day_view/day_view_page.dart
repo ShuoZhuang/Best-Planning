@@ -352,7 +352,6 @@ Future<void> _editOccurrence(
   );
 }
 
-
 /// 选择领域并保存（`null` 表示取消归属）。
 ///
 /// 返回值包一层是为了区分"取消对话框"与"选择不归属领域"——两者都是 `null` 的话，
@@ -688,8 +687,9 @@ final class _OccurrenceEditDialogState extends State<_OccurrenceEditDialog> {
                     key: const Key('occurrence-scope-following'),
                     label: const Text('本次及以后'),
                     selected: _scope == EventEditScope.followingOccurrences,
-                    onSelected: (_) =>
-                        setState(() => _scope = EventEditScope.followingOccurrences),
+                    onSelected: (_) => setState(
+                      () => _scope = EventEditScope.followingOccurrences,
+                    ),
                   ),
                 if (widget.allowsWholeSeries)
                   ChoiceChip(
