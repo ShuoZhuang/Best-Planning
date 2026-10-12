@@ -68,11 +68,23 @@ void main() {
     expect(scheduled, lessThanOrEqualTo(110));
     expect(proposal.metrics.unscheduledMinutes, 180 - scheduled);
     expect(proposal.unscheduled.single.shortageMinutes, 180 - scheduled);
+    // **容量缺口只有一个结构化来源**（1.8.0，冻结决策 §1.5）。
+    //
+    // 本用例此前断言 `conflicts.singleWhere(insufficientCapacity)` ——
+    // 那是把"引擎为每条 unscheduled 再补一条冲突"这个**重复建模**固定成了契约
+    // （R6，也是截图里"同一任务既说可用时间不足、又说还缺 76 分钟"的成因）。
+    // 现在缺口只由 `unscheduled` 表达，冲突列表里不得再有 `insufficientCapacity`。
     expect(
-      proposal.conflicts
-          .singleWhere((item) => item.code == ConflictCode.insufficientCapacity)
-          .shortageMinutes,
+      proposal.conflicts.where(
+        (item) => item.code == ConflictCode.insufficientCapacity,
+      ),
+      isEmpty,
+      reason: '同一个缺口在 unscheduled 与 conflicts 里各说一次，用户会以为是两个问题',
+    );
+    expect(
+      proposal.unscheduled.single.shortageMinutes,
       180 - scheduled,
+      reason: '缺口分钟必须仍然精确可读',
     );
     expect(
       proposal.blocks.any((block) => block.range.overlaps(sleep)),

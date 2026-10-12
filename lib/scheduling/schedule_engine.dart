@@ -48,18 +48,34 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// **还能回到原位**的块放回原位。于是"被移动的块数"与"总位移分钟"这两个量第一次真的被
   /// 优化，而不是只靠单块评分里那个移动惩罚项间接影响。同一输入的分块位置因此会变
   /// （更少、更近），必须抬版本。
-  static const String algorithmVersion = '13';
+  /// 版本 12 统一稳定身份／块级延后／局部级联／方案级坏空档比较。
+  /// 版本 13 让睡眠进入统一硬占用集合，并做"当天优先"的级联。
+  ///
+  /// 版本 14（2026-10-12 故障修复）三处都会改变同一输入得到的块集合：
+  /// ① **历史块不再计入前向计划** —— 已结束的确认块既不再进 `lockedBlocks`，
+  ///    也不再计入 `scheduledByTask`，因此"本次还剩多少"与旧版本不同；
+  /// ② **粒度与短余量契约统一** —— 候选生成改用 `problem.rules.granularityMinutes`
+  ///    构造（此前固定 5 分钟），且最终校验接受与生成一致的短余量；
+  /// ③ 进行中块被识别为硬占用（此前落入可移动集合，会被局部改进搬走）。
+  static const String algorithmVersion = '14';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
   final AvailabilityBuilder _availabilityBuilder;
   final PlanValidator _validator;
-  final CandidateGenerator _candidateGenerator = const CandidateGenerator();
   final CandidateScorer _candidateScorer = const CandidateScorer();
   final PressureCalculator _pressureCalculator = const PressureCalculator();
 
   @override
   ScheduleProposal generate(ScheduleProblem problem) {
+    // **候选生成器的粒度来自规则**（1.8.0，冻结决策 §1.4）：`problem.rules` 是
+    // 粒度、短余量与网格的**唯一事实源**。修复前这里是字段初始化里的
+    // `const CandidateGenerator()`（默认 5 分钟），于是用户把粒度配成 10 分钟时，
+    // 引擎仍在 5 分钟网格上放置片段，而 `AvailabilityBuilder` 与窗口起点按 10 分钟走 ——
+    // 同一条规则在三个地方各算一遍。
+    final chunkGenerator = CandidateGenerator(
+      granularityMinutes: problem.rules.granularityMinutes,
+    );
     final slots = _availabilityBuilder.build(
       AvailabilityInput(
         planningWindow: problem.planningWindow,
@@ -193,7 +209,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
       final evenPlanForTask = evenPlans[task.id];
-      final generated = _candidateGenerator.generate(task, slots);
+      final generated = chunkGenerator.generate(task, slots);
       // ── 按日预算剪枝（计划 Issue 4a 允许的"等价剪枝"）─────────────────────────
       //
       // 取消每日上限对候选时间轴的截断后（Task 2），候选数明显变多：实测规模用例
@@ -309,12 +325,26 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         var ranked = <_RankedCandidate>[];
         final evenPlan = evenPlans[task.id];
         var relaxedDailyQuota = evenPlan != null;
+        // **"最终余量凑不出片段"只排除那些候选，不排除整件事**（1.8.0，冻结决策 §1.4）。
+        //
+        // 修复前这里是**无条件 `continue`**：一个 12 分钟的任务选 10 分钟会留下 2 分钟，
+        // 而 2 分钟不足一个粒度（5）⇒ 候选被拒 ⇒ 一个候选都不选 ⇒
+        // 实测 `scheduled=0 shortage=12 reasons=[minimumChunkTooLarge]`。
+        // 但用户真正要的是"能排的 10 分钟排进去，剩下 2 分钟如实报缺口"。
+        //
+        // 处置因此分两层：
+        //   · 第一遍：优先选"排完之后剩下的还能构成片段"的候选（例如 100 分钟的 30/35…）；
+        //   · 若第一遍一个都没有（例如 12 分钟只剩下 2），**放宽这一条**，
+        //     把能排的那一段排进去 —— 剩下的真实缺口由 `unscheduled` 如实汇报。
+        // 这与既有的"两轮放开每日配额"是同一个手法，只是放宽的是另一条软性偏好。
+        var allowUnschedulableLeftover = false;
         for (
           var pass = 0;
           pass < (evenPlan == null ? 2 : 1) && ranked.isEmpty;
           pass++
         ) {
           relaxedDailyQuota = evenPlan != null || pass == 1;
+          allowUnschedulableLeftover = evenPlan != null || pass == 1;
           for (final candidate in candidates) {
             // **每一条拒绝都留证据**，而不是只记最后一条。同一个候选可能同时违反多条约束
             // （例如既超过今日配额、又和固定日程重叠），只记一条会让原因随遍历顺序变化。
@@ -406,19 +436,29 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
               continue;
             }
             final leftover = remaining - candidate.durationMinutes;
+            // **最终余量的判据必须与短余量宽免同口径**（1.8.0，冻结决策 §1.4）。
+            //
+            // 判据问的是"**剩下的这段还能不能构成一个合法片段**"：
+            // 宽免额度（粒度下的剩余量）为 0 才说明真的凑不出片段 ——
+            // 例如剩 2 分钟、粒度 5 分钟。见上面 [allowUnschedulableLeftover] 的说明：
+            // 这一条只排除该候选，且第二遍会放宽，因此"能排的 10 分钟"不会被丢掉。
+            final leftoverAllowance = shortRemainderAllowance(
+              requiredMinutes: leftover,
+              granularityMinutes: problem.rules.granularityMinutes,
+            );
             if (task.splitMode == TaskSplitMode.splittable &&
                 leftover > 0 &&
-                leftover < task.minChunkMinutes) {
+                leftoverAllowance <= 0) {
               recordRejection(
                 task.id,
                 UnscheduledReason(
                   code: UnscheduledReasonCode.minimumChunkTooLarge,
                   requiredMinutes: leftover,
                   availableMinutes: task.minChunkMinutes,
-                  constraintLabel: '最终余量小于最小片段',
+                  constraintLabel: '最终余量不足一个片段',
                 ),
               );
-              continue;
+              if (!allowUnschedulableLeftover) continue;
             }
             final score = _scoreCandidate(
               problem,
@@ -472,7 +512,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
 
-    _improve(problem, slots, blocks, targets);
+    _improve(problem, slots, blocks, targets, chunkGenerator);
     // FR-CAL-05 的"不锁定"那一支：被手动拖动、但用户没有选择锁定的块，在**本次生成**里
     // 必须按锁定对待（因此上面的 `_improve` 跳过了它），否则局部改进会立刻把它搬回去，
     // 用户看到的就是"拖了没用"。生成结束后再把这些块的 `locked` 改回 false 输出，于是它
@@ -548,16 +588,15 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       ..clear()
       ..addAll(minimized.blocks);
 
+    // **容量缺口只有一个结构化来源**（1.8.0，冻结决策 §1.5）：`unscheduled`。
+    //
+    // 修复前这里还会为每个 `UnscheduledTask` 再补一条
+    // `ConflictCode.insufficientCapacity`，而预览又把它翻成一句独立的文案 ——
+    // 于是同一件事在页面上说两到三遍（截图里的"可用时间不足"＋"「蓝桥杯竞赛课」还缺 76 分钟"，
+    // 见 R6）。`insufficientCapacity` 这个枚举值保留，但它现在只由
+    // `PlanApplicationService` 在 `completeOnly` 模式下**作为返回结果**构造
+    // （用于告诉调用者"需要明确允许部分计划"），不再由引擎写进 `proposal.conflicts`。
     final conflicts = [..._validator.validate(problem, blocks)];
-    for (final item in unscheduled) {
-      conflicts.add(
-        PlanningConflict(
-          code: ConflictCode.insufficientCapacity,
-          taskId: item.taskId,
-          shortageMinutes: item.shortageMinutes,
-        ),
-      );
-    }
     final scheduledMinutes = blocks.fold<int>(
       0,
       (sum, block) => sum + block.durationMinutes,
@@ -570,6 +609,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       proposalId: 'proposal:${problem.inputHash}:$algorithmVersion',
       inputHash: problem.inputHash,
       algorithmVersion: algorithmVersion,
+      // **生成时的窗口随提案走**（1.8.0，冻结决策 §1.3）：预览装配层要在生成**之后**
+      // 按同一个边界过滤两侧的块，而那时 `ScheduleProblem` 已经不在手里了。
+      planningWindow: problem.planningWindow,
       blocks: blocks,
       unscheduled: unscheduled,
       conflicts: conflicts,
@@ -1259,6 +1301,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     List<AvailabilitySlot> slots,
     List<PlannedBlock> blocks,
     Map<String, int> targets,
+    CandidateGenerator candidates,
   ) {
     final tasks = {for (final task in problem.tasks) task.id: task};
     var operations = 0;
@@ -1287,7 +1330,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]!,
         problem.tasks,
       ).totalScore!;
-      final alternatives = _candidateGenerator
+      final alternatives = candidates
           .generate(task, slots)
           .where(
             (item) =>

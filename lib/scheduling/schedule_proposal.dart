@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -105,7 +106,6 @@ final class UnscheduledTask {
     ),
     this.reasons = const [],
   });
-
   final String taskId;
   final int shortageMinutes;
 
@@ -144,6 +144,7 @@ final class ScheduleProposal {
     required this.proposalId,
     required this.inputHash,
     required this.algorithmVersion,
+    required this.planningWindow,
     required List<PlannedBlock> blocks,
     required List<UnscheduledTask> unscheduled,
     required List<PlanningConflict> conflicts,
@@ -159,6 +160,19 @@ final class ScheduleProposal {
   final String proposalId;
   final String inputHash;
   final String algorithmVersion;
+
+  /// 生成这份提案时的**规划窗口**（1.8.0，2026-10-12 故障；冻结决策 §1.3）。
+  ///
+  /// **为什么必须随提案走**：窗口起点是"历史／进行中／未来"三种时间角色的**唯一分界**。
+  /// 预览装配层要在**生成之后**过滤两侧的计划块（`visibleToForwardPreview`），
+  /// 而它在预览打开时已经拿不到生成时的 `ScheduleProblem` 了 ——
+  /// 提案只存在内存里，`PlanningService.preview(id)` 返回的就是它。
+  ///
+  /// **不能用"预览打开时的系统时钟"重算**：生成与预览之间用户可能已经等了一会儿，
+  /// 那样同一份提案会随时钟漂移改变哪些块"可见"，而提案本身一个字都没变
+  /// （`PlanDiffer` 也因此不该自己去读时钟）。
+  final TimeRange planningWindow;
+
   final List<PlannedBlock> blocks;
   final List<UnscheduledTask> unscheduled;
   final List<PlanningConflict> conflicts;
@@ -187,6 +201,7 @@ final class ScheduleProposal {
         proposalId: proposalId,
         inputHash: inputHash,
         algorithmVersion: algorithmVersion,
+        planningWindow: planningWindow,
         blocks: blocks,
         unscheduled: unscheduled,
         conflicts: conflicts,
@@ -202,6 +217,7 @@ final class ScheduleProposal {
         proposalId: proposalId,
         inputHash: inputHash,
         algorithmVersion: algorithmVersion,
+        planningWindow: planningWindow,
         blocks: blocks,
         unscheduled: unscheduled,
         conflicts: conflicts,
@@ -221,6 +237,7 @@ final class ScheduleProposal {
         proposalId: proposalId,
         inputHash: inputHash,
         algorithmVersion: algorithmVersion,
+        planningWindow: planningWindow,
         blocks: linked,
         unscheduled: unscheduled,
         conflicts: conflicts,

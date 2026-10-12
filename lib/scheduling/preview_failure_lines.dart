@@ -22,6 +22,13 @@ const String unnamedTaskLabel = '未命名任务';
 ///
 /// **为什么是纯函数**：它要在四处被验证（没有裸 UUID、没有丢原因、顺序确定、上限生效），
 /// 而纯函数可以用任意构造的提案把这些逐条钉住，不必启动整个生成流程。
+///
+/// **顺序与去重是定死的**（1.8.0，2026-10-12 故障；冻结决策 §1.5）：
+/// 先每个 `unscheduled` 一条（去重后），再列**真正的**冲突。
+/// 此前引擎会为每个缺口再补一条 `insufficientCapacity` 冲突，于是同一个任务在这里
+/// 出现两次（"还缺 30 分钟"＋"可用时间不足"），用户以为有两个问题。
+/// 现在容量缺口只有一个结构化来源，因此这里天然不会重复——
+/// 但**去重仍然保留**：它是第二道防线（夹具与外层注入的提案不保证不重复）。
 List<PreviewFailureLine> previewFailureLines({
   required ScheduleProposal proposal,
   required Map<String, String> titleByTaskId,
@@ -37,12 +44,32 @@ List<PreviewFailureLine> previewFailureLines({
           title: _titleOf(task.taskId, titleByTaskId),
           reason: unscheduledReasonLabel(task.primaryReason),
         ),
-    // **再列冲突**：它们没有 `taskId` 归属到某一件任务上（冲突是"计划整体"的事实），
-    // 因此用冲突自己的标签作为"标题"位置。
+    // **再列冲突**：它们可能没有 `taskId`（冲突是"计划整体"的事实），
+    // 因此有归属时按任务标题显示，没有时退回冲突自己的标签位置。
     for (final conflict in proposal.conflicts)
-      (title: conflictLabel(conflict.code), reason: '这次调整与它冲突'),
+      (
+        title: conflict.taskId == null
+            ? conflictLabel(conflict.code)
+            : _titleOf(conflict.taskId!, titleByTaskId),
+        // **同一句翻译**：与预览问题模型共用 `planningConflictMessage`，
+        // 不再各写一个 switch（那样同一条原因会在两处显示成两句话）。
+        reason: planningConflictMessage(
+          conflict,
+          taskTitle: _titleOf(conflict.taskId ?? '', titleByTaskId),
+        ),
+      ),
   ];
-  return lines.length <= maximumLines ? lines : lines.sublist(0, maximumLines);
+  // 去重：同一条（标题＋原因）只说一次。保留**首次出现**的顺序，
+  // 因此结果仍然是确定的。
+  final seen = <String>{};
+  final unique = <PreviewFailureLine>[];
+  for (final line in lines) {
+    if (!seen.add('${line.title}\u0000${line.reason}')) continue;
+    unique.add(line);
+  }
+  return unique.length <= maximumLines
+      ? unique
+      : unique.sublist(0, maximumLines);
 }
 
 /// 标题解析：**批量映射里查，查不到用占位文案，绝不回退成 id**。

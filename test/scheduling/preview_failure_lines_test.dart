@@ -9,6 +9,7 @@
 // 2. 找不到标题时用占位文案——**任何一行里都不出现任务 id**；
 // 3. 行数与顺序确定。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preview_failure_lines.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -43,6 +44,10 @@ void main() {
     proposalId: 'p1',
     inputHash: 'h1',
     algorithmVersion: 'test',
+    planningWindow: TimeRange(
+      startUtc: DateTime.utc(2026, 10, 12, 1, 30),
+      endUtc: DateTime.utc(2026, 10, 19),
+    ),
     blocks: const [],
     conflicts: conflicts,
     unscheduled: unscheduledTasks,

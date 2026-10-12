@@ -5,9 +5,10 @@
 // 1. 标题由 `TaskTitleLookup` 提供，**查不到时回落"未命名任务"，绝不回落裸 UUID**；
 // 2. 预览只**翻译**引擎给的原因，不自己推测（`unscheduledReasonLabel` 的入参就是
 //    `UnscheduledReason`，拿不到任务属性，因此"猜"在类型上就做不到）；
-// 3. 同一条缺口在"未安排"与"冲突"两组里必须叫同一个名字。
+// 3. 一条缺口在整页只出现一次：标题、缺口分钟与主原因在同一处（1.8.0 更正，见下方用例）。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -143,7 +144,7 @@ void main() {
             body: PlanPreviewPage(
               model: model,
               autoAdjustStore: MemoryAutoAdjustStore(),
-              onConfirm: () async {},
+              onConfirm: (mode) async => ApplyPlanResult.stale(),
             ),
           ),
         ),
@@ -157,14 +158,21 @@ void main() {
         tester,
         PlanPreviewModel(
           proposalId: 'p1',
-          changes: [
-            const PreviewChange(
+          changes: const [
+            PreviewChange(
               kind: PreviewChangeKind.unplanned,
               title: '贫困生材料提交 还缺 15 分钟',
               reason: '这件事需要一次做完：需要 30 分钟，可用 20 分钟。',
             ),
           ],
-          conflicts: const ['「贫困生材料提交」还缺 15 分钟'],
+          issues: const [
+            PreviewIssue(
+              key: 'unscheduled:$uuid',
+              severity: PreviewIssueSeverity.warning,
+              title: '贫困生材料提交 还缺 15 分钟',
+              message: '这件事需要一次做完：需要 30 分钟，可用 20 分钟。',
+            ),
+          ],
           isStale: false,
         ),
       );
@@ -176,6 +184,41 @@ void main() {
         findsNothing,
         reason: '裸 UUID 是这一步要消灭的东西',
       );
+    });
+
+    // **本用例的期待本轮被纠正**（1.8.0，2026-10-12 实机故障）。
+    //
+    // 它此前要求"同一条缺口必须同时出现在未安排与冲突两组里"。那是错的，而且正是用户看到的
+    // 第二个现象：同一个任务既显示"可用时间不足"又显示"「蓝桥杯竞赛课」还缺 76 分钟"——
+    // 两组文案把同一件事说了两遍，用户以为有两个问题。
+    //
+    // 缺口只有一个结构化来源（`UnscheduledTask`），因此页面上也只该出现一次：
+    // **标题 ＋ 缺口分钟 ＋ 主原因**，三件都在同一条里。
+    testWidgets('同一条缺口在整页只出现一次（标题＋缺口＋主原因在同一处）', (tester) async {
+      await pump(
+        tester,
+        PlanPreviewModel(
+          proposalId: 'p1',
+          changes: const [],
+          issues: const [
+            PreviewIssue(
+              key: 'unscheduled:ghost',
+              severity: PreviewIssueSeverity.warning,
+              title: '贫困生材料提交 还缺 15 分钟',
+              message: '这件事需要一次做完：需要 30 分钟，可用 20 分钟。',
+            ),
+          ],
+          isStale: false,
+        ),
+      );
+
+      expect(
+        find.textContaining('贫困生材料提交'),
+        findsOneWidget,
+        reason: '同一个缺口在两组里各说一次，用户会以为是两件事',
+      );
+      expect(find.textContaining('还缺 15 分钟'), findsOneWidget);
+      expect(find.textContaining('需要 30 分钟'), findsOneWidget);
     });
   });
 }

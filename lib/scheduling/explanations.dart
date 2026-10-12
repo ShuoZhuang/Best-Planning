@@ -29,6 +29,95 @@ String conflictLabel(ConflictCode code) => switch (code) {
   ConflictCode.requestedAdjustmentUnsatisfied => '无法按要求延后，当前计划未更改',
 };
 
+/// 一条 `invalidInput` 的**具体**说法（1.8.0，2026-10-12 故障；冻结决策 §1.4）。
+///
+/// **为什么必须有它**：截图里的第四件事是"点击确认后只提示『计划未通过校验，未应用』，
+/// 没有指出具体块与具体规则"。用户看到的是**一句无法行动的话**。
+/// 一个笼统的 `invalidInput` 至少对应五种完全不同的处置：
+///
+/// | 原因 | 用户该做什么 |
+/// | --- | --- |
+/// | [InvalidInputReason.startsBeforePlanningWindow] | 重新生成（历史块不该出现在这里） |
+/// | [InvalidInputReason.endsAfterPlanningWindow] | 缩短片段或改规划范围 |
+/// | [InvalidInputReason.unknownTask] | 任务已被删除 ⇒ 重新生成 |
+/// | [InvalidInputReason.chunkBelowMinimum] | 调小"最小片段"设置或加长时间 |
+/// | [InvalidInputReason.chunkAboveMaximum] | 调大"最大片段"设置 |
+/// | [InvalidInputReason.offGranularity] | 时间块没有对齐排程粒度 |
+///
+/// **`reason` 为空时的回落**是 [conflictLabel] 的"排程输入无效"——
+/// 但那只应发生在**旧提案**上（枚举是新增字段），不是正常路径。
+String invalidInputLabel(InvalidInputReason? reason) => switch (reason) {
+  InvalidInputReason.unknownTask => '任务已不存在',
+  InvalidInputReason.startsBeforePlanningWindow => '时间块早于本次规划范围',
+  InvalidInputReason.endsAfterPlanningWindow => '时间块晚于本次规划范围',
+  InvalidInputReason.chunkBelowMinimum => '片段短于允许值',
+  InvalidInputReason.chunkAboveMaximum => '片段长于允许值',
+  InvalidInputReason.offGranularity => '时间块没有对齐排程粒度',
+  null => '排程输入无效',
+};
+
+/// 把一条**完整冲突**翻成用户能据以行动的一句话（1.8.0，冻结决策 §1.4）。
+///
+/// **这里是唯一的翻译链**：`plan_preview_issues.dart` 与 `preview_failure_lines.dart`
+/// 都调用它。此前两条路径各有一份 `conflictLabel(code)` 的 switch —— 抄一份就等于让
+/// 同一条原因在两处显示成两句话（`explanations.dart` 的既有注释已经写明这条纪律）。
+///
+/// [taskTitle] 由调用方**批量解析后**传入（`TaskTitleLookup.titlesFor`），
+/// 因此本函数只做字符串拼接，不查库、不知道任务长什么样。
+/// **绝不显示 `relatedEntityIds`**（那是内部 id）。
+String planningConflictMessage(
+  PlanningConflict conflict, {
+  required String taskTitle,
+}) {
+  final label = switch (conflict.code) {
+    ConflictCode.invalidInput => invalidInputLabel(conflict.invalidInputReason),
+    ConflictCode.insufficientCapacity =>
+      conflict.shortageMinutes > 0
+          ? '可用时间不足：还缺 ${conflict.shortageMinutes} 分钟'
+          : '可用时间不足',
+    _ => conflictLabel(conflict.code),
+  };
+  // 数字尽量带上：用户据此才知道"差多少"。
+  final detail = switch (conflict.code) {
+    ConflictCode.invalidInput => _chunkDetail(conflict.details),
+    ConflictCode.scheduledDurationExceeded => _durationDetail(conflict.details),
+    ConflictCode.dailyLimitExceeded => _dailyLimitDetail(conflict.details),
+    _ => '',
+  };
+  // 有 taskId 时带上标题：同一条规则对不同任务意味着不同的下一步。
+  final subject = conflict.taskId == null ? '' : '「$taskTitle」：';
+  return '$subject$label$detail';
+}
+
+String _chunkDetail(Map<String, Object?> details) {
+  final duration = details['durationMinutes'];
+  final min = details['minChunkMinutes'];
+  final max = details['maxChunkMinutes'];
+  if (duration is! int) return '';
+  if (min is int && max is int) {
+    return '（这一块 $duration 分钟，允许 $min–$max 分钟）';
+  }
+  final granularity = details['granularityMinutes'];
+  if (granularity is int) {
+    return '（这一块 $duration 分钟，粒度 $granularity 分钟）';
+  }
+  return '（这一块 $duration 分钟）';
+}
+
+String _durationDetail(Map<String, Object?> details) {
+  final scheduled = details['scheduledMinutes'];
+  final required = details['requiredMinutes'];
+  if (scheduled is! int || required is! int) return '';
+  return '（已排 $scheduled 分钟，任务需要 $required 分钟）';
+}
+
+String _dailyLimitDetail(Map<String, Object?> details) {
+  final scheduled = details['scheduledMinutes'];
+  final limit = details['limitMinutes'];
+  if (scheduled is! int || limit is! int) return '';
+  return '（当天已排 $scheduled 分钟，上限 $limit 分钟）';
+}
+
 /// 把引擎给出的结构化原因翻译成一句用户能据以行动的话（Task 12A Step 6 第 5 条）。
 ///
 /// **这里只翻译，不判断。** 归因由引擎负责（`UnscheduledReasonCode`），本函数不得据任务属性

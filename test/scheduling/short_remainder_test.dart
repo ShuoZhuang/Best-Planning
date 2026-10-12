@@ -19,8 +19,10 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 void main() {
   const generator = CandidateGenerator();
@@ -215,6 +217,144 @@ void main() {
 
       expect(scheduled, 15, reason: '容量充足却没排进去，正是那个发布阻断现象');
       expect(shortage, 0, reason: '同一个块不能同时被归为"已新增"和"未安排"');
+    });
+
+    // ── 1.8.0（2026-10-12 故障；冻结决策 §1.4）：**最终校验必须与候选生成同口径** ────
+    //
+    // 上面那条只证明了"引擎排得进去"。截图里的故障形态比它更糟：
+    // **引擎排得进去、最终校验却必然拒绝**（R4）。
+    // 因此这一段把"生成结果"与"提案里的 conflicts"绑在一起断言 ——
+    // 候选生成合法而校验器不认，正是契约分裂的定义。
+    List<PlanningConflict> invalidOf(ScheduleProposal p) =>
+        p.conflicts.where((c) => c.code == ConflictCode.invalidInput).toList();
+
+    test('15 分钟任务：最终校验**接受**那个 15 分钟块，提案无 invalid', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 15);
+      final proposal = engine.generate(problem(t));
+
+      expect(proposal.blocks, hasLength(1));
+      expect(
+        invalidOf(proposal),
+        isEmpty,
+        reason:
+            '修复前 `PlanValidator` 无条件拒绝 `duration < minChunkMinutes`，'
+            '于是引擎刚排好的块在确认阶段被自己判成非法 —— 用户点了确认只会看到'
+            '"计划未通过校验，未应用"',
+      );
+      expect(
+        proposal.metrics.isFullyFeasible,
+        isTrue,
+        reason: '能排下、校验也通过 ⇒ 这是一份完整可行的提案',
+      );
+    });
+
+    test('12 分钟、粒度 5：排 10 分钟、缺 2 分钟，10 分钟块本身不产生 invalid', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 12);
+      final proposal = engine.generate(problem(t));
+
+      final scheduled = proposal.blocks
+          .where((b) => b.taskId == t.id)
+          .fold<int>(0, (sum, b) => sum + b.durationMinutes);
+      expect(scheduled, 10, reason: '12 分钟的剩余量在 5 分钟粒度下最多排 10 分钟');
+      expect(
+        proposal.unscheduled.single.shortageMinutes,
+        2,
+        reason: '剩下那 2 分钟是**真实缺口**，要如实报出来，而不是伪造一个片段',
+      );
+      expect(
+        invalidOf(proposal),
+        isEmpty,
+        reason: '10 分钟是唯一的合法候选，不该因此产生"片段短于允许值"',
+      );
+    });
+
+    test('3 分钟：不生成块、缺 3 分钟、也不产生 invalid', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 3);
+      final proposal = engine.generate(problem(t));
+
+      expect(
+        proposal.blocks.where((b) => b.taskId == t.id),
+        isEmpty,
+        reason: '3 分钟不足一个 5 分钟粒度 ⇒ 如实不排，不伪造片段',
+      );
+      expect(proposal.unscheduled.single.shortageMinutes, 3);
+      expect(
+        invalidOf(proposal),
+        isEmpty,
+        reason: '"排不下"是缺口，不是"排程输入无效"——两者的处置完全不同',
+      );
+    });
+
+    test('100 分钟：任何普通块仍不得小于 30（宽免不得变成普遍放宽）', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 100);
+      final proposal = engine.generate(problem(t));
+
+      expect(proposal.blocks, isNotEmpty);
+      for (final block in proposal.blocks) {
+        expect(
+          block.durationMinutes,
+          greaterThanOrEqualTo(30),
+          reason: '100 分钟还剩得下 30 分钟以上的片段，因此下限照旧生效',
+        );
+      }
+      expect(invalidOf(proposal), isEmpty);
+    });
+
+    test('15 分钟**连续**任务：一个 15 分钟块合法，不因 min 30 产生 invalid', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 15, splitMode: TaskSplitMode.continuous);
+      final proposal = engine.generate(problem(t));
+
+      final blocks = proposal.blocks.where((b) => b.taskId == t.id).toList();
+      expect(blocks, hasLength(1), reason: '连续任务只允许一个完整块');
+      expect(blocks.single.durationMinutes, 15);
+      expect(
+        invalidOf(proposal),
+        isEmpty,
+        reason: 'R5：连续任务不该被可拆分任务的 min/max 片段检查误伤',
+      );
+    });
+
+    test('连续任务的**两个块**仍然产生 `continuousBlockUnavailable`', () {
+      final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+      final t = task(requiredMinutes: 30, splitMode: TaskSplitMode.continuous);
+      final proposal = engine.generate(problem(t));
+
+      // 直接把引擎的输出改成两块，模拟"外部构造的非法提案"：
+      // 校验器必须仍然拦得住它，否则上面那条宽免会被误读成"连续任务随便拆"。
+      final block = proposal.blocks.single;
+      final split = [
+        PlannedBlock(
+          id: '${block.id}:a',
+          taskId: block.taskId,
+          range: TimeRange(
+            startUtc: block.startUtc,
+            endUtc: block.startUtc.add(const Duration(minutes: 15)),
+          ),
+        ),
+        PlannedBlock(
+          id: '${block.id}:b',
+          taskId: block.taskId,
+          range: TimeRange(
+            startUtc: block.startUtc.add(const Duration(minutes: 15)),
+            endUtc: block.endUtc,
+          ),
+        ),
+      ];
+      final conflicts = PlanValidator(TimeZoneDatabase())
+          .validate(problem(t), split);
+
+      expect(
+        conflicts.where(
+          (c) => c.code == ConflictCode.continuousBlockUnavailable,
+        ),
+        isNotEmpty,
+        reason: '连续任务的语义是"一次做完"，拆成两块必须被拦下',
+      );
     });
   });
 }

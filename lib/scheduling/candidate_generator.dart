@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 final class SchedulingCandidate {
@@ -102,25 +103,26 @@ final class CandidateGenerator {
     // （100 分钟），下限必须照旧生效——否则每一次排入都会用一个短片段去满足最小片段约束，
     // 那等于把这条约束取消掉。只有当剩余量**本身**短于最小片段时，它自己就是最后一段，
     // 此时正确的处置是让这一段短于下限，而不是拒绝安排。
-    final effectiveMinimum = task.minChunkMinutes < task.requiredMinutes
-        ? task.minChunkMinutes
-        : task.requiredMinutes;
-    // **钳制过的那一支用 `_roundDown`，不钳制的那一支仍用 `_roundUp`**——两者方向相反是有理由的：
-    // · 配置的下限（30 分钟）向上取整到粒度，保证"至少 30 分钟"这条约束不被悄悄放松；
-    // · 取"剩余量本身"时**不能向上取整**：余 12 分钟、粒度 5 分钟，向上取成 15 会超过剩余量，
-    //   于是 `minimum > maximum` 又变成零候选（实测）。向下取整到 10 才是既合法又不超排的量。
-    final minimum = task.minChunkMinutes < task.requiredMinutes
-        ? _roundUp(effectiveMinimum, granularityMinutes)
-        : _roundDown(effectiveMinimum, granularityMinutes);
+    //
+    // **1.4 冻结决策之后，短余量的取值由 `shortRemainderAllowance` 唯一决定**，与
+    // `PlanValidator.isValidPlannedChunk` 读的是同一个函数——三处各写一遍正是 R4 的成因。
+    final isShortRemainder = task.requiredMinutes < task.minChunkMinutes;
+    final minimum = isShortRemainder
+        ? shortRemainderAllowance(
+            requiredMinutes: task.requiredMinutes,
+            granularityMinutes: granularityMinutes,
+          )
+        : _roundUp(task.minChunkMinutes, granularityMinutes);
     final maximum = _roundDown(
       task.maxChunkMinutes < task.requiredMinutes
           ? task.maxChunkMinutes
           : task.requiredMinutes,
       granularityMinutes,
     );
-    // 剩余量不足一个粒度（例如 3 分钟、粒度 5 分钟）时 `maximum` 为 0：
+    // 剩余量不足一个粒度（例如 3 分钟、粒度 5 分钟）时 `minimum` 与 `maximum` 都为 0：
     // 这里**如实返回空**，由缺口机制汇报容量不足，而不是伪造一个片段。
-    if (maximum <= 0) return const [];
+    if (minimum <= 0 || maximum <= 0) return const [];
+    if (minimum > maximum) return const [];
     return [
       for (
         var duration = minimum;
