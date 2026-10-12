@@ -14,7 +14,20 @@ enum ConfirmedBlockRole {
   /// 不该进入本次输入：被跳过，或它所属的任务不参与排程。
   excluded,
 
-  /// 硬占用：锁定块与**已经过去**的块。它们只占位，不被移动。
+  /// **已经结束**的块：`block.endUtc <= planningWindowStartUtc`。
+  ///
+  /// **它与 `hardOccupied` 不是一回事**（1.8.0，2026-10-12 实机故障；冻结决策 §1.3）：
+  /// 硬占用是"这一块要占位、别动"，历史块是"这一块**根本不进入本次排程输入**"。
+  /// 把它当成硬占用正是故障的根因 —— 装配层会把**全部** `hardOccupiedIds` 放进
+  /// `lockedBlocks`，于是昨天的块进了提案（用户看到"新增 10-10、10-11"），
+  /// 引擎又把它计入 `scheduledByTask`（历史安排污染"这次还剩多少"），
+  /// 最后 `PlanValidator` 因为它的开始不在规划窗口内再报一次"排程输入无效"。
+  ///
+  /// **历史不会因此丢失**：过去日期的展示由 `PlanBlockHistory.blocksInWindow()`
+  /// 从旧计划版本读出（见 `test/data/plan_block_history_test.dart`）。
+  historical,
+
+  /// 硬占用：锁定块与**正在进行**的块。它们只占位，不被移动。
   hardOccupied,
 
   /// 被拖动钉住的块：用拖动后的**替换结果**，原位置不再参与。
@@ -59,6 +72,9 @@ final class ConfirmedBlockPartition {
   Set<String> get existingIds => _idsWithRole(ConfirmedBlockRole.existing);
   Set<String> get hardOccupiedIds =>
       _idsWithRole(ConfirmedBlockRole.hardOccupied);
+
+  /// **已经结束**的块。它们**不进入任何未来集合**（见 [ConfirmedBlockRole.historical]）。
+  Set<String> get historicalIds => _idsWithRole(ConfirmedBlockRole.historical);
   Set<String> get excludedIds => _idsWithRole(ConfirmedBlockRole.excluded);
 
   /// 由调整路径**接管**的块：钉住／目标／被挤开／冻结。
@@ -88,17 +104,30 @@ final class ConfirmedBlockPartition {
 /// 2. `replacedByPin`：[pinnedBlockIds] 或 [lockedOverlayIds]（拖动后的替换结果）；
 /// 3. `replacedByAdjustment`：[adjustedTargetId]；
 /// 4. `displaced`：[displacedIds]；
-/// 5. `hardOccupied`：`block.locked`，或块在 [nowUtc] 之前**已经结束**；
-/// 6. `frozen`：**仅当 [adjustedTargetId] 非空**（即局部修复成功）时，
+/// 5. `historical`：`block.endUtc <= planningWindowStartUtc`（**已经结束**）；
+/// 6. `hardOccupied`：`block.locked`，或块**跨过**窗口起点（`start < 起点 < end`）；
+/// 7. `frozen`：**仅当 [adjustedTargetId] 非空**（即局部修复成功）时，
 ///    未被接管的可移动块；
-/// 7. `existing`：其余可移动块。
+/// 8. `existing`：其余可移动块。
 ///
 /// **第 6、5 条的顺序是有意的**：锁定块即使"未被接管"也只能是 `hardOccupied`，
 /// 绝不能再落到 `frozen` —— 那正是第 67 轮重复的成因。
 ///
-/// **第 6 条的前置条件同样是有意的**：局部修复失败时（[adjustedTargetId] 为空）
+/// **第 7 条的前置条件同样是有意的**：局部修复失败时（[adjustedTargetId] 为空）
 /// `frozen` **必须为空**，可移动块回到 `existing` 交回引擎。
 /// 否则目标块会被冻在原位，用户点了延后却什么都没变。
+///
+/// **第 5、6 条是本轮（2026-10-12）新增的边界**，半开区间规则是冻结决策：
+/// - `end == 起点` ⇒ `historical`（**恰好在窗口起点结束的块属于历史**）；
+/// - `start == 起点` ⇒ 既不是历史、也不跨过起点 ⇒ 落到 `frozen`/`existing`（**属于未来**）；
+/// - `start < 起点 < end` ⇒ `hardOccupied`（**进行中，原位且不可移动**）。
+///
+/// 用 `<=` / `>` 的组合而不是 `isBefore`：后者会在端点上留出一条缝隙，
+/// 而"恰好在现在结束"与"恰好在现在开始"必须分属两侧、不得同时缺席。
+///
+/// **参数名是 [planningWindowStartUtc] 而不是 `nowUtc`**：这条边界与
+/// `ScheduleProblem.planningWindow.startUtc` 是**同一个**时刻，两个名字会让人
+/// 以为存在两个"现在"（而本批次已经有过"同一件事在两层各算一次"的教训）。
 ConfirmedBlockPartition classifyConfirmedBlocks({
   required Iterable<PlannedBlock> confirmed,
   required Set<String> schedulableTaskIds,
@@ -108,7 +137,7 @@ ConfirmedBlockPartition classifyConfirmedBlocks({
   bool adjustmentRequested = false,
   String? adjustedTargetId,
   Set<String> displacedIds = const {},
-  required DateTime nowUtc,
+  required DateTime planningWindowStartUtc,
 }) {
   final roleById = <String, ConfirmedBlockRole>{};
 
@@ -139,17 +168,24 @@ ConfirmedBlockPartition classifyConfirmedBlocks({
       assign(block.id, ConfirmedBlockRole.displaced);
       continue;
     }
-    // ⑤ 硬占用：锁定块，或已经结束的块（**位置冻结、只占位**）。
-    if (block.locked || !block.endUtc.isAfter(nowUtc)) {
+    // ⑤ **已经结束**：不进入本次排程输入（它既不是障碍，也不是可移动块）。
+    if (!block.endUtc.isAfter(planningWindowStartUtc)) {
+      assign(block.id, ConfirmedBlockRole.historical);
+      continue;
+    }
+    // ⑥ 硬占用：锁定块，或**跨过窗口起点**的进行中块（位置冻结、只占位）。
+    if (block.locked ||
+        (block.startUtc.isBefore(planningWindowStartUtc) &&
+            block.endUtc.isAfter(planningWindowStartUtc))) {
       assign(block.id, ConfirmedBlockRole.hardOccupied);
       continue;
     }
-    // ⑥ 原位冻结：**只在局部修复成功时**。
+    // ⑦ 原位冻结：**只在局部修复成功时**。
     if (adjustmentRequested && adjustedTargetId != null) {
       assign(block.id, ConfirmedBlockRole.frozen);
       continue;
     }
-    // ⑦ 其余可移动块：交回引擎。
+    // ⑧ 其余可移动块：交回引擎。
     assign(block.id, ConfirmedBlockRole.existing);
   }
 

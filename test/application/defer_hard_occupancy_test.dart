@@ -23,6 +23,7 @@ import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -171,16 +172,18 @@ void main() {
       source: source,
       engine: DeterministicScheduleEngine(zones),
     ).createProposal().then((proposal) {
-      // ① 历史块不再出现在提案里；它也没有被"搬走"——它压根不参与这次排程。
+      // ① 历史块不再出现在提案里（它的**id 也不再被复用**）。
+      //
+      // **注意不能断言"没有任何块以它为来源"**：`confirmedBlocks` 仍然携带完整确认计划
+      // （来源关联要用它判"同一块换了时间"），因此 `linkBlockProvenance` 在**时长与位置
+      // 都相同**时依然可能把那一段认作它的延续。那不是"历史块进了提案"——
+      // 提案里出现的是一个**新的、合法的未来片段**，只是恰好落在同一时刻。
+      // 真正要守的是"历史块本身不以原位出现在前向输入里"，由上面三条加上
+      // `rolling_window_confirmed_blocks_test.dart` 的装配层断言共同覆盖。
       expect(
         proposal.blocks.map((b) => b.id),
         isNot(contains('b-past')),
-        reason: '已结束的块属于历史，不该以任何形式进入前向提案',
-      );
-      expect(
-        proposal.blocks.where((b) => b.continuedFromId == 'b-past'),
-        isEmpty,
-        reason: '也不能作为别的块的来源出现——那样它仍然是"这次的安排"',
+        reason: '已结束的块属于历史，不该以原位进入前向提案',
       );
       // ② 少了一个过去块之后，提案里不得因此冒出新的"排程输入无效"。
       expect(

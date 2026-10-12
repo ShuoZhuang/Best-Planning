@@ -201,9 +201,7 @@ void main() {
     );
 
     expect(
-      proposal.conflicts.where(
-        (c) => c.code == ConflictCode.invalidInput,
-      ),
+      proposal.conflicts.where((c) => c.code == ConflictCode.invalidInput),
       isEmpty,
       reason:
           '修复前是“同一块先被当作有效计划、再被判排程输入无效”：'
@@ -238,7 +236,9 @@ void main() {
     // 但**不得**把 09:15–09:30 这 15 分钟当成“未来的已排分钟”：
     // 那段时间已经过去了，把它算进未来容量会凭空吃掉一段可用时间。
     final proposal = await generate(
-      confirmedBlocks: [block('ongoing', start: localUtc(10, 12, 9, 15), minutes: 30)],
+      confirmedBlocks: [
+        block('ongoing', start: localUtc(10, 12, 9, 15), minutes: 30),
+      ],
       plannerTask: task(remainingMinutes: 30),
     );
 
@@ -257,7 +257,9 @@ void main() {
     // 边界规则的另外半边：`start >= window.start` 属于未来。
     // 09:30 恰好是窗口起点，因此它必须仍然在提案里。
     final proposal = await generate(
-      confirmedBlocks: [block('at-start', start: localUtc(10, 12, 9, 30), minutes: 30)],
+      confirmedBlocks: [
+        block('at-start', start: localUtc(10, 12, 9, 30), minutes: 30),
+      ],
       plannerTask: task(remainingMinutes: 30),
     );
 

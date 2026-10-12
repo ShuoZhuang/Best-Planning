@@ -60,7 +60,7 @@ void main() {
     adjustedTargetId: adjustedTargetId,
     displacedIds: displacedIds,
     lockedOverlayIds: lockedOverlayIds,
-    nowUtc: nowUtc ?? at(0),
+    planningWindowStartUtc: nowUtc ?? at(0),
   );
 
   test('**每个确认块 ID 只属于一个类别**（互斥）', () {
@@ -95,23 +95,126 @@ void main() {
     );
   });
 
-  test('**锁定块与已过去的块只属于 `hardOccupied`**（用户第 2 条）', () {
+  test('**锁定块只属于 `hardOccupied`**，已结束的块属于 `historical`（用户第 2 条）', () {
     final partition = partitionOf(
       confirmed: [
         block('b-locked', 6, locked: true),
         block('b-past', -2),
         block('b-plain', 12),
       ],
-      // 现在 = 本地 09:00（`at(0)`）；`b-past` 在 `at(-2)`、60 分钟 ⇒ 已过去。
+      // 现在 = 本地 09:00（`at(0)`）；`b-past` 在 `at(-2)`、60 分钟 ⇒ 已结束。
       nowUtc: at(0),
     );
 
     expect(partition.categoriesFor('b-locked'), [
       ConfirmedBlockRole.hardOccupied,
     ]);
+    expect(
+      partition.categoriesFor('b-past'),
+      [ConfirmedBlockRole.historical],
+      reason:
+          '**本轮改过**：已结束的块此前与锁定块同在 `hardOccupied`，于是装配层把'
+          '`hardOccupiedIds` 整体放进 `lockedBlocks`，昨天的块因此进了提案'
+          '（2026-10-12 实机故障的 R1）。历史与硬占用是两件事：'
+          '前者**不进入**本次排程输入，后者进入且只占位。',
+    );
+  });
+
+  test('**边界：恰好在窗口起点结束属于 `historical`，恰好开始属于未来**', () {
+    // 半开区间规则（冻结决策 §1.3）：
+    //   · `end <= 起点` ⇒ historical（**用 `<=`，不留端点缝隙**）；
+    //   · `start == 起点` ⇒ 既不是历史、也不跨过起点 ⇒ 未来。
+    final atStart = partitionOf(
+      confirmed: [block('b-start-at-start', 0, minutes: 60)],
+      nowUtc: at(0),
+    );
+    expect(atStart.categoriesFor('b-start-at-start'), [
+      ConfirmedBlockRole.existing,
+    ], reason: '起点恰好在窗口起点 ⇒ 属于未来（与"恰好在起点结束"是一对互补边界）');
+
+    final boundary = partitionOf(
+      confirmed: [
+        // 08:00–09:00：结束时刻**恰好等于**窗口起点。
+        PlannedBlock(
+          id: 'b-ends-at-start',
+          taskId: 't-a',
+          range: TimeRange(startUtc: at(-1), endUtc: at(0)),
+        ),
+        // 08:30–09:30：跨过窗口起点。
+        PlannedBlock(
+          id: 'b-ongoing',
+          taskId: 't-a',
+          range: TimeRange(
+            startUtc: at(0).subtract(const Duration(minutes: 30)),
+            endUtc: at(0).add(const Duration(minutes: 30)),
+          ),
+        ),
+      ],
+      nowUtc: at(0),
+    );
+
+    expect(boundary.categoriesFor('b-ends-at-start'), [
+      ConfirmedBlockRole.historical,
+    ], reason: '`end == 起点` 必须归历史：用 `isBefore` 会在这里留出一条端点缝隙');
+    expect(
+      boundary.categoriesFor('b-ongoing'),
+      [ConfirmedBlockRole.hardOccupied],
+      reason:
+          '跨过窗口起点 ⇒ **进行中**：原位且不可移动。'
+          '修复前它落到 `existing`，于是被局部改进搬走（实测 09:15 → 13:45）',
+    );
+  });
+
+  test('**过去的块若被明确指定为调整目标，调整角色优先于 `historical`**', () {
+    // 优先级是"先到先得"：用户**明确**要求调整的那一块仍然要能被表达出来，
+    // 否则"修正昨天放错的那一块"这件事在界面上就无从落地。
+    final partition = partitionOf(
+      confirmed: [block('b-past', -2), block('b-plain', 12)],
+      adjustedTargetId: 'b-past',
+      nowUtc: at(0),
+    );
+
     expect(partition.categoriesFor('b-past'), [
-      ConfirmedBlockRole.hardOccupied,
+      ConfirmedBlockRole.replacedByAdjustment,
     ]);
+    expect(partition.historicalIds, isNot(contains('b-past')));
+  });
+
+  test('**历史块不出现在任何未来集合里**', () {
+    final partition = partitionOf(
+      confirmed: [
+        block('b-past', -2),
+        block('b-locked', 6, locked: true),
+        block('b-plain', 12),
+      ],
+      nowUtc: at(0),
+    );
+
+    for (final id in ['b-past']) {
+      expect(partition.historicalIds, contains(id));
+      expect(partition.hardOccupiedIds, isNot(contains(id)));
+      expect(partition.existingIds, isNot(contains(id)));
+      expect(partition.frozenIds, isNot(contains(id)));
+      expect(partition.takenOverIds, isNot(contains(id)));
+    }
+  });
+
+  test('**每个确认块 ID 仍然恰好一个角色**（历史与硬占用不得重叠）', () {
+    final partition = partitionOf(
+      confirmed: [
+        block('b-past', -2),
+        block('b-ongoing-half', 0),
+        block('b-locked', 6, locked: true),
+        block('b-plain', 12),
+      ],
+      nowUtc: at(0),
+    );
+
+    final all = partition.allCategoryIds;
+    expect(all.length, all.toSet().length);
+    expect(partition.historicalIds, {
+      'b-past',
+    }, reason: '`b-ongoing-half` 在 09:00 开始、都在窗口起点之后 ⇒ 不是历史');
   });
 
   test('**钉住／调整目标／被挤开使用替换结果**，原块不再进其他集合（用户第 3 条）', () {

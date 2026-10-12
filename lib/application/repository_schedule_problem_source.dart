@@ -60,7 +60,6 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.recurring,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
-
   final TaskRepository tasks;
   final LifeAreaLookup lifeAreas;
   final CalendarRepository calendar;
@@ -105,19 +104,30 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     //
     // 终点**不变**：仍是"本地日边界 + [days] 天"。因此"未来七天"的长度语义没有被改动，
     // 变的只是不再回望过去。
+    //
+    // ── 粒度必须来自**规则**，不能写死（1.8.0，2026-10-12 故障；冻结决策 §1.4）──────────
+    //
+    // 修复前这里调的是 `_ceilToGranularity(instantUtc)`，用**默认 5 分钟**取整，
+    // 而引擎与 `AvailabilityBuilder` 用的是 `problem.rules.granularityMinutes`。
+    // 用户把粒度配成 10 分钟时，窗口起点会落在 5 分钟网格上（例如 09:35），
+    // 与引擎的 10 分钟网格错开 —— 于是"第一个合法起点"在两个地方各算一遍。
+    //
+    // **规则必须先解析**，因此这几行的顺序不能换：`resolveForWindow` 在下面一行之前
+    // 不能读取 `resolvedRules`。
+    final resolvedRules = await rules.resolveForWindow(
+      startLocalDate,
+      override: override,
+    );
     final dayStartUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
     final startUtc = _ceilToGranularity(
       nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
+      granularityMinutes: resolvedRules.granularityMinutes,
     );
     final endUtc = zones.localMidnightToUtc(
       startLocalDate.add(Duration(days: days)),
       timeZoneId,
     );
 
-    final resolvedRules = await rules.resolveForWindow(
-      startLocalDate,
-      override: override,
-    );
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
     // **固定日程从当天本地午夜开始读，而不是从窗口起点（现在）开始读。**
@@ -412,7 +422,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         final outcome = repairBestPlanDayScoped(
           targetBlockId: target.id,
           notBeforeUtc: bound,
-          // **可移动输入**：只放"引擎/级联可以动"的块（用户第 65 轮复核第 1、4 条）。
+          // **可移动输入**：只放"引擎/级联可以动"的块（用户第 65 轮复核第 1、4 条，
+          // 1.8.0 冻结决策 §1.3 再收紧一次）。
           //
           // 修复前只排除了 `skippedBlockIds` 与 `pinnedByBlockId`，
           // **没有排除 `block.locked`**，也**没有排除已经过去的块**。
@@ -421,15 +432,19 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           //
           // 锁定块的语义就是"用户说了别动"；过去的块是**已经发生的事实**。
           // 两者都进入下面的硬占用集合，而不是可移动输入。
+          //
+          // **进行中的块也一并排除**（本轮新增）：它同样"已经开始了"，只是还没结束。
+          // 判据因此是"**开始时刻不早于窗口起点**"，而不是"结束时刻晚于现在"：
+          // 后者会把 `09:15–09:45`（进行中）当成可移动块，于是用户看到自己正在上的一节课
+          // 被挪到下午（本轮红灯实测：`Expected 01:15Z / Actual 05:45Z`）。
+          // 而**已经结束**的块连占用都不该算 —— 它在下界之前，不可能影响任何未来候选。
           blocks: [
             for (final block in confirmedBlocks)
               if (schedulableIds.contains(block.taskId) &&
                   !skippedBlockIds.contains(block.id) &&
                   !pinnedByBlockId.containsKey(block.id) &&
                   !block.locked &&
-                  // `nowUtc` 之前**结束**的块算已过去。
-                  !block.endUtc.isBefore(nowUtc) &&
-                  block.endUtc.isAfter(nowUtc))
+                  !block.startUtc.isBefore(nowUtc))
                 block,
           ],
           // **统一的硬占用区间**（用户第 65 轮复核第 3 条）：
@@ -442,6 +457,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           //
           // 前两类已经算在 `protectedIntervals` / 带缓冲的 `fixedIntervals` 里，
           // 因此这里直接复用**同一个来源**，避免第二套口径漂移。
+          //
+          // **第 4 类现在只保留"进行中"**（1.8.0 冻结决策 §1.3）：已经**结束**的块位于
+          // 下界之前，不可能与任何未来候选重叠，把它塞进这个列表只会让障碍集合里
+          // 多一条用不上的区间。因此判据从"在 now 之前结束"收紧为"跨过窗口起点"。
           immovable: [
             for (final interval in fixedIntervalsWithTransition)
               PlannedBlock(
@@ -457,11 +476,13 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
                 range: interval.range,
                 locked: true,
               ),
-            // 锁定块与已过去的块：位置冻结，作为占用参与避让。
+            // 锁定块与**进行中**的块：位置冻结，作为占用参与避让。
             for (final block in confirmedBlocks)
               if (schedulableIds.contains(block.taskId) &&
                   !skippedBlockIds.contains(block.id) &&
-                  (block.locked || !block.endUtc.isAfter(nowUtc)))
+                  (block.locked ||
+                      (block.startUtc.isBefore(nowUtc) &&
+                          block.endUtc.isAfter(nowUtc))))
                 block,
           ],
           // "当天"＝目标块**调整前**所在的那个本地自然日（不是"今天"：
@@ -539,7 +560,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       adjustedTargetId: adjustedTarget?.id,
       adjustmentRequested: adjustment != null,
       displacedIds: displacedIds,
-      nowUtc: nowUtc,
+      // **同一个边界**：规划窗口起点。此前传的是 `nowUtc`，与窗口起点在
+      // "向上取整到粒度"之后可能相差几分钟，于是"历史"与"未来"的分界
+      // 与校验器用的分界不是同一条（1.8.0 冻结决策 §1.3）。
+      planningWindowStartUtc: startUtc,
     );
     final frozenIds = partition.frozenIds;
     // 按 ID 去重（**互斥分区之外的第二道防线**）：即使上游将来重复提供同一块，
@@ -828,10 +852,14 @@ DateTime _dateOnly(DateTime value) =>
 /// **向上而不是就近**：起点代表"不得早于现在"。就近取整会把一个 10:03 的时刻变成 10:05
 /// （可以）但也可能变成 10:00（不可以——那又把 3 分钟过去时段放回了窗口）。
 ///
-/// 粒度默认 5 分钟，与 `CandidateGenerator.granularityMinutes` 的默认值一致；引擎只在那个
-/// 网格上放置片段，因此起点也必须落在同一个网格上。刻意**不**从引擎读这个值：那会把
-/// "排程粒度"变成 `ScheduleProblem` 的一部分，而这只是窗口起点的一个取整约定。
-DateTime _ceilToGranularity(DateTime instantUtc, {int granularityMinutes = 5}) {
+/// **粒度由调用方传入，且必须来自 `problem.rules.granularityMinutes`**
+/// （1.8.0，2026-10-12 故障）：这里此前默认 5 分钟，于是用户把排程粒度配成 10 分钟时，
+/// 窗口起点落在 5 分钟网格上、引擎落在 10 分钟网格上——"现在"在两处各算了一遍。
+/// 规则是**唯一事实源**，因此不再有默认值：漏传会成为编译错误，而不是静默退回 5 分钟。
+DateTime _ceilToGranularity(
+  DateTime instantUtc, {
+  required int granularityMinutes,
+}) {
   assert(granularityMinutes > 0);
   final step = Duration(minutes: granularityMinutes).inMicroseconds;
   final micros = instantUtc.toUtc().microsecondsSinceEpoch;
