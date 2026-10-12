@@ -19,6 +19,7 @@ void main() {
     DateTime start, {
     int minutes = 60,
     String task = 't-a',
+    String? continuedFromId,
   }) => PlannedBlock(
     id: id,
     taskId: task,
@@ -26,6 +27,7 @@ void main() {
       startUtc: start,
       endUtc: start.add(Duration(minutes: minutes)),
     ),
+    continuedFromId: continuedFromId,
   );
 
   /// 用户把 09:00（`at(0)`）的块延后 30 分钟 ⇒ 下界 09:30（`at(0.5)`），时长 60 分钟。
@@ -39,7 +41,6 @@ void main() {
   AdjustmentFulfilment evaluate(List<PlannedBlock> blocks) =>
       evaluateAdjustmentFulfilment(
         requirement: requirement(),
-        taskId: 't-a',
         proposalBlocks: blocks,
       );
 
@@ -51,21 +52,33 @@ void main() {
 
   test('**目标块被排在要求时间之前 ⇒ 未兑现**', () {
     // 仍离开了原位（在 `at(0.25)` = 09:15），但早于下界 09:30。
-    final result = evaluate([block('b-moved', at(0), minutes: 60)]);
+    final result = evaluate([
+      block('b-moved', at(0), minutes: 60, continuedFromId: 'b-target'),
+    ]);
     expect(result.isFulfilled, isFalse);
   });
 
   test('**正确拆分且总时长完整 ⇒ 已兑现**（两块 30 分钟，均在界后）', () {
     final result = evaluate([
-      block('p1', at(0).add(const Duration(minutes: 30)), minutes: 30),
-      block('p2', at(1), minutes: 30),
+      block(
+        'p1',
+        at(0).add(const Duration(minutes: 30)),
+        minutes: 30,
+        continuedFromId: 'b-target',
+      ),
+      block('p2', at(1), minutes: 30, continuedFromId: 'b-target'),
     ]);
     expect(result.isFulfilled, isTrue, reason: '拆分是对的："各片段合计时长一致"就算兑现');
   });
 
   test('**总时长不足 ⇒ 未兑现**（下界之后只放下 30 分钟）', () {
     final result = evaluate([
-      block('p1', at(0).add(const Duration(minutes: 30)), minutes: 30),
+      block(
+        'p1',
+        at(0).add(const Duration(minutes: 30)),
+        minutes: 30,
+        continuedFromId: 'b-target',
+      ),
     ]);
     expect(result.isFulfilled, isFalse);
     expect(result.unsatisfiedReason, contains('时长'));
@@ -86,7 +99,9 @@ void main() {
     // 目标任务的块正确地落在界后、时长齐全；
     // 另有**别的任务**完全没排进去（`unscheduled` 会有它）——
     // 这不该让本调整判定为未兑现。
-    final result = evaluate([block('moved', at(1))]);
+    final result = evaluate([
+      block('moved', at(1), continuedFromId: 'b-target'),
+    ]);
     expect(
       result.isFulfilled,
       isTrue,
@@ -96,8 +111,13 @@ void main() {
 
   test('**下界之前的残留片段 ⇒ 未兑现**（即使后面有正确的一段）', () {
     final result = evaluate([
-      block('leftover', at(0).add(const Duration(minutes: 15)), minutes: 30),
-      block('after', at(2), minutes: 30),
+      block(
+        'leftover',
+        at(0).add(const Duration(minutes: 15)),
+        minutes: 30,
+        continuedFromId: 'b-target',
+      ),
+      block('after', at(2), minutes: 30, continuedFromId: 'b-target'),
     ]);
     expect(result.isFulfilled, isFalse);
     expect(result.unsatisfiedReason, contains('之前'));

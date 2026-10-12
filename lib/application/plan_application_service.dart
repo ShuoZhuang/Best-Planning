@@ -76,7 +76,6 @@ final class PlanApplicationService {
     if (target == null) return null;
     final fulfilment = evaluateAdjustmentFulfilment(
       requirement: requirement,
-      taskId: target.taskId,
       proposalBlocks: proposal.blocks,
     );
     if (fulfilment.isFulfilled) return null;

@@ -46,18 +46,20 @@ final class AdjustmentFulfilment {
 /// 因为**别的**任务没排进去就阻止应用是错的（用户第 4 条）。
 /// 这里的每一条都只关于**被延后的那一块**。
 ///
+/// **为什么不按任务求和**（用户第 73 轮）：一个任务本来就可能被拆成多块，
+/// 只延后其中一块时，按任务求和会把兄弟块的时长算进来，
+/// 既会**误判为未兑现**（sum ≠ 该块时长），也会让兄弟块把总时长"补"够而
+/// **漏放**真的没兑现的方案。因此只认**目标块的延续者**：
+/// 提案里 `id == targetBlockId` 或 `continuedFromId == targetBlockId` 的那些块。
+///
 /// 判定项（用户第 1 条的四项 + 拆分合计）：
-/// 1. 原计划块**已经离开原位置**（还在原位 = "保持原位置却显示成功"）；
-/// 2. 新开始时间**不早于** [AdjustmentRequirement.notBeforeUtc]；
+/// 1. 目标块**已经离开原位置**（还在原位 = "保持原位置却显示成功"）；
+/// 2. 延续者的开始时间**不早于** [AdjustmentRequirement.notBeforeUtc]；
 /// 3. 延后前后**总时长一致**（拆分成多段时，各片段合计一致）；
 /// 4. **没有重复块**；
 /// 5. **没有遗留在下界之前的片段**。
-///
-/// [taskId] 是目标块所属任务：拆分后目标块的 id 可能不再出现，
-/// 因此"这一块去哪了"要按**任务**找，而不是按块 id 找。
 AdjustmentFulfilment evaluateAdjustmentFulfilment({
   required AdjustmentRequirement requirement,
-  required String taskId,
   required Iterable<PlannedBlock> proposalBlocks,
 }) {
   final blocks = proposalBlocks.toList();
@@ -68,16 +70,33 @@ AdjustmentFulfilment evaluateAdjustmentFulfilment({
     return const AdjustmentFulfilment.unsatisfied('方案里存在重复的计划块');
   }
 
-  final taskBlocks = [
+  // **只看被延后那一块的延续者**（用户第 73 轮）。
+  //
+  // 修复前这里取的是"同一任务的所有块"，而 `requiredMinutes` 是**那一块**的时长 ——
+  // 一个任务本来就被拆成多块时，只延后其中一块就会算出
+  // `sum(所有块) != 该块时长`，于是**误判为未兑现并禁止应用**；
+  // 反过来，兄弟块还会把总时长"补"够，让**真的**没兑现的方案被判为已兑现。
+  //
+  // 延续关系由来源关联给出（裁定第 1、4 点）：
+  //   · 未被拆分 ⇒ 提案里就是原 id；
+  //   · 被拆分 ⇒ 各片段带 `continuedFromId == 目标块 id`；
+  //   · 被级联接管的块 ⇒ 也保留原 id。
+  //
+  // **注意 `continuedFromId` 指向的是"目标块在确认计划里的 id"**，
+  // 因此这里按 `requirement.targetBlockId` 匹配，而不是按任务匹配。
+  final targetLineage = [
     for (final block in blocks)
-      if (block.taskId == taskId) block,
+      if (block.id == requirement.targetBlockId ||
+          block.continuedFromId == requirement.targetBlockId)
+        block,
   ];
 
   // ① 原计划块必须已经离开原位置。
   //
-  // 判据是"**没有任何块的开始时刻等于原位置**"，而不是"目标块 id 还在不在"：
-  // 拆分之后 id 会变（引擎重排），按 id 判会误报。
-  final stillAtOriginal = taskBlocks.where(
+  // 判据是"**目标块的延续者里没有任何一个**仍停在原位置"。
+  // 只看延续者而不是"整个任务"：同任务的兄弟块本来就可能在别处，
+  // 那不是本次延后该管的事。
+  final stillAtOriginal = targetLineage.where(
     (block) => block.startUtc == requirement.originalStartUtc,
   );
   if (stillAtOriginal.isNotEmpty) {
@@ -85,28 +104,28 @@ AdjustmentFulfilment evaluateAdjustmentFulfilment({
   }
 
   // ⑤ 不得有片段落在下界之前。
-  final beforeBound = taskBlocks.where(
+  final beforeBound = targetLineage.where(
     (block) => block.startUtc.isBefore(requirement.notBeforeUtc),
   );
   if (beforeBound.isNotEmpty) {
     return const AdjustmentFulfilment.unsatisfied('目标块被排在要求时间之前');
   }
 
-  // ③ 总时长一致（拆分时各片段合计一致）。
-  final total = taskBlocks.fold<int>(
+  // ③ 总时长一致（拆分时**各片段合计**一致）—— 只算延续者。
+  final targetMinutes = targetLineage.fold<int>(
     0,
     (sum, block) => sum + block.durationMinutes,
   );
-  if (total != requirement.requiredMinutes) {
+  if (targetMinutes != requirement.requiredMinutes) {
     return AdjustmentFulfilment.unsatisfied(
       '延后前后时长不一致（要求 ${requirement.requiredMinutes} 分钟，'
-      '实际 $total 分钟）',
+      '实际 $targetMinutes 分钟）',
     );
   }
 
-  // ② 新开始时间不早于下界 —— 已由 ⑤ 覆盖（任务的第一块就在下界之后）。
-  // 这里额外确认"任务确实有块"，否则总时长为 0 的检查会先命中 ③。
-  if (taskBlocks.isEmpty) {
+  // ② 新开始时间不早于下界 —— 已由 ⑤ 覆盖（延续者的每一段都在下界之后）。
+  // 这里额外确认"延续者确实存在"，否则会被上面 ③ 的时长比较先拦下（0 ≠ 要求）。
+  if (targetLineage.isEmpty) {
     return const AdjustmentFulfilment.unsatisfied('延后后没有足够的可用时间');
   }
 

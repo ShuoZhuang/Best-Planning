@@ -296,6 +296,56 @@ void main() {
     );
   });
 
+  test('**局部失败但全局回退成功 ⇒ 允许应用**（不能误判为未兑现）', () async {
+    // 这是第 73 轮那个缺陷最容易咬到的场景：级联失败 ⇒ 走全局重排 ⇒
+    // 引擎**从零生成**，新块带的是 `block:t-a:<微秒>:<分钟>` 这种 id，
+    // 而不是确认计划里的 `b-target`。
+    //
+    // 若"目标块的延续者"只按 id 认，这里就会把"任务确实被延后了"判成未兑现，
+    // 于是**误拦一个合法方案**。
+    //
+    // 构造：目标块 60 分钟在本地 09:00，延后 30 分钟（下界 09:30）；
+    // 用保护时间把当天 09:30–24:00 堵死 ⇒ 当天级联失败；
+    // 但窗口后面几天空着 ⇒ 全局重排能放下。
+    final result = await runDefer(
+      tasks: [task('t-a', '写报告')],
+      override: ScheduleRuleOverride(
+        localDate: DateTime(2026, 10, 12),
+        patch: PlanningRulesPatch(
+          protectedTimes: <ProtectedTimeRule>[
+            // 每天本地 09:30 → 24:00（= `at(0.5)` → 当日 24:00）
+            ProtectedTimeRule(
+              kind: ProtectedTimeKind.fixedRest,
+              range: LocalTimeRange(
+                startMinute: 9 * 60 + 30,
+                endMinute: LocalTimeRange.minutesPerDay,
+              ),
+              dayKind: DayKind.any,
+              enabled: true,
+            ),
+          ],
+        ),
+      ),
+      amount: 30,
+    );
+
+    // ignore: avoid_print
+    print(
+      'DIAG14 status=${result.outcome.status} '
+      'codes=${result.outcome.conflicts.map((c) => c.code).toList()} '
+      'blocks=${result.proposal.blocks.map((b) => '${b.id}@${b.startUtc.toIso8601String()}(+${b.durationMinutes})cf=${b.continuedFromId}').toList()} '
+      'req=${result.proposal.adjustmentRequirement?.targetBlockId}',
+    );
+
+    expect(
+      result.outcome.status,
+      ApplyPlanStatus.applied,
+      reason:
+          '任务确实被延后了（换了位置、时长没变）⇒ 必须允许应用。'
+          '误判为未兑现就是第 73 轮那个缺陷的另一面',
+    );
+  });
+
   test('**自动应用不能绕过拦截**（同一条规则）（用户第 3、5 条）', () async {
     // 自动应用走的是**同一个** `PlanApplicationService.apply`，
     // 因此这里直接验证它对该提案也给 invalid —— 没有第二条放行路径。
