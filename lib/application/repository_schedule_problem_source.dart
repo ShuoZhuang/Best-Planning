@@ -2,6 +2,7 @@ import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
+import 'package:personal_planner/application/confirmed_block_partition.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/recurring_period.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
@@ -524,37 +525,24 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // **只有调整成功时才冻结**（用户第 67 轮第 4 条）：`adjustedTarget == null`
     // 表示级联当天不可行（回退路径），此时**不能**把目标块也冻结在原位，
     // 否则延后彻底失效——用户点了延后却什么都没变。
-    final lockableIds = <String>{
-      for (final block in confirmedBlocks)
-        if (block.locked &&
-            schedulableIds.contains(block.taskId) &&
-            !skippedBlockIds.contains(block.id) &&
-            !pinnedByBlockId.containsKey(block.id))
-          block.id,
-    };
-    final pinnedIds = {for (final block in pinnedByBlockId.values) block.id};
-    final targetId = adjustedTarget?.id;
-    // 未被本次调整接管的确认块。
-    final frozenIds = adjustment != null && adjustedTarget != null
-        ? <String>{
-            for (final block in confirmedBlocks)
-              if (schedulableIds.contains(block.taskId) &&
-                  !skippedBlockIds.contains(block.id) &&
-                  !pinnedByBlockId.containsKey(block.id) &&
-                  block.id != targetId &&
-                  !displacedIds.contains(block.id))
-                block.id,
-          }
-        : <String>{};
-    // 由调整路径接管的块：它们不再以**原位置**出现在 `existingBlocks` 里，
-    // 否则引擎会把它们当参考位置放回去，级联结果当场失效。
-    final takenOverIds = <String>{
-      ...pinnedIds,
-      ...frozenIds,
-      ?targetId,
-      ...displacedIds,
-    };
-    // 按 ID 去重（**五类互斥**的兜底）：即使上游将来重复提供同一块，
+    // **分类交给纯函数**（用户第 70 轮）：把"一个块只能有一个角色"这条规则
+    // 集中到 `classifyConfirmedBlocks`，由它的单元测试负责证明分类正确，
+    // 端到端用例负责证明**这里确实用了它**。
+    //
+    // 此前这段逻辑散在几个 `if` 里，于是"锁定块未排除"这类重叠只能靠人眼发现 ——
+    // 第 67 轮的重复缺陷正是这么漏出去的。
+    final partition = classifyConfirmedBlocks(
+      confirmed: confirmedBlocks,
+      schedulableTaskIds: schedulableIds,
+      skippedBlockIds: skippedBlockIds,
+      pinnedBlockIds: {for (final block in pinnedByBlockId.values) block.id},
+      adjustedTargetId: adjustedTarget?.id,
+      adjustmentRequested: adjustment != null,
+      displacedIds: displacedIds,
+      nowUtc: nowUtc,
+    );
+    final frozenIds = partition.frozenIds;
+    // 按 ID 去重（**互斥分区之外的第二道防线**）：即使上游将来重复提供同一块，
     // 也不会让同一个 ID 出现在结果里两次。
     List<PlannedBlock> dedupe(Iterable<PlannedBlock> blocks, Set<String> seen) {
       final out = <PlannedBlock>[];
@@ -567,8 +555,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
 
     final claimedIds = <String>{};
     final lockedBlocksOut = dedupe([
-      for (final block in confirmedBlocks)
-        if (lockableIds.contains(block.id)) block,
+      ...partition.hardOccupiedIds.map(
+        (id) => confirmedBlocks.firstWhere((block) => block.id == id),
+      ),
       ...pinnedByBlockId.values,
       ?adjustedTarget,
       ...displaced,
@@ -577,15 +566,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     ], claimedIds);
     final existingBlocksOut = dedupe([
       for (final block in confirmedBlocks)
-        if (!block.locked &&
-            schedulableIds.contains(block.taskId) &&
-            !skippedBlockIds.contains(block.id) &&
-            !pinnedByBlockId.containsKey(block.id) &&
-            // 已被调整路径接管的块（冻结／目标／被挤开／钉住）不再可移动。
-            !takenOverIds.contains(block.id) &&
-            // **冻结的块必须从 `existingBlocks` 排除**（用户第 67 轮第 3 条）。
-            !frozenIds.contains(block.id))
-          block,
+        if (partition.existingIds.contains(block.id)) block,
     ], claimedIds);
 
     final problem = ScheduleProblem(
