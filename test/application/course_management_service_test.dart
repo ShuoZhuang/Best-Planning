@@ -221,6 +221,7 @@ CourseSeriesDetail get _twoSegmentCourse => CourseSeriesDetail(
       intervalWeeks: 2,
       validFromLocalDate: DateTime(2026, 9, 7),
       validUntilLocalDate: DateTime(2026, 12, 20),
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
     ),
     CourseSeriesSegment(
       eventId: 'evt-even',
@@ -231,6 +232,7 @@ CourseSeriesDetail get _twoSegmentCourse => CourseSeriesDetail(
       intervalWeeks: 2,
       validFromLocalDate: DateTime(2026, 9, 7),
       validUntilLocalDate: DateTime(2026, 12, 20),
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
     ),
   ],
 );
@@ -257,6 +259,7 @@ CourseSeriesDetail get _endedCourse => CourseSeriesDetail(
       intervalWeeks: 1,
       validFromLocalDate: DateTime(2026, 9, 7),
       validUntilLocalDate: DateTime(2026, 9, 28),
+      updatedAtUtc: DateTime.utc(2026, 10, 1),
     ),
   ],
 );

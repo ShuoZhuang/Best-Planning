@@ -278,6 +278,7 @@ final class _Courses implements CourseSeriesRepository {
             intervalWeeks: 1,
             validFromLocalDate: DateTime(2026, 9, 7),
             validUntilLocalDate: DateTime(2026, 12, 20),
+            updatedAtUtc: DateTime.utc(2026, 10, 1),
           ),
       ],
     );

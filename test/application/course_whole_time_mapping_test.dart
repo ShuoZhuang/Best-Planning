@@ -63,6 +63,7 @@ void main() {
         endMinute: 8 * 60 + 45,
         intervalWeeks: 1,
         validFromLocalDate: DateTime(2026, 9, 7),
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
       ),
       CourseSeriesSegment(
         eventId: 'evt-thu',
@@ -72,6 +73,7 @@ void main() {
         endMinute: 10 * 60 + 45,
         intervalWeeks: 1,
         validFromLocalDate: DateTime(2026, 9, 7),
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
       ),
     ],
   );

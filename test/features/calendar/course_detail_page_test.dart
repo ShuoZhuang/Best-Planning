@@ -52,6 +52,7 @@ void main() {
         validFromLocalDate: DateTime(2026, 9, 7),
         validUntilLocalDate: DateTime(2026, 12, 20),
         location: location,
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
       ),
     ],
   );

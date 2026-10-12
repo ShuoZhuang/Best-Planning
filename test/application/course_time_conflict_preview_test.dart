@@ -78,6 +78,7 @@ void main() {
               endMinute: 10 * 60,
               intervalWeeks: 1,
               validFromLocalDate: DateTime(2026, 9, 7),
+              updatedAtUtc: DateTime.utc(2026, 10, 1),
             ),
         ],
       );
