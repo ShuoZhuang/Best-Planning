@@ -4,7 +4,35 @@ import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
-enum ApplyPlanStatus { applied, staleProposal, invalidProposal }
+enum ApplyPlanStatus {
+  applied,
+  staleProposal,
+  invalidProposal,
+
+  /// **需要用户明确确认"只应用可安排的部分"**（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
+  ///
+  /// 它与 [invalidProposal] 是两件不同的事：这里没有结构错误，只是**装不下**。
+  /// 处置也不同：`invalid` 要用户去改计划，`partialConfirmationRequired` 要用户回答
+  /// "要不要就这样应用"。
+  ///
+  /// **它绝不会由 `allowPartial` 模式返回**：那种情况下要么真的写库（`applied`），
+  /// 要么因为结构错误被拦（`invalidProposal`）。
+  partialConfirmationRequired,
+}
+
+/// 应用一份提案时的**授权范围**（1.8.0，冻结决策 §1.6）。
+///
+/// **默认必须是 [completeOnly]**：不完整计划只有经过用户明确确认才能落库
+/// （"自动应用不得静默接受部分计划"）。把它做成必填参数会更响，但那会迫使每个
+/// 既有调用点表态；这里选择"默认最保守 + 自动路径显式传 `completeOnly` 仍然正确"。
+enum PlanApplyMode {
+  /// 只应用**完整可行**的提案；有未安排任务时返回
+  /// [ApplyPlanStatus.partialConfirmationRequired] 且**不写库**。
+  completeOnly,
+
+  /// 允许应用可安排的部分。**只有用户明确确认过**（"仍然应用"按钮）才能传它。
+  allowPartial,
+}
 
 final class ConfirmedPlan {
   ConfirmedPlan({
@@ -37,6 +65,19 @@ final class ApplyPlanResult {
       ApplyPlanResult._(
         status: ApplyPlanStatus.invalidProposal,
         conflicts: conflicts,
+      );
+
+  /// `completeOnly` 模式下遇到未安排任务的返回（冻结决策 §1.6）。
+  ///
+  /// [shortages] 里的每一项都带 `taskId` 与 `shortageMinutes`，因此调用方可以
+  /// 直接把"哪些任务还差多少分钟"呈现给用户征求确认。
+  ///
+  /// **它只用于返回结果，不得写回 `proposal.conflicts`**：提案是不可变的，
+  /// 而缺口唯一的结构化来源是 `proposal.unscheduled`。
+  factory ApplyPlanResult.partialRequired(List<PlanningConflict> shortages) =>
+      ApplyPlanResult._(
+        status: ApplyPlanStatus.partialConfirmationRequired,
+        conflicts: shortages,
       );
 
   final ApplyPlanStatus status;

@@ -5,6 +5,7 @@
 // "原有计划保留"，而不是含糊地说调整完成。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
@@ -12,6 +13,10 @@ ScheduleProposal _proposal() => ScheduleProposal(
   proposalId: 'proposal-1',
   inputHash: 'hash-1',
   algorithmVersion: '1',
+  planningWindow: TimeRange(
+    startUtc: DateTime.utc(2026, 10, 5),
+    endUtc: DateTime.utc(2026, 10, 6),
+  ),
   blocks: const [],
   unscheduled: const [],
   conflicts: const [],
@@ -30,7 +35,7 @@ void main() {
 
     final outcome = await flow.run(
       proposal: _proposal(),
-      apply: (proposal) async {
+      apply: (proposal, {mode = PlanApplyMode.completeOnly}) async {
         calls.add(proposal);
         return ApplyPlanResult.applied(_plan());
       },
@@ -48,7 +53,8 @@ void main() {
 
     final outcome = await flow.run(
       proposal: _proposal(),
-      apply: (proposal) async => ApplyPlanResult.applied(_plan()),
+      apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+          ApplyPlanResult.applied(_plan()),
     );
 
     expect(outcome.applied, isTrue);
@@ -60,7 +66,8 @@ void main() {
 
     final outcome = await flow.run(
       proposal: _proposal(),
-      apply: (proposal) async => ApplyPlanResult.stale(),
+      apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+          ApplyPlanResult.stale(),
     );
 
     expect(outcome.applied, isFalse);
@@ -73,7 +80,8 @@ void main() {
 
     final outcome = await flow.run(
       proposal: _proposal(),
-      apply: (proposal) async => ApplyPlanResult.invalid(const []),
+      apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+          ApplyPlanResult.invalid(const []),
     );
 
     expect(outcome.applied, isFalse);

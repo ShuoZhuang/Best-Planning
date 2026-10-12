@@ -99,6 +99,7 @@ void main() {
       proposalId: 'invalid-proposal',
       inputHash: hash,
       algorithmVersion: '1',
+      planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
       blocks: [
         PlannedBlock(
           id: 'one',
@@ -227,6 +228,7 @@ void main() {
           proposalId: 'overlapping',
           inputHash: hash,
           algorithmVersion: '1',
+          planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
           blocks: [
             PlannedBlock(
               id: 'one',
@@ -262,6 +264,10 @@ void main() {
   });
 }
 
+/// 一天的半开窗口。**每个夹具用自己 problem 的窗口**，不填任意假窗口。
+TimeRange _dayWindow(DateTime day) =>
+    TimeRange(startUtc: day, endUtc: day.add(const Duration(days: 1)));
+
 ScheduleProposal _proposal() {
   final start = DateTime.utc(2026, 10, 5, 9);
   final blocks = [
@@ -280,6 +286,7 @@ ScheduleProposal _proposal() {
     proposalId: 'proposal-1',
     inputHash: 'snapshot-hash',
     algorithmVersion: '1',
+    planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
     blocks: blocks,
     unscheduled: const [],
     conflicts: const [],
@@ -395,6 +402,7 @@ ScheduleProposal _overrideProposal({
   proposalId: 'recovery-proposal',
   inputHash: inputHash,
   algorithmVersion: '1',
+  planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
   blocks: [
     PlannedBlock(
       id: 'block-0',

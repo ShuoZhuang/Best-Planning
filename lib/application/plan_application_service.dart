@@ -28,7 +28,22 @@ final class PlanApplicationService {
   /// 提醒会与当前计划不一致。组合根用它来重新同步。
   final Future<void> Function()? onPlanChanged;
 
-  Future<ApplyPlanResult> apply(ScheduleProposal proposal) async {
+  /// 应用一份提案（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
+  ///
+  /// **执行顺序不可改变**（计划 Task 5 Step 4）：
+  /// ① 重放输入与哈希 → ② validator 阻断校验 → ③ adjustment fulfilment →
+  /// ④ partial 授权检查 → ⑤ repository write。
+  ///
+  /// 顺序颠倒会在三处放行不该放行的东西：
+  /// - 把 ④ 放到 ② 之前，"部分计划"这一支会盖住结构错误（**不完整计划不是错误**，
+  ///   但**结构错误也不是"缺一部分"**）；
+  /// - 把 ④ 放到 ① 之前，过期提案会被误报成"容量缺口"，用户看到的是完全错误的原因；
+  /// - 把 ④ 放到 ③ 之前，"请求延后 30 分钟却只延后 10 分钟"会被 `allowPartial` 洗白，
+  ///   而用户要求的正是那 30 分钟。
+  Future<ApplyPlanResult> apply(
+    ScheduleProposal proposal, {
+    PlanApplyMode mode = PlanApplyMode.completeOnly,
+  }) async {
     // 必须重放生成该提案时用过的同一个一次性规则覆盖（如特殊日恢复的睡眠例外），
     // 否则重新装配出的规则与提案不一致，哈希必然不同，合法提案会被误判为过期。
     final current = withCurrentInputHash(
@@ -48,7 +63,23 @@ final class PlanApplicationService {
     final adjustmentFailure = _adjustmentFailure(proposal, current);
     if (adjustmentFailure != null) {
       // 保留当前已确认计划（**不写入部分失败结果**）：这里直接返回，不落库。
+      //
+      // **`allowPartial` 也不能绕过它**：延后要求是用户明确提出的具体目标，
+      // "只应用一部分"不适用于"延后 30 分钟却只延后 10 分钟"。
       return ApplyPlanResult.invalid([adjustmentFailure]);
+    }
+    // **partial 授权检查**（冻结决策 §1.6）：结构错误已经拦住了，这里只剩"装不下"。
+    if (mode == PlanApplyMode.completeOnly && proposal.unscheduled.isNotEmpty) {
+      // 返回结果里为每个缺口造一条 `insufficientCapacity`，**只用于告诉调用方
+      // "需要明确允许部分计划"**，不写回提案。
+      return ApplyPlanResult.partialRequired([
+        for (final item in proposal.unscheduled)
+          PlanningConflict(
+            code: ConflictCode.insufficientCapacity,
+            taskId: item.taskId,
+            shortageMinutes: item.shortageMinutes,
+          ),
+      ]);
     }
     final result = await repository.applyProposal(proposal, current.inputHash);
     // **只在真的应用了之后**同步：过期与非法提案都没有改变当前计划，同步一次既是白跑，

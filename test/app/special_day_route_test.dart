@@ -16,6 +16,7 @@ import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
@@ -50,6 +51,10 @@ final class _ImmediateCreator implements ProposalCreator {
       proposalId: 'recovery-proposal',
       inputHash: 'hash',
       algorithmVersion: '1',
+      planningWindow: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5),
+        endUtc: DateTime.utc(2026, 10, 6),
+      ),
       blocks: const [],
       unscheduled: const [],
       conflicts: const [],

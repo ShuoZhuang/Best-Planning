@@ -96,7 +96,16 @@ final class ReplanningCoordinator {
   final PlanGenerationFlow? flow;
 
   /// 真正落库的应用动作。与 [flow] 必须**同时**提供或同时省略。
-  final Future<ApplyPlanResult> Function(ScheduleProposal proposal)? apply;
+  ///
+  /// **自动重排没有"用户明确确认"这一步**，因此组合根接进来的实现一律只走
+  /// `PlanApplyMode.completeOnly`（1.8.0 冻结决策 §1.6：禁止在自动路径传 `allowPartial`）。
+  /// 参数带 `mode` 是为了与 `PlanGenerationFlow.run` 的签名对齐，而不是给调用方留一个
+  /// "自动传部分"的口子：`flow` 只会传 [PlanApplyMode.completeOnly]。
+  final Future<ApplyPlanResult> Function(
+    ScheduleProposal proposal, {
+    PlanApplyMode mode,
+  })?
+  apply;
 
   /// 每次**成功生成**提案后调用（无论是否自动应用）。
   ///
@@ -139,9 +148,12 @@ final class ReplanningCoordinator {
         ReplanOutcome(
           proposalId: result.proposalId,
           applied: result.applied,
-          // 流程用**空文案**表示"去预览页确认"——那是顶栏按钮那条路径的约定，它自己会导航。
-          // 自动重排没有任何人替用户导航，因此空文案在这里必须换成一句**说明**，
-          // 否则用户改完任务什么都看不到，只会以为改动没有生效。
+          // 流程在"完整可行但用户没开信任开关"时给出**空文案**——那是顶栏按钮那条
+          // 路径的约定，它自己会导航。自动重排没有任何人替用户导航，因此空文案在这里
+          // 必须换成一句**说明**，否则用户改完任务什么都看不到，只会以为改动没有生效。
+          //
+          // **判断基准是 `requiresPreview`，不是 `message`**（1.8.0）：部分/阻断提案
+          // 会给出非空 message，但它们同样需要"请去预览确认"这句交代。
           message: result.message.isEmpty
               ? ReplanOutcome.pending(proposal.proposalId).message
               : result.message,

@@ -124,6 +124,10 @@ Future<PlannedBlock> seedBlock(
       proposalId: 'seed-proposal',
       inputHash: 'seed-hash',
       algorithmVersion: 'v1',
+      planningWindow: TimeRange(
+        startUtc: startUtc,
+        endUtc: startUtc.add(length),
+      ),
       blocks: [block],
       conflicts: const [],
       unscheduled: const [],
@@ -323,6 +327,10 @@ void main() {
         proposalId: 'seed-pair',
         inputHash: 'seed',
         algorithmVersion: 'v1',
+        planningWindow: TimeRange(
+          startUtc: DateTime.utc(2026, 10, 7, 6),
+          endUtc: DateTime.utc(2026, 10, 7, 9),
+        ),
         blocks: [first, second],
         conflicts: const [],
         unscheduled: const [],

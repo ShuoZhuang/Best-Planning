@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
@@ -120,7 +121,7 @@ void main() {
         final coordinator = ReplanningCoordinator(
           planning: creator,
           flow: PlanGenerationFlow(isTrusted: () => false),
-          apply: (proposal) async {
+          apply: (proposal, {mode = PlanApplyMode.completeOnly}) async {
             applied.add(proposal.proposalId);
             return ApplyPlanResult.stale();
           },
@@ -152,7 +153,7 @@ void main() {
         final coordinator = ReplanningCoordinator(
           planning: creator,
           flow: PlanGenerationFlow(isTrusted: () => true),
-          apply: (proposal) async {
+          apply: (proposal, {mode = PlanApplyMode.completeOnly}) async {
             applied.add(proposal.proposalId);
             return ApplyPlanResult.applied(_confirmedPlan());
           },
@@ -183,7 +184,8 @@ void main() {
         final coordinator = ReplanningCoordinator(
           planning: _ImmediateCreator(),
           flow: PlanGenerationFlow(isTrusted: () => true),
-          apply: (proposal) async => statuses[index++],
+          apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+              statuses[index++],
           onOutcome: outcomes.add,
         );
         addTearDown(coordinator.dispose);
@@ -214,7 +216,8 @@ void main() {
         final coordinator = ReplanningCoordinator(
           planning: _ImmediateCreator(),
           flow: PlanGenerationFlow(isTrusted: () => true),
-          apply: (proposal) async => ApplyPlanResult.applied(_confirmedPlan()),
+          apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+              ApplyPlanResult.applied(_confirmedPlan()),
           // 组合根用这个回调持有"最近一次提案"，它是"冲突待处理"通知的来源（R8 ③）。
           onProposal: (proposal) => proposals.add(proposal.proposalId),
         );
@@ -257,7 +260,8 @@ void main() {
         final coordinator = ReplanningCoordinator(
           planning: _FailingCreator(),
           flow: PlanGenerationFlow(isTrusted: () => true),
-          apply: (proposal) async => ApplyPlanResult.applied(_confirmedPlan()),
+          apply: (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+              ApplyPlanResult.applied(_confirmedPlan()),
           onOutcome: outcomes.add,
           onError: errors.add,
         );
@@ -314,6 +318,10 @@ ScheduleProposal _proposal(String id) => ScheduleProposal(
   proposalId: id,
   inputHash: 'hash-$id',
   algorithmVersion: '1',
+  planningWindow: TimeRange(
+    startUtc: DateTime.utc(2026, 10, 5),
+    endUtc: DateTime.utc(2026, 10, 6),
+  ),
   blocks: const [],
   unscheduled: const [],
   conflicts: const [],

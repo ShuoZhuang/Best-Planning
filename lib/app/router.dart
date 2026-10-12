@@ -43,6 +43,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
 import 'package:personal_planner/features/analytics/analytics_page.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
@@ -58,6 +59,7 @@ import 'package:personal_planner/features/calendar/week_view/week_view_page.dart
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_page.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
+import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_page.dart';
 import 'package:personal_planner/features/settings/academic_calendar/academic_calendar_page.dart';
@@ -535,10 +537,21 @@ GoRouter createPlannerRouter({
                           ).run(
                             proposal: proposal,
                             apply: planApplication == null
-                                ? (proposal) async => ApplyPlanResult.stale()
-                                : planApplication.apply,
+                                ? (
+                                    proposal, {
+                                    mode = PlanApplyMode.completeOnly,
+                                  }) async => ApplyPlanResult.stale()
+                                : (
+                                    proposal, {
+                                    mode = PlanApplyMode.completeOnly,
+                                  }) => planApplication.apply(
+                                    proposal,
+                                    mode: mode,
+                                  ),
                           );
                       if (!context.mounted) return;
+                      // 自动应用失败（或根本没自动应用）时**仍然要给出原因**，
+                      // 然后按 `requiresPreview` 决定去向。
                       if (outcome.message.isNotEmpty) {
                         // 1.8.0（规范 §13.2）：延后失败要说清"是哪些事项、为什么"，
                         // 而不是只报一句"提案不可行"。走的是**预览页那一条**翻译链。
@@ -550,8 +563,8 @@ GoRouter createPlannerRouter({
                         // 期间用户完全可能已经离开这一页。
                         if (!context.mounted) return;
                         showPlannerMessage(context, message: message);
-                        return;
                       }
+                      if (!outcome.requiresPreview) return;
                       context.go('/planning/preview/${outcome.proposalId}');
                     },
               // §11 Task 12：撤销刚刚那一次变更。装配层没接端口时不显示撤销入口
@@ -586,14 +599,23 @@ GoRouter createPlannerRouter({
                           ).run(
                             proposal: proposal,
                             apply: planApplication == null
-                                ? (proposal) async => ApplyPlanResult.stale()
-                                : planApplication.apply,
+                                ? (
+                                    proposal, {
+                                    mode = PlanApplyMode.completeOnly,
+                                  }) async => ApplyPlanResult.stale()
+                                : (
+                                    proposal, {
+                                    mode = PlanApplyMode.completeOnly,
+                                  }) => planApplication.apply(
+                                    proposal,
+                                    mode: mode,
+                                  ),
                           );
                       if (!context.mounted) return;
                       if (outcome.message.isNotEmpty) {
                         showPlannerMessage(context, message: outcome.message);
-                        return;
                       }
+                      if (!outcome.requiresPreview) return;
                       context.go('/planning/preview/${outcome.proposalId}');
                     },
             ),
@@ -2114,15 +2136,25 @@ Future<void> _generatePlan(
       ).run(
         proposal: proposal,
         // 不可达的兜底：`application == null` 时上面的 isTrusted 为 false，apply 不会被调用。
+        //
+        // **自动路径只传 `completeOnly`**（冻结决策 §1.6）：`allowPartial` 是
+        // "用户明确确认过"的专属授权，自动路径永远不该传它。
         apply: application == null
-            ? (proposal) async => ApplyPlanResult.stale()
-            : application.apply,
+            ? (proposal, {mode = PlanApplyMode.completeOnly}) async =>
+                  ApplyPlanResult.stale()
+            : (proposal, {mode = PlanApplyMode.completeOnly}) =>
+                  application.apply(proposal, mode: mode),
       );
   if (!context.mounted) return;
+  // **按 `requiresPreview` 决定去向，不再靠 `message.isNotEmpty` 反推**
+  // （计划 Task 5 Step 6）：部分/阻断提案会给出非空 message，用 message 判断会把
+  // 预览导航整个吞掉——用户会看到一句提示，然后停在原地。
   if (outcome.message.isNotEmpty) {
     showPlannerMessage(context, message: outcome.message);
   }
-  context.go('/planning/preview/${proposal.proposalId}');
+  if (outcome.requiresPreview) {
+    context.go('/planning/preview/${proposal.proposalId}');
+  }
 }
 
 final class _PlannerShell extends StatelessWidget {
@@ -2440,7 +2472,14 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       return PlanPreviewModel(
         proposalId: widget.proposalId,
         changes: const [],
-        conflicts: const ['当前未装配排程服务，无法生成或应用计划'],
+        issues: const [
+          PreviewIssue(
+            key: 'no-planning-service',
+            severity: PreviewIssueSeverity.blocking,
+            title: '无法生成计划',
+            message: '当前未装配排程服务，无法生成或应用计划',
+          ),
+        ],
         isStale: true,
       );
     }
@@ -2450,30 +2489,54 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       return PlanPreviewModel(
         proposalId: widget.proposalId,
         changes: const [],
-        conflicts: const ['该调整提案已失效，请重新生成计划'],
+        issues: const [
+          PreviewIssue(
+            key: 'stale-proposal',
+            severity: PreviewIssueSeverity.blocking,
+            title: '提案已过期',
+            message: '该调整提案已失效，请重新生成计划',
+          ),
+        ],
         isStale: true,
       );
     }
 
-    final current = await widget.plans?.current();
-    final diff = const PlanDiffer().diff(
-      current?.blocks ?? const <PlannedBlock>[],
-      proposal.blocks,
-    );
+    // ── **两侧都按规划窗口过滤历史块**（1.8.0，冻结决策 §1.3）────────────────────
+    //
+    // 只看提案那一侧不够：当前计划里的历史块会因为"提案里没有它"被 `PlanDiffer`
+    // 报成**移除**，于是用户看到昨天与今天已结束的安排被"删除"——
+    // 而那恰恰是截图故障的另一面。窗口来自**生成这份提案时**的 `problem.planningWindow`，
+    // 不是"现在"：生成与预览之间用户可能已经等了一会儿。
+    final window = proposal.planningWindow;
+    final visibleCurrent = [
+      for (final block
+          in (await widget.plans?.current())?.blocks ?? const <PlannedBlock>[])
+        if (visibleToForwardPreview(block, window)) block,
+    ];
+    final visibleProposed = [
+      for (final block in proposal.blocks)
+        if (visibleToForwardPreview(block, window)) block,
+    ];
+    final diff = const PlanDiffer().diff(visibleCurrent, visibleProposed);
     // M6（§3.4）：容量缺口。**与提案来自同一次生成**，因此这里不重新排程，只把"排不下的
     // 那些周期目标"翻译成用户能读懂、能处置的一条缺口。
     final shortfalls = await planning.shortfallsFor(proposal);
-    // ── 标题与结构化原因（Task 12A Step 6）──────────────────────────────────
+    // ── 标题与结构化原因（Task 12A Step 6；1.8.0 扩展）──────────────────────────
     //
     // **标题由这一层查，不放进 `UnscheduledTask`**：引擎的东西以 id 为准，标题可能被用户随时
     // 改；固化进引擎输出就成了一份旧快照。查不到时回落到"未命名任务"，**绝不显示裸 UUID**。
+    //
+    // **一次批量解析覆盖三类来源**（冻结决策 §1.6 的第 6 条）：
+    //   ① `proposal.unscheduled` 的 taskId；
+    //   ② `proposal.conflicts` 的非空 taskId；
+    //   ③ **过滤后**的 diff 两侧 taskId。
+    // 少了 ② 会让"哪一件任务越界了"变成一句没有主语的话；少了 ③ 会让变更行退回占位文案。
     final lookup = widget.taskTitles;
     final displayInfos = lookup == null
         ? const <TaskDisplayInfo>[]
         : await resolveTaskDisplayInfos(lookup, [
-            // **两类条目一起解析**（规范 §13.1）：变更行与"未安排"行用的是同一个
-            // `taskId` 空间，分开解析就会出现"一类有名字、另一类还是 id"。
             for (final task in proposal.unscheduled) task.taskId,
+            for (final conflict in proposal.conflicts) ?conflict.taskId,
             for (final change in diff.changes)
               if ((change.after ?? change.before) case final block?)
                 block.taskId,
@@ -2481,7 +2544,6 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     final titleByTaskId = {
       for (final info in displayInfos) info.taskId: info.title,
     };
-    String titleOf(String taskId) => titleByTaskId[taskId] ?? unnamedTaskLabel;
 
     return PlanPreviewModel(
       proposalId: widget.proposalId,
@@ -2509,26 +2571,13 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
               change.after,
             ),
           ),
-        // §8 的「未安排」是**独立一类**：提案没排下的任务不在 `diff.changes` 里
-        // （diff 只比较两侧都有的计划块），因此必须单独取 `proposal.unscheduled`。
-        //
-        // 文案按 Task 12A Step 6 第 5 条：主行是「标题 + 还缺多少分钟」，`reason` 是引擎给的
-        // **结构化主原因**翻成的一句人话。此前这里写的是 `'${task.taskId} 还缺 …'` 加一句
-        // 笼统的"可用时间不足"——用户看到一串 UUID，也不知道该改什么。
-        for (final task in proposal.unscheduled)
-          PreviewChange(
-            kind: PreviewChangeKind.unplanned,
-            title: '${titleOf(task.taskId)} 还缺 ${task.shortageMinutes} 分钟',
-            reason: unscheduledReasonLabel(task.primaryReason),
-          ),
       ],
-      conflicts: [
-        for (final conflict in proposal.conflicts) conflictLabel(conflict.code),
-        // 冲突那一组也带上标题：同一条缺口在两组里出现时，两处必须叫同一个名字，
-        // 否则用户会以为是两件事。
-        for (final task in proposal.unscheduled)
-          '「${titleOf(task.taskId)}」还缺 ${task.shortageMinutes} 分钟',
-      ],
+      // **问题只有一个来源**（冻结决策 §1.5/§1.6）：未安排与冲突都由它表达，
+      // 因此同一条缺口不可能在页面上出现两次。
+      issues: buildPreviewIssues(
+        proposal: proposal,
+        titleByTaskId: titleByTaskId,
+      ),
       isStale: false,
       shortfalls: shortfalls,
     );
@@ -2545,7 +2594,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
       return PlanPreviewPage(
         model: model,
         autoAdjustStore: widget.autoAdjustStore,
-        onConfirm: () => _confirm(context, model),
+        onConfirm: (mode) => _confirm(context, model, mode),
         // M6（§3.4）：缺口的四个处理动作。**为空时四个按钮都不渲染**——没装配周期服务
         // 就没有"调低本周目标"可改，给出按钮等于给一个点了没反应的入口。
         onHandleShortfall: widget.recurring == null
@@ -2595,23 +2644,40 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     },
   );
 
-  Future<void> _confirm(BuildContext context, PlanPreviewModel model) async {
+  /// 应用阶段：**按结果说话**（1.8.0，冻结决策 §1.6 的最后一段）。
+  ///
+  /// 修复前这里只是一句 `'计划未通过校验，未应用'`（R9）——用户既不知道是哪一件事，
+  /// 也没法采取动作，而且按钮仍然可点，于是同一个必失败操作可以被无限重复。
+  /// 现在 `ApplyPlanResult.conflicts` 里的结构被逐条翻译成
+  /// "标题：具体原因"，页面把它们显示在"应用未完成"卡片里并禁用主按钮。
+  ///
+  /// 返回值交给页面（`PlanPreviewPage.onConfirm`），因此页面能据此改变按钮状态；
+  /// 这里只负责导航与提示。
+  Future<ApplyPlanResult> _confirm(
+    BuildContext context,
+    PlanPreviewModel model,
+    PlanApplyMode mode,
+  ) async {
     final proposal = widget.planning?.preview(widget.proposalId);
     final application = widget.application;
-    if (proposal == null || application == null) return;
+    if (proposal == null || application == null) {
+      return ApplyPlanResult.stale();
+    }
 
-    final result = await application.apply(proposal);
-    if (!context.mounted) return;
+    final result = await application.apply(proposal, mode: mode);
+    if (!context.mounted) return result;
 
     final message = switch (result.status) {
       ApplyPlanStatus.applied => '计划已更新',
       ApplyPlanStatus.staleProposal => '输入已变化，计划已过期，请重新生成',
-      ApplyPlanStatus.invalidProposal => '计划未通过校验，未应用',
+      ApplyPlanStatus.partialConfirmationRequired => '还有事项没排进去，需要确认后应用可安排的部分',
+      ApplyPlanStatus.invalidProposal => _invalidSummary(result.conflicts),
     };
     showPlannerMessage(context, message: message);
     if (result.status == ApplyPlanStatus.applied) {
       context.go('/calendar');
     }
+    return result;
   }
 }
 
@@ -2658,6 +2724,28 @@ Future<void> _undoTimetableImport(
     if (!context.mounted) return;
     showPlannerMessage(context, message: '撤销失败：课程可能在确认期间再次发生变化');
   }
+}
+
+/// 应用失败时给用户的一句**具体**总结（冻结决策 §1.6 的最后一段）。
+///
+/// **最多三条**：超过三条时补一句"另有 N 项"——把所有越界块都念一遍会让提示长到
+/// 没人读，而用户真正需要的是"有几个问题、去哪里看"。
+///
+/// **不显示 `relatedEntityIds`**：那是内部 id。任务标题由预览卡片（`issues`）负责，
+/// 那里有批量解析好的标题表；这里只做 SnackBar 的一句话总结。
+String _invalidSummary(List<PlanningConflict> conflicts) {
+  if (conflicts.isEmpty) return '计划未通过校验，未应用';
+  const maximum = 3;
+  final shown = conflicts
+      .take(maximum)
+      .map(
+        (conflict) => conflict.code == ConflictCode.invalidInput
+            ? invalidInputLabel(conflict.invalidInputReason)
+            : conflictLabel(conflict.code),
+      );
+  final rest = conflicts.length - maximum;
+  return '计划未通过校验，未应用：${shown.join('；')}'
+      '${rest > 0 ? '；另有 $rest 项' : ''}';
 }
 
 PreviewChangeKind _kindOf(PlanChange change) => switch (change.type) {

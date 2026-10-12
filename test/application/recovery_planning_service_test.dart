@@ -138,6 +138,10 @@ final class _ProposalCreator implements ProposalCreator {
       proposalId: 'recovery-proposal',
       inputHash: 'hash',
       algorithmVersion: '1',
+      planningWindow: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5),
+        endUtc: DateTime.utc(2026, 10, 6),
+      ),
       blocks: const [],
       unscheduled: const [],
       conflicts: const [],
