@@ -6,6 +6,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -88,7 +89,11 @@ final class PlanningService implements ProposalCreator {
             confirmed: problem.confirmedBlocks,
             generated: proposal.blocks,
           ),
-        );
+        )
+        // **把延后要求随提案带走**（用户第 72 轮）：应用前还要再校验一次
+        // "这次延后到底兑现了没有"，而调整意图在生成结束后就被清掉
+        // （规范 §11.3 最后一段），不带走就无从校验。
+        .withAdjustmentRequirement(_adjustmentRequirementOf(problem));
     _previews[preview.proposalId] = preview;
     onProposalCreated?.call(preview);
     return preview;
@@ -198,3 +203,27 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
       confirmedBlocks: problem.confirmedBlocks,
     );
+
+/// 从排程输入里取出**本次延后要求**（用户第 72 轮）。
+///
+/// 三条信息各有来源：
+/// - 目标块与下界来自 `problem.adjustment`（裁定第 3 点的块级上下文）；
+/// - **原位置**与**要求的时长**来自确认计划里的那一块 ——
+///   它们是"延后前"的事实，`adjustment` 里没有。
+///
+/// 目标块在确认计划里找不到时返回 null：那时无法表达"要延后的是哪一块"，
+/// 也就没有可校验的要求（与装配层"不退回任务级模拟"同一口径）。
+AdjustmentRequirement? _adjustmentRequirementOf(ScheduleProblem problem) {
+  final adjustment = problem.adjustment;
+  if (adjustment == null) return null;
+  final target = problem.confirmedBlocks
+      .where((block) => block.id == adjustment.targetBlockId)
+      .firstOrNull;
+  if (target == null) return null;
+  return AdjustmentRequirement(
+    targetBlockId: target.id,
+    notBeforeUtc: adjustment.notBeforeUtc,
+    requiredMinutes: target.durationMinutes,
+    originalStartUtc: target.startUtc,
+  );
+}

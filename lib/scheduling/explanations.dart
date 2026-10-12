@@ -25,6 +25,8 @@ String conflictLabel(ConflictCode code) => switch (code) {
   ConflictCode.minimumSleepConflict => '最低睡眠与固定安排冲突',
   ConflictCode.staleProposal => '计划已过期，需要重新计算',
   ConflictCode.invalidInput => '排程输入无效',
+  // 用户第 72 轮要求的文案（原文）："无法按要求延后，当前计划未更改。"
+  ConflictCode.requestedAdjustmentUnsatisfied => '无法按要求延后，当前计划未更改',
 };
 
 /// 把引擎给出的结构化原因翻译成一句用户能据以行动的话（Task 12A Step 6 第 5 条）。

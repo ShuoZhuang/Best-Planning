@@ -16,6 +16,13 @@ enum ConflictCode {
   minimumSleepConflict,
   staleProposal,
   invalidInput,
+
+  /// **本次延后没有兑现**（用户第 72 轮）。
+  ///
+  /// **它只针对当前调整请求**，不是"方案里有任意未安排任务"：
+  /// 部分计划本来就可能包含未安排任务（别的任务没排进去是常态）。
+  /// 判定见 `evaluateAdjustmentFulfilment`。
+  requestedAdjustmentUnsatisfied,
 }
 
 final class PlanningConflict {

@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -149,6 +150,7 @@ final class ScheduleProposal {
     required List<PlanExplanation> explanations,
     required this.metrics,
     this.ruleOverride,
+    this.adjustmentRequirement,
   }) : blocks = UnmodifiableListView(List.of(blocks)),
        unscheduled = UnmodifiableListView(List.of(unscheduled)),
        conflicts = UnmodifiableListView(List.of(conflicts)),
@@ -171,6 +173,15 @@ final class ScheduleProposal {
   /// 引擎自身从不设置该字段，它由组合输入的应用层（`PlanningService`）附加。
   final ScheduleRuleOverride? ruleOverride;
 
+  /// 生成该提案时用户提出的**延后要求**；没有调整意图时为 null（用户第 72 轮）。
+  ///
+  /// 必须随提案一起走：调整意图在生成结束后就被清掉
+  /// （规范 §11.3 最后一段"请求不能跨过两次生成"），而**应用前还要再校验一次**，
+  /// 否则"用户要求延后 30 分钟"这件事在确认阶段就无从得知了。
+  ///
+  /// 引擎自身从不设置该字段，它由组合输入的应用层（`PlanningService`）附加。
+  final AdjustmentRequirement? adjustmentRequirement;
+
   ScheduleProposal withRuleOverride(ScheduleRuleOverride? override) =>
       ScheduleProposal(
         proposalId: proposalId,
@@ -182,6 +193,22 @@ final class ScheduleProposal {
         explanations: explanations,
         metrics: metrics,
         ruleOverride: override,
+        adjustmentRequirement: adjustmentRequirement,
+      );
+
+  /// 附加本次延后要求（用户第 72 轮）。
+  ScheduleProposal withAdjustmentRequirement(AdjustmentRequirement? value) =>
+      ScheduleProposal(
+        proposalId: proposalId,
+        inputHash: inputHash,
+        algorithmVersion: algorithmVersion,
+        blocks: blocks,
+        unscheduled: unscheduled,
+        conflicts: conflicts,
+        explanations: explanations,
+        metrics: metrics,
+        ruleOverride: ruleOverride,
+        adjustmentRequirement: value,
       );
 
   /// 换一份块集合，其余原样（1.8.0，裁定第 1、4 点；设计 §5.2）。
