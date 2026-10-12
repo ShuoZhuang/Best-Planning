@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 
 CapacityShortfall _shortfall({
@@ -33,7 +34,7 @@ CapacityShortfall _shortfall({
 PlanPreviewModel _model(List<CapacityShortfall> shortfalls) => PlanPreviewModel(
   proposalId: 'proposal-1',
   changes: const [],
-  conflicts: const [],
+  issues: const [],
   isStale: false,
   shortfalls: shortfalls,
 );
@@ -52,7 +53,7 @@ void main() {
         home: PlanPreviewPage(
           model: _model(shortfalls ?? [_shortfall()]),
           autoAdjustStore: MemoryAutoAdjustStore(),
-          onConfirm: () async {},
+          onConfirm: (mode) async => ApplyPlanResult.stale(),
           onHandleShortfall: withHandler
               ? (shortfall, action) async => handled.add((shortfall, action))
               : null,
@@ -167,7 +168,7 @@ void main() {
             child: PlanPreviewPage(
               model: _model([_shortfall()]),
               autoAdjustStore: MemoryAutoAdjustStore(),
-              onConfirm: () async {},
+              onConfirm: (mode) async => ApplyPlanResult.stale(),
               onHandleShortfall: (shortfall, action) async =>
                   handled.add((shortfall, action)),
             ),

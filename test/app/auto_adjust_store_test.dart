@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 
@@ -28,11 +29,11 @@ void main() {
           model: PlanPreviewModel(
             proposalId: 'p-1',
             changes: const [],
-            conflicts: const [],
+            issues: const [],
             isStale: false,
           ),
           autoAdjustStore: store,
-          onConfirm: () async {},
+          onConfirm: (mode) async => ApplyPlanResult.stale(),
         ),
       ),
     );

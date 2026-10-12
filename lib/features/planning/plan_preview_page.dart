@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
-// **既 import 又 export**：`export` 只把符号给**本文件的导入者**，本文件自己用不了它。
-// 占位文案要在 [resolveTaskDisplayInfos] 里用，因此还要一条 `import`。
-// （第一版只写了 export，于是本文件里 `unnamedTaskLabel` 是未定义的。）
-import 'package:personal_planner/scheduling/preview_failure_lines.dart'
-    show unnamedTaskLabel;
+import 'package:personal_planner/features/planning/plan_preview_issues.dart';
+import 'package:personal_planner/scheduling/explanations.dart';
+import 'package:personal_planner/scheduling/proposal_disposition.dart';
+// `unnamedTaskLabel` 由 `plan_preview_issues.dart` 转发（同一个概念只有一个名字），
+// 因此这里不再单独 import `preview_failure_lines.dart`——那会变成两处来源。
+export 'package:personal_planner/features/planning/plan_preview_issues.dart'
+    show PreviewIssue, PreviewIssueSeverity, buildPreviewIssues;
 export 'package:personal_planner/scheduling/explanations.dart'
     show unscheduledReasonLabel;
 export 'package:personal_planner/scheduling/preview_failure_lines.dart'
@@ -119,20 +122,40 @@ final class PlanPreviewModel {
   PlanPreviewModel({
     required this.proposalId,
     required List<PreviewChange> changes,
-    required List<String> conflicts,
+    required List<PreviewIssue> issues,
     required this.isStale,
     List<CapacityShortfall> shortfalls = const [],
   }) : changes = UnmodifiableListView(List.of(changes)),
-       conflicts = UnmodifiableListView(List.of(conflicts)),
+       issues = UnmodifiableListView(List.of(issues)),
        shortfalls = UnmodifiableListView(List.of(shortfalls));
 
   final String proposalId;
   final List<PreviewChange> changes;
-  final List<String> conflicts;
+
+  /// 结构化问题（1.8.0，冻结决策 §1.6）。
+  ///
+  /// **不得同时保留 `List<String> conflicts` 作为第二事实源**：两个列表一旦并存，
+  /// 迟早会出现"一处有、另一处没有"，而用户看到的是两套互相矛盾的说法（R7）。
+  final List<PreviewIssue> issues;
   final bool isStale;
 
   /// 周期目标的容量缺口（M6，§3.4）。为空时那一组卡片不渲染。
   final List<CapacityShortfall> shortfalls;
+
+  bool get hasBlockingIssues => issues.any((issue) => issue.isBlocking);
+  bool get hasWarnings => issues.any((issue) => !issue.isBlocking);
+
+  /// 由问题列表派生的处置状态（与引擎的 `classifyProposal` 同一条规则）。
+  ///
+  /// **stale 不在这里**：过期是"这份提案已经作废"，与三态正交，
+  /// 且它的优先级高于三态（冻结决策 §1.6 的最后一行）。
+  ProposalDisposition get disposition {
+    if (hasBlockingIssues) return ProposalDisposition.blocked;
+    if (issues.isNotEmpty) {
+      return ProposalDisposition.partialRequiresConfirmation;
+    }
+    return ProposalDisposition.fullyApplicable;
+  }
 }
 
 abstract interface class AutoAdjustStore {
@@ -169,7 +192,20 @@ final class PlanPreviewPage extends StatefulWidget {
 
   final PlanPreviewModel model;
   final AutoAdjustStore autoAdjustStore;
-  final Future<void> Function() onConfirm;
+
+  /// 确认应用。**入参是授权范围，返回是应用结果**（1.8.0，冻结决策 §1.6）。
+  ///
+  /// 修复前它是无参 `Future<void>`，于是页面**只能**触发应用、拿不到结果，
+  /// 结果处理（导航、错误面板、重试状态）散在路由里，且失败后只弹一句
+  /// "计划未通过校验，未应用"——用户既不知道是哪一件事，也没法采取动作。
+  ///
+  /// 页面只在这两个值里挑一个：
+  /// - [PlanApplyMode.completeOnly]：完整可行的提案；
+  /// - [PlanApplyMode.allowPartial]：用户在二次确认框里点了"仍然应用"。
+  ///
+  /// **它不直接访问仓储**：结果由页面交给同一套渲染逻辑（问题卡片 + SnackBar），
+  /// 因此"失败之后还能无限重复点击同一个必失败操作"这件事在页面层就能被挡住。
+  final Future<ApplyPlanResult> Function(PlanApplyMode mode) onConfirm;
 
   /// 处理一条容量缺口（M6，§3.4）。
   ///
@@ -208,11 +244,35 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
   bool _applying = false;
   bool _recalculating = false;
 
+  /// 上一次应用失败的**具体原因**（为空表示没有失败过）。
+  ///
+  /// 存在的理由（冻结决策 §1.6 的最后一行）：应用阶段若发现新的阻断错误，
+  /// 要显示具体任务与原因，并且**按钮不得允许无限重复点击同一个必失败操作**。
+  /// 失败之后页面转入"先修问题"的状态：主按钮禁用，只留"重新生成计划"。
+  List<PreviewIssue> _applyFailures = const [];
+
   @override
   void initState() {
     super.initState();
     _autoAdjust = widget.autoAdjustStore.enabled;
   }
+
+  /// 主按钮当前是否可用。
+  ///
+  /// **四种情况都不可用**：过期、正在应用、模型本身含阻断问题、上一次应用刚刚失败。
+  bool get _canApply =>
+      !widget.model.isStale &&
+      !_applying &&
+      !widget.model.hasBlockingIssues &&
+      _applyFailures.isEmpty;
+
+  bool get _canApplyPartial =>
+      !widget.model.isStale &&
+      !_applying &&
+      !widget.model.hasBlockingIssues &&
+      _applyFailures.isEmpty &&
+      widget.model.disposition ==
+          ProposalDisposition.partialRequiresConfirmation;
 
   Future<void> _recalculate() async {
     final recalculate = widget.onRecalculate;
@@ -228,17 +288,114 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
   }
 
   Future<void> _confirm() async {
+    final disposition = widget.model.disposition;
+    if (disposition == ProposalDisposition.blocked) return;
+    var mode = PlanApplyMode.completeOnly;
+    if (disposition == ProposalDisposition.partialRequiresConfirmation) {
+      // **二次确认**：用户必须看到全部缺口，并明确选择"仍然应用"。
+      final confirmed = await _askPartialConfirmation();
+      if (confirmed != true) return;
+      mode = PlanApplyMode.allowPartial;
+    }
+    if (!mounted) return;
     setState(() => _applying = true);
     widget.autoAdjustStore.recordPreview(widget.model);
     try {
-      await widget.onConfirm();
+      final result = await widget.onConfirm(mode);
+      if (!mounted) return;
+      setState(() => _applyFailures = _issuesOf(result));
     } finally {
       if (mounted) setState(() => _applying = false);
     }
   }
 
+  /// 把应用结果翻成页面能显示的问题列表。
+  List<PreviewIssue> _issuesOf(ApplyPlanResult result) {
+    if (result.status == ApplyPlanStatus.applied ||
+        result.status == ApplyPlanStatus.staleProposal) {
+      return const [];
+    }
+    final titles = {
+      for (final issue in widget.model.issues) issue.key: issue.title,
+    };
+    return [
+      for (var index = 0; index < result.conflicts.length; index++)
+        PreviewIssue(
+          key: 'apply-failure:${result.conflicts[index].code.name}:$index',
+          severity: PreviewIssueSeverity.blocking,
+          title:
+              titles['conflict:$index:${result.conflicts[index].code.name}'] ??
+              conflictLabel(result.conflicts[index].code),
+          message: planningConflictMessage(
+            result.conflicts[index],
+            taskTitle: result.conflicts[index].taskId == null
+                ? unnamedTaskLabel
+                : titleOfTask(result.conflicts[index].taskId!, titles),
+          ),
+        ),
+    ];
+  }
+
+  Future<bool?> _askPartialConfirmation() => showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('仍有事项没有排进去'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('下面的部分可以安排，其余的这次不会排进去：'),
+            const SizedBox(height: 8),
+            // **列出全部缺口**（标题、缺口分钟、结构化主原因），
+            // 因为用户是在为"就这样应用"负责。
+            for (final issue in widget.model.issues.where(
+              (issue) => !issue.isBlocking,
+            ))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(issue.title),
+                    Text(
+                      issue.message,
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('仍然应用'),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
+    final model = widget.model;
+    // **只渲染非空分组**（冻结决策 §1.6 的最后一条）：五类各来一张"无"卡片
+    // 会把真正的问题挤到屏幕外。全部为空时给一句"没有计划时间变更"。
+    final groups = [
+      for (final kind in PreviewChangeKind.values)
+        (
+          kind: kind,
+          changes: model.changes
+              .where((change) => change.kind == kind)
+              .toList(),
+        ),
+    ].where((group) => group.changes.isNotEmpty).toList();
+
     return Scaffold(
       appBar: AppBar(title: const Text('调整预览')),
       body: SingleChildScrollView(
@@ -246,7 +403,7 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.model.isStale)
+            if (model.isStale)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -278,23 +435,38 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   ),
                 ),
               ),
-            for (final kind in PreviewChangeKind.values)
-              _ChangeGroup(
-                kind: kind,
-                changes: widget.model.changes
-                    .where((change) => change.kind == kind)
-                    .toList(),
+            for (final group in groups)
+              _ChangeGroup(kind: group.kind, changes: group.changes),
+            if (groups.isEmpty && model.issues.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('没有计划时间变更'),
+                ),
               ),
-            if (widget.model.shortfalls.isNotEmpty)
+            if (model.shortfalls.isNotEmpty)
               _ShortfallGroup(
-                shortfalls: widget.model.shortfalls,
+                shortfalls: model.shortfalls,
                 onHandle: widget.onHandleShortfall,
               ),
-            _ConflictGroup(conflicts: widget.model.conflicts),
+            if (model.issues.isNotEmpty) _IssueGroup(issues: model.issues),
+            if (_applyFailures.isNotEmpty)
+              _IssueGroup(
+                key: const Key('apply-failure-group'),
+                title: '应用未完成',
+                issues: _applyFailures,
+              ),
             const Divider(height: 32),
             SwitchListTile(
               title: const Text('信任自动调整'),
-              subtitle: const Text('开启后仍保存每次差异和解释历史'),
+              subtitle: Text(
+                // **开关代表未来偏好，不改变当前这份提案的走向**（冻结决策 §1.6）：
+                // 阻断或部分提案不会被自动应用，副标题必须说清楚，
+                // 否则用户会以为"打开开关就能让它落地"。
+                _canApply || _canApplyPartial
+                    ? '开启后仍保存每次差异和解释历史'
+                    : '当前方案不会自动应用；开关只影响之后的生成',
+              ),
               value: _autoAdjust,
               onChanged: (value) {
                 setState(() => _autoAdjust = value);
@@ -302,15 +474,14 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
               },
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: widget.model.isStale || _applying ? null : _confirm,
-              icon: _applying
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check),
-              label: const Text('确认应用'),
+            _ConfirmButton(
+              model: model,
+              applying: _applying,
+              failed: _applyFailures.isNotEmpty,
+              canApply: _canApply,
+              canApplyPartial: _canApplyPartial,
+              onPressed: _confirm,
+              onRecalculate: widget.onRecalculate == null ? null : _recalculate,
             ),
             // FR-REPLAN-08：撤销上一次已确认的计划。结果用 SnackBar 回报，因此这里不需要
             // 额外状态——"已撤销"与"无可撤销"是两种正常结局，都应由用户看见。
@@ -486,67 +657,167 @@ final class _ChangeGroup extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
-          if (changes.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('无'),
-            )
-          else
-            for (final change in changes)
-              ExpansionTile(
-                title: Text(change.title),
-                children: [
-                  // §8：显示**原时间与目标时间**。空的一侧不渲染——
-                  // 新增没有原时间、未安排没有目标时间，硬编占位文案只会让人以为缺了数据。
-                  if (change.fromLabel != null)
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.schedule, size: 18),
-                      title: Text('原时间　${change.fromLabel}'),
-                    ),
-                  if (change.toLabel != null)
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.arrow_forward, size: 18),
-                      title: Text('目标时间　${change.toLabel}'),
-                    ),
+          for (final change in changes)
+            ExpansionTile(
+              title: Text(change.title),
+              children: [
+                // §8：显示**原时间与目标时间**。空的一侧不渲染——
+                // 新增没有原时间、未安排没有目标时间，硬编占位文案只会让人以为缺了数据。
+                if (change.fromLabel != null)
                   ListTile(
                     dense: true,
-                    leading: const Icon(Icons.info_outline, size: 18),
-                    title: Text(change.reason),
+                    leading: const Icon(Icons.schedule, size: 18),
+                    title: Text('原时间　${change.fromLabel}'),
                   ),
-                ],
-              ),
+                if (change.toLabel != null)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.arrow_forward, size: 18),
+                    title: Text('目标时间　${change.toLabel}'),
+                  ),
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.info_outline, size: 18),
+                  title: Text(change.reason),
+                ),
+              ],
+            ),
         ],
       ),
     ),
   );
 }
 
-final class _ConflictGroup extends StatelessWidget {
-  const _ConflictGroup({required this.conflicts});
-  final List<String> conflicts;
+/// 主操作按钮（冻结决策 §1.6 的三态表）。
+///
+/// | 状态 | 文案 | 行为 |
+/// | --- | --- | --- |
+/// | fullyApplicable | 确认应用 | 直接校验并应用 |
+/// | partialRequiresConfirmation | 应用可安排部分 | 先弹确认框，确认后传 `allowPartial` |
+/// | blocked | 无法应用（禁用） | 不调用应用服务；若装配了重算则给"重新生成计划" |
+/// | stale | 无法应用（禁用） | 只允许重新生成 |
+/// | 刚刚失败过 | 无法应用（禁用） | 只允许重新生成（见 `failed`） |
+///
+/// **阻断与 stale 都不能被绕过**：它们走的是 `onPressed == null`，
+/// 因此键盘、语义动作与程序化点击都点不动。
+final class _ConfirmButton extends StatelessWidget {
+  const _ConfirmButton({
+    required this.model,
+    required this.applying,
+    required this.failed,
+    required this.canApply,
+    required this.canApplyPartial,
+    required this.onPressed,
+    required this.onRecalculate,
+  });
+
+  final PlanPreviewModel model;
+  final bool applying;
+  final bool failed;
+  final bool canApply;
+  final bool canApplyPartial;
+  final Future<void> Function() onPressed;
+  final Future<void> Function()? onRecalculate;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('冲突', style: Theme.of(context).textTheme.titleMedium),
+  Widget build(BuildContext context) {
+    final disposition = model.disposition;
+    // 文案：三态 + stale + 失败后。
+    final String label;
+    if (model.isStale) {
+      label = '无法应用';
+    } else if (failed) {
+      label = '无法应用';
+    } else if (disposition == ProposalDisposition.blocked) {
+      label = '无法应用';
+    } else if (canApplyPartial) {
+      label = '应用可安排部分';
+    } else {
+      label = '确认应用';
+    }
+    final enabled = canApply || canApplyPartial;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton.icon(
+          onPressed: enabled && !applying ? onPressed : null,
+          icon: applying
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(enabled ? Icons.check : Icons.block),
+          label: Text(label),
+        ),
+        // 阻断/stale/失败时给一条"能做什么"的出路，而不是把用户留在死路上。
+        if (!enabled && !applying && onRecalculate != null) ...[
           const SizedBox(height: 8),
-          if (conflicts.isEmpty)
-            const Text('无')
-          else
-            for (final conflict in conflicts)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.warning_amber),
-                title: Text(conflict),
-              ),
+          OutlinedButton.icon(
+            key: const Key('recalculate-after-block'),
+            onPressed: onRecalculate,
+            icon: const Icon(Icons.autorenew),
+            label: const Text('重新生成计划'),
+          ),
         ],
+      ],
+    );
+  }
+}
+
+/// 问题卡片组：warning 与 blocking **用不同图标、标题和颜色**，
+/// 但**不得仅靠颜色区分**（冻结决策 §1.6 的最后一条），因此图标与文字同时不同。
+final class _IssueGroup extends StatelessWidget {
+  const _IssueGroup({required this.issues, this.title, super.key});
+
+  final List<PreviewIssue> issues;
+  final String? title;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final blocking = issues.where((issue) => issue.isBlocking).toList();
+    final warnings = issues.where((issue) => !issue.isBlocking).toList();
+
+    Widget tile(PreviewIssue issue) => ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        issue.isBlocking ? Icons.error_outline : Icons.info_outline,
+        color: issue.isBlocking ? scheme.error : scheme.tertiary,
       ),
-    ),
-  );
+      title: Text(issue.title),
+      subtitle: Text(issue.message),
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title ?? (blocking.isEmpty ? '需要注意' : '无法应用的问题'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (blocking.isNotEmpty) ...[
+              Text(
+                '阻断问题（必须先解决）',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              for (final issue in blocking) tile(issue),
+              if (warnings.isNotEmpty) const SizedBox(height: 8),
+            ],
+            if (warnings.isNotEmpty) ...[
+              Text(
+                '可以带着应用（会缺少一部分）',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              for (final issue in warnings) tile(issue),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
