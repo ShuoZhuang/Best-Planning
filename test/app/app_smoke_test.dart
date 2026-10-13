@@ -60,7 +60,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('日历'), findsWidgets);
-    expect(find.text('七日日历'), findsOneWidget);
+    expect(find.text('近期日历'), findsOneWidget);
   });
 
   testWidgets('主工作台使用深色专注主题', (tester) async {

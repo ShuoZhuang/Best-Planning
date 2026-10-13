@@ -55,9 +55,9 @@ const List<TutorialStep> tutorialSteps = [
     ],
   ),
   TutorialStep(
-    title: '七日日历',
+    title: '近期日历',
     body:
-        '横向的日期条：最左边是昨天，然后是今天起七天，今天用主色框标出。'
+        '横向的日期条：最左边是昨天，然后是未来七天，今天用主色框标出。'
         '往左滑可以回看昨天，往右滑看后面几天。',
     assetPath: 'assets/tutorial/04-calendar.png',
     bullets: [

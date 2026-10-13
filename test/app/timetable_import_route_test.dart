@@ -21,7 +21,7 @@ import 'package:personal_planner/features/calendar/timetable_import/timetable_im
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 
 void main() {
-  testWidgets('从七日日历可以打开五步课表导入页', (tester) async {
+  testWidgets('从近期日历可以打开五步课表导入页', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -80,7 +80,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('timetable-import-back')));
     await tester.pumpAndSettle();
-    expect(find.text('七日日历'), findsOneWidget);
+    expect(find.text('近期日历'), findsOneWidget);
   });
 }
 

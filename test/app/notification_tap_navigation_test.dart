@@ -162,7 +162,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('七日日历'), findsOneWidget);
+    expect(find.text('近期日历'), findsOneWidget);
   });
 
   testWidgets('任务清单提供进入详情的入口', (tester) async {

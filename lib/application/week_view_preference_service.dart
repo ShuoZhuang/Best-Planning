@@ -1,6 +1,6 @@
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 
-/// 七日日历的展示模式。
+/// 近期日历的展示模式。
 ///
 /// **紧凑模式是默认**：§9 明确要求"紧凑模式保留，不能强迫用户接受时间轴密度"，
 /// 因此默认值必须是 `compact`——老用户升级后看到的界面不该突然变样。

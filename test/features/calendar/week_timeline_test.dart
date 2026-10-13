@@ -373,7 +373,7 @@ void main() {
 
   testWidgets('M5 没有安排时不显示时间轴（沿用既有的空状态）', (tester) async {
     await _pump(tester, items: const []);
-    expect(find.text('未来七天暂无安排'), findsOneWidget);
+    expect(find.text('当前范围暂无安排'), findsOneWidget);
   });
 }
 

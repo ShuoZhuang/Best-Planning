@@ -35,7 +35,7 @@ import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
 void main() {
-  testWidgets('七日日历按分类键显示图例并用分类色绘制卡片', (tester) async {
+  testWidgets('近期日历按分类键显示图例并用分类色绘制卡片', (tester) async {
     final start = DateTime.utc(2026, 10, 5);
     const studyColor = Color(0xff2f86ff);
     const unassignedTaskColor = Color(0xff7f92b2);
@@ -422,7 +422,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('正在加载七日计划'), findsOneWidget);
+    expect(find.text('正在加载近期安排'), findsOneWidget);
 
     controller.add([
       ScheduleViewItem(
@@ -592,7 +592,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('未来七天暂无安排'), findsOneWidget);
+    expect(find.text('当前范围暂无安排'), findsOneWidget);
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -691,9 +691,16 @@ void main() {
       reason:
           '**R12**：这一屏的范围是"昨天 + 今天起七天"共八列，'
           '空状态文案中出现"七"就是在描述另一个范围。'
-          '实测当前实现给的是「未来七天暂无安排」',
+          '修复前实现给的是「未来七天暂无安排」',
     );
-    expect(find.textContaining('八'), findsWidgets, reason: '空状态应当说清真实范围（八天）');
+    expect(
+      find.text('当前范围暂无安排'),
+      findsOneWidget,
+      reason:
+          '计划 Task 8 Step 1 把空状态定为「当前范围暂无安排」：它**不声称列数**，'
+          '因此不可能与八列范围矛盾。这里刻意**不**要求它出现"八"——'
+          '计划的要求是"不得再声称只有七列"，而不是"必须写出八"',
+    );
   });
 
   test('只有可移动的任务块能被拖动，固定日程与保护时间不是', () {
@@ -728,7 +735,7 @@ void main() {
     expect(movableTaskBlockId(item('block:', ScheduleItemKind.task)), isNull);
   });
 
-  testWidgets('七日日历在七天左侧补出"昨天"，并像天气应用那样标出今天', (tester) async {
+  testWidgets('近期日历在七天左侧补出"昨天"，并像天气应用那样标出今天', (tester) async {
     // 用户 2026-10-07："七日日历可以再'今天起 7 天'的基础上加上昨天，就像手机上的天气预报一样"。
     // 起点是**今天**（路由器传 `todayStartUtc`），所以七天里本来没有昨天——这不是重复列。
     final today = DateTime.utc(2026, 10, 7); // 2026-10-07 是周三

@@ -1767,7 +1767,7 @@ void main() {
 
     await tester.tap(find.text('日历'));
     await tester.pumpAndSettle();
-    expect(find.text('七日日历'), findsOneWidget);
+    expect(find.text('近期日历'), findsOneWidget);
 
     final openDay = find.byKey(const Key('open-day-view'));
     expect(openDay, findsOneWidget);

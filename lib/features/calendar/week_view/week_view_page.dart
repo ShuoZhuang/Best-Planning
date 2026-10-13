@@ -121,7 +121,10 @@ final class _WeekViewPageState extends State<WeekViewPage> {
             children: [
               Expanded(
                 child: Text(
-                  '七日日历',
+                  // **不叫「七日日历」**（计划 §1.1 R12／Task 8 Step 1）：这一屏实际画的是
+                  // "昨天 + 今天起七天"共**八列**，用"七日"命名会让用户以为昨天那一列不存在。
+                  // 产品要求明确保留昨天那一列，因此正确的修法是**改名**，不是删列。
+                  '近期日历',
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
@@ -221,10 +224,13 @@ final class _WeekViewPageState extends State<WeekViewPage> {
                   );
                 }
                 if (!snapshot.hasData) {
-                  return const Center(child: Text('正在加载七日计划'));
+                  return const Center(child: Text('正在加载近期安排'));
                 }
                 if (snapshot.data!.isEmpty) {
-                  return const Center(child: Text('未来七天暂无安排'));
+                  // **不说"七"**（计划 §1.1 R12／Task 8 Step 1）：这一屏有八列，任何
+                  // "未来七天"的说法都与它矛盾。改成不声称列数的说法，用户不会因此
+                  // 以为有别的东西没显示出来。
+                  return const Center(child: Text('当前范围暂无安排'));
                 }
                 final summaries = summarizeScheduleCategories(snapshot.data!);
                 return Column(

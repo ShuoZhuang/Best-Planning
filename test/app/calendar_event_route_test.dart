@@ -65,7 +65,7 @@ void main() {
     expect(repository.saved, hasLength(1));
     expect(repository.saved.single.title, '周末聚餐');
     expect(repository.saved.single.timeZoneId, 'Asia/Shanghai');
-    expect(find.text('七日日历'), findsOneWidget);
+    expect(find.text('近期日历'), findsOneWidget);
   });
 }
 
