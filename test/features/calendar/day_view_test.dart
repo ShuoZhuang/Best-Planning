@@ -57,6 +57,7 @@ ScheduleViewItem _item({
   int? categorySortOrder,
   String notes = '',
   bool fromRules = false,
+  bool isCompleted = false,
   // **默认 `true`**：这一页多数用例关心的是"三个范围选项各自走哪条路"，
   // 而范围选项只在重复事项上出现。一次性事项那一条另有专门用例。
   bool repeats = true,
@@ -71,6 +72,7 @@ ScheduleViewItem _item({
   notes: notes,
   repeats: repeats,
   fromRules: fromRules,
+  isCompleted: isCompleted,
   range: TimeRange(
     startUtc: DateTime.utc(2026, 10, 5, startHourUtc),
     endUtc: DateTime.utc(2026, 10, 5, startHourUtc + durationHours),
@@ -118,6 +120,7 @@ void main() {
     Future<OccurrenceEditOutcome> Function(OccurrenceEditRequest request)?
     onEditEvent,
     Future<bool> Function(String eventId, String? areaId)? onSetEventArea,
+    VoidCallback? onOpenProtectedTimeSettings,
     List<ScheduleAreaOption> areaOptions = const [
       ScheduleAreaOption(id: 'area-study', name: '学业'),
       ScheduleAreaOption(id: 'area-lab', name: '科研'),
@@ -139,6 +142,7 @@ void main() {
             timeZoneId: timeZoneId,
             onDeleteEvent: onDeleteEvent,
             onEditEvent: onEditEvent,
+            onOpenProtectedTimeSettings: onOpenProtectedTimeSettings,
             onSetEventArea: onSetEventArea,
             loadAreaOptions: onSetEventArea == null
                 ? null
@@ -480,6 +484,66 @@ void main() {
     expect(find.textContaining('09:00–10:00'), findsNothing);
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R11（Task 1 Step 5）：固定日程的钟点过去了，**不得**出现完成标记。
+  //
+  // 上游数据源已经把 `isCompleted` 收紧成"只属于 `TaskStatus.completed`"；这一条
+  // 从页面侧钉住同一件事：一条 `kind: fixed` 且 `isCompleted: false` 的条目（时间
+  // 已经过去的那种）不能渲染 `day-schedule-completed-*`。
+  //
+  // 上游那一条断言在 `schedule_view_source_test.dart`（R11 的根因），这里断言的是
+  // "页面不会自己再算一遍完成"——两处都错才会让用户看到那个完成勾。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('固定日程时间已过（上游 isCompleted=false）不出现 day-schedule-completed（R11）', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:past',
+          title: '早场',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 7,
+          durationHours: 1,
+          isCompleted: false,
+        ),
+        // 反面：任务真的完成了，标记必须照旧出现。
+        _item(
+          id: 'block:done',
+          title: '已经做完的事',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 9,
+          durationHours: 1,
+          isCompleted: true,
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const Key('day-schedule-card-fixed:past')),
+      findsOneWidget,
+      reason: '夹具必须真的渲染出那条固定日程',
+    );
+    expect(
+      find.byKey(const Key('day-schedule-completed-fixed:past')),
+      findsNothing,
+      reason:
+          '**R11**：固定日程结束时间已过 ≠ 任务已完成。'
+          '完成标记只属于 `TaskStatus.completed`，页面不得自行按钟点补一个',
+    );
+    // 语义标签里也不能出现"已完成"。
+    expect(
+      tester.getSemantics(find.byKey(const Key('day-item-fixed:past'))).label,
+      isNot(contains('已完成')),
+    );
+    expect(
+      find.byKey(const Key('day-schedule-completed-block:done')),
+      findsOneWidget,
+      reason: '真完成的任务照旧带标记——这条改动不该波及任务块',
+    );
+  });
+
   testWidgets('删除固定日程传回的是**领域事件 id**，不带视图条目的命名空间', (tester) async {
     final deleted = <String>[];
     await pump(
@@ -625,6 +689,152 @@ void main() {
       find.byKey(const Key('day-item-block:block-1')),
     );
     expect(task.width, fixed.width, reason: '固定日程带删除/编辑图标，其余条目也必须为同样的图标位留出宽度');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R2（Task 1 Step 5）：**四类卡片的右边界必须完全一致**。
+  //
+  // `_DayItemTile` 外部的操作按钮数量随条目类型变化，而卡片又包在 `Expanded` 里：
+  //   任务        → delete + area + edit（3 个）
+  //   固定日程    → delete + area + edit（3 个）
+  //   自定义保护  → delete + area + edit（3 个）
+  //   **规则保护** → delete + **settings** + area + edit（4 个）
+  // 于是规则保护时间那一行的卡片比其它三行**窄 48 px**，整列右边界参差 —— 用户报的
+  // 正是这个（计划 §1.1 R2 / §2.7：所有行都有固定 48 px 操作槽）。
+  //
+  // 断言用 `getTopLeft/getTopRight` 的**横坐标**而不是宽度：宽度只说明"大小相同"，
+  // 而用户看到的是"右边界在不在同一条竖线上"。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('任务、固定日程、自定义保护时间、规则保护时间四类卡片右边界完全一致（R2）', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'block:task-1',
+          title: '写方案',
+          kind: ScheduleItemKind.task,
+          startHourUtc: 8,
+        ),
+        _item(
+          id: 'fixed:event-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'fixed:evt-protected',
+          title: '自定义保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 10,
+        ),
+        _item(
+          id: 'protected:breakfast:2026-10-05:450',
+          title: '早餐',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 11,
+          fromRules: true,
+        ),
+      ],
+      // 四个入口全开：这正是"规则来源保护时间多一枚 settings 按钮"的前提。
+      onDeleteEvent: (id) async => true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
+      onSetEventArea: (eventId, areaId) async => true,
+      onOpenProtectedTimeSettings: () {},
+    );
+
+    const ids = [
+      'block:task-1',
+      'fixed:event-1',
+      'fixed:evt-protected',
+      'protected:breakfast:2026-10-05:450',
+    ];
+
+    final rights = <String, double>{};
+    final lefts = <String, double>{};
+    for (final id in ids) {
+      final rect = tester.getRect(find.byKey(Key('day-schedule-card-$id')));
+      rights[id] = rect.right;
+      lefts[id] = rect.left;
+    }
+
+    for (final id in ids.skip(1)) {
+      expect(
+        lefts[id],
+        lefts[ids.first],
+        reason: '四类卡片的左边界也必须一致（它们在同一列里）',
+      );
+      expect(
+        rights[id],
+        rights[ids.first],
+        reason:
+            '**R2**：$id 的右边界与 ${ids.first} 不相等'
+            '（实测 ${rights[id]} vs ${rights[ids.first]}）。'
+            '原因是规则来源的保护时间多一枚 settings 按钮，把卡片挤窄了 48 px。'
+            '计划 §2.7 要求每行都是「卡片占满剩余宽度 + 固定 48 px 操作槽」',
+      );
+    }
+
+    // 四类都必须真的渲染出来，否则上面的循环会"因为找不到元素而失败"，
+    // 那条失败说明的是夹具问题而不是布局问题。
+    for (final id in ids) {
+      expect(
+        find.byKey(Key('day-schedule-card-$id')),
+        findsOneWidget,
+        reason: '夹具必须真的渲染出 $id',
+      );
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // U5（Task 1 Step 5）：**不可用的操作不得以三枚灰色图标占位**。
+  //
+  // 计划 §2.7 的固定形态：没有可执行动作时用等宽空槽，不显示灰色按钮；
+  // 规则来源的保护时间只显示"去设置"。三枚 `onPressed: null` 的图标既占宽度
+  // 又给屏幕阅读器一个"这里有操作"的假信号。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('规则保护时间只有"去设置"一个可用操作，不出现不可点击的删除/归属/编辑三连（U5）', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'protected:breakfast:2026-10-05:450',
+          title: '早餐',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 8,
+          fromRules: true,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
+      onSetEventArea: (eventId, areaId) async => true,
+      onOpenProtectedTimeSettings: () {},
+    );
+
+    // 唯一可执行的入口。
+    final settings = tester.widget<IconButton>(
+      find.byKey(const Key('settings-protected:breakfast:2026-10-05:450')),
+    );
+    expect(settings.onPressed, isNotNull, reason: '规则来源的保护时间必须能"去设置"');
+
+    // 三枚灰色占位图标必须**不再渲染**。
+    for (final key in const [
+      Key('delete-protected:breakfast:2026-10-05:450'),
+      Key('area-protected:breakfast:2026-10-05:450'),
+      Key('edit-protected:breakfast:2026-10-05:450'),
+    ]) {
+      expect(
+        find.byKey(key),
+        findsNothing,
+        reason:
+            '**U5**：$key 当前渲染成一枚 `onPressed: null` 的灰色图标。'
+            '计划 §2.7 要求"没有动作时用等宽空槽，不显示灰色按钮"'
+            '（规则来源的保护时间既删不掉也改不了、也不能调整归属）',
+      );
+    }
   });
 
   testWidgets('相邻条目之间留出间距', (tester) async {

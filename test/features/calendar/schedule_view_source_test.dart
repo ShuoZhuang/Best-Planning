@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
@@ -5,6 +7,7 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
@@ -102,7 +105,7 @@ final class _Tasks implements TaskRepository {
 }
 
 final class _Calendar implements CalendarRepository {
-  const _Calendar(this.values);
+  _Calendar(this.values);
   final List<CalendarOccurrence> values;
 
   @override
@@ -552,6 +555,239 @@ void main() {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R1（Task 1 Step 5）：早餐规则也必须显示中文名称。
+  //
+  // `schedule_view_source.dart::_protectedLabel()` 只覆盖 `lunch`、`dinner`、
+  // `fixedRest`，**遗漏了 `breakfast`** —— 早餐区间的标题因此回落到兜底的
+  // 「保护时间」，用户在日历上看到一条"保护时间"却找不到它对应哪条规则。
+  // ─────────────────────────────────────────────────────────────────────────────
+  test('早餐规则的保护时间显示"早餐"，不回落为"保护时间"', () async {
+    final settings = MemorySettingsRepository();
+    final service = SettingsService(repository: settings);
+    await service.saveUserRules(
+      UserPlanningRules(
+        common: PlanningRulesPatch(
+          protectedTimes: [
+            ProtectedTimeRule(
+              kind: ProtectedTimeKind.breakfast,
+              range: LocalTimeRange(startMinute: 7 * 60 + 30, endMinute: 8 * 60),
+            ),
+          ],
+        ),
+      ),
+    );
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(const []),
+      // 空日历：本用例只关心规则展开出来的那一条。
+      calendar: _Calendar([]),
+      plans: _Plans(
+        ConfirmedPlan(
+          id: 'plan',
+          inputHash: 'hash',
+          algorithmVersion: '1',
+          blocks: const [],
+        ),
+      ),
+      history: _History(),
+      rules: PlanningRuleResolver(service),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'UTC',
+      clock: _FixedClock(_windowStart),
+    );
+
+    final items = await source.watch(_windowStart, _windowEnd).first;
+    final protected = items
+        .where((item) => item.kind == ScheduleItemKind.protectedTime)
+        .toList();
+
+    expect(
+      protected,
+      isNotEmpty,
+      reason: '早餐规则必须真的展开成一条日历区间（否则这条回归是空跑）',
+    );
+    expect(
+      protected.map((item) => item.title),
+      contains('早餐'),
+      reason:
+          '`_protectedLabel()` 的 switch 必须显式覆盖 breakfast。'
+          '实测当前实现把它翻成了「保护时间」——用户看到的是一条无法对应到'
+          '任何设置的条目',
+    );
+    expect(
+      protected.every((item) => item.title != '保护时间'),
+      isTrue,
+      reason: '"保护时间"只是兜底文案，不能成为 breakfast 的正常结果',
+    );
+    expect(
+      protected.every((item) => item.fromRules),
+      isTrue,
+      reason: '规则来源的保护时间没有锚点行，不能编辑或删除',
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R11（Task 1 Step 5）：**固定日程的时间过去了 ≠ 任务已完成**。
+  //
+  // 数据源此前把"结束时间已过的非保护日程"写成 `isCompleted = true`，页面据此画
+  // 一个完成勾。完成标记的语义只属于 `TaskStatus.completed`（计划 §1.1 R11）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  test('固定日程时间已经过去 ⇒ isCompleted 仍为 false（完成语义只属于任务）', () async {
+    final settings = MemorySettingsRepository();
+    final colors = ScheduleColorService(
+      settings: settings,
+      workspace: _Workspace([_area('study', '学业')]),
+    );
+    RepositoryScheduleViewSource sourceAt(DateTime nowUtc) =>
+        RepositoryScheduleViewSource(
+          tasks: _Tasks(const []),
+          calendar: _Calendar([
+            _fixed('early', '早场', 1, areaId: 'study'),
+            _fixed('late', '晚场', 5, areaId: 'study'),
+          ]),
+          plans: _Plans(
+            ConfirmedPlan(
+              id: 'plan',
+              inputHash: 'hash',
+              algorithmVersion: '1',
+              blocks: const [],
+            ),
+          ),
+          history: _History(),
+          rules: PlanningRuleResolver(SettingsService(repository: settings)),
+          colors: colors,
+          zones: TimeZoneDatabase(),
+          timeZoneId: 'UTC',
+          clock: _FixedClock(nowUtc),
+        );
+
+    // "现在"在第一场结束之后、第二场结束之前：早场的钟点已经过去。
+    final between = await sourceAt(_range(2).endUtc)
+        .watch(_windowStart, _windowEnd)
+        .first;
+    final early = between.firstWhere((item) => item.id == 'fixed:early');
+    final late = between.firstWhere((item) => item.id == 'fixed:late');
+
+    expect(
+      early.isCompleted,
+      isFalse,
+      reason:
+          '固定日程不是待办：它的结束时间过去只说明"这件事的时段过完了"，'
+          '不说明"用户完成了它"。修复前这里返回 true，页面于是画出一个完成勾',
+    );
+    expect(late.isCompleted, isFalse, reason: '还没到的时段当然也不是"已完成"');
+    expect(
+      between
+          .where((item) => item.kind == ScheduleItemKind.fixed)
+          .every((item) => !item.isCompleted),
+      isTrue,
+      reason: '固定日程这一类整体都不参与完成判定',
+    );
+    // 任务块的完成标记不受这条改动影响：它读的是 `TaskStatus.completed`。
+    expect(
+      between
+          .where((item) => item.kind == ScheduleItemKind.protectedTime)
+          .every((item) => !item.isCompleted),
+      isTrue,
+      reason: '保护时间同样不是待办（既有回归，一并保留）',
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R9（Task 1 Step 6）：生产数据源必须**发多次**。
+  //
+  // `RepositoryScheduleViewSource.watch()` 现在是
+  // ```dart
+  // async* { yield await _load(startUtc, endUtc); }
+  // ```
+  // —— 订阅后加载一次就结束。页面测试里的假数据源用 `StreamController` 手工 `add()`
+  // 推出第二次事件，于是这个缺陷在测试里是隐形的（R10）。
+  //
+  // 计划 §2.6 要求：订阅后立即加载一次，随后在 `tasks.watchAllTasks()` 或失效信号
+  // 到达时**重新执行完整 `_load`**，并把新结果推给同一个订阅者。
+  // ─────────────────────────────────────────────────────────────────────────────
+  test('生产数据源在仓储变化后再推一份**不同**的列表（不是只发一次）', () async {
+    final settings = MemorySettingsRepository();
+    final calendar = _Calendar([]);
+    final source = RepositoryScheduleViewSource(
+      tasks: _Tasks(const []),
+      calendar: calendar,
+      plans: _Plans(
+        ConfirmedPlan(
+          id: 'plan',
+          inputHash: 'hash',
+          algorithmVersion: '1',
+          blocks: const [],
+        ),
+      ),
+      history: _History(),
+      rules: PlanningRuleResolver(SettingsService(repository: settings)),
+      colors: ScheduleColorService(
+        settings: settings,
+        workspace: _Workspace([_area('study', '学业')]),
+      ),
+      zones: TimeZoneDatabase(),
+      timeZoneId: 'UTC',
+      clock: _FixedClock(_windowStart),
+    );
+
+    // **一次订阅**：先断言"订阅后立即加载一次"，再原地让仓储变化，
+    // 断言同一个订阅者收到第二份**不同**的列表。
+    final emissions = <List<ScheduleViewItem>>[];
+    final done = Completer<void>();
+    final subscription = source.watch(_windowStart, _windowEnd).listen(
+      emissions.add,
+      onError: done.completeError,
+      onDone: done.complete,
+    );
+    addTearDown(subscription.cancel);
+    addTearDown(() async {
+      if (!done.isCompleted) done.complete();
+    });
+
+    // 第一次加载：窗口里本来就有默认规则展开出来的保护时间（午餐／晚餐／固定休息），
+    // 因此这里只要求"订阅后**立即**推了一份"，不要求它是空的。
+    await pumpEventQueue();
+    expect(emissions, hasLength(1), reason: '订阅后必须立即加载一次');
+    expect(
+      emissions.first.map((item) => item.title),
+      isNot(contains('新加的课')),
+      reason: '改动仓储之前，"新加的课"还不该出现在结果里',
+    );
+
+    // 仓储变化：新增一条固定日程，下一次 `_load` 就会读到它。
+    calendar.values.add(_fixed('added', '新加的课', 9, areaId: 'study'));
+
+    // **超时红灯**：当前实现 `yield` 一次就结束了流（`onDone` 已经在 5 秒内完成），
+    // 因此第二份永远不会到来。这里失败的原因必须是"第二份没到"，
+    // 而不是"轮询轮数不够"——所以用固定 5 秒上界 + 明确的 reason。
+    await Future.any([
+      done.future,
+      Future<void>.delayed(const Duration(seconds: 5)),
+    ]);
+
+    expect(
+      emissions.length,
+      greaterThanOrEqualTo(2),
+      reason:
+          '**本任务的核心红灯（R9）**：`RepositoryScheduleViewSource.watch()` 在'
+          '第一次 `yield await _load(startUtc, endUtc)` 之后就结束了流，5 秒内没有'
+          '第二份列表。页面测试看不到这一点，是因为它们注入了能手工 `add()` 的'
+          '假数据源（R10）。计划 §2.6 要求：订阅后加载一次，随后在'
+          '`tasks.watchAllTasks()` 或失效信号到达时重新执行完整 `_load`，'
+          '并把新结果推给同一个订阅者',
+    );
+    expect(
+      emissions.last.map((item) => item.title),
+      contains('新加的课'),
+      reason: '第二份必须是**重新加载**的结果，而不是把第一份原样重发',
+    );
+  });
+
   test('固定日程在时间过去之后才标记为已完成', () async {
     final settings = MemorySettingsRepository();
     final colors = ScheduleColorService(
@@ -592,13 +828,22 @@ void main() {
     );
     expect(beforeAll.every((item) => !item.isCompleted), isTrue);
 
-    // "现在"在第一场结束之后、第二场结束之前：只有早场被标记。
+    // "现在"在第一场结束之后、第二场结束之前：**两场都不标记**。
+    //
+    // **本用例的期待在本轮被纠正（R11）**：它此前要求早场被标记成"已完成"。
+    // 那是把"钟点过去了"当成了"用户做完了"——两者的处置完全不同（前者无事可做，
+    // 后者要记录完成）。完成语义只属于 `TaskStatus.completed`，固定日程永远不标记。
+    // 上面那条专门的 R11 用例覆盖同一契约，这里保留"时间推移不改变标记"这一面。
     final between = await sourceAt(_range(2).endUtc)
         .watch(_windowStart, _windowEnd)
         .first;
     final early = between.firstWhere((item) => item.id == 'fixed:early');
     final late = between.firstWhere((item) => item.id == 'fixed:late');
-    expect(early.isCompleted, isTrue, reason: '结束时间已过 → 标记已完成');
+    expect(
+      early.isCompleted,
+      isFalse,
+      reason: '结束时间已过**不**等于已完成（修复前这里断言 isTrue，那是缺陷本身）',
+    );
     expect(late.isCompleted, isFalse, reason: '还没结束 → 不标记');
 
     // 保护时间不参与这个标记：它不是待办。

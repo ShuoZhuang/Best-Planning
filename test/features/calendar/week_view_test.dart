@@ -569,6 +569,115 @@ void main() {
     expect(find.text('未来七天暂无安排'), findsOneWidget);
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R12（Task 1 Step 5）：近期日历实际显示"昨天 + 今天起七天"共**八列**，
+  // 而标题与空状态仍然声称"七日"。
+  //
+  // `week_view_page.dart`：
+  //   · `for (var index = -1; index < 7; index++)` ⇒ 八列（-1 是昨天）；
+  //   · 标题字面量 `'七日日历'`；
+  //   · 空状态字面量 `'未来七天暂无安排'`。
+  //
+  // 计划 §1.1 R12／§1.3 的验收项："近期日历实际显示'昨天 + 今天起七天'共八列；
+  // 标题和空状态不得再声称只有七列"（Task 8 把标题改成"近期日历"）。
+  //
+  // **本用例在 Task 1 只能针对事实（列数）**：标题改名的断言会因此失败，
+  // 而那个失败**明确表达"当前标题与八列范围不一致"**——这正是 Task 1 要固定的形状。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('近期日历显示八列，且标题与空状态与八列范围一致（R12）', (tester) async {
+    final today = DateTime.utc(2026, 10, 7);
+    final item = _scheduleItem(
+      id: 'fixed:today',
+      title: '今天的课',
+      kind: ScheduleItemKind.fixed,
+      categoryKey: 'area:study',
+      categoryLabel: '学业',
+      categoryColorArgb: const Color(0xff2f86ff).toARGB32(),
+      categorySortOrder: 0,
+      start: today.add(const Duration(hours: 8)),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WeekViewPage(
+          source: _Source(Stream.value([item])),
+          weekStart: today,
+          moveController: _MoveController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // ── 事实：八列 ──────────────────────────────────────────────────────────
+    expect(
+      find.byKey(const Key('week-day--1')),
+      findsOneWidget,
+      reason: '第 1 列是"昨天"',
+    );
+    for (var index = 0; index < 7; index++) {
+      expect(
+        find.byKey(Key('week-day-$index')),
+        findsOneWidget,
+        reason: '第 ${index + 2} 列是"今天起第 ${index + 1} 天"',
+      );
+    }
+    expect(
+      find.byKey(const Key('week-day-7')),
+      findsNothing,
+      reason: '一共八列：-1 与 0..6',
+    );
+
+    // ── 名称：标题与空状态不得再声称只有七列 ────────────────────────────────
+    expect(
+      find.text('近期日历'),
+      findsOneWidget,
+      reason:
+          '**R12**：页面标题当前是「七日日历」，而它画的是"昨天 + 今天起七天"共八列。'
+          '计划 §1.3／Task 8 要求标题改成「近期日历」——'
+          '八列的范围用"七日"命名会让用户以为昨天那一列不存在',
+    );
+    expect(
+      find.text('七日日历'),
+      findsNothing,
+      reason: '旧标题与八列范围不一致，必须消失',
+    );
+    expect(
+      find.text('未来七天暂无安排'),
+      findsNothing,
+      reason:
+          '**R12**：空状态当前写「未来七天暂无安排」，'
+          '而这一屏同时包含"昨天"那一列——空状态的措辞必须与八列范围一致',
+    );
+  });
+
+  testWidgets('空状态措辞不得把八列说成七列（R12）', (tester) async {
+    final today = DateTime.utc(2026, 10, 7);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WeekViewPage(
+          source: _Source(Stream.value(const [])),
+          weekStart: today,
+          moveController: _MoveController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 空状态之下列不渲染（页面整片换成空状态），因此这里只钉措辞。
+    expect(
+      find.textContaining('七'),
+      findsNothing,
+      reason:
+          '**R12**：这一屏的范围是"昨天 + 今天起七天"共八列，'
+          '空状态文案中出现"七"就是在描述另一个范围。'
+          '实测当前实现给的是「未来七天暂无安排」',
+    );
+    expect(
+      find.textContaining('八'),
+      findsWidgets,
+      reason: '空状态应当说清真实范围（八天）',
+    );
+  });
+
   test('只有可移动的任务块能被拖动，固定日程与保护时间不是', () {
     ScheduleViewItem item(String id, ScheduleItemKind kind) => ScheduleViewItem(
       id: id,

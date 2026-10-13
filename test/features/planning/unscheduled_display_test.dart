@@ -8,6 +8,7 @@
 // 3. 一条缺口在整页只出现一次：标题、缺口分钟与主原因在同一处（1.8.0 更正，见下方用例）。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
@@ -219,6 +220,146 @@ void main() {
       );
       expect(find.textContaining('还缺 15 分钟'), findsOneWidget);
       expect(find.textContaining('需要 30 分钟'), findsOneWidget);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // R7（Task 1 Step 4）：**标题的缺口分钟与正文的"还缺"必须是同一个数字**。
+  //
+  // 标题走 `UnscheduledTask.shortageMinutes`（"这件事总共还差多少"），
+  // 而正文由 `unscheduledReasonLabel(UnscheduledTask.primaryReason)` 生成，
+  // 其中 `_withNumbers()` 会**自己再算一遍** `requiredMinutes - availableMinutes`
+  // 并写成第二个"还缺"：
+  //
+  // ```dart
+  // final shortage = required - available;
+  // return '$lead：需要 $required 分钟，本次仍可安排 $available 分钟，还缺 $shortage 分钟$tail';
+  // ```
+  //
+  // 而那两个数字**不是总缺口**：`constraintRequiredMinutes` 是某条约束要求的
+  // 连续／最小／每日分钟，`constraintAvailableMinutes` 是同一约束口径下的可用分钟
+  // （计划 §2.4）。于是同一条问题会出现两个"还缺"，而用户没有任何依据判断哪一个是真的。
+  //
+  // 本用例用真实的 `buildPreviewIssues` 构造这样一条：总缺口 25 分钟，
+  // 而 constraint 数字（150 / 20）另算出"还缺 130 分钟"。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('R7：标题缺口与正文数字必须算得通', () {
+    ScheduleProposal proposalWith(UnscheduledTask task) => ScheduleProposal(
+      proposalId: 'p1',
+      inputHash: 'hash',
+      algorithmVersion: '15',
+      planningWindow: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 8),
+        endUtc: DateTime.utc(2026, 10, 5, 18),
+      ),
+      blocks: const [],
+      unscheduled: [task],
+      conflicts: const [],
+      explanations: const [],
+      metrics: const ProposalMetrics(
+        isFullyFeasible: false,
+        scheduledMinutes: 0,
+        unscheduledMinutes: 25,
+      ),
+    );
+
+    test('标题的缺口分钟等于 UnscheduledTask.shortageMinutes，正文不得再算第二个"还缺"', () {
+      const shortageMinutes = 25;
+      const constraintRequired = 150;
+      const constraintAvailable = 20;
+      final proposal = proposalWith(
+        const UnscheduledTask(
+          taskId: 'task-algo',
+          shortageMinutes: shortageMinutes,
+          primaryReason: UnscheduledReason(
+            // constraint 口径的数字：任务整体 150 分钟，当前最长合法空档 20 分钟。
+            // 它们**不是**总缺口 —— 25 分钟才是。
+            code: UnscheduledReasonCode.minimumChunkTooLarge,
+            requiredMinutes: constraintRequired,
+            availableMinutes: constraintAvailable,
+          ),
+        ),
+      );
+
+      final issues = buildPreviewIssues(
+        proposal: proposal,
+        titleByTaskId: const {'task-algo': '算法作业'},
+      );
+      expect(
+        issues,
+        hasLength(1),
+        reason: '一条缺口只该产生一条问题（缺口的唯一结构化来源是 unscheduled）',
+      );
+      final issue = issues.single;
+
+      expect(
+        issue.title,
+        contains('还缺 $shortageMinutes 分钟'),
+        reason: '标题里的缺口分钟必须就是 UnscheduledTask.shortageMinutes = 25',
+      );
+      expect(
+        issue.message,
+        contains('$constraintRequired'),
+        reason: '原因正文仍要把约束口径的数字说出来（"需要 150 分钟"是有用的信息）',
+      );
+      expect(
+        issue.message,
+        contains('$constraintAvailable'),
+        reason: '原因正文仍要把约束口径的可用量说出来（"当前最长空档 20 分钟"）',
+      );
+
+      // **R7 的核心**：正文不得出现由 constraint 数字另算出来的第二个"还缺"。
+      expect(
+        issue.message,
+        isNot(contains('还缺')),
+        reason:
+            '**R7**：UI 不得再计算 `constraintRequiredMinutes - constraintAvailableMinutes` '
+            '（此处 150 − 20 = 130）并称之为"还缺"。'
+            '"还缺多少"只显示 `UnscheduledTask.shortageMinutes`（此处 25）。'
+            '实测当前实现给出的正文是'
+            '「剩下的时间不够一个最短片段：需要 150 分钟，本次仍可安排 20 分钟，还缺 130 分钟。」'
+            '—— 与标题的"还缺 25 分钟"直接冲突。'
+            '计划 §2.4：原因正文只描述约束，例如'
+            '「最短片段要求 30 分钟，当前最长合法空档 20 分钟」',
+      );
+
+      // 把两个数字都摆出来，让失败信息本身就能核对。
+      expect(
+        issue.message,
+        isNot(contains('还缺 ${constraintRequired - constraintAvailable} 分钟')),
+        reason: '这一条是上一条的具体化：正文里那个"还缺"正是 130',
+      );
+    });
+
+    test('真实引擎给出的一条缺口同样只出现一个缺口数字', () {
+      // 与上面构造的输入同形：总缺口 25、约束口径 150/20。
+      // 这里只断言"整页里 ≥ 两个不同的『还缺 N 』"这件事没有发生。
+      final proposal = proposalWith(
+        const UnscheduledTask(
+          taskId: 'task-algo',
+          shortageMinutes: 25,
+          primaryReason: UnscheduledReason(
+            code: UnscheduledReasonCode.deadlineWindowTooShort,
+            requiredMinutes: 150,
+            availableMinutes: 20,
+          ),
+        ),
+      );
+      final issue = buildPreviewIssues(
+        proposal: proposal,
+        titleByTaskId: const {'task-algo': '算法作业'},
+      ).single;
+
+      final shortages = RegExp(
+        r'还缺 (\d+) 分钟',
+      ).allMatches('${issue.title}\n${issue.message}').map((m) => m.group(1));
+      expect(
+        shortages.toSet(),
+        {'25'},
+        reason:
+            '整页关于这一条缺口只能有一个数字：`shortageMinutes`。'
+            '实测当前实现给出两个（标题 25、正文 130）',
+      );
     });
   });
 }
