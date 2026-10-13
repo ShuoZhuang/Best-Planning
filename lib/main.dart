@@ -763,6 +763,10 @@ Future<void> main() async {
           // 截断因此早一天且不报错（`course_pause_time_zone_test.dart` 钉住这一点）。
           zones: zones,
           timeZoneId: timeZoneId,
+          // Task 4：整体替换时所有新写入行共用同一个 `updated_at_utc`。
+          // 由服务层的时钟给出，而不是让仓储各自取时间——那会让同一批差几毫秒，
+          // 而乐观并发判的正是版本。
+          clock: clock,
         ),
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,

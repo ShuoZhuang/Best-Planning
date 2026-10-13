@@ -17,6 +17,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
@@ -297,6 +298,17 @@ final class _NoopGateway implements CourseWriteGateway {
   const _NoopGateway();
   @override
   Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {}
+
+  @override
+  Future<int> countExceptions(String anchorEventId) async => 0;
+
+  @override
+  Future<void> replaceCourseSeries({
+    required List<CourseWriteRow> rows,
+    required CourseProfileDraft profile,
+    required String zoneId,
+    required DateTime updatedAtUtc,
+  }) async {}
 }
 
 final class _Clock implements Clock {

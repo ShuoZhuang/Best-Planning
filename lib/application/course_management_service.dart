@@ -1,6 +1,8 @@
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/academic_calendar_repository.dart';
@@ -222,6 +224,7 @@ final class CourseManagementService {
     this.academicCalendar,
     this.zones,
     this.timeZoneId,
+    this.clock,
   });
 
   final CourseSeriesRepository courses;
@@ -244,6 +247,14 @@ final class CourseManagementService {
   /// 于是截断早一天、该停的那一周还留着一次课。生产组合根必须传这两个值。
   final TimeZoneDatabase? zones;
   final String? timeZoneId;
+
+  /// 时钟。整体替换时所有新写入行共用它给出的**同一个** `updated_at_utc`。
+  ///
+  /// **不由仓储自己取时间**：同一次保存里两行差几毫秒，会让"这一批是同一版"这件事
+  /// 在数据上无法表达，而乐观并发判的正是版本。为空时退回系统时间（仅测试会用）。
+  final Clock? clock;
+
+  DateTime _nowUtc() => clock?.nowUtc() ?? DateTime.now().toUtc();
 
   /// 当前学期；没有可判定的学期时为 `null`。
   Future<String?> currentTermId() => courses.currentTermId();
@@ -531,6 +542,242 @@ final class CourseManagementService {
     }
     await gateway.deleteSeriesWithExceptions(anchors);
     return const CourseCommandResult.success();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 4（课程与保护时间管理修复计划）：**整门课程资料的事务性编辑**
+  //
+  // 与上面 `editWholeCourse`（只换钟点）的区别：这里换的是**整门课的资料与安排**
+  // ——名称、教师、地点、领域、项目，以及"哪些星期、哪些周次、每周还是单双周"。
+  // 因此它必须能**新增与删除锚点**，而不只是改锚点的时间。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /// 保存前的**影响预览**（计划 §2.1：用户二次确认前必须看到这四项）。
+  ///
+  /// 匹配规则见 [_matchSegment]。**新增与删除都要报出来**：只报"会删除 1 段"没有意义，
+  /// 用户要知道的是"**这学期会少上几次课**"。
+  Future<CourseEditPreview?> previewCourseEdit(
+    CourseSaveRequest request,
+  ) async {
+    final detail = await courses.findCourse(request.logicalCourseId);
+    if (detail == null) return null;
+    final targets = _termScopedSegments(detail, request.termId);
+
+    final claimed = <String>{};
+    final addedRows = <CourseScheduleDraft>[];
+    var updated = 0;
+    for (final row in request.profile.schedule) {
+      final segment = _matchSegment(row, targets, claimed);
+      if (segment == null) {
+        addedRows.add(row);
+        continue;
+      }
+      claimed.add(segment.eventId);
+      updated++;
+    }
+
+    var addedOccurrences = 0;
+    for (final row in addedRows) {
+      addedOccurrences += _draftOccurrenceCount(row);
+    }
+
+    var removedOccurrences = 0;
+    var removedExceptions = 0;
+    for (final segment in targets) {
+      if (claimed.contains(segment.eventId)) continue;
+      removedOccurrences += _occurrenceCount(segment);
+      removedExceptions += await gateway.countExceptions(segment.eventId);
+    }
+
+    return CourseEditPreview(
+      addedSegments: addedRows.length,
+      removedSegments: targets.length - claimed.length,
+      updatedSegments: updated,
+      affectedOccurrenceDelta: addedOccurrences - removedOccurrences,
+      removedExceptionCount: removedExceptions,
+    );
+  }
+
+  /// 保存整门课程的资料（计划 Task 4 Step 4）。
+  ///
+  /// **顺序不可改变**：
+  /// ① 读当前详情 → ② 指纹与修订比对（过期就返回 `stale`，**不写任何东西**）
+  /// → ③ 字段校验 → ④ 一个事务里整体替换。
+  ///
+  /// 把 ② 放到 ③ 之后会有一个坏结果：用户基于**过期数据**填的表单先收到"字段错误"，
+  /// 修完再保存才发现"其实早该重新打开"——白改一遍。
+  ///
+  /// **任何一步失败都保持原数据不变**：校验在写之前，替换本身在事务里。
+  Future<CourseSaveResult> saveCourse(CourseSaveRequest request) async {
+    final detail = await courses.findCourse(request.logicalCourseId);
+    if (detail == null) {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.stale,
+        '这门课程已删除或链接过期，请返回课程列表重新打开',
+      );
+    }
+    final targets = _termScopedSegments(detail, request.termId);
+    if (targets.isEmpty && request.profile.schedule.isNotEmpty) {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.stale,
+        '这门课在当前学期没有可改动的系列，请重新打开',
+      );
+    }
+
+    // ② 过期检测：**先比指纹，再逐锚点比修订号**。
+    //
+    // 两级都要：指纹能发现"锚点被增删了"，逐锚点能发现"同一批锚点里有哪一个被改了"。
+    // 只比指纹会在"别处改完又改回来、时间戳变了但形态一样"时漏判；
+    // 只比逐锚点会在"别处删掉一段又加了一段"时漏判（新锚点在预期集合里不存在）。
+    if (detail.revisionFingerprint != request.expectedFingerprint) {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.stale,
+        '这门课在别处已被修改，请重新打开后再编辑',
+      );
+    }
+    for (final segment in targets) {
+      final expected = request.expectedRevisions[segment.eventId];
+      if (expected == null ||
+          expected.microsecondsSinceEpoch !=
+              segment.updatedAtUtc.microsecondsSinceEpoch) {
+        return CourseSaveResult.failed(
+          CourseSaveStatus.stale,
+          '这门课在别处已被修改，请重新打开后再编辑',
+        );
+      }
+    }
+
+    // ③ 字段校验（纯函数，逐条可断言）。
+    final errors = validateCourseProfile(
+      request.profile,
+      termFirstWeekMonday: _termFirstWeekMondayOf(detail),
+    );
+    if (errors.isNotEmpty) return CourseSaveResult.invalid(errors);
+
+    if (timeZoneId == null) {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.unsupported,
+        '时区未装配，暂无法保存课程安排',
+      );
+    }
+
+    // ④ 一个事务里整体替换。`replaceCourseSeries` 自己保证原子性：
+    // 删除、写入、规则更新三条路径共用一个事务，任何一步抛错都整体回滚。
+    final claimed = <String>{};
+    final rows = <CourseWriteRow>[];
+    for (var index = 0; index < request.profile.schedule.length; index++) {
+      final row = request.profile.schedule[index];
+      final matched = _matchSegment(row, targets, claimed);
+      if (matched != null) claimed.add(matched.eventId);
+      rows.add(
+        CourseWriteRow(
+          schedule: row,
+          index: index,
+          // **保留匹配上的既有锚点 id**：换一个 id 等于删一条加一条，
+          // 而那条锚点名下的**逐次例外**会随之全部丢失。
+          reuseAnchorId: matched?.eventId,
+        ),
+      );
+    }
+
+    try {
+      await gateway.replaceCourseSeries(
+        rows: rows,
+        profile: request.profile,
+        zoneId: timeZoneId!,
+        updatedAtUtc: _nowUtc(),
+      );
+    } on Object catch (error) {
+      // **事务已回滚，原内容未改变**——文案必须说这一句，否则用户会以为改了一半。
+      return CourseSaveResult.failed(
+        CourseSaveStatus.failed,
+        '保存失败，原内容未改变：$error',
+      );
+    }
+    return CourseSaveResult.saved();
+  }
+
+  /// 当前学期的系列片段（与既有 `editWholeCourse` 用同一条过滤）。
+  List<CourseSeriesSegment> _termScopedSegments(
+    CourseSeriesDetail detail,
+    String? termId,
+  ) {
+    final effectiveTerm = termId ?? detail.summary.termId;
+    return [
+      for (final segment in detail.segments)
+        if (effectiveTerm == null || detail.summary.termId == effectiveTerm)
+          segment,
+    ];
+  }
+
+  /// 把一条草稿匹配到一个**尚未被认领**的既有片段；匹配不上返回 `null`。
+  ///
+  /// ## 匹配键是"这条安排是哪几天、多久一次"，**时间不是键**
+  ///
+  /// 第一版把 `startMinute` 与 `endMinute` 也算进键里。那看起来更精确，实际是错的：
+  /// **改时间正是这个功能最主要的用途**，而把它算进键会让一次"周一 08:00 改到 14:00"
+  /// 被识别成"删掉旧片段、新增一个片段"——于是
+  ///
+  /// - 预览报出"删 1 段、加 1 段"（用户会以为要重排整门课）；
+  /// - 既有锚点被删掉，**它名下逐次调整过的例外全部消失**。
+  ///
+  /// 一个学期同一门课在同一组星期上排两段不同时间的**极少见**，而"改时间"是每次编辑
+  /// 都在做的事。因此匹配按这个优先级：
+  ///
+  /// 1. **星期集合相同 ＋ 频率相同**（最强的"这是同一段课"信号）；
+  /// 2. 在候选里优先取**开始时间相同**的（多条同星期安排时挑最像的那条）；
+  /// 3. 其余按开始时间升序，逐条认领。
+  ///
+  /// 剩下的配对是确定的：同一次保存里同样的输入必然得到同样的匹配，
+  /// 因此"预览说会删 1 段"与"保存真的删 1 段"一致。
+  CourseSeriesSegment? _matchSegment(
+    CourseScheduleDraft row,
+    List<CourseSeriesSegment> targets,
+    Set<String> claimed,
+  ) {
+    final candidates = [
+      for (final segment in targets)
+        if (!claimed.contains(segment.eventId) &&
+            segment.intervalWeeks == row.intervalWeeks &&
+            _sameWeekdays(segment.weekdays, row.weekdays))
+          segment,
+    ]..sort((a, b) => a.startMinute.compareTo(b.startMinute));
+    if (candidates.isEmpty) return null;
+    for (final candidate in candidates) {
+      if (candidate.startMinute == row.startMinute) return candidate;
+    }
+    return candidates.first;
+  }
+
+  static bool _sameWeekdays(Set<int> a, Set<int> b) =>
+      a.length == b.length && a.every(b.contains);
+
+  /// 一条草稿会展开出多少次（与 `_occurrenceCount` 同一算法，只是输入是草稿）。
+  static int _draftOccurrenceCount(CourseScheduleDraft row) {
+    final last = row.validUntilLocalDate ?? row.validFromLocalDate;
+    final spanWeeks = last.difference(row.validFromLocalDate).inDays ~/ 7 + 1;
+    final weeks = spanWeeks < 1 ? 1 : spanWeeks;
+    final interval = row.intervalWeeks < 1 ? 1 : row.intervalWeeks;
+    return (weeks / interval).ceil();
+  }
+
+  /// 这门课所属学期「第一周周一」的等价日期；拿不到时为 `null`。
+  ///
+  /// **不需要 `AcademicCalendarRepository`**：`CourseSeriesSegment.weekSpan` 是读模型
+  /// 已经按学期坐标算好的周次，因此「第 1 周的周一」可以反推出来——
+  /// `validFrom − (startWeek − 1) 周`。为此再注入一个学期仓储，等于让同一件事有
+  /// **两个来源**，而它们完全可能给出不同的答案（一个按学期表、一个按规则起止）。
+  ///
+  /// 它只服务一件事：单双周校验（「第 5 周是单周吗」要靠基准算奇偶）。
+  /// 拿不到就不做那一条判定，而不是硬报错——没有学期归属的手工课程也要能保存。
+  DateTime? _termFirstWeekMondayOf(CourseSeriesDetail detail) {
+    final first = detail.segments.firstOrNull;
+    if (first == null) return null;
+    final startWeek = first.weekSpan.startWeek;
+    if (startWeek <= 1) return first.validFromLocalDate;
+    return first.validFromLocalDate.subtract(
+      Duration(days: (startWeek - 1) * DateTime.daysPerWeek),
+    );
   }
 
   /// 一条系列片段会展开出多少次。

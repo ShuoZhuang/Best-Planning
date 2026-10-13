@@ -3,6 +3,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/domain/models/calendar_event.dart' as domain;
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
+import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
@@ -725,6 +726,129 @@ final class DriftCalendarRepository
       await (_database.delete(
         _database.calendarEvents,
       )..where((row) => row.id.isIn(anchorEventIds))).go();
+    });
+  }
+
+  @override
+  Future<int> countExceptions(String anchorEventId) async {
+    final rows =
+        await (_database.selectOnly(_database.calendarEvents)
+              ..addColumns([_database.calendarEvents.id.count()])
+              ..where(
+                _database.calendarEvents.exceptionOfId.equals(anchorEventId),
+              ))
+            .getSingle();
+    return rows.read(_database.calendarEvents.id.count()) ?? 0;
+  }
+
+  @override
+  Future<void> replaceCourseSeries({
+    required List<CourseWriteRow> rows,
+    required CourseProfileDraft profile,
+    required String zoneId,
+    required DateTime updatedAtUtc,
+  }) async {
+    final courseLogicalId = profile.logicalCourseId;
+    // **一个事务覆盖全部四种写入**：删旧片段、删旧规则、写新锚点、写新规则。
+    // 拆成多次调用会留下"旧的删了、新的没建起来"的中间态——而排程按 drift 的 watch
+    // 重算，用户会在他"只点了一下保存"的时候看到计划里少了几次课。
+    await _database.transaction(() async {
+      // 既有锚点（本课程名下的全部片段）。要删的是**没有出现在最终形态里**的那些。
+      final existing =
+          await (_database.select(_database.calendarEvents)..where(
+                (row) =>
+                    row.logicalCourseId.equals(courseLogicalId) &
+                    row.exceptionOfId.isNull(),
+              ))
+              .get();
+      final keep = {
+        for (final row in rows)
+          if (row.reuseAnchorId != null) row.reuseAnchorId!,
+      };
+      final removed = {
+        for (final row in existing)
+          if (!keep.contains(row.id)) row.id,
+      };
+      if (removed.isNotEmpty) {
+        // 先删例外行再删锚点行：`exception_of_id` 是外键，反过来会让孤儿行触发约束失败。
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.exceptionOfId.isIn(removed))).go();
+        final removedRules = {
+          for (final row in existing)
+            if (removed.contains(row.id) && row.recurrenceRuleId != null)
+              row.recurrenceRuleId!,
+        };
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.id.isIn(removed))).go();
+        if (removedRules.isNotEmpty) {
+          await (_database.delete(
+            _database.recurrenceRules,
+          )..where((row) => row.id.isIn(removedRules))).go();
+        }
+      }
+
+      for (final row in rows) {
+        final draft = row.schedule;
+        final anchorId = row.reuseAnchorId ?? '$courseLogicalId-${row.index}';
+        // **规则 id 与锚点绑定**：沿用时保持既有的（展开器按它分组例外），
+        // 新建时按锚点派生。两者都由这里决定，调用方不传——它没有足够信息。
+        final existingRow = existing
+            .where((candidate) => candidate.id == anchorId)
+            .firstOrNull;
+        final ruleId = existingRow?.recurrenceRuleId ?? '$anchorId-rule';
+
+        final startUtc = _zones.localDateTimeToUtc(
+          draft.validFromLocalDate,
+          draft.startMinute,
+          zoneId,
+        );
+        // **起止两端各按自己的分钟换算**，不用"起点 + 时长"相加：
+        // 相加得到的是一个正确的绝对时刻，看起来对，但它与同一行的 `endMinute`
+        // 表达的不是同一件事（后者是当天的分钟，跨午夜时会小于起点）。
+        final endUtc = _zones.localDateTimeToUtc(
+          draft.validFromLocalDate,
+          draft.endMinute,
+          zoneId,
+        );
+
+        await _saveRecurringRows(
+          domain.CalendarEvent(
+            id: anchorId,
+            title: profile.title,
+            startAtUtc: startUtc,
+            endAtUtc: endUtc,
+            timeZoneId: zoneId,
+            recurrenceRuleId: ruleId,
+            // **类别与来源跟着既有行走**：课表导入的课必须还是课表导入的课，
+            // 否则它会在"撤销导入"里消失（那个功能按 `importBatchId` 回滚）。
+            sourceKind: existingRow == null
+                ? domain.CalendarEventSourceKind.manual
+                : domain.CalendarEventSourceKind.fromStorage(
+                    existingRow.sourceKind,
+                  ),
+            importBatchId: existingRow?.importBatchId,
+            logicalCourseId: courseLogicalId,
+            location: profile.location,
+            // **教师存在 `notes` 列**：本批次不引入"课程备注"这个新概念。
+            notes: profile.teacher,
+            areaId: profile.areaId,
+            projectId: profile.projectId,
+            updatedAtUtc: updatedAtUtc,
+          ),
+          domain.RecurrenceRule(
+            id: ruleId,
+            weekdays: draft.weekdays,
+            localStartMinute: draft.startMinute,
+            durationMinutes: draft.endMinute - draft.startMinute,
+            intervalWeeks: draft.intervalWeeks,
+            validFromLocalDate: draft.validFromLocalDate,
+            validUntilLocalDate: draft.validUntilLocalDate,
+            timeZoneId: zoneId,
+          ),
+        );
+      }
     });
   }
 

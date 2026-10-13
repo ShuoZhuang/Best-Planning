@@ -86,6 +86,31 @@ final class CourseSeriesDetail {
   Map<EntityId, DateTime> get sourceRevisions => {
     for (final segment in segments) segment.eventId: segment.updatedAtUtc,
   };
+
+  /// 这门课当前形态的**指纹**（计划 Task 4 Interfaces）。
+  ///
+  /// **为什么不能只比 `updated_at_utc`**：改一门课会**新增与删除锚点**，
+  /// 而"新增的那个锚点"在用户打开编辑页时还不存在，因此逐 id 比对会漏掉
+  /// "别处删了一段、又加了一段"这种改动。指纹把"有几个锚点、每个锚点是哪一天哪一刻、
+  /// 修订号是多少"一次算进来。
+  ///
+  /// **排序后拼接**：仓储的返回顺序虽然有定义，但把"顺序"也算进指纹会让一次纯排序变化
+  /// （例如改了排序键）把用户的编辑判成过期。
+  String get revisionFingerprint {
+    final rows = [
+      for (final segment in segments)
+        '${segment.eventId}|'
+            '${(segment.weekdays.toList()..sort()).join(',')}|'
+            '${segment.startMinute}|'
+            '${segment.endMinute - segment.startMinute}|'
+            '${segment.validFromLocalDate.year}-'
+            '${segment.validFromLocalDate.month}-'
+            '${segment.validFromLocalDate.day}|'
+            '${segment.validUntilLocalDate?.toIso8601String() ?? ''}|'
+            '${segment.updatedAtUtc.microsecondsSinceEpoch}',
+    ]..sort();
+    return rows.join(';');
+  }
 }
 
 /// 一个系列片段：一条锚点事件 ＋ 它的重复规则。
