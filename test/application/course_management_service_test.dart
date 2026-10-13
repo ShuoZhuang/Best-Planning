@@ -340,6 +340,7 @@ final class _DeletionSpy implements CalendarEventDeletion {
     required String anchorId,
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
+    DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
   }) async {
     replacedSeries.add(anchorId);

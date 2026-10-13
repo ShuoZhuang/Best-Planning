@@ -5,16 +5,33 @@ import 'package:personal_planner/domain/models/time_range.dart';
 final class RecurrenceException {
   RecurrenceException.deleted({required this.localDate})
     : deleted = true,
-      replacement = null;
+      replacement = null,
+      title = null,
+      notes = null;
 
   RecurrenceException.replaced({
     required this.localDate,
     required TimeRange this.replacement,
+    this.title,
+    this.notes,
   }) : deleted = false;
 
   final DateTime localDate;
   final bool deleted;
   final TimeRange? replacement;
+
+  /// 这一次的**标题覆盖**（课程与保护时间管理修复计划 Task 7 Step 1）。
+  ///
+  /// **为什么必须在这里**：改一次时间与改一次名字是两件独立的事。这个类此前只能换
+  /// `TimeRange`，于是"仅本次改名"在结构上做不到——展开器只能拿锚点的标题套给每一次，
+  /// 用户改了名之后看到的是"这一次还是旧名字"。日视图那个对话框因此只能把
+  /// `item.title` 原样传回（计划 §1.2 记录的实际偏差）。
+  ///
+  /// 为空表示"沿用锚点标题"，与 `notes` 同一条约定。
+  final String? title;
+
+  /// 这一次的**备注覆盖**。为空表示沿用锚点备注。
+  final String? notes;
 }
 
 final class RecurrenceOccurrence {
@@ -23,12 +40,20 @@ final class RecurrenceOccurrence {
     required this.localDate,
     required this.range,
     required this.isException,
+    this.title,
+    this.notes,
   });
 
   final String ruleId;
   final DateTime localDate;
   final TimeRange range;
   final bool isException;
+
+  /// 这一次自己的标题；为空表示用锚点标题。
+  final String? title;
+
+  /// 这一次自己的备注；为空表示用锚点备注。
+  final String? notes;
 
   DateTime get startUtc => range.startUtc;
   DateTime get endUtc => range.endUtc;
@@ -81,6 +106,9 @@ final class RecurrenceExpander {
               localDate: cursor,
               range: range,
               isException: exception != null,
+              // **这一次自己的标题与备注**（Task 7 Step 1）：为空时调用方沿用锚点的。
+              title: exception?.title,
+              notes: exception?.notes,
             ),
           );
         }

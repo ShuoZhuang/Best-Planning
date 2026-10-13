@@ -264,6 +264,7 @@ final class _MemoryCalendar
     required String anchorId,
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
+    DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
   }) async {}
 

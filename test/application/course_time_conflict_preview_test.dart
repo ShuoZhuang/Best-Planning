@@ -347,6 +347,7 @@ final class _NoopDeletion implements CalendarEventDeletion {
     required String anchorId,
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
+    DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
   }) async {}
   @override

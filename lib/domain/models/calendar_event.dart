@@ -221,6 +221,7 @@ final class CalendarOccurrence {
     this.kind = CalendarEventKind.fixed,
     this.importBatchId,
     this.logicalCourseId,
+    this.updatedAtUtc,
   });
 
   final EntityId eventId;
@@ -239,6 +240,17 @@ final class CalendarOccurrence {
   /// 固定投入"要读的是**每一次展开出来的占用**，而不是锚点行。丢了它，重复保护时间
   /// 会被当成固定日程进入统计，而规范 §9.1 明确它不计入任何投入。
   final CalendarEventKind kind;
+
+  /// 锚点行的 `updated_at_utc`（课程与保护时间管理修复计划 Task 7 Step 4）。
+  ///
+  /// **为什么必须带到每一次展开上**：编辑页的"数据是否过期"判定要拿它和用户打开页面时
+  /// 读到的值比。只在锚点行上有这个字段不够——编辑页拿到的是一批 `CalendarOccurrence`，
+  /// 如果每一份都不带，页面就只能再查一次库，于是"页面看到的"与"判定的依据"
+  /// 变成两份不同的数据。
+  ///
+  /// 可空：手工构造的占用（测试、`course_transition` 之类）没有这个概念，
+  /// 而"不知道修订号"与"修订号是某个值"必须能区分。
+  final DateTime? updatedAtUtc;
 
   final EntityId? importBatchId;
   final EntityId? logicalCourseId;

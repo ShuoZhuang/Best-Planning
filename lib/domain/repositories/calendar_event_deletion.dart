@@ -87,6 +87,7 @@ abstract interface class CalendarEventDeletion {
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
+    DateTime? updateExceptionsFromUtc,
   });
 
   /// Replaces the selected occurrence and every later occurrence by splitting

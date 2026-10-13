@@ -65,6 +65,7 @@ final class DriftCalendarRepository
           kind: domain.CalendarEventKind.fromStorage(row.kind),
           importBatchId: row.importBatchId,
           logicalCourseId: row.logicalCourseId,
+          updatedAtUtc: _instant(row.updatedAtUtc),
         ),
     ];
 
@@ -88,6 +89,9 @@ final class DriftCalendarRepository
       _database.calendarEvents,
     )..where((row) => row.exceptionOfId.isNotNull())).get();
     final replacedByAnchor = <String, List<RecurrenceException>>{};
+
+    /// 锚点 id → 它的 `updated_at_utc`（Task 7 Step 4 的乐观并发依据）。
+    final anchorUpdatedAt = <String, DateTime>{};
     for (final row in exceptionRows) {
       final anchorId = row.exceptionOfId!;
       final startUtc = _instant(row.startAtUtc);
@@ -105,6 +109,13 @@ final class DriftCalendarRepository
                   startUtc: startUtc,
                   endUtc: _instant(row.endAtUtc),
                 ),
+                // **例外行自己的标题与备注**（Task 7 Step 1）：这就是"仅本次改名"
+                // 唯一可能的落点——锚点标题套给每一次，例外只能覆盖它自己那一次。
+                //
+                // 例外行的标题由写入端从草稿复制，因此它总是有值；这里仍按可空传，
+                // 因为"空标题"在数据上非法，而"没有覆盖"必须能表达。
+                title: row.title.isEmpty ? null : row.title,
+                notes: row.notes.isEmpty ? null : row.notes,
               ),
       );
     }
@@ -112,6 +123,9 @@ final class DriftCalendarRepository
     for (final joined in await recurring.get()) {
       final event = joined.readTable(_database.calendarEvents);
       final stored = joined.readTable(_database.recurrenceRules);
+      // **锚点的修订号要带出去**：编辑页拿到的每一个占用都要能回答
+      // "我读到它时它是第几版"（Task 7 Step 4 的乐观并发）。
+      anchorUpdatedAt[event.id] = _instant(event.updatedAtUtc);
       final rule = domain.RecurrenceRule(
         id: stored.id,
         weekdays: _weekdays(stored.weekdaysMask),
@@ -132,19 +146,22 @@ final class DriftCalendarRepository
         result.add(
           domain.CalendarOccurrence(
             eventId: event.id,
-            title: event.title,
+            // **例外可以带自己的标题与备注**（Task 7 Step 1）："仅本次改名"就落在这里。
+            // 没有覆盖时沿用锚点的值——这正是"改一次不该影响其它各次"的实现方式。
+            title: occurrence.title ?? event.title,
             range: occurrence.range,
             locked: event.locked,
             areaId: event.areaId,
             projectId: event.projectId,
             location: event.location,
-            notes: event.notes,
+            notes: occurrence.notes ?? event.notes,
             sourceKind: domain.CalendarEventSourceKind.fromStorage(
               event.sourceKind,
             ),
             kind: domain.CalendarEventKind.fromStorage(event.kind),
             importBatchId: event.importBatchId,
             logicalCourseId: event.logicalCourseId,
+            updatedAtUtc: anchorUpdatedAt[event.id],
           ),
         );
       }
@@ -173,6 +190,7 @@ final class DriftCalendarRepository
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
+    DateTime? updateExceptionsFromUtc,
   }) async {
     if (!event.endAtUtc.isAfter(event.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
@@ -231,7 +249,35 @@ final class DriftCalendarRepository
               : DateTime.parse(stored.validUntilLocalDate!)),
       timeZoneId: stored.timeZoneId,
     );
-    await saveRecurring(updatedEvent, rule);
+
+    // **例外行的级联改名**（Task 7 Step 3）：未来的正常例外跟着改名，
+    // 过去的与"删除例外"都不动。整块与规则写入共用 `saveRecurring` 的那一个事务：
+    // 规则更新失败时锚点与例外全部不变（Task 7 Step 4 的回滚要求）。
+    await _database.transaction(() async {
+      await _saveRecurringRows(updatedEvent, rule);
+      final cutoff = updateExceptionsFromUtc;
+      if (cutoff == null) return;
+      final exceptions = await (_database.select(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+      for (final row in exceptions) {
+        final startUtc = _instant(row.startAtUtc);
+        // 过去的例外不动。
+        if (startUtc.isBefore(cutoff)) continue;
+        // **删除例外（零长度行）不动**：跟着改标题会让它变成一条正常长度的行，
+        // 用户单独删掉的那一次就凭空复活了。
+        if (row.endAtUtc == row.startAtUtc) continue;
+        await (_database.update(
+          _database.calendarEvents,
+        )..where((r) => r.id.equals(row.id))).write(
+          db.CalendarEventsCompanion(
+            title: Value(event.title),
+            notes: Value(event.notes),
+            updatedAtUtc: Value(updatedAtUtc.microsecondsSinceEpoch),
+          ),
+        );
+      }
+    });
   }
 
   /// 把一份**完整草稿**套到既有锚点行上，得到要写下去的事件。

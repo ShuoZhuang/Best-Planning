@@ -276,6 +276,29 @@ final class CalendarService {
     }
 
     final updatedAtUtc = _clock.nowUtc();
+
+    // **乐观并发**（计划 Task 7 Step 4）：页面数据在别处被改过时返回 `stale`，
+    // **零写入**。判定放在写入之前——一旦开始写就无从"什么都没改"。
+    //
+    // 判定发生在服务层而不是仓储：仓储没有时钟，也没有"用户打开页面那一刻"的概念，
+    // 而这里收到的 `expectedUpdatedAtUtc` 正是那一刻读到的值（Task 3/6 的读模型带出来）。
+    final expected = target.expectedUpdatedAtUtc;
+    if (expected != null) {
+      final current = await _currentUpdatedAtOf(target.anchorId);
+      if (current == null) {
+        return CalendarMutationResult.failed(
+          CalendarMutationStatus.missing,
+          '「${event.title}」已删除，请重新打开',
+        );
+      }
+      if (current.microsecondsSinceEpoch != expected.microsecondsSinceEpoch) {
+        return CalendarMutationResult.failed(
+          CalendarMutationStatus.stale,
+          '「${event.title}」在别处已被修改，请重新打开后再编辑',
+        );
+      }
+    }
+
     try {
       switch (target.scope) {
         case EventEditScope.singleOccurrence:
@@ -302,6 +325,9 @@ final class CalendarService {
             event: event,
             recurrence: recurrence,
             updatedAtUtc: updatedAtUtc,
+            // **未来的正常例外跟着改名**（Task 7 Step 3）：不传这个界线，
+            // 用户会看到"周一叫新名字、周三那一次还叫旧名字"——而两处是同一条规则。
+            updateExceptionsFromUtc: updatedAtUtc,
           );
       }
     } on Object catch (error) {
@@ -326,6 +352,25 @@ final class CalendarService {
       return CalendarMutationResult.savedWithWarning('内容已保存，但变更记录失败：$error');
     }
     return CalendarMutationResult.saved();
+  }
+
+  /// 读某个锚点当前的 `updated_at_utc`；不存在返回 `null`。
+  ///
+  /// **用 `occurrencesBetween` 而不是往端口加一个"按 id 读锚点"**：把锚点行取出来的
+  /// 既有路径就是展开查询，而它顺带保证"页面看到的"与"这里判定的"是**同一份数据**。
+  ///
+  /// 窗口往前取一年、往后取十年：系列常常已经开始了，而展开查询按窗口裁剪——
+  /// 只从"现在"往后读会让**已经开始过的**系列找不到锚点，于是合法编辑被判成"已删除"。
+  Future<DateTime?> _currentUpdatedAtOf(String anchorId) async {
+    final now = _clock.nowUtc();
+    final occurrences = await _repository.occurrencesBetween(
+      now.subtract(const Duration(days: 365)),
+      now.add(const Duration(days: 3650)),
+    );
+    for (final occurrence in occurrences) {
+      if (occurrence.eventId == anchorId) return occurrence.updatedAtUtc;
+    }
+    return null;
   }
 
   /// 读某个时间窗内的日程占用（1.8.0）。

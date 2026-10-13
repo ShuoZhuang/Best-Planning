@@ -91,6 +91,7 @@ final class _Deletion implements CalendarEventDeletion {
     required String anchorId,
     required CalendarEventEditDraft event,
     RecurrenceEditDraft? recurrence,
+    DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
   }) async => calls.add('replaceSeries:$anchorId');
 
