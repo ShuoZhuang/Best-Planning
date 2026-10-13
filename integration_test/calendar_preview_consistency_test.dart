@@ -39,6 +39,7 @@ import 'package:personal_planner/data/repositories/drift_settings_repository.dar
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
@@ -163,7 +164,27 @@ void main() {
     expect(proposal.metrics.isFullyFeasible, isTrue);
     final applied = await application.apply(proposal);
     expect(applied.status, ApplyPlanStatus.applied);
-    final blockId = applied.plan!.blocks.single.id;
+    // **一件 120 分钟的任务会被拆成多块**（最小片段 30），因此这里取**落在今天**的那一块：
+    // 日视图只画今天，取一个别的日子的块会让后面的断言因为"卡片不在这一页上"而失败——
+    // 那说明的是夹具选错了块，不是产品坏了。
+    final plannedBlocks = applied.plan!.blocks;
+    expect(plannedBlocks, isNotEmpty, reason: '应用后的计划必须真的有块');
+    final todayRange = TimeRange(
+      startUtc: todayStartUtc,
+      endUtc: zones.localMidnightToUtc(
+        DateTime(
+          todayLocalDate.year,
+          todayLocalDate.month,
+          todayLocalDate.day + 1,
+        ),
+        timeZoneId,
+      ),
+    );
+    final block = plannedBlocks.firstWhere(
+      (item) => item.range.overlaps(todayRange),
+      orElse: () => plannedBlocks.first,
+    );
+    final blockId = block.id;
 
     // ── 起应用：生产形状的数据源（**必须**接上总线，否则固定日程与计划的写入不会刷新）──
     final scheduleSource = RepositoryScheduleViewSource(
@@ -196,8 +217,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final handle = tester.ensureSemantics();
-    addTearDown(handle.dispose);
+    final semanticsHandle = tester.ensureSemantics();
 
     // ── ① 今日页：任务与课程都在 ─────────────────────────────────────────────
     await tester.tap(find.text('今日'));
@@ -277,17 +297,19 @@ void main() {
     ).changeStatus(taskId, TaskStatus.completed);
     await tester.pumpAndSettle();
 
+    // 语义树要显式打开；**读完就把句柄还掉**——`addTearDown` 在这里太晚，
+    // 集成绑定的收尾检查会先报"A SemanticsHandle was active at the end of the test"。
+    final taskLabel = tester
+        .getSemantics(find.byKey(ValueKey('today-schedule-block:$blockId')))
+        .label;
+    final fixedLabel = tester
+        .getSemantics(find.byKey(ValueKey('today-schedule-fixed:$eventId')))
+        .label;
+    semanticsHandle.dispose();
+
+    expect(taskLabel, contains('已完成'), reason: '任务真的完成了：今日页必须显示完成状态');
     expect(
-      tester
-          .getSemantics(find.byKey(ValueKey('today-schedule-block:$blockId')))
-          .label,
-      contains('已完成'),
-      reason: '任务真的完成了：今日页必须显示完成状态',
-    );
-    expect(
-      tester
-          .getSemantics(find.byKey(ValueKey('today-schedule-fixed:$eventId')))
-          .label,
+      fixedLabel,
       isNot(contains('已完成')),
       reason: '**R11**：固定日程结束时间已过 ≠ 任务已完成，完成语义只属于 TaskStatus.completed',
     );
