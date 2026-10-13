@@ -13,6 +13,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -533,6 +534,95 @@ void main() {
         CalendarMutationStatus.saved,
         reason: '幂等：拿一个过期 id 来改不该报错，那是视图过期而不是数据损坏',
       );
+    });
+  });
+
+  group('重排原因只记一次，且说的是保护时间', () {
+    /// 单独建一套带 `onScheduleInputChanged` 的服务（Task 7 Step 5）。
+    CalendarService withChanges(List<ScheduleInputChange> sink) =>
+        CalendarService(
+          repository: repository,
+          deletion: repository,
+          recurringRepository: repository,
+          clock: _Clock(nowUtc),
+          idGenerator: _Ids(),
+          zones: zones,
+          onScheduleInputChanged: sink.add,
+        );
+
+    test('单次改写的文案是「保护时间单次改写」，且**只记一条**', () async {
+      await seedWeekly();
+      final changes = <ScheduleInputChange>[];
+      final occurrenceStart = localUtc(10, 13, 14);
+
+      final result = await withChanges(changes).updateEvent(
+        target: CalendarEditTarget(
+          anchorId: 'anchor-1',
+          scope: EventEditScope.singleOccurrence,
+          occurrenceStartUtc: occurrenceStart,
+        ),
+        event: CalendarEventEditDraft(
+          title: '看医生',
+          startAtUtc: occurrenceStart,
+          endAtUtc: occurrenceStart.add(const Duration(hours: 1)),
+          timeZoneId: zoneId,
+          kind: CalendarEventKind.protected,
+        ),
+      );
+
+      expect(result.status, CalendarMutationStatus.saved);
+      expect(
+        changes.map((c) => c.label).toList(),
+        ['保护时间单次改写'],
+        reason:
+            '原因是**直接显示给用户**的（统计页的"重排原因"）。'
+            '写成"固定日程改写"等于报告一件用户没做过的事；'
+            '而因为写了例外又更新了锚点就记两条，会让分布里凭空多一倍',
+      );
+    });
+
+    test('整个系列改写的文案是「保护时间系列改写」，且只记一条', () async {
+      await seedWeekly();
+      final changes = <ScheduleInputChange>[];
+
+      await withChanges(changes).updateEvent(
+        target: const CalendarEditTarget(
+          anchorId: 'anchor-1',
+          scope: EventEditScope.entireSeries,
+        ),
+        event: CalendarEventEditDraft(
+          title: '午休时间',
+          startAtUtc: localUtc(10, 6, 14),
+          endAtUtc: localUtc(10, 6, 15),
+          timeZoneId: zoneId,
+          kind: CalendarEventKind.protected,
+        ),
+      );
+
+      expect(changes.map((c) => c.label).toList(), ['保护时间系列改写']);
+    });
+
+    test('**保存失败时不记重排原因**（数据没变就没有重排）', () async {
+      await seedWeekly();
+      final changes = <ScheduleInputChange>[];
+
+      final result = await withChanges(changes).updateEvent(
+        target: CalendarEditTarget(
+          anchorId: 'anchor-1',
+          scope: EventEditScope.entireSeries,
+          expectedUpdatedAtUtc: DateTime.utc(2020, 1, 1),
+        ),
+        event: CalendarEventEditDraft(
+          title: '不该写进去',
+          startAtUtc: localUtc(10, 6, 14),
+          endAtUtc: localUtc(10, 6, 15),
+          timeZoneId: zoneId,
+          kind: CalendarEventKind.protected,
+        ),
+      );
+
+      expect(result.status, CalendarMutationStatus.stale);
+      expect(changes, isEmpty, reason: 'stale 是零写入，记一条重排原因会变成"报告一次没发生的改动"');
     });
   });
 }
