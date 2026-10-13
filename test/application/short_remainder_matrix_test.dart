@@ -7,7 +7,7 @@
 // | 15 | 30–90 | 5 | 排 15，无 invalid |
 // | 12 | 30–90 | 5 | 排 10、缺 2；可明确应用部分 |
 // | 3 | 30–90 | 5 | 不排、缺 3；无伪造块 |
-// | 100 | 30–90 | 5 | 普通块均 >= 30 |
+// | 100 | 30–90 | 5 | 最多一个短尾，且恰为剩下的那份余量（§2.2） |
 // | 20 continuous | 30–90 | 5 | 单一 20 分钟块，无片段长度 invalid |
 // | 20 | 30–90 | 10 | 单一 20 分钟块，全部落 10 分钟网格 |
 //
@@ -170,13 +170,39 @@ void main() {
     expect(repository.writes, 0);
   });
 
-  test('矩阵第 4 行：100 分钟、30–90、粒度 5 ⇒ 普通块均 >= 30', () {
-    final proposal = generate(task(requiredMinutes: 100));
+  test('矩阵第 4 行：100 分钟、30–90、粒度 5 ⇒ 最多一个短尾，且恰为剩下的那份余量', () {
+    final t = task(requiredMinutes: 100);
+    final proposal = generate(t);
 
     expect(proposal.blocks, isNotEmpty);
     for (final block in proposal.blocks) {
-      expect(block.durationMinutes, greaterThanOrEqualTo(30));
       expect(block.durationMinutes, lessThanOrEqualTo(90));
+      expect(block.durationMinutes % 5, 0, reason: '所有块都落在 5 分钟网格上');
+    }
+    // **1.8.0 冻结决策 §2.2**：低于最小片段的块最多一个，且必须恰好等于
+    // `shortRemainderAllowance(required − 常规块之和, 粒度)`。
+    // 原先这里是"任何块都不得小于 30"，它把最后那一段**合法**的短尾也一并禁掉了，
+    // 于是 100 分钟的任务永远排不满（候选生成与最终校验读的不是同一份规则）。
+    final shortBlocks = proposal.blocks
+        .where((block) => block.durationMinutes < t.minChunkMinutes)
+        .toList();
+    expect(
+      shortBlocks.length,
+      lessThanOrEqualTo(1),
+      reason: '宽免只针对唯一的最终短尾；两个短块就是普遍放宽',
+    );
+    final regularTotal = proposal.blocks
+        .where((block) => block.durationMinutes >= t.minChunkMinutes)
+        .fold<int>(0, (sum, block) => sum + block.durationMinutes);
+    for (final block in shortBlocks) {
+      expect(
+        block.durationMinutes,
+        shortRemainderAllowance(
+          requiredMinutes: t.requiredMinutes - regularTotal,
+          granularityMinutes: 5,
+        ),
+        reason: '短尾必须恰好是常规块排完之后剩下的那份余量',
+      );
     }
     expect(invalidOf(proposal), isEmpty);
   });

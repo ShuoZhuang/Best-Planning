@@ -304,7 +304,7 @@ void main() {
     );
     final candidates = CandidateGenerator(
       granularityMinutes: problem.rules.granularityMinutes,
-    ).generate(task, slots);
+    ).generate(task, slots, remainingMinutes: task.requiredMinutes);
     final evidence = phaseEvidence(
       problem: problem,
       proposal: proposal,
@@ -461,10 +461,18 @@ void main() {
     );
     final ordinaryCandidates = ordinaryTask == null
         ? const <SchedulingCandidate>[]
-        : generator.generate(ordinaryTask, slots);
+        : generator.generate(
+            ordinaryTask,
+            slots,
+            remainingMinutes: ordinaryTask.requiredMinutes,
+          );
     final cycleCandidates = cycleTask == null
         ? const <SchedulingCandidate>[]
-        : generator.generate(cycleTask, slots);
+        : generator.generate(
+            cycleTask,
+            slots,
+            remainingMinutes: cycleTask.requiredMinutes,
+          );
 
     final calendarGap = slots.fold<int>(
       0,

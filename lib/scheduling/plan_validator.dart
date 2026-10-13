@@ -183,6 +183,175 @@ bool isValidPlannedChunk({
       duration % granularityMinutes == 0;
 }
 
+/// 一份计划里**同一任务的全部片段**违反的规则（计划 §2.2，冻结决策）。
+///
+/// **为什么需要集合校验**：`isValidPlannedChunk` 只看一个块，因此它无法回答
+/// "这个低于最小片段的块是不是全任务唯一的最终短尾"（R4 的定义）。
+/// 一个 12 分钟任务排 10 分钟合法，一个 100 分钟任务排 30+30+30+10 也合法；
+/// 但 100 分钟任务排 30+30+20 时，那个 20 分钟块**不是**最终短尾——任务本来还排得下
+/// 一个 30 分钟的常规片段，它是"过早"用了短尾宽免。只有看到同任务的完整块集合才能分辨。
+enum ChunkSetViolation {
+  none,
+
+  /// 片段时长不为正。
+  nonPositiveDuration,
+
+  /// 片段没有落在 [PlanningRules.granularityMinutes] 的网格上。
+  offGranularity,
+
+  /// 可拆分片段长于 [SchedulableTask.maxChunkMinutes]。
+  aboveMaximum,
+
+  /// 短块出现得太早：去掉常规块后剩余量仍 >= `minChunkMinutes`，
+  /// 说明任务还排得下一个常规片段，这一块不该用短尾宽免。
+  belowMinimumBeforeTail,
+
+  /// 同一任务出现了多于一个短块（宽免只针对唯一最终短尾）。
+  multipleShortTails,
+
+  /// 短块时长不等于唯一的合法短尾预算（[shortRemainderAllowance]）。
+  shortTailMismatch,
+
+  /// 同任务块的总时长超过了 `requiredMinutes`（排多了）。
+  totalExceedsRequired,
+
+  /// 连续任务被拆成了多个块。
+  continuousTaskSplit,
+}
+
+/// [validatePlannedChunkSet] 的结果。
+///
+/// [blockId] 是**可归因**的那一块：逐块违规指向违规块本身，`multipleShortTails`
+/// 指向时间上第二个短块，`continuousTaskSplit` 为 null（违规主体是整个任务）。
+final class ChunkSetValidation {
+  const ChunkSetValidation({required this.violation, this.blockId});
+
+  final ChunkSetViolation violation;
+  final String? blockId;
+  bool get isValid => violation == ChunkSetViolation.none;
+}
+
+/// 校验**同一任务的全部片段**是否构成一份合法计划（计划 §2.2）。
+///
+/// 判定顺序固定（`blocks` 先按 `startUtc` 排序，同刻按 `id` 排序以保证确定性）：
+///
+/// 可拆分任务：
+/// 1. 逐块：时长为正、落在粒度网格、不超过 `maxChunkMinutes`；
+/// 2. 总时长不超过 `requiredMinutes`；
+/// 3. `duration >= minChunkMinutes` 的块是**常规块**；
+/// 4. 短块（低于 `minChunkMinutes`）最多一个，多于一个即 `multipleShortTails`；
+/// 5. 没有短块 ⇒ 合法；
+/// 6. 有短块时令 `regularTotal` 为全部常规块之和、`remaining = required - regularTotal`：
+///    - `remaining >= minChunkMinutes` ⇒ `belowMinimumBeforeTail`（短尾用得太早）；
+///    - 否则短块时长必须**严格等于**
+///      `shortRemainderAllowance(remaining, granularity)`，否则 `shortTailMismatch`。
+///
+/// 第 7 条（任务总量不足一个粒度的余数）由上面两条自然覆盖：`remaining` 小于一个粒度时
+/// 宽免量为 0，任何块都无法严格等于它 ⇒ 如实保留真实缺口，不伪造块。
+///
+/// **连续任务**不套用 `minChunkMinutes` / `maxChunkMinutes`（既有冻结决定，见
+/// [isValidPlannedChunk]）：只检查时长为正、落在网格、不超过一个块、总量不超
+/// `requiredMinutes`。
+ChunkSetValidation validatePlannedChunkSet({
+  required SchedulableTask task,
+  required Iterable<PlannedBlock> blocks,
+  required int granularityMinutes,
+}) {
+  assert(granularityMinutes > 0);
+  final ordered = [...blocks]
+    ..sort((a, b) {
+      final startOrder = a.startUtc.compareTo(b.startUtc);
+      if (startOrder != 0) return startOrder;
+      return a.id.compareTo(b.id);
+    });
+
+  // **总量先于逐块形状判定**：这两条是**独立**的事实（"排多了"与"某一块形状非法"），
+  // 计划 §2.2 也把"总时长不超过 requiredMinutes"单独列为第 2 条。若把总量检查放在
+  // 逐块早退之后，一个"又超上限又排多了"的块集合就只会报形状问题，而"排多了"这件事
+  // 会静默消失（既有回归用例 `报告每日上限和任务片段总量超出` 正是钉这一条的）。
+  final total = ordered.fold<int>(
+    0,
+    (sum, block) => sum + block.durationMinutes,
+  );
+  if (total > task.requiredMinutes) {
+    return const ChunkSetValidation(
+      violation: ChunkSetViolation.totalExceedsRequired,
+    );
+  }
+
+  for (final block in ordered) {
+    final duration = block.durationMinutes;
+    if (duration <= 0) {
+      return ChunkSetValidation(
+        violation: ChunkSetViolation.nonPositiveDuration,
+        blockId: block.id,
+      );
+    }
+    if (duration % granularityMinutes != 0) {
+      return ChunkSetValidation(
+        violation: ChunkSetViolation.offGranularity,
+        blockId: block.id,
+      );
+    }
+    // 连续任务**不检查** min/max：那是可拆分任务的片段上下限，
+    // 套到"一次做完"的任务上会把合法的连续短任务误伤（R5）。
+    if (task.splitMode == TaskSplitMode.splittable &&
+        duration > task.maxChunkMinutes) {
+      return ChunkSetValidation(
+        violation: ChunkSetViolation.aboveMaximum,
+        blockId: block.id,
+      );
+    }
+  }
+
+  if (task.splitMode == TaskSplitMode.continuous) {
+    if (ordered.length > 1) {
+      return const ChunkSetValidation(
+        violation: ChunkSetViolation.continuousTaskSplit,
+      );
+    }
+    return const ChunkSetValidation(violation: ChunkSetViolation.none);
+  }
+
+  final shortBlocks = [
+    for (final block in ordered)
+      if (block.durationMinutes < task.minChunkMinutes) block,
+  ];
+  if (shortBlocks.length > 1) {
+    // 归因给**时间上第二个**短块：第一个短块本身可能仍然合法（它可能是正确的最终短尾），
+    // 多出来的那一个是真正的违规者。
+    return ChunkSetValidation(
+      violation: ChunkSetViolation.multipleShortTails,
+      blockId: shortBlocks[1].id,
+    );
+  }
+  if (shortBlocks.isEmpty) {
+    return const ChunkSetValidation(violation: ChunkSetViolation.none);
+  }
+
+  final regularTotal = ordered
+      .where((block) => block.durationMinutes >= task.minChunkMinutes)
+      .fold<int>(0, (sum, block) => sum + block.durationMinutes);
+  final remaining = task.requiredMinutes - regularTotal;
+  if (remaining >= task.minChunkMinutes) {
+    return ChunkSetValidation(
+      violation: ChunkSetViolation.belowMinimumBeforeTail,
+      blockId: shortBlocks.single.id,
+    );
+  }
+  final tailBudget = shortRemainderAllowance(
+    requiredMinutes: remaining,
+    granularityMinutes: granularityMinutes,
+  );
+  if (shortBlocks.single.durationMinutes != tailBudget) {
+    return ChunkSetValidation(
+      violation: ChunkSetViolation.shortTailMismatch,
+      blockId: shortBlocks.single.id,
+    );
+  }
+  return const ChunkSetValidation(violation: ChunkSetViolation.none);
+}
+
 final class PlanValidator {
   const PlanValidator(this._zones);
 
@@ -207,9 +376,8 @@ final class PlanValidator {
     };
 
     for (final block in blocks) {
-      // ① 未知任务。
-      final task = tasks[block.taskId];
-      if (task == null) {
+      // ① 未知任务（片段长度由下面的集合校验判定，需要先知道任务是谁）。
+      if (!tasks.containsKey(block.taskId)) {
         conflicts.add(
           _invalid(block: block, reason: InvalidInputReason.unknownTask),
         );
@@ -243,48 +411,8 @@ final class PlanValidator {
           ),
         );
       }
-      // ④ 片段长度与网格：与候选生成共用同一个纯函数判据。
-      if (task != null) {
-        // **网格单独报一次**（原因不同、处置不同）：候选生成按粒度递进，产物必然对齐；
-        // 这里挡的是外部构造的块（例如注入的非法提案）。
-        if (block.durationMinutes % granularity != 0) {
-          conflicts.add(
-            _invalid(
-              block: block,
-              reason: InvalidInputReason.offGranularity,
-              details: {
-                'durationMinutes': block.durationMinutes,
-                'granularityMinutes': granularity,
-              },
-            ),
-          );
-        }
-        if (!isValidPlannedChunk(
-          task: task,
-          block: block,
-          granularityMinutes: granularity,
-        )) {
-          // **已经因网格被拒时不再补一条长度原因**：同一个块报两条无效输入会让
-          // 预览把同一件事说两遍（正是本批次要消灭的形态）。长度原因留给
-          // "落在网格上、但超出允许区间"的那些块。
-          if (block.durationMinutes % granularity == 0) {
-            conflicts.add(
-              _invalid(
-                block: block,
-                reason: block.durationMinutes < task.minChunkMinutes
-                    ? InvalidInputReason.chunkBelowMinimum
-                    : InvalidInputReason.chunkAboveMaximum,
-                details: {
-                  'durationMinutes': block.durationMinutes,
-                  'minChunkMinutes': task.minChunkMinutes,
-                  'maxChunkMinutes': task.maxChunkMinutes,
-                  'requiredMinutes': task.requiredMinutes,
-                },
-              ),
-            );
-          }
-        }
-      }
+      // ④ 片段长度与网格改由**同任务块集合**统一判定（见下面 `validatePlannedChunkSet`）。
+      // 逐块循环里只保留窗口、重叠与未知任务这几条与"集合"无关的事实。
       for (final fixed in problem.fixedIntervals) {
         if (block.range.overlaps(fixed.range)) {
           conflicts.add(
@@ -338,41 +466,101 @@ final class PlanValidator {
       }
     }
 
+    // ── ⑤ 同任务片段集合（计划 §2.2，冻结决策）────────────────────────────────
+    //
+    // 逐块判据（`isValidPlannedChunk`）**不能**证明某个低于 min 的块是不是全任务唯一的
+    // 最终短尾——那要看完整的块集合（R4）。因此这里按 `block.taskId` 分组，对每个真的
+    // 有块的 task 调用一次 [validatePlannedChunkSet]，并把 violation 翻成**现有的结构化
+    // code**。violation 枚举名绝不显示给用户：界面读的是
+    // [PlanningConflict.code] / [PlanningConflict.invalidInputReason] / `details`。
+    final blocksByTask = <String, List<PlannedBlock>>{};
+    for (final block in blocks) {
+      (blocksByTask[block.taskId] ??= []).add(block);
+    }
     for (final task in problem.tasks) {
-      final taskBlocks = blocks
-          .where((block) => block.taskId == task.id)
-          .toList();
-      final total = taskBlocks.fold<int>(
-        0,
-        (sum, block) => sum + block.durationMinutes,
+      final taskBlocks = blocksByTask[task.id];
+      if (taskBlocks == null || taskBlocks.isEmpty) continue;
+      final result = validatePlannedChunkSet(
+        task: task,
+        blocks: taskBlocks,
+        granularityMinutes: granularity,
       );
-      if (task.splitMode == TaskSplitMode.continuous && taskBlocks.length > 1) {
-        conflicts.add(
-          PlanningConflict(
-            code: ConflictCode.continuousBlockUnavailable,
-            taskId: task.id,
-            relatedEntityIds: taskBlocks.map((block) => block.id).toList(),
-          ),
-        );
+      switch (result.violation) {
+        case ChunkSetViolation.none:
+          break;
+        case ChunkSetViolation.nonPositiveDuration:
+        case ChunkSetViolation.belowMinimumBeforeTail:
+        case ChunkSetViolation.multipleShortTails:
+        case ChunkSetViolation.shortTailMismatch:
+          // 这四种的**处置是同一件事**："这一块短于允许值，且它不是唯一合法的最终短尾"
+          // ⇒ 用户要改最小片段设置或改任务时长。因此共用 `chunkBelowMinimum`，
+          // 与旧实现的键名保持一致（`_invalid` 会自己补 `details['reason']`）。
+          conflicts.add(
+            _invalid(
+              block: _blockById(blocks, result.blockId),
+              reason: InvalidInputReason.chunkBelowMinimum,
+              details: {
+                'durationMinutes': _durationOf(blocks, result.blockId),
+                'minChunkMinutes': task.minChunkMinutes,
+                'maxChunkMinutes': task.maxChunkMinutes,
+                'requiredMinutes': task.requiredMinutes,
+              },
+            ),
+          );
+        case ChunkSetViolation.offGranularity:
+          conflicts.add(
+            _invalid(
+              block: _blockById(blocks, result.blockId),
+              reason: InvalidInputReason.offGranularity,
+              details: {
+                'durationMinutes': _durationOf(blocks, result.blockId),
+                'granularityMinutes': granularity,
+              },
+            ),
+          );
+        case ChunkSetViolation.aboveMaximum:
+          conflicts.add(
+            _invalid(
+              block: _blockById(blocks, result.blockId),
+              reason: InvalidInputReason.chunkAboveMaximum,
+              details: {
+                'durationMinutes': _durationOf(blocks, result.blockId),
+                'minChunkMinutes': task.minChunkMinutes,
+                'maxChunkMinutes': task.maxChunkMinutes,
+                'requiredMinutes': task.requiredMinutes,
+              },
+            ),
+          );
+        case ChunkSetViolation.totalExceedsRequired:
+          final total = taskBlocks.fold<int>(
+            0,
+            (sum, block) => sum + block.durationMinutes,
+          );
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.scheduledDurationExceeded,
+              taskId: task.id,
+              details: {
+                'scheduledMinutes': total,
+                'requiredMinutes': task.requiredMinutes,
+              },
+            ),
+          );
+        case ChunkSetViolation.continuousTaskSplit:
+          final sorted = [...taskBlocks]
+            ..sort((a, b) {
+              final startOrder = a.startUtc.compareTo(b.startUtc);
+              if (startOrder != 0) return startOrder;
+              return a.id.compareTo(b.id);
+            });
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.continuousBlockUnavailable,
+              taskId: task.id,
+              relatedEntityIds: [for (final block in sorted) block.id],
+            ),
+          );
       }
-      if (total > task.requiredMinutes) {
-        conflicts.add(
-          PlanningConflict(
-            code: ConflictCode.scheduledDurationExceeded,
-            taskId: task.id,
-            details: {
-              'scheduledMinutes': total,
-              'requiredMinutes': task.requiredMinutes,
-            },
-          ),
-        );
-      }
-      // **片段长度 / 连续任务的判据已上移到逐块循环**（1.8.0，冻结决策 §1.4）：
-      // 这里此前无条件套用 `minChunkMinutes` / `maxChunkMinutes`，于是
-      //   ① 15 分钟的可拆分任务被判 invalid（而候选生成明确允许它），
-      //   ② 连续任务被片段上下限误伤（R5）。
-      // 两处判据现在**是同一个纯函数**（`isValidPlannedChunk`），
-      // 且只对"这个块所属的任务"生效，因此不再在这里重复。
     }
 
     // 每日上限约束的是"可移动任务"时长：规则字段名为
@@ -409,6 +597,20 @@ final class PlanValidator {
 
     return List.unmodifiable(conflicts);
   }
+
+  /// 按 id 取回那个被归因的块。
+  ///
+  /// [validatePlannedChunkSet] 的逐块违规**一定**带上 `blockId`，因此查不到就是
+  /// "校验器与调用方看的不同一份块集合"这种程序错误，用一个 `assert` 与一处兜底表达，
+  /// 而不是静默换一块去归因（那会把原因指到无辜的块上）。
+  static PlannedBlock _blockById(List<PlannedBlock> blocks, String? blockId) {
+    final found = blocks.where((block) => block.id == blockId).firstOrNull;
+    assert(found != null, '片段集合校验报告的 blockId=$blockId 不在块集合里');
+    return found ?? blocks.first;
+  }
+
+  static int _durationOf(List<PlannedBlock> blocks, String? blockId) =>
+      _blockById(blocks, blockId).durationMinutes;
 
   /// 构造一条**带结构化原因**的 `invalidInput`。
   ///

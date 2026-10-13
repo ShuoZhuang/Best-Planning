@@ -125,6 +125,7 @@ void main() {
           localDate: DateTime(2026, 10, 12),
         ),
       ],
+      remainingMinutes: 60,
     );
 
     expect(candidates, isNotEmpty);

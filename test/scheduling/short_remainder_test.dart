@@ -56,6 +56,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 15),
         slots(2),
+        remainingMinutes: 15,
       );
 
       expect(
@@ -76,6 +77,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 15),
         slots(2),
+        remainingMinutes: 15,
       );
 
       expect(
@@ -89,6 +91,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 10),
         slots(2),
+        remainingMinutes: 10,
       );
 
       expect(candidates.map((item) => item.durationMinutes).toSet(), {10});
@@ -99,6 +102,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 12),
         slots(2),
+        remainingMinutes: 12,
       );
 
       expect(candidates.map((item) => item.durationMinutes).toSet(), {
@@ -107,7 +111,11 @@ void main() {
     });
 
     test('剩余量不足一个粒度 ⇒ 没有可安排的片段（如实返回空，而不是硬塞）', () {
-      final candidates = generator.generate(task(requiredMinutes: 3), slots(2));
+      final candidates = generator.generate(
+        task(requiredMinutes: 3),
+        slots(2),
+        remainingMinutes: 3,
+      );
 
       expect(
         candidates,
@@ -117,6 +125,49 @@ void main() {
             '应当由缺口机制如实汇报，而不是伪造一个片段',
       );
     });
+
+    test('剩余量已经排掉一部分时（45 总量、剩 30）只产出 30 的候选', () {
+      // `remainingMinutes` 是**本次排程的剩余量**，不是任务总量：45 分钟的任务
+      // 已经排掉 15 之后，这一轮的上限就是 30。
+      final candidates = generator.generate(
+        task(requiredMinutes: 45),
+        slots(2),
+        remainingMinutes: 30,
+      );
+
+      expect(candidates.map((item) => item.durationMinutes).toSet(), {30});
+    });
+
+    test('剩余量为 0 ⇒ 空候选（引擎在扣减到 0 之后不会再问）', () {
+      final candidates = generator.generate(
+        task(requiredMinutes: 45),
+        slots(2),
+        remainingMinutes: 0,
+      );
+
+      expect(candidates, isEmpty);
+    });
+
+    test('非法的剩余量（负数、超过 requiredMinutes）抛 ArgumentError', () {
+      // **没有默认值就必须有准入门禁**：负数会让 `_roundUp` 产出诡异的负时长候选，
+      // 而超过 `requiredMinutes` 会让引擎排出超过任务的分钟数。
+      expect(
+        () => generator.generate(
+          task(requiredMinutes: 45),
+          slots(2),
+          remainingMinutes: -5,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => generator.generate(
+          task(requiredMinutes: 45),
+          slots(2),
+          remainingMinutes: 50,
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 
   group('非最终片段继续遵守最小片段（不能把宽免当成普遍放宽）', () {
@@ -124,6 +175,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 100),
         slots(4),
+        remainingMinutes: 100,
       );
 
       expect(
@@ -139,6 +191,7 @@ void main() {
       final candidates = generator.generate(
         task(requiredMinutes: 45),
         slots(2),
+        remainingMinutes: 45,
       );
 
       // **这里我原本写成 {30, 45}，是错的**：候选时长是在 `[min, max]` 上按 5 分钟步长
@@ -166,6 +219,7 @@ void main() {
           maxChunk: 90,
         ),
         slots(2),
+        remainingMinutes: 15,
       );
 
       expect(
@@ -288,19 +342,49 @@ void main() {
       );
     });
 
-    test('100 分钟：任何普通块仍不得小于 30（宽免不得变成普遍放宽）', () {
+    test('100 分钟：宽免不得变成普遍放宽（最多一个短尾，且恰为剩下的那份余量）', () {
       final engine = DeterministicScheduleEngine(TimeZoneDatabase());
       final t = task(requiredMinutes: 100);
       final proposal = engine.generate(problem(t));
 
       expect(proposal.blocks, isNotEmpty);
-      for (final block in proposal.blocks) {
+      // **1.8.0 冻结决策 §2.2 的判据**：低于最小片段的块**最多一个**，而且它必须**恰好**
+      // 等于"常规块排完之后剩下的那份余量"（粒度下的剩余量）。这一条比原先的
+      // "任何块都不得小于 30" 更准确地表达同一个意图：
+      //   · 原先的写法把"最后那一段合法的短尾"也一并禁掉，于是 100 分钟的任务
+      //     永远排不满（R3/R4：`30+30+30+10` 被自己判成非法）；
+      //   · 现在的写法仍然拦得住"普遍放宽"——两个短块、或者一个任意长度的短块都不合法。
+      final shortBlocks = proposal.blocks
+          .where((block) => block.durationMinutes < t.minChunkMinutes)
+          .toList();
+      expect(
+        shortBlocks.length,
+        lessThanOrEqualTo(1),
+        reason: '宽免只针对**唯一**的最终短尾；出现两个就说明它变成了普遍放宽',
+      );
+      final regularTotal = proposal.blocks
+          .where((block) => block.durationMinutes >= t.minChunkMinutes)
+          .fold<int>(0, (sum, block) => sum + block.durationMinutes);
+      final tailBudget = shortRemainderAllowance(
+        requiredMinutes: t.requiredMinutes - regularTotal,
+        granularityMinutes: 5,
+      );
+      for (final block in shortBlocks) {
         expect(
           block.durationMinutes,
-          greaterThanOrEqualTo(30),
-          reason: '100 分钟还剩得下 30 分钟以上的片段，因此下限照旧生效',
+          tailBudget,
+          reason:
+              '短尾必须是"常规块排完之后剩下的那份余量"（$tailBudget 分钟），'
+              '不是任意一个小于最小片段的长度',
         );
       }
+      expect(
+        proposal.blocks.every(
+          (block) => block.durationMinutes <= t.maxChunkMinutes,
+        ),
+        isTrue,
+        reason: '宽免只放宽下限，上限照旧生效',
+      );
       expect(invalidOf(proposal), isEmpty);
     });
 

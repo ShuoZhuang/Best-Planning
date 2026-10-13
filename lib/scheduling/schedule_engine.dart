@@ -73,7 +73,20 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///    一个最小片段都凑不出来 ⇒ 任务排入 0 分钟或只排进去一部分。
   ///    实测：210 分钟、截止周日、七日窗口 ⇒ 修复前排入 120 并报"达到每日上限"，
   ///    修复后排满 210。
-  static const String algorithmVersion = '15';
+  ///
+  /// 版本 16（2026-10-13「日历、计划预览与排程完整性修复」§2.1／§2.2）三处都会改变
+  /// 同一输入得到的块集合：
+  /// ① **候选按"当前剩余量"逐轮重新生成** —— `CandidateGenerator.generate` 新增必填的
+  ///    `remainingMinutes`，引擎每成功放置一块就以新的剩余量重算候选。修复前候选集在
+  ///    进入放置循环**之前**只生成一次（且用 `task.requiredMinutes` 判定短余量），
+  ///    于是 100 分钟的任务只能排出 `30+30+30`，最后那 10 分钟永远看不见（R3）；
+  /// ② **最终校验按同任务的整组块判定"唯一短尾"** —— `validatePlannedChunkSet` 取代
+  ///    逐块检查成为集合合法性的唯一依据，因此 `30+30+30+10` 这类合法短尾第一次真的
+  ///    被接受（R4）；
+  /// ③ **每日上限在放置阶段不再被第二遍整段放开** —— 第二遍只放宽"最终余量凑不出片段"
+  ///    这一条软性偏好，`maxMinutesPerLocalDay` 恢复为计划 §Global Constraints 要求的硬约束
+  ///    （实测：每天 30 分钟额度、任务要 210 分钟 ⇒ 修复前排出七个 30 分钟块）。
+  static const String algorithmVersion = '16';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -229,7 +242,22 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
       final evenPlanForTask = evenPlans[task.id];
-      final generated = chunkGenerator.generate(task, slots);
+      // ── 候选**第一次**生成：只用于进入循环之前的证据分支 ─────────────────────
+      //
+      // 计划 §2.1 冻结决策：候选生成的输入是**当前剩余量**，引擎每成功放置一块就以
+      // 新的剩余量重新生成。因此这一份**绝不能**被复用为循环里的候选集——
+      // "初始候选集可代表全部后续轮次"正是 R3 的根因（实测：100 分钟的任务只排出
+      // 30+30+30，最后 10 分钟永远看不见）。
+      //
+      // 这里生成一次是为了下面三条**进入循环之前**的分支
+      // （`allCandidates.isEmpty` / `deadlineWindowTooShort` / `candidates.isEmpty`）：
+      // 它们问的是"初始状态下有没有得排"，`remainingMinutes` 就是初始剩余量。
+      // 证据逻辑本身在本任务保持原样（Task 5 会用最终诊断替换它）。
+      final generated = chunkGenerator.generate(
+        task,
+        slots,
+        remainingMinutes: remaining,
+      );
       // ── 按日预算剪枝（计划 Issue 4a 允许的"等价剪枝"）─────────────────────────
       //
       // 取消每日上限对候选时间轴的截断后（Task 2），候选数明显变多：实测规模用例
@@ -357,15 +385,73 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
 
       while (remaining > 0) {
+        // ── 每一轮都用**当前**剩余量重新生成候选（计划 §2.1 / Task 4 Step 4）──────
+        //
+        // 顺序与既有实现一致：截止过滤 → 均匀分布按日预算过滤 → 重叠 → 每日上限 →
+        // 每日可移动上限 → 休息间隔 → 最终余量判据 → 评分。
+        //
+        // **候选集不再跨轮复用**。`slots` 与 `evenPlans` 是循环外的静态输入
+        // （Task 4 Step 5：不重建 `AvailabilityAnalysis`、不重算本周目标），
+        // 因此"重新生成"只是同一批空档上的一次时长枚举，代价可控。
+        final roundGenerated = chunkGenerator.generate(
+          task,
+          slots,
+          remainingMinutes: remaining,
+        );
+        // ── 截止过滤 ────────────────────────────────────────────────────────────
+        final roundCandidates = roundGenerated
+            .where(
+              (candidate) =>
+                  task.dueAtUtc == null ||
+                  !candidate.endUtc.isAfter(task.dueAtUtc!),
+            )
+            .toList();
+        if (roundCandidates.isEmpty) {
+          // **不能让 `while` 空转**：这一轮一个可选候选都没有，
+          // 再转下去只会得到同一份空集合（剩余量没变）。
+          //
+          // 证据：只有**第一轮**才可能是"截止窗口装不下任何一段"（那是一个独立原因，
+          // 处置是挪截止或缩短任务），此时如实记下来；之后的轮次剩余量只会更小，
+          // 空候选的处置由下面的兜底表达。
+          if (rejectionEvidence[task.id] == null) {
+            if (roundGenerated.isNotEmpty) {
+              final longest = roundGenerated
+                  .map((candidate) => candidate.durationMinutes)
+                  .reduce(math.max);
+              recordRejection(
+                task.id,
+                UnscheduledReason(
+                  code: UnscheduledReasonCode.deadlineWindowTooShort,
+                  requiredMinutes: task.minChunkMinutes,
+                  availableMinutes: longest,
+                  constraintLabel: '截止时间',
+                ),
+              );
+            } else {
+              recordRejection(
+                task.id,
+                _capacityOrUnexplained(task.id, remaining, evidence),
+              );
+            }
+          }
+          break;
+        }
         // ── 均匀分布任务：按日预算放置（1.7.1 计划 Task 4 Step 3）──────────────
         //
         // `distributionPolicy == even` 的任务**不使用**下面那套"两轮放开配额"。原因：
         // 两轮策略的第二轮是**全局解禁**，它能把一天堆到 125 分钟——那正是用户实测的缺陷
         // （计划 §2.1）。均匀分布的正确处置是"某日放不下就把它放不下的部分重新分给还有余量的
         // 日期"，这件事已经由均分器按容量做完（计划 §3.1 第 4 条），因此这里只消费预算。
+        //
+        // **每日上限（`maxMinutesPerLocalDay`）不在这套"两轮"里**：它是计划
+        // §Global Constraints 明确列出的硬约束（"不得为了消除告警而绕过"）。
+        // 第二遍要放宽的是**另一件事**——"最终余量凑不出片段"（见 `allowUnschedulableLeftover`）。
+        // 修复前 `relaxedDailyQuota = evenPlan != null || pass == 1` 让 `_exceedsDailyQuota`
+        // 在第二遍**整段返回 false**，于是任务自己声明的每日上限在放置阶段形同不存在
+        // （实测：每天 30 分钟额度、任务要 210 分钟 ⇒ 排出七个 30 分钟块）。
         var ranked = <_RankedCandidate>[];
-        final evenPlan = evenPlans[task.id];
-        var relaxedDailyQuota = evenPlan != null;
+        final evenPlan = evenPlanForTask;
+        final relaxedDailyQuota = evenPlan != null;
         // **"最终余量凑不出片段"只排除那些候选，不排除整件事**（1.8.0，冻结决策 §1.4）。
         //
         // 修复前这里是**无条件 `continue`**：一个 12 分钟的任务选 10 分钟会留下 2 分钟，
@@ -377,16 +463,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         //   · 第一遍：优先选"排完之后剩下的还能构成片段"的候选（例如 100 分钟的 30/35…）；
         //   · 若第一遍一个都没有（例如 12 分钟只剩下 2），**放宽这一条**，
         //     把能排的那一段排进去 —— 剩下的真实缺口由 `unscheduled` 如实汇报。
-        // 这与既有的"两轮放开每日配额"是同一个手法，只是放宽的是另一条软性偏好。
         var allowUnschedulableLeftover = false;
         for (
           var pass = 0;
           pass < (evenPlan == null ? 2 : 1) && ranked.isEmpty;
           pass++
         ) {
-          relaxedDailyQuota = evenPlan != null || pass == 1;
           allowUnschedulableLeftover = evenPlan != null || pass == 1;
-          for (final candidate in candidates) {
+          for (final candidate in roundCandidates) {
             // **每一条拒绝都留证据**，而不是只记最后一条。同一个候选可能同时违反多条约束
             // （例如既超过今日配额、又和固定日程重叠），只记一条会让原因随遍历顺序变化。
             // 这里逐条判定并各自记录，主原因最后由固定优先级决定。
@@ -990,21 +1074,48 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     required bool relaxed,
   }) {
     if (relaxed) return false;
+    if (task.maxMinutesPerLocalDay == null) return false;
+    return _exceedsDailyQuotaFromTable(
+      task: task,
+      candidate: candidate,
+      plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
+        problem,
+        task,
+        blocks,
+      ),
+    );
+  }
+
+  /// **任务自己声明的每日上限**的判定核心：把"这一天该任务已经排了多少"做成一张表，
+  /// 再由 [candidate] 问"加进去会不会超"。
+  ///
+  /// **为什么必须单独存在一个查表版本**：放置循环与局部改进各有一个"当日已排分钟"的正确
+  /// 视角——放置阶段是"到目前为止的全部块"，改进阶段是"除当前这一块以外的块"。
+  /// 若两处各写一遍判据，就会再次漂移（`_exceedsMovableDailyLimit` 的注释里记着同一条教训）。
+  bool _exceedsDailyQuotaFromTable({
+    required SchedulableTask task,
+    required SchedulingCandidate candidate,
+    required Map<DateTime, int> plannedMinutesForTaskByDate,
+  }) {
     final quota = task.maxMinutesPerLocalDay;
     if (quota == null) return false;
-    final zoneId = problem.timeZoneId;
-    final localDate = candidate.localDate;
-    var planned = 0;
+    final planned = plannedMinutesForTaskByDate[candidate.localDate] ?? 0;
+    return planned + candidate.durationMinutes > quota;
+  }
+
+  /// 该任务按本地日期已经占用的分钟（只统计**该任务**的块）。
+  Map<DateTime, int> _taskMinutesByLocalDate(
+    ScheduleProblem problem,
+    SchedulableTask task,
+    List<PlannedBlock> blocks,
+  ) {
+    final result = <DateTime, int>{};
     for (final block in blocks) {
       if (block.taskId != task.id) continue;
-      final local = _zones.toLocal(block.startUtc, zoneId);
-      if (local.year == localDate.year &&
-          local.month == localDate.month &&
-          local.day == localDate.day) {
-        planned += block.durationMinutes;
-      }
+      final date = _localDate(block.startUtc, problem.timeZoneId);
+      result[date] = (result[date] ?? 0) + block.durationMinutes;
     }
-    return planned + candidate.durationMinutes > quota;
+    return result;
   }
 
   /// **每日可移动任务上限的统一判定**（1.7.1 计划 §2.4 / Task 2 Step 4）。
@@ -1499,8 +1610,25 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]!,
         problem.tasks,
       ).totalScore!;
+      // `_improve` 只换位置、不换时长（下面按 `item.durationMinutes == block.durationMinutes`
+      // 过滤），因此它必须问候选生成器："这一块**应当覆盖多少分钟**？"答案是
+      // `requiredMinutes - otherMinutes`——`others` 已经排除了当前这一块，于是这个差
+      // 就是**这一块要覆盖的分钟**（其余块各自覆盖它们自己的那份）。
+      //
+      // 为什么不能传 `task.requiredMinutes`：那会让 100 分钟任务在排完 90 分钟之后
+      // 仍以"剩余 100"生成候选，短尾块（< `minChunkMinutes`）永远生成不出来，
+      // 于是改进阶段无法重新安排那块合法的 10 分钟；传 0 或负数又会直接抛
+      // `ArgumentError`。`math.max(block.durationMinutes, …)` 保底：其它块已经超发时
+      // 至少按当前时长生成，等时长过滤仍可工作。
+      final otherMinutes = others
+          .where((b) => b.taskId == task.id)
+          .fold<int>(0, (sum, b) => sum + b.durationMinutes);
+      final remainingForBlock = math.max(
+        block.durationMinutes,
+        math.min(task.requiredMinutes, task.requiredMinutes - otherMinutes),
+      );
       final alternatives = candidates
-          .generate(task, slots)
+          .generate(task, slots, remainingMinutes: remainingForBlock)
           .where(
             (item) =>
                 item.durationMinutes == block.durationMinutes &&
@@ -1511,6 +1639,26 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         if (operations++ >= localImprovementOperationBudget) break;
         if (_overlapsAny(candidate.range, others)) continue;
         if (_violatesRestGap(problem, task, candidate, others)) continue;
+        // **任务自己声明的每日上限在改进阶段同样成立**（计划 §Global Constraints：
+        // "每日上限"是硬约束）。判据与放置循环**是同一个函数**，只是"当日已排分钟"
+        // 取自 `others`——它已排除当前这一块，问的正是"搬过去之后那一天会不会超"。
+        //
+        // 少了这一条，改进阶段能把块搬到已经用满当日额度的日子上：实测一个
+        // `maxMinutesPerLocalDay = 30` 的任务在放置阶段正确地排成"每天 30 分钟"，
+        // 随后被 `_improve` 把其中一块搬到另一天，于是那一天有 60 分钟，
+        // 而引擎的输出只由 `PlanValidator` 把关——后者校验的是**全局**每日可移动上限，
+        // 不是任务自己的额度，所以这里不会有任何冲突报出来。
+        if (_exceedsDailyQuotaFromTable(
+          task: task,
+          candidate: candidate,
+          plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
+            problem,
+            task,
+            others,
+          ),
+        )) {
+          continue;
+        }
         // 局部改进也必须守每日可移动上限：`others` **已经排除了当前这一块本身**，
         // 因此这里问的正是"把它搬到候选位置后，那一天会不会超限"。
         // 少了这一条，初次放置摊开的结果会在改进阶段被重新堆回同一天。
