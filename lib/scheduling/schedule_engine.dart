@@ -477,6 +477,10 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // 的副产物，它按**当时**的剩余量算出来，而那次尝试可能并没有被采纳。用旧轮次的证据
     // 解释最终缺口，就会给出用户无法据以行动、甚至与事实矛盾的说法（R5）。
     final unscheduled = <UnscheduledTask>[];
+    // **每件有缺口任务的最终诊断随提案走**（计划 §2.3）：预览的"查看未使用空档"要的是
+    // 每段空档**为什么用不上**，而那只有最终诊断说得出来。它只进内存提案——
+    // 不写日志、不写遥测、不进数据库（`ScheduleProposal.placementDiagnostics` 的说明）。
+    final placementDiagnostics = <String, TaskPlacementDiagnostics>{};
     // 被识别为**无法解释的排程异常**的任务（§2.5 第三条不变量）。
     //
     // 判据只有一条：按**最终块集合**看，仍然存在一个可采纳的合法候选，而缺口依然大于零
@@ -502,6 +506,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       if (diagnostics.hasEligibleCandidate) {
         unexplainedTaskIds.add(task.id);
       }
+      // 诊断在**调用处**入账：`diagnoseTaskPlacement` 是被诊断任务的唯一来源，
+      // 因此"提案里的诊断"与"引擎真的诊断过"不会各说一套。
+      placementDiagnostics[task.id] = diagnostics;
       unscheduled.add(
         UnscheduledTask(
           taskId: task.id,
@@ -568,6 +575,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       unscheduled: unscheduled,
       conflicts: conflicts,
       explanations: explanations,
+      placementDiagnostics: placementDiagnostics,
       metrics: ProposalMetrics(
         isFullyFeasible: conflicts.isEmpty && unscheduled.isEmpty,
         scheduledMinutes: scheduledMinutes,

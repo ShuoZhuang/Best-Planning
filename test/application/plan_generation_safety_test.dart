@@ -7,8 +7,12 @@
 // 这个文件把三条路径逐条钉住（trusted × 完整／部分／阻断），再加上 untrusted 的对照。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
+import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/features/planning/plan_preview_page.dart'
+    show MemoryAutoAdjustStore;
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/proposal_disposition.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -195,5 +199,55 @@ void main() {
         );
       }
     }
+  });
+
+  // ── 计划 Task 6 Step 5：开关搬回设置页之后，它的**语义没有变宽** ──────────────
+  //
+  // 预览页那个 `SwitchListTile` 被删掉之后，"打开开关会不会把 warning/blocking 提案
+  // 一起自动应用"必须重新钉一遍：删掉的只是那一个控件，不是这条保护。
+  // 这里刻意走**设置服务的真实读写 + 组合根同一段种子逻辑**（`main.dart` 里
+  // `autoAdjustStore.setEnabled(await settingsService.loadTrustAutoAdjust())`），
+  // 而不是直接传 `isTrusted: () => true`——后者证明不了"设置页那个开关"这条链。
+  test('设置页打开"信任自动调整"之后，warning/blocking 提案仍然零写入', () async {
+    final settings = SettingsService(repository: MemorySettingsRepository());
+    await settings.setTrustAutoAdjust(true);
+
+    // 组合根在启动时做的就是这件事（`main.dart`）。
+    final store = MemoryAutoAdjustStore();
+    store.setEnabled(await settings.loadTrustAutoAdjust());
+    expect(store.enabled, isTrue, reason: '前置条件：开关确实打开了');
+
+    final partial = proposalOf(
+      unscheduled: const [UnscheduledTask(taskId: 't-a', shortageMinutes: 30)],
+    );
+    final blocked = proposalOf(
+      conflicts: [PlanningConflict(code: ConflictCode.blockOverlap)],
+    );
+
+    for (final proposal in [partial, blocked]) {
+      final sink = recorder();
+      final outcome = await PlanGenerationFlow(isTrusted: () => store.enabled)
+          .run(proposal: proposal, apply: sink.apply);
+
+      expect(
+        sink.count(),
+        0,
+        reason:
+            'disposition=${classifyProposal(proposal)}：'
+            '开关打开也**不得**自动应用非完整可行的提案（冻结决策 §1.6）',
+      );
+      expect(sink.modes(), isEmpty);
+      expect(outcome.applied, isFalse);
+      expect(outcome.requiresPreview, isTrue);
+    }
+
+    // 反向对照：开关不是"坏了"——完整可行的提案仍然会被自动应用。
+    // 少了这一条，"零写入"可能只是因为 trust 根本没生效。
+    final sink = recorder();
+    final outcome = await PlanGenerationFlow(isTrusted: () => store.enabled)
+        .run(proposal: proposalOf(), apply: sink.apply);
+    expect(sink.count(), 1);
+    expect(sink.modes(), [PlanApplyMode.completeOnly]);
+    expect(outcome.applied, isTrue);
   });
 }

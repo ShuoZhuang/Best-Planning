@@ -233,6 +233,61 @@ void main() {
       expect(find.textContaining('还缺 15 分钟'), findsOneWidget);
       expect(find.textContaining('需要 30 分钟'), findsOneWidget);
     });
+
+    // 计划 §1.2 U4 / Task 6 Step 3：**默认只显示主原因**。
+    //
+    // 证据（每段空档为什么不能用）收在"查看未使用空档"的展开项里。若默认铺开，
+    // 用户第一眼看到的是八行空档明细，而最该先处理的那一条主原因反而被挤到下面。
+    testWidgets('未使用空档默认收起：首屏只有主原因', (tester) async {
+      final issue = PreviewIssue(
+        key: 'unscheduled:t-a:30',
+        severity: PreviewIssueSeverity.warning,
+        title: '写报告 还缺 30 分钟',
+        message: '这一天的任务每日上限已经用满。',
+        taskId: 't-a',
+        excludedGaps: [
+          ExcludedGapEvidence(
+            range: TimeRange(
+              startUtc: DateTime.utc(2026, 10, 12, 6),
+              endUtc: DateTime.utc(2026, 10, 12, 6, 30),
+            ),
+            code: GapExclusionCode.shorterThanRequiredChunk,
+          ),
+        ],
+      );
+      tester.view.physicalSize = const Size(1200, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PlanPreviewPage(
+              model: PlanPreviewModel(
+                proposalId: 'p1',
+                changes: const [],
+                issues: [issue],
+                isStale: false,
+              ),
+              autoAdjustStore: MemoryAutoAdjustStore(),
+              onConfirm: (mode) async => ApplyPlanResult.stale(),
+              // 未传 `zones` 时**证据行不渲染**（拿不到时区就只能印 UTC，
+              // 那行字会让用户去日历上找一段实际是空的时间）。这里断言的是
+              // "收起状态"这一条，因此两种装配都要成立。
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('每日上限'), findsWidgets);
+      expect(
+        find.textContaining('短于最短片段'),
+        findsNothing,
+        reason: '默认只显示主原因；每段空档的原因在展开项里',
+      );
+      expect(find.text('查看未使用空档'), findsNothing, reason: '没有时区时不给出错误的本地时间');
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

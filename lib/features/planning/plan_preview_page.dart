@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/protected_time_labels.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
@@ -9,16 +10,26 @@ import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
 import 'package:personal_planner/scheduling/proposal_disposition.dart';
+import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 // `unnamedTaskLabel` 由 `plan_preview_issues.dart` 转发（同一个概念只有一个名字），
 // 因此这里不再单独 import `preview_failure_lines.dart`——那会变成两处来源。
 export 'package:personal_planner/features/planning/plan_preview_issues.dart'
-    show PreviewIssue, PreviewIssueSeverity, buildPreviewIssues;
+    show
+        PreviewIssue,
+        PreviewIssueSeverity,
+        PreviewRecoveryAction,
+        buildPreviewIssues,
+        excludedGapLabel,
+        gapExclusionReason,
+        recoveryActionsFor;
 export 'package:personal_planner/scheduling/explanations.dart'
     show unscheduledReasonLabel;
 export 'package:personal_planner/scheduling/preview_failure_lines.dart'
     show PreviewFailureLine, formatFailureLine, previewFailureLines;
 export 'package:personal_planner/scheduling/preview_failure_lines.dart'
     show unnamedTaskLabel;
+export 'package:personal_planner/scheduling/task_placement_diagnostics.dart'
+    show ExcludedGapEvidence, GapExclusionCode, TaskPlacementDiagnostics;
 
 /// 预览里一个事项的可读名字（Task 12A Step 6）。
 ///
@@ -156,6 +167,23 @@ final class PlanPreviewModel {
     }
     return ProposalDisposition.fullyApplicable;
   }
+
+  /// 同一份内容、标记为**过期**（计划 Task 6 Step 2）。
+  ///
+  /// **为什么需要它**：用户从预览点进"编辑任务／调整规划规则／管理保护时间"之后，
+  /// 这份提案的输入可能已经变了。返回预览时页面必须说"它作废了，请重新生成"，
+  /// 而不是继续把一份按旧输入算出的计划递给"确认应用"——
+  /// 那正是"看着能用、点下去必然失败"的形态。
+  ///
+  /// 它**不改内容**（变更、问题、缺口逐条保留）：用户要看的是自己刚看的那一版，
+  /// 只是不能再应用它。
+  PlanPreviewModel asStale() => PlanPreviewModel(
+    proposalId: proposalId,
+    changes: changes,
+    issues: issues,
+    isStale: true,
+    shortfalls: shortfalls,
+  );
 }
 
 abstract interface class AutoAdjustStore {
@@ -187,11 +215,38 @@ final class PlanPreviewPage extends StatefulWidget {
     this.onUndoPlan,
     this.onRecalculate,
     this.onHandleShortfall,
+    this.onRecover,
+    this.availableRecoveryActions = const {},
+    this.zones,
+    this.timeZoneId,
     super.key,
   });
 
   final PlanPreviewModel model;
   final AutoAdjustStore autoAdjustStore;
+
+  /// 采纳一条**恢复动作**（计划 §2.8 / Task 6 Step 2）。
+  ///
+  /// 页面只负责把"用户想做什么"报出去：真正打开哪个页面、返回后怎么处理这份提案，
+  /// 都属于装配层（`router.dart`）。为 `null` 时**一条恢复动作都不渲染**——
+  /// 未装配时给出一个点了没反应的入口比不给更糟（与 [onUndoPlan]、[onRecalculate] 同一条约定）。
+  final Future<void> Function(PreviewRecoveryAction action, PreviewIssue issue)?
+  onRecover;
+
+  /// 当前装配下**真的能到达**的恢复动作（计划 §2.8：路由未装配则不显示该动作）。
+  ///
+  /// **为什么由装配层给而不是页面猜**：页面不知道"保护时间管理页这次接没接线"，
+  /// 而一个问题模型也不知道路由长什么样。默认空集合＝什么都不显示，
+  /// 因此漏传时页面是"少一个入口"，不会变成"多一个点了没反应的按钮"。
+  final Set<PreviewRecoveryAction> availableRecoveryActions;
+
+  /// 把空档证据里的 UTC 区间写成**本地**时间（计划 Task 6 Step 3）。
+  ///
+  /// 为空时"查看未使用空档"**不渲染**：拿不到时区就只能印 UTC，
+  /// 而那行字会让用户去日历上找一段时间，实际差着时差。
+  /// 装配层两者都会传（它本来就持有 `zones` 与 `timeZoneId`）。
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
 
   /// 确认应用。**入参是授权范围，返回是应用结果**（1.8.0，冻结决策 §1.6）。
   ///
@@ -240,26 +295,25 @@ final class PlanPreviewPage extends StatefulWidget {
 }
 
 final class _PlanPreviewPageState extends State<PlanPreviewPage> {
-  late bool _autoAdjust;
   bool _applying = false;
   bool _recalculating = false;
+
+  /// 是否正有一条恢复动作在飞行中（导航／重新生成）。
+  ///
+  /// 存在的理由与 `_applying` 相同：一次点击必须只发生一次动作。
+  /// `editTask` 这一类会一直等到用户从那个页面回来，因此期间必须挡住重复点击。
+  bool _recovering = false;
 
   /// 上一次应用失败的**具体原因**（为空表示没有失败过）。
   ///
   /// 存在的理由（冻结决策 §1.6 的最后一行）：应用阶段若发现新的阻断错误，
   /// 要显示具体任务与原因，并且**按钮不得允许无限重复点击同一个必失败操作**。
-  /// 失败之后页面转入"先修问题"的状态：主按钮禁用，只留"重新生成计划"。
+  /// 失败之后页面转入"先修问题"的状态：主操作变成"重新生成计划"。
   List<PreviewIssue> _applyFailures = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _autoAdjust = widget.autoAdjustStore.enabled;
-  }
 
   /// 主按钮当前是否可用。
   ///
-  /// **四种情况都不可用**：过期、正在应用、模型本身含阻断问题、上一次应用刚刚失败。
+  /// **三种情况都不可用**：过期、正在应用、模型本身含阻断问题。
   bool get _canApply =>
       !widget.model.isStale &&
       !_applying &&
@@ -284,6 +338,24 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
       // 重新生成会导航到新提案的预览页，因此本 widget 通常已被卸载；仍然判断 mounted，
       // 否则"重新生成失败且留在原页"这一种结局会抛异常。
       if (mounted) setState(() => _recalculating = false);
+    }
+  }
+
+  /// 跑一条恢复动作（编辑任务／规划规则／保护时间／重新生成）。
+  ///
+  /// **动作本身不在这里实现**：页面把（动作，问题）交给装配层，由它决定打开哪一页、
+  /// 以及回到预览之后这份提案还算不算数（计划 Task 6 Step 2）。
+  Future<void> _runRecovery(
+    PreviewRecoveryAction action,
+    PreviewIssue issue,
+  ) async {
+    final recover = widget.onRecover;
+    if (recover == null || _recovering) return;
+    setState(() => _recovering = true);
+    try {
+      await recover(action, issue);
+    } finally {
+      if (mounted) setState(() => _recovering = false);
     }
   }
 
@@ -347,8 +419,10 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
           children: [
             const Text('下面的部分可以安排，其余的这次不会排进去：'),
             const SizedBox(height: 8),
-            // **列出全部缺口**（标题、缺口分钟、结构化主原因），
-            // 因为用户是在为"就这样应用"负责。
+            // **逐条列出每件任务的准确缺口**（标题里的分钟数就是
+            // `UnscheduledTask.shortageMinutes`），因为用户是在为"就这样应用"负责。
+            //
+            // **不再在这里重算缺口**（§2.4 禁止的捷径）：正文只说约束，数字只在标题里。
             for (final issue in widget.model.issues.where(
               (issue) => !issue.isBlocking,
             ))
@@ -365,6 +439,13 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   ],
                 ),
               ),
+            const SizedBox(height: 8),
+            // **未安排不等于被删除**：任务仍在待办里，下一次生成还会考虑它。
+            // 不说这一句，用户很容易把"这次没排进去"读成"这件事没了"。
+            Text(
+              '未排进去的部分仍留在待办中，重新生成计划时会再次考虑。',
+              style: Theme.of(dialogContext).textTheme.bodySmall,
+            ),
           ],
         ),
       ),
@@ -410,27 +491,14 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // **只有说明，动作在下面那一个主操作上**（§2.8 三态表）：
+                      // 过期状态的主操作就是"重新生成计划"。此前这里另有一个按钮，
+                      // 于是同一页出现两个做同一件事的入口，其中一个还是全宽主按钮样式。
                       const ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.refresh),
                         title: Text('提案已过期，请重新计算'),
                       ),
-                      // 这段话此前**没有对应的动作**：确认按钮被禁用、卡片也不可点，于是界面
-                      // 要求用户做一件它在任何地方都没提供的事。现在给出入口。
-                      if (widget.onRecalculate != null)
-                        FilledButton.icon(
-                          key: const Key('recalculate-plan'),
-                          onPressed: _recalculating ? null : _recalculate,
-                          icon: _recalculating
-                              ? const SizedBox.square(
-                                  dimension: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.autorenew),
-                          label: const Text('重新生成计划'),
-                        ),
                     ],
                   ),
                 ),
@@ -449,31 +517,24 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                 shortfalls: model.shortfalls,
                 onHandle: widget.onHandleShortfall,
               ),
-            if (model.issues.isNotEmpty) _IssueGroup(issues: model.issues),
+            if (model.issues.isNotEmpty)
+              _IssueGroup(
+                issues: model.issues,
+                onRecover: widget.onRecover == null ? null : _runRecovery,
+                availableRecoveryActions: widget.availableRecoveryActions,
+                zones: widget.zones,
+                timeZoneId: widget.timeZoneId,
+                recovering: _recovering,
+              ),
             if (_applyFailures.isNotEmpty)
+              // **应用失败的卡片不给恢复动作**：它说的是"刚才那一下没写进去"，
+              // 按任务编辑入口在这里不必然相关（问题也本来就都是阻断级）。
               _IssueGroup(
                 key: const Key('apply-failure-group'),
                 title: '应用未完成',
                 issues: _applyFailures,
               ),
             const Divider(height: 32),
-            SwitchListTile(
-              title: const Text('信任自动调整'),
-              subtitle: Text(
-                // **开关代表未来偏好，不改变当前这份提案的走向**（冻结决策 §1.6）：
-                // 阻断或部分提案不会被自动应用，副标题必须说清楚，
-                // 否则用户会以为"打开开关就能让它落地"。
-                _canApply || _canApplyPartial
-                    ? '开启后仍保存每次差异和解释历史'
-                    : '当前方案不会自动应用；开关只影响之后的生成',
-              ),
-              value: _autoAdjust,
-              onChanged: (value) {
-                setState(() => _autoAdjust = value);
-                widget.autoAdjustStore.setEnabled(value);
-              },
-            ),
-            const SizedBox(height: 12),
             _ConfirmButton(
               model: model,
               applying: _applying,
@@ -482,6 +543,7 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
               canApplyPartial: _canApplyPartial,
               onPressed: _confirm,
               onRecalculate: widget.onRecalculate == null ? null : _recalculate,
+              recalculating: _recalculating,
             ),
             // FR-REPLAN-08：撤销上一次已确认的计划。结果用 SnackBar 回报，因此这里不需要
             // 额外状态——"已撤销"与"无可撤销"是两种正常结局，都应由用户看见。
@@ -686,18 +748,27 @@ final class _ChangeGroup extends StatelessWidget {
   );
 }
 
-/// 主操作按钮（冻结决策 §1.6 的三态表）。
+/// 底部**唯一的**主操作（冻结决策 §1.6 的三态表，1.8.0 计划 §2.8 重写）。
 ///
-/// | 状态 | 文案 | 行为 |
+/// | 状态 | 主操作 | 部分应用 |
 /// | --- | --- | --- |
-/// | fullyApplicable | 确认应用 | 直接校验并应用 |
-/// | partialRequiresConfirmation | 应用可安排部分 | 先弹确认框，确认后传 `allowPartial` |
-/// | blocked | 无法应用（禁用） | 不调用应用服务；若装配了重算则给"重新生成计划" |
-/// | stale | 无法应用（禁用） | 只允许重新生成 |
-/// | 刚刚失败过 | 无法应用（禁用） | 只允许重新生成（见 `failed`） |
+/// | fullyApplicable | `FilledButton`「确认应用」 | 不显示 |
+/// | partialRequiresConfirmation | **不放全宽主按钮** | `OutlinedButton`「仍应用可安排部分」＋二次确认 |
+/// | blocked（含无法解释／结构错误） | `FilledButton`「重新生成计划」（**可点**） | 不显示 |
+/// | stale | `FilledButton`「重新生成计划」（**可点**） | 不显示 |
+/// | 刚刚应用失败过 | `FilledButton`「重新生成计划」（**可点**） | 不显示 |
 ///
-/// **阻断与 stale 都不能被绕过**：它们走的是 `onPressed == null`，
-/// 因此键盘、语义动作与程序化点击都点不动。
+/// **修复前是"禁用 ＋ 一条次要的重新生成"**：主按钮显示「无法应用」且 `onPressed == null`，
+/// 出路是一条 `OutlinedButton`。两件事都错：
+/// 1. 屏幕正中最大的控件是一个永远点不动的按钮——用户读到的信息是"这功能坏了"，
+///    而不是"你要先做另一件事"（计划 §6 禁止的捷径：不许用"把按钮禁用"伪装问题解决）；
+/// 2. 真正该做的那件事（重新生成计划）被降级成次要样式，与它的必要性不符。
+///
+/// **阻断与过期依然不能被绕过**：它们根本不渲染应用按钮，因此键盘、语义动作与程序化点击
+/// 都点不到"确认应用"——这与"放一个禁用的确认按钮"在安全性上等价，但诚实得多。
+///
+/// **未装配重新生成入口时什么都不渲染**（与 `PlanPreviewPage.onRecalculate` 的约定一致）：
+/// 宁可不给，也不要一个点了不生效的按钮。
 final class _ConfirmButton extends StatelessWidget {
   const _ConfirmButton({
     required this.model,
@@ -707,6 +778,7 @@ final class _ConfirmButton extends StatelessWidget {
     required this.canApplyPartial,
     required this.onPressed,
     required this.onRecalculate,
+    required this.recalculating,
   });
 
   final PlanPreviewModel model;
@@ -716,49 +788,55 @@ final class _ConfirmButton extends StatelessWidget {
   final bool canApplyPartial;
   final Future<void> Function() onPressed;
   final Future<void> Function()? onRecalculate;
+  final bool recalculating;
 
   @override
   Widget build(BuildContext context) {
     final disposition = model.disposition;
-    // 文案：三态 + stale + 失败后。
-    final String label;
-    if (model.isStale) {
-      label = '无法应用';
-    } else if (failed) {
-      label = '无法应用';
-    } else if (disposition == ProposalDisposition.blocked) {
-      label = '无法应用';
-    } else if (canApplyPartial) {
-      label = '应用可安排部分';
-    } else {
-      label = '确认应用';
+    // ① 无法解释／结构错误、过期、刚刚失败：**主操作是"重新生成计划"**，且可点。
+    final needsRecalculation =
+        model.isStale || failed || disposition == ProposalDisposition.blocked;
+    if (needsRecalculation) {
+      final recalculate = onRecalculate;
+      if (recalculate == null) return const SizedBox.shrink();
+      return FilledButton.icon(
+        key: const Key('recalculate-plan'),
+        onPressed: recalculating ? null : recalculate,
+        icon: recalculating
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.autorenew),
+        label: const Text('重新生成计划'),
+      );
     }
-    final enabled = canApply || canApplyPartial;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        FilledButton.icon(
-          onPressed: enabled && !applying ? onPressed : null,
-          icon: applying
-              ? const SizedBox.square(
-                  dimension: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(enabled ? Icons.check : Icons.block),
-          label: Text(label),
-        ),
-        // 阻断/stale/失败时给一条"能做什么"的出路，而不是把用户留在死路上。
-        if (!enabled && !applying && onRecalculate != null) ...[
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            key: const Key('recalculate-after-block'),
-            onPressed: onRecalculate,
-            icon: const Icon(Icons.autorenew),
-            label: const Text('重新生成计划'),
-          ),
-        ],
-      ],
+    // ② 可解释的真实缺口：**底部不放误导性的全宽主按钮**（§1.2 U2）。
+    //    部分应用降为次要危险动作，并且仍然要二次确认（`_confirm` 里那一段）。
+    if (disposition == ProposalDisposition.partialRequiresConfirmation) {
+      return OutlinedButton.icon(
+        key: const Key('apply-partial'),
+        onPressed: canApplyPartial && !applying ? onPressed : null,
+        icon: applying
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.report_problem_outlined),
+        label: const Text('仍应用可安排部分'),
+      );
+    }
+    // ③ 完整可行：唯一一条"确认即应用"的路径。
+    return FilledButton.icon(
+      key: const Key('apply-plan'),
+      onPressed: canApply && !applying ? onPressed : null,
+      icon: applying
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.check),
+      label: const Text('确认应用'),
     );
   }
 }
@@ -766,25 +844,44 @@ final class _ConfirmButton extends StatelessWidget {
 /// 问题卡片组：warning 与 blocking **用不同图标、标题和颜色**，
 /// 但**不得仅靠颜色区分**（冻结决策 §1.6 的最后一条），因此图标与文字同时不同。
 final class _IssueGroup extends StatelessWidget {
-  const _IssueGroup({required this.issues, this.title, super.key});
+  const _IssueGroup({
+    required this.issues,
+    this.title,
+    this.onRecover,
+    this.availableRecoveryActions = const {},
+    this.zones,
+    this.timeZoneId,
+    this.recovering = false,
+    super.key,
+  });
 
   final List<PreviewIssue> issues;
   final String? title;
 
+  /// 采纳一条恢复动作；为空时**一条动作都不渲染**（见 `PlanPreviewPage.onRecover`）。
+  final Future<void> Function(PreviewRecoveryAction action, PreviewIssue issue)?
+  onRecover;
+  final Set<PreviewRecoveryAction> availableRecoveryActions;
+
+  /// 空档证据的本地化所需的时区；任一为空时"查看未使用空档"不渲染。
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
+
+  /// 有动作正在飞行中（防止一次点击变成两次导航）。
+  final bool recovering;
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final blocking = issues.where((issue) => issue.isBlocking).toList();
     final warnings = issues.where((issue) => !issue.isBlocking).toList();
 
-    Widget tile(PreviewIssue issue) => ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        issue.isBlocking ? Icons.error_outline : Icons.info_outline,
-        color: issue.isBlocking ? scheme.error : scheme.tertiary,
-      ),
-      title: Text(issue.title),
-      subtitle: Text(issue.message),
+    Widget tile(PreviewIssue issue) => _IssueTile(
+      issue: issue,
+      onRecover: onRecover,
+      availableRecoveryActions: availableRecoveryActions,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      recovering: recovering,
     );
 
     return Card(
@@ -816,6 +913,187 @@ final class _IssueGroup extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 一条问题：**标题 ＋ 主原因**（默认只显示主原因，§1.2 U4），
+/// 加上**恢复动作**与可展开的**未使用空档证据**。
+final class _IssueTile extends StatelessWidget {
+  const _IssueTile({
+    required this.issue,
+    required this.onRecover,
+    required this.availableRecoveryActions,
+    required this.zones,
+    required this.timeZoneId,
+    required this.recovering,
+  });
+
+  final PreviewIssue issue;
+  final Future<void> Function(PreviewRecoveryAction action, PreviewIssue issue)?
+  onRecover;
+  final Set<PreviewRecoveryAction> availableRecoveryActions;
+  final TimeZoneDatabase? zones;
+  final String? timeZoneId;
+  final bool recovering;
+
+  /// 这一条**实际会显示**的动作。
+  ///
+  /// 三重过滤，每一重都对应计划里的一句话：
+  /// 1. `onRecover == null` ⇒ 装配层没法处理任何动作，一个都不显示；
+  /// 2. `availableRecoveryActions` 不含它 ⇒ 那条路由这次没接线（§2.8：不显示该动作）；
+  /// 3. `editTask` 还需要 `issue.taskId`（为空就没有可编辑的对象）；
+  /// 4. **阻断问题不给恢复动作**（Task 6 Step 1）：冲突行的处置不是"改某一件事"，
+  ///    而它唯一需要的那条路（无法解释的排程异常 ⇒ 重新生成）由底部主操作承担。
+  List<PreviewRecoveryAction> get _visibleActions {
+    if (issue.isBlocking) return const [];
+    final recover = onRecover;
+    if (recover == null) return const [];
+    return [
+      for (final action in issue.actions)
+        if (availableRecoveryActions.contains(action) &&
+            (action != PreviewRecoveryAction.editTask || issue.taskId != null))
+          action,
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final actions = _visibleActions;
+    final gaps = issue.excludedGaps;
+    final showGaps = gaps.isNotEmpty && zones != null && timeZoneId != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            issue.isBlocking ? Icons.error_outline : Icons.info_outline,
+            color: issue.isBlocking ? scheme.error : scheme.tertiary,
+          ),
+          title: Text(issue.title),
+          // **默认只说主原因**：把所有约束一次摊开会把"最该先处理的那一条"淹没。
+          subtitle: Text(issue.message),
+        ),
+        if (actions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 56, bottom: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final action in actions)
+                  OutlinedButton.icon(
+                    key: Key('recovery-${issue.key}-${action.name}'),
+                    onPressed: recovering
+                        ? null
+                        : () => onRecover!(action, issue),
+                    icon: Icon(action.icon, size: 18),
+                    label: Text(action.label),
+                  ),
+              ],
+            ),
+          ),
+        if (showGaps)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 4),
+            child: _ExcludedGapExpansion(
+              issueKey: issue.key,
+              gaps: gaps,
+              zones: zones!,
+              timeZoneId: timeZoneId!,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 恢复动作的用户文案与图标（**枚举名绝不显示给用户**）。
+extension on PreviewRecoveryAction {
+  String get label => switch (this) {
+    PreviewRecoveryAction.editTask => '编辑任务',
+    PreviewRecoveryAction.openPlanningRules => '调整规划规则',
+    PreviewRecoveryAction.openProtectedTimeManagement => '管理保护时间',
+    PreviewRecoveryAction.recalculate => '重新生成计划',
+  };
+
+  IconData get icon => switch (this) {
+    PreviewRecoveryAction.editTask => Icons.edit_outlined,
+    PreviewRecoveryAction.openPlanningRules => Icons.tune,
+    PreviewRecoveryAction.openProtectedTimeManagement => Icons.shield_outlined,
+    PreviewRecoveryAction.recalculate => Icons.autorenew,
+  };
+}
+
+/// "查看未使用空档"（计划 Task 6 Step 3 / §1.2 U4）。
+///
+/// **首屏最多 6 行，其余折叠为"另有 N 段"**，但 `gaps` 本身**不被截断**：
+/// 折叠只是渲染策略，用户点一下就能看到剩下每一段。
+/// 把数据截断成 6 条会让"为什么排不下"这件事永远说不完整。
+final class _ExcludedGapExpansion extends StatefulWidget {
+  const _ExcludedGapExpansion({
+    required this.issueKey,
+    required this.gaps,
+    required this.zones,
+    required this.timeZoneId,
+  });
+
+  final String issueKey;
+  final List<ExcludedGapEvidence> gaps;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
+
+  @override
+  State<_ExcludedGapExpansion> createState() => _ExcludedGapExpansionState();
+}
+
+final class _ExcludedGapExpansionState extends State<_ExcludedGapExpansion> {
+  /// 首屏行数（计划 Task 6 Step 3 的"最多 6 条"）。
+  static const int _firstScreenLimit = 6;
+
+  bool _showAll = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final gaps = widget.gaps;
+    final visible = _showAll
+        ? gaps
+        : gaps.take(_firstScreenLimit).toList(growable: false);
+    final hidden = gaps.length - visible.length;
+    return ExpansionTile(
+      key: Key('excluded-gaps-${widget.issueKey}'),
+      tilePadding: EdgeInsets.zero,
+      title: const Text('查看未使用空档'),
+      subtitle: Text('共 ${gaps.length} 段'),
+      children: [
+        for (final gap in visible)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                // 本地日期时间 ＋ 原因（原因文案按 code 给出，绝不显示枚举名）。
+                excludedGapLabel(
+                  gap,
+                  zones: widget.zones,
+                  timeZoneId: widget.timeZoneId,
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+        if (hidden > 0)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: Key('excluded-gaps-more-${widget.issueKey}'),
+              onPressed: () => setState(() => _showAll = true),
+              child: Text('另有 $hidden 段'),
+            ),
+          ),
+      ],
     );
   }
 }

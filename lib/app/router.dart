@@ -1822,6 +1822,12 @@ GoRouter createPlannerRouter({
               autoAdjustStore: autoAdjustStore,
               zones: zones,
               timeZoneId: timeZoneId,
+              // 保护时间管理页需要**写入服务与系列读模型**两者；缺一它就只是一句
+              // "服务未装配"。此时"管理保护时间"这个动作**不该出现在问题卡上**——
+              // 给一个通往"暂时做不到"页面的按钮，与点了没反应是同一件事
+              // （计划 §2.8：路由未装配则不显示该动作）。
+              protectedTimeRouteWired:
+                  calendarService != null && protectedTimeSeries != null,
             ),
           ),
         ],
@@ -2541,6 +2547,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.settings,
     this.taskTitles,
     this.onRememberUndo,
+    this.protectedTimeRouteWired = false,
     super.key,
   });
 
@@ -2569,12 +2576,23 @@ final class _PlanPreviewLoader extends StatefulWidget {
   /// 与设置页共用同一个服务（"临时放宽每日上限"是**设置**，不在这里另造一份）。
   final SettingsService? settings;
 
+  /// 保护时间管理页这次是否真的接线（写入服务 ＋ 系列读模型都在）。
+  final bool protectedTimeRouteWired;
+
   @override
   State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
 }
 
 final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
   late final Future<PlanPreviewModel> _model = _build();
+
+  /// 用户是否已经离开预览去处理问题（编辑任务／规划规则／保护时间）。
+  ///
+  /// **它只影响一件事：这份提案还能不能被应用。** 计划 Task 6 Step 2 写得很直白——
+  /// "返回预览后必须把旧提案标记为 stale，并要求重新生成，不能继续应用旧提案"。
+  /// 用户既然去改了输入，按旧输入算出的计划就不再是同一份东西；
+  /// 继续让它可应用，就是"看着能用、点下去必然失败"（应用服务会按 `inputHash` 判过期）。
+  bool _staleAfterRecovery = false;
 
   Future<PlanPreviewModel> _build() async {
     final planning = widget.planning;
@@ -2693,18 +2711,86 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
     );
   }
 
+  /// 把一条恢复动作翻成一条**真实可达**的路由（计划 §2.8 / Task 6 Step 2）。
+  ///
+  /// 三条导航动作都先**把当前提案标记为过期**，再离开预览：
+  /// - 用户返回时看到的是"过期 ⇒ 请重新生成"，旧提案再也点不下"确认应用"；
+  /// - 即使用户从编辑页保存后直接去了任务详情（`TaskEditorPage.onSaved` 是 `go`，
+  ///   预览已不在栈上），"旧提案不得再被应用"这条不变量也依然成立——
+  ///   状态标记发生在导航**之前**，不依赖"用户会原路返回"这个假设。
+  ///
+  /// **未装配的落点不显示**（`availableRecoveryActions`），因此这里不需要"点了没反应"
+  /// 的兜底分支；仍然逐条判断可空装配，避免在装配变化时静默走到空实现。
+  Future<void> _recover(
+    BuildContext context,
+    PreviewRecoveryAction action,
+    PreviewIssue issue,
+  ) async {
+    switch (action) {
+      case PreviewRecoveryAction.recalculate:
+        final planning = widget.planning;
+        if (planning == null) return;
+        // 复用既有的生成入口：它已经是"生成提案 → 按信任设置决定是否直接应用 →
+        // 导航到预览"的完整路径，这里不另写一套（与 `onRecalculate` 同一个理由）。
+        await _generatePlan(
+          context,
+          planning,
+          widget.application,
+          widget.autoAdjustStore,
+        );
+      case PreviewRecoveryAction.editTask:
+        final taskId = issue.taskId;
+        // taskId 为空时页面**根本不显示**这个动作（`_IssueTile._visibleActions`）；
+        // 这里是第二道防线：没有对象的"编辑"不该悄悄变成一次无条件导航。
+        if (taskId == null) return;
+        _markStaleAfterRecovery();
+        if (!context.mounted) return;
+        await context.push('/tasks/$taskId/edit');
+      case PreviewRecoveryAction.openPlanningRules:
+        _markStaleAfterRecovery();
+        if (!context.mounted) return;
+        await context.push('/settings/rules');
+      case PreviewRecoveryAction.openProtectedTimeManagement:
+        _markStaleAfterRecovery();
+        if (!context.mounted) return;
+        await context.push('/calendar/protected');
+    }
+  }
+
+  void _markStaleAfterRecovery() {
+    if (!mounted) return;
+    setState(() => _staleAfterRecovery = true);
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<PlanPreviewModel>(
     future: _model,
     builder: (context, snapshot) {
-      final model = snapshot.data;
-      if (model == null) {
+      final loaded = snapshot.data;
+      if (loaded == null) {
         return const Center(child: CircularProgressIndicator());
       }
+      // 从"编辑任务／规划规则／保护时间"回来之后，同一份内容被标记为过期：
+      // 页面因此只给"重新生成计划"这一条主操作，而不再给"确认应用"。
+      final model = _staleAfterRecovery ? loaded.asStale() : loaded;
       return PlanPreviewPage(
         model: model,
         autoAdjustStore: widget.autoAdjustStore,
+        zones: widget.zones,
+        timeZoneId: widget.timeZoneId,
         onConfirm: (mode) => _confirm(context, model, mode),
+        // 恢复动作的落点（计划 §2.8 / Task 6 Step 2）。
+        onRecover: (action, issue) => _recover(context, action, issue),
+        // **只报真的能到达的动作**：`/tasks/:taskId/edit` 与 `/settings/rules` 的路由
+        // 总是注册着（`taskService`／`settingsService` 是必填装配），而保护时间管理页
+        // 依赖两个可空端口，重新生成依赖排程服务。
+        availableRecoveryActions: {
+          PreviewRecoveryAction.editTask,
+          PreviewRecoveryAction.openPlanningRules,
+          if (widget.protectedTimeRouteWired)
+            PreviewRecoveryAction.openProtectedTimeManagement,
+          if (widget.planning != null) PreviewRecoveryAction.recalculate,
+        },
         // M6（§3.4）：缺口的四个处理动作。**为空时四个按钮都不渲染**——没装配周期服务
         // 就没有"调低本周目标"可改，给出按钮等于给一个点了没反应的入口。
         onHandleShortfall: widget.recurring == null

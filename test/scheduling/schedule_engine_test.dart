@@ -555,6 +555,114 @@ void main() {
       );
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 计划 §2.3 / Task 6：**诊断数据必须随提案走到预览**。
+  //
+  // Task 5 把"为什么排不下"重写成最终诊断，但引擎算完就把它丢掉了：预览层只能再次猜原因，
+  // 或者干脆不给证据——用户盯着日历上的空白，页面却说不出它为什么空着（§1.2 U4）。
+  //
+  // 这一组钉住两件事：
+  //   ① 引擎产出的提案带着**那件有缺口任务的** excludedGaps（与 `unscheduled` 对得上）；
+  //   ② 三个 `with*` 包装方法原样传递它（`PlanningService` 生成后就会包一层规则覆盖／
+  //      延后要求，丢掉诊断等于预览永远看不到证据）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('最终诊断随提案走', () {
+    /// 一件排不进任何片段的连续任务：窗口只有 30 分钟，它要求一次做完 60 分钟。
+    ScheduleProblem shortWindowProblem() {
+      final day = DateTime.utc(2026, 10, 5);
+      return ScheduleProblem(
+        planningWindow: TimeRange(
+          startUtc: day.add(const Duration(hours: 9)),
+          endUtc: day.add(const Duration(hours: 9, minutes: 30)),
+        ),
+        timeZoneId: 'UTC',
+        tasks: const [
+          SchedulableTask(
+            id: 'too-long',
+            requiredMinutes: 60,
+            splitMode: TaskSplitMode.continuous,
+            minChunkMinutes: 60,
+            maxChunkMinutes: 60,
+          ),
+        ],
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: PlanningRules(
+          energyWindows: const [],
+          sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+          minimumSleepMinutes: 420,
+          defaultFocusMinutes: 50,
+          breakMinutes: 0,
+          dailyMovableTaskLimitMinutes: 600,
+          weeklyLifeQuotaMinutes: 0,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'diagnostics-travel-with-proposal',
+      );
+    }
+
+    test('引擎产出的提案带着该任务的 excludedGaps', () {
+      final problem = shortWindowProblem();
+      final proposal = engine.generate(problem);
+
+      expect(proposal.unscheduled, hasLength(1));
+      final shortage = proposal.unscheduled.single;
+      final diagnostics = proposal.placementDiagnostics[shortage.taskId];
+
+      expect(diagnostics, isNotNull, reason: '诊断必须在提案里，否则预览无从展示证据');
+      expect(
+        diagnostics!.remainingMinutes,
+        shortage.shortageMinutes,
+        reason: '诊断的剩余量必须等于同一条缺口的缺口分钟',
+      );
+      expect(
+        diagnostics.excludedGaps,
+        isNotEmpty,
+        reason: '"这一段为什么用不上"必须有证据：否则预览只能说一句无法行动的话',
+      );
+      // 证据里的区间必须落在**可见的**规划窗口内：让用户去找一段根本不在本次范围内的空档，
+      // 比不给证据更糟。
+      for (final gap in diagnostics.excludedGaps) {
+        expect(
+          gap.range.startUtc.isBefore(problem.planningWindow.endUtc),
+          isTrue,
+          reason: '空档 ${gap.range.startUtc.toIso8601String()} 落在规划窗口之外',
+        );
+        expect(
+          gap.range.endUtc.isAfter(problem.planningWindow.startUtc),
+          isTrue,
+        );
+      }
+      // 引擎只诊断**有缺口**的任务，因此映射的键集与缺口集一致。
+      expect(proposal.placementDiagnostics.keys.toSet(), {
+        for (final item in proposal.unscheduled) item.taskId,
+      });
+    });
+
+    test('with* 包装原样传递诊断（规则覆盖／延后要求／来源关联都没有丢）', () {
+      final proposal = engine.generate(shortWindowProblem());
+      final gapCount =
+          proposal.placementDiagnostics.values.single.excludedGaps.length;
+
+      final overridden = proposal.withRuleOverride(null);
+      final adjustment = proposal.withAdjustmentRequirement(null);
+      final linked = proposal.withLinkedBlocks(proposal.blocks);
+
+      for (final wrapper in [overridden, adjustment, linked]) {
+        expect(
+          wrapper.placementDiagnostics.keys,
+          proposal.placementDiagnostics.keys,
+        );
+        expect(
+          wrapper.placementDiagnostics.values.single.excludedGaps,
+          hasLength(gapCount),
+          reason: '包装只换一层外壳，不该丢掉"为什么排不下"的证据',
+        );
+      }
+    });
+  });
 }
 
 ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {

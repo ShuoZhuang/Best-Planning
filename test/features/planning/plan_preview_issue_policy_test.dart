@@ -7,10 +7,13 @@
 // 这个文件钉住六条：每个缺口一条 warning、每个冲突一条 blocking、同缺口不重复、
 // 标题回落、任何字段不含 UUID、invalid 原因分别翻译。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
+import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
 void main() {
   /// 一个**形如真实 UUID** 的 id：它出现在任何字段里都必须被认出来。
@@ -19,6 +22,7 @@ void main() {
   ScheduleProposal proposalOf({
     List<UnscheduledTask> unscheduled = const [],
     List<PlanningConflict> conflicts = const [],
+    Map<String, TaskPlacementDiagnostics> placementDiagnostics = const {},
   }) => ScheduleProposal(
     proposalId: 'p1',
     inputHash: 'h1',
@@ -30,6 +34,7 @@ void main() {
     blocks: const [],
     unscheduled: unscheduled,
     conflicts: conflicts,
+    placementDiagnostics: placementDiagnostics,
     explanations: const [],
     metrics: ProposalMetrics(
       isFullyFeasible: conflicts.isEmpty && unscheduled.isEmpty,
@@ -425,5 +430,204 @@ void main() {
 
     expect(issues, hasLength(2), reason: '同名不是同一件事：去重若按标题，用户会以为只缺一份 210 分钟');
     expect(issues.map((issue) => issue.title).toSet(), {'每周英语 还缺 210 分钟'});
+  });
+
+  // ── 计划 §2.8 / Task 6 Step 1：**恢复动作的映射表**逐条钉住 ───────────────────
+  //
+  // 这张表的每一行都对应一种**处置完全不同**的原因：改任务、改规则、管保护时间、
+  // 重新生成。映射只读 reason code——因此"按任务属性猜原因"在类型上就做不到。
+
+  test('映射表逐条符合 §2.8（含三张表没规定的三种原因）', () {
+    expect(recoveryActionsFor(UnscheduledReasonCode.deadlineWindowTooShort), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.continuousGapTooShort), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.minimumChunkTooLarge), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.availableTimeNotReached), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.dailyLimitReached), [
+      PreviewRecoveryAction.openPlanningRules,
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.protectedTimeOccupied), [
+      PreviewRecoveryAction.openProtectedTimeManagement,
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.insufficientCapacity), [
+      PreviewRecoveryAction.editTask,
+      PreviewRecoveryAction.openPlanningRules,
+    ]);
+    expect(
+      recoveryActionsFor(UnscheduledReasonCode.unexplainedSchedulingFailure),
+      [PreviewRecoveryAction.recalculate],
+    );
+    // §2.8 没有规定的三种：按"能改任务／规则"的最近一条补齐。
+    // 被固定日程或被锁定块占住时，可动的只有任务本身（改时段／改截止／换拆分方式）；
+    // 片段间休息是规划规则里的一个数（"片段间休息（分钟）"与每日上限同一张卡），
+    // 因此沿用 `dailyLimitReached` 那一行。
+    expect(recoveryActionsFor(UnscheduledReasonCode.fixedScheduleOccupied), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.lockedPlanOccupied), [
+      PreviewRecoveryAction.editTask,
+    ]);
+    expect(recoveryActionsFor(UnscheduledReasonCode.requiredBreakUnavailable), [
+      PreviewRecoveryAction.openPlanningRules,
+      PreviewRecoveryAction.editTask,
+    ]);
+  });
+
+  test('**枚举里的每个原因都有动作**：漏一个就是"读完了不知道去哪"', () {
+    for (final code in UnscheduledReasonCode.values) {
+      expect(
+        recoveryActionsFor(code),
+        isNotEmpty,
+        reason: '$code 没有任何恢复动作，用户读到的就只是一句无法行动的话',
+      );
+    }
+  });
+
+  test('**证据来自提案的最终诊断**，动作只由主原因决定', () {
+    final gap = ExcludedGapEvidence(
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 12, 6),
+        endUtc: DateTime.utc(2026, 10, 12, 6, 20),
+      ),
+      code: GapExclusionCode.shorterThanRequiredChunk,
+    );
+    final issues = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 30,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.dailyLimitReached,
+              placementRemainingMinutes: 30,
+            ),
+          ),
+        ],
+        placementDiagnostics: {
+          't-a': TaskPlacementDiagnostics(
+            remainingMinutes: 30,
+            capacity: const TaskCapacityEvidence(
+              calendarGapMinutes: 0,
+              taskWindowMinutes: 0,
+              taskPlaceableMinutes: 0,
+              remainingPlaceableMinutes: 0,
+              largestTaskWindowGapMinutes: 0,
+              largestRemainingGapMinutes: 0,
+              dailyLimitRemainingMinutes: 0,
+            ),
+            reasons: const [
+              UnscheduledReason(
+                code: UnscheduledReasonCode.dailyLimitReached,
+                placementRemainingMinutes: 30,
+              ),
+            ],
+            excludedGaps: [gap],
+            hasEligibleCandidate: false,
+          ),
+        },
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    );
+
+    expect(issues.single.taskId, 't-a');
+    expect(issues.single.excludedGaps, [gap]);
+    expect(issues.single.actions, [
+      PreviewRecoveryAction.openPlanningRules,
+      PreviewRecoveryAction.editTask,
+    ]);
+  });
+
+  test('**诊断缺失时证据为空**，而不是编一段空档出来', () {
+    final issues = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(taskId: 't-a', shortageMinutes: 30),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    );
+
+    expect(issues.single.excludedGaps, isEmpty);
+  });
+
+  test('**冲突行不给恢复动作**，但仍带上任务 id 供卡片显示', () {
+    final issues = buildPreviewIssues(
+      proposal: proposalOf(
+        conflicts: [
+          PlanningConflict(
+            code: ConflictCode.protectedTimeOverlap,
+            taskId: 't-a',
+          ),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    );
+
+    expect(issues.single.isBlocking, isTrue);
+    expect(issues.single.taskId, 't-a');
+    expect(issues.single.actions, isEmpty);
+  });
+
+  test('**空档文案：每个 code 一句能行动的中文，且不出现枚举名**', () {
+    for (final code in GapExclusionCode.values) {
+      final reason = gapExclusionReason(code);
+      expect(reason.trim(), isNotEmpty, reason: '$code 没有对应文案');
+      expect(
+        reason,
+        isNot(contains(code.name)),
+        reason: '用户看到的必须是中文句子，不是枚举成员名',
+      );
+    }
+    expect(
+      gapExclusionReason(GapExclusionCode.shorterThanRequiredChunk),
+      '这段空档短于最短片段',
+    );
+  });
+
+  test('**空档行写本地日期时间**（UTC 区间 → 东八区），跨午夜要带结束日期', () {
+    final zones = TimeZoneDatabase();
+    final sameDay = excludedGapLabel(
+      ExcludedGapEvidence(
+        range: TimeRange(
+          startUtc: DateTime.utc(2026, 10, 12, 6),
+          endUtc: DateTime.utc(2026, 10, 12, 6, 30),
+        ),
+        code: GapExclusionCode.occupiedByProtectedTime,
+      ),
+      zones: zones,
+      timeZoneId: 'Asia/Shanghai',
+    );
+
+    // 东八区 14:00–14:30（UTC 06:00–06:30）。
+    expect(sameDay, contains('10-12 14:00–14:30'));
+    expect(sameDay, contains('被保护时间占住'));
+    expect(sameDay, isNot(contains('06:00')), reason: '印 UTC 会让用户去找一段不存在的空档');
+
+    // 跨午夜：本地 10-12 23:30 → 10-13 00:30。
+    final acrossMidnight = excludedGapLabel(
+      ExcludedGapEvidence(
+        range: TimeRange(
+          startUtc: DateTime.utc(2026, 10, 12, 15, 30),
+          endUtc: DateTime.utc(2026, 10, 12, 16, 30),
+        ),
+        code: GapExclusionCode.requiredBreakUnavailable,
+      ),
+      zones: zones,
+      timeZoneId: 'Asia/Shanghai',
+    );
+    expect(
+      acrossMidnight,
+      contains('10-12 23:30–10-13 00:30'),
+      reason: '只写 23:30–00:30 会被读成同一天的倒退区间',
+    );
   });
 }

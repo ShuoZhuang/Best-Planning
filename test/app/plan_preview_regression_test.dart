@@ -32,6 +32,7 @@ import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/proposal_disposition.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
 
 void main() {
   const zoneId = 'Asia/Shanghai';
@@ -121,8 +122,11 @@ void main() {
   /// 提案：同一块将来的安排原样保留，但仍然缺 76 分钟。
   ///
   /// **刻意直接构造而不是跑引擎**：本文件要验的是**装配与渲染**（历史过滤器、
-  /// 标题表、warning/blocker 分级、按钮三态）。缺口的算术由
+  /// 标题表、warning/blocker 分级、按钮三态、空档证据）。缺口的算术由
   /// `short_remainder_test.dart` 与 `plan_validator_test.dart` 负责。
+  ///
+  /// 诊断数据（`placementDiagnostics`）按引擎的真实产出形状带上：预览要在"查看未使用空档"
+  /// 里显示**本地**时间与排除原因（§1.2 U4），而那两段空档就是用户在这份提案里看不到的容量。
   ScheduleProposal proposalFor(TimeRange planningWindow) => ScheduleProposal(
     proposalId: 'proposal:regression',
     inputHash: 'hash-regression',
@@ -147,6 +151,48 @@ void main() {
         ),
       ),
     ],
+    placementDiagnostics: {
+      contestTaskId: TaskPlacementDiagnostics(
+        remainingMinutes: 76,
+        // 容量证据不参与本文件的断言，用一份"没有可放位置"的最小事实即可。
+        capacity: const TaskCapacityEvidence(
+          calendarGapMinutes: 0,
+          taskWindowMinutes: 0,
+          taskPlaceableMinutes: 0,
+          remainingPlaceableMinutes: 0,
+          largestTaskWindowGapMinutes: 0,
+          largestRemainingGapMinutes: 0,
+          dailyLimitRemainingMinutes: 0,
+        ),
+        reasons: const [
+          UnscheduledReason(
+            code: UnscheduledReasonCode.insufficientCapacity,
+            placementRemainingMinutes: 76,
+          ),
+        ],
+        excludedGaps: [
+          // 10-12 本地 10:00–10:30（UTC 02:00–02:30）：短于最短片段。
+          ExcludedGapEvidence(
+            range: TimeRange(
+              startUtc: localUtc(10, 12, 10),
+              endUtc: localUtc(10, 12, 10, 30),
+            ),
+            code: GapExclusionCode.shorterThanRequiredChunk,
+            requiredMinutes: 30,
+            availableMinutes: 30,
+          ),
+          // 10-12 本地 11:00–11:45：被保护时间占住。
+          ExcludedGapEvidence(
+            range: TimeRange(
+              startUtc: localUtc(10, 12, 11),
+              endUtc: localUtc(10, 12, 11, 45),
+            ),
+            code: GapExclusionCode.occupiedByProtectedTime,
+          ),
+        ],
+        hasEligibleCandidate: false,
+      ),
+    },
     conflicts: const [],
     explanations: const [],
     metrics: const ProposalMetrics(
@@ -225,7 +271,11 @@ void main() {
     expect(model.disposition, ProposalDisposition.partialRequiresConfirmation);
   });
 
-  testWidgets('截图中可点击的“确认应用”被替换为“应用可安排部分”，且未确认前零写入', (tester) async {
+  testWidgets('截图中可点击的“确认应用”被替换为次要的“仍应用可安排部分”，且未确认前零写入', (tester) async {
+    // **本轮改动**（计划 §2.8 三态表 / §1.2 U2）：部分应用不再是全宽 `FilledButton`
+    // （"应用可安排部分"），而是次要危险动作 `OutlinedButton`（"仍应用可安排部分"），
+    // 并且同样要二次确认。断言从"按钮是 FilledButton"改成"它是 OutlinedButton、
+    // 且页面上没有那个误导性的全宽主按钮"。
     tester.view.physicalSize = const Size(1200, 2000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -268,9 +318,14 @@ void main() {
       findsNothing,
       reason: '明知装不下还显示可点击的“确认应用”，正是故障里的第三件事',
     );
-    final button = find.widgetWithText(FilledButton, '应用可安排部分');
+    expect(
+      find.widgetWithText(FilledButton, '应用可安排部分'),
+      findsNothing,
+      reason: '§2.8：可解释的真实缺口下，底部不得放误导性的全宽主按钮',
+    );
+    final button = find.widgetWithText(OutlinedButton, '仍应用可安排部分');
     expect(button, findsOneWidget);
-    expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+    expect(tester.widget<OutlinedButton>(button).onPressed, isNotNull);
 
     // 未确认之前不得写库：页面只负责把用户的意图报出去。
     expect(writes, 0);
@@ -284,7 +339,12 @@ void main() {
     expect(
       find.textContaining('76'),
       findsWidgets,
-      reason: '用户在选择“应用可安排部分”之前必须看到缺口分钟',
+      reason: '用户在选择“仍应用可安排部分”之前必须看到缺口分钟',
+    );
+    expect(
+      find.textContaining('仍留在待办中'),
+      findsOneWidget,
+      reason: '未排进去不等于被删除：二次确认必须说明它仍在待办里（§2.8 / Task 6 Step 4）',
     );
     expect(writes, 0, reason: '弹出确认框本身不是授权');
 
@@ -293,6 +353,59 @@ void main() {
 
     expect(applied, [PlanApplyMode.allowPartial]);
     expect(writes, 1, reason: '只有用户点“仍然应用”才真的调用应用服务');
+  });
+
+  testWidgets('装配链把最终诊断带进"查看未使用空档"，写的是本地时间与原因', (tester) async {
+    // §1.2 U4：用户看不出每段可见空档为何不能用。这条用例走的是**装配链**——
+    // 提案里的 `placementDiagnostics` → `buildPreviewIssues` → 预览页的展开项，
+    // 中间没有任何一步"重新猜原因"。
+    tester.view.physicalSize = const Size(1200, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final problem = await loadProblem();
+    final proposal = proposalFor(problem.planningWindow);
+    final model = assemble(proposal: proposal, problem: problem);
+
+    // ① 装配层：证据真的从提案走到了问题模型上。
+    expect(model.issues.single.excludedGaps, hasLength(2));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanPreviewPage(
+            model: model,
+            autoAdjustStore: MemoryAutoAdjustStore(),
+            zones: zones,
+            timeZoneId: zoneId,
+            onConfirm: (mode) async => ApplyPlanResult.stale(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // ② 默认只显示主原因，证据收在展开项里。
+    expect(find.text('查看未使用空档'), findsOneWidget);
+    expect(find.textContaining('短于最短片段'), findsNothing);
+
+    await tester.tap(find.text('查看未使用空档'));
+    await tester.pumpAndSettle();
+
+    // ③ 本地日期时间（东八区 10:00–10:30，UTC 是 02:00–02:30）与原因文案都在。
+    expect(find.textContaining('10-12 10:00–10:30'), findsOneWidget);
+    expect(find.textContaining('这段空档短于最短片段'), findsOneWidget);
+    expect(find.textContaining('这段时间被保护时间占住'), findsOneWidget);
+    expect(
+      find.textContaining('02:00'),
+      findsNothing,
+      reason: '空档行必须是本地时间：印 UTC 会让用户去找一段不存在的空档',
+    );
+    // ④ 枚举名与 task id 都不出现在用户眼前。
+    expect(find.textContaining('shorterThanRequiredChunk'), findsNothing);
+    expect(find.textContaining('occupiedByProtectedTime'), findsNothing);
+    expect(find.textContaining(contestTaskId), findsNothing);
   });
 
   testWidgets('页面不出现裸 UUID 与“10-10”“10-11”这类窗口前日期', (tester) async {

@@ -5,6 +5,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
 /// 一个任务排不下的**结构化**原因（路线图 Task 12A Step 6）。
 ///
@@ -220,12 +221,14 @@ final class ScheduleProposal {
     required List<PlanningConflict> conflicts,
     required List<PlanExplanation> explanations,
     required this.metrics,
+    Map<String, TaskPlacementDiagnostics> placementDiagnostics = const {},
     this.ruleOverride,
     this.adjustmentRequirement,
   }) : blocks = UnmodifiableListView(List.of(blocks)),
        unscheduled = UnmodifiableListView(List.of(unscheduled)),
        conflicts = UnmodifiableListView(List.of(conflicts)),
-       explanations = UnmodifiableListView(List.of(explanations));
+       explanations = UnmodifiableListView(List.of(explanations)),
+       placementDiagnostics = UnmodifiableMapView(Map.of(placementDiagnostics));
 
   final String proposalId;
   final String inputHash;
@@ -248,6 +251,17 @@ final class ScheduleProposal {
   final List<PlanningConflict> conflicts;
   final List<PlanExplanation> explanations;
   final ProposalMetrics metrics;
+
+  /// 每件有缺口任务的**最终放置诊断**（计划 §2.3）。
+  ///
+  /// **为什么必须随提案走**：诊断是"这段可见空档为什么用不上"的**唯一**事实源，
+  /// 而它由引擎在最终块集合上算出。若只留在引擎的局部变量里，预览层就只能**重新猜**
+  /// 一遍原因（那正是 R5／R6 的形态：原因取自旧轮次或与最终块不一致），
+  /// 或者干脆不给证据——用户盯着日历上的空白，页面却说不出它为什么空着（U4）。
+  ///
+  /// **它只进内存提案**：不写日志、不写遥测、不进数据库、不参与 `inputHash`。
+  /// 因此 `with*` 方法**原样传递**这份数据——它们是"同一份结果换个包装",不是新结果。
+  final Map<String, TaskPlacementDiagnostics> placementDiagnostics;
 
   /// 生成该提案时使用的一次性规则覆盖（见 `ScheduleRuleOverride`），没有则为 null。
   ///
@@ -277,6 +291,7 @@ final class ScheduleProposal {
         conflicts: conflicts,
         explanations: explanations,
         metrics: metrics,
+        placementDiagnostics: placementDiagnostics,
         ruleOverride: override,
         adjustmentRequirement: adjustmentRequirement,
       );
@@ -293,6 +308,7 @@ final class ScheduleProposal {
         conflicts: conflicts,
         explanations: explanations,
         metrics: metrics,
+        placementDiagnostics: placementDiagnostics,
         ruleOverride: ruleOverride,
         adjustmentRequirement: value,
       );
@@ -313,6 +329,7 @@ final class ScheduleProposal {
         conflicts: conflicts,
         explanations: explanations,
         metrics: metrics,
+        placementDiagnostics: placementDiagnostics,
         ruleOverride: ruleOverride,
       );
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
@@ -194,6 +196,7 @@ void main() {
           model: model,
           autoAdjustStore: store,
           onConfirm: (mode) async => ApplyPlanResult.stale(),
+          onRecalculate: () async {},
         ),
       ),
     );
@@ -212,57 +215,78 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('匹配高精力时段'), findsOneWidget);
 
-    // 过期 + 阻断 ⇒ 按钮既不是"确认应用"，也不可点击。
-    final confirm = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '无法应用'),
-    );
-    expect(confirm.onPressed, isNull);
+    // 过期 + 阻断 ⇒ **应用入口一个都不渲染**，主操作是可点的「重新生成计划」。
+    //
+    // 本轮断言被改写（计划 §2.8 三态表 / Task 6 Step 4）：修复前这里断言的是
+    // `FilledButton('无法应用').onPressed == null`——"把按钮禁用"来伪装问题解决，
+    // 正是计划 §6 明令禁止的捷径。现在阻断与过期**根本不渲染应用按钮**，
+    // 屏幕上的主操作是那个真正该做的动作。
+    expect(find.text('无法应用'), findsNothing, reason: '不许用禁用按钮伪装"已经处理"');
+    expect(find.widgetWithText(FilledButton, '确认应用'), findsNothing);
+    expect(find.widgetWithText(FilledButton, '应用可安排部分'), findsNothing);
     expect(find.text('提案已过期，请重新计算'), findsOneWidget);
+    final recalculate = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
+    );
+    expect(
+      recalculate.onPressed,
+      isNotNull,
+      reason: '§2.8：无法解释／过期的**主操作**就是可点的"重新生成计划"',
+    );
+    // U3：预览页不再有"信任自动调整"开关（它只留在设置页）。
+    expect(find.text('信任自动调整'), findsNothing);
     expect(store.enabled, isFalse);
   });
 
-  testWidgets('auto adjust defaults off but retains preview history', (
-    tester,
-  ) async {
-    final store = MemoryAutoAdjustStore();
-    var confirmations = 0;
-    final model = PlanPreviewModel(
-      proposalId: 'proposal-2',
-      changes: const [
-        PreviewChange(
-          kind: PreviewChangeKind.added,
-          title: '新增任务',
-          reason: '优先级较高',
+  testWidgets(
+    'auto adjust switch lives in settings; preview still records history',
+    (tester) async {
+      // 本用例本轮被改写（计划 §1.2 U3 / Task 6 Step 5）：预览页的
+      // `SwitchListTile('信任自动调整')` 已删除，因此"点开关"那一段不再存在。
+      // 保留下来的是它真正要证明的那件事：**确认预览仍然记录历史**，
+      // 以及那个开关不再出现在这一页。
+      final store = MemoryAutoAdjustStore();
+      var confirmations = 0;
+      final model = PlanPreviewModel(
+        proposalId: 'proposal-2',
+        changes: const [
+          PreviewChange(
+            kind: PreviewChangeKind.added,
+            title: '新增任务',
+            reason: '优先级较高',
+          ),
+        ],
+        issues: const [],
+        isStale: false,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PlanPreviewPage(
+            model: model,
+            autoAdjustStore: store,
+            onConfirm: (mode) async {
+              confirmations++;
+              return ApplyPlanResult.stale();
+            },
+          ),
         ),
-      ],
-      issues: const [],
-      isStale: false,
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: PlanPreviewPage(
-          model: model,
-          autoAdjustStore: store,
-          onConfirm: (mode) async {
-            confirmations++;
-            return ApplyPlanResult.stale();
-          },
-        ),
-      ),
-    );
+      );
 
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
-    await tester.ensureVisible(find.byType(Switch));
-    await tester.tap(find.byType(Switch));
-    await tester.pump();
-    await tester.ensureVisible(find.text('确认应用'));
-    await tester.tap(find.text('确认应用'));
-    await tester.pumpAndSettle();
+      expect(
+        find.byType(SwitchListTile),
+        findsNothing,
+        reason: 'U3：失败预览里不再有"信任自动调整"开关，开关只留在设置页',
+      );
+      expect(find.text('信任自动调整'), findsNothing);
 
-    expect(store.enabled, isTrue);
-    expect(store.history, contains('proposal-2'));
-    expect(confirmations, 1);
-  });
+      await tester.ensureVisible(find.text('确认应用'));
+      await tester.tap(find.text('确认应用'));
+      await tester.pumpAndSettle();
+
+      expect(store.history, contains('proposal-2'));
+      expect(confirmations, 1);
+    },
+  );
   // FR-REPLAN-08：撤销入口。两条用例分别钉住"确实撤销时给出已撤销"，以及"无可撤销时
   // 这是正常结局而不是故障"——后者若被当成异常，用户会看到一个错误提示。
   testWidgets('undo button reports the outcome it actually got', (
@@ -437,6 +461,11 @@ void main() {
     PlanPreviewModel model, {
     required Future<ApplyPlanResult> Function(PlanApplyMode mode) onConfirm,
     Future<void> Function()? onRecalculate,
+    Future<void> Function(PreviewRecoveryAction action, PreviewIssue issue)?
+    onRecover,
+    Set<PreviewRecoveryAction> availableRecoveryActions = const {},
+    TimeZoneDatabase? zones,
+    String? timeZoneId,
   }) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1;
@@ -450,6 +479,10 @@ void main() {
             autoAdjustStore: MemoryAutoAdjustStore(),
             onConfirm: onConfirm,
             onRecalculate: onRecalculate,
+            onRecover: onRecover,
+            availableRecoveryActions: availableRecoveryActions,
+            zones: zones,
+            timeZoneId: timeZoneId,
           ),
         ),
       ),
@@ -482,8 +515,12 @@ void main() {
     message: '写报告：时间块早于本次规划范围（这一块 15 分钟）',
   );
 
-  testWidgets('blocker ⇒ 按钮禁用且 onConfirm 调用 0 次', (tester) async {
+  testWidgets('blocker ⇒ 不渲染应用入口，主操作是可点的"重新生成计划"', (tester) async {
+    // **本用例本轮被改写**（计划 §2.8 / Task 6 Step 4）：它此前断言
+    // `FilledButton('无法应用').onPressed == null`——那正是"用禁用按钮伪装问题解决"。
+    // 现在阻断状态下应用按钮**不存在**，而主操作是真正该做的那件事。
     var calls = 0;
+    var recalculated = 0;
     await pumpModel(
       tester,
       modelWith(issues: const [blockerIssue]),
@@ -491,19 +528,24 @@ void main() {
         calls++;
         return ApplyPlanResult.stale();
       },
-      onRecalculate: () async {},
+      onRecalculate: () async => recalculated++,
     );
 
-    final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '无法应用'),
+    expect(find.text('无法应用'), findsNothing);
+    expect(find.widgetWithText(FilledButton, '确认应用'), findsNothing);
+    final main = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
     );
-    expect(button.onPressed, isNull);
+    expect(main.onPressed, isNotNull, reason: '无法解释／结构错误的主操作必须**可点**');
+    expect(calls, 0, reason: '阻断时不得调用应用服务');
+
+    await tester.tap(find.byKey(const Key('recalculate-plan')));
+    await tester.pumpAndSettle();
+    expect(recalculated, 1, reason: '那个可点的主操作必须真的走到重新生成');
     expect(calls, 0);
-    // 阻断时给出"重新生成计划"这条出路（否则用户被留在死路上）。
-    expect(find.byKey(const Key('recalculate-after-block')), findsOneWidget);
   });
 
-  testWidgets('warning ⇒ 按钮为"应用可安排部分"；取消对话框调用 0 次，确认后传 allowPartial', (
+  testWidgets('warning ⇒ 次要的"仍应用可安排部分"；取消对话框调用 0 次，确认后传 allowPartial', (
     tester,
   ) async {
     final modes = <PlanApplyMode>[];
@@ -523,15 +565,23 @@ void main() {
       },
     );
 
-    final button = find.widgetWithText(FilledButton, '应用可安排部分');
+    // **本轮改动**（§2.8 三态表 / §1.2 U2）：部分应用从全宽 `FilledButton`
+    // 降级为次要的 `OutlinedButton`，文案也改成"仍应用可安排部分"。
+    final button = find.widgetWithText(OutlinedButton, '仍应用可安排部分');
     expect(button, findsOneWidget);
+    expect(
+      find.widgetWithText(FilledButton, '确认应用'),
+      findsNothing,
+      reason: '可解释的真实缺口下，底部不得放误导性的全宽主按钮',
+    );
 
     // 第一次：取消。
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.text('取消'), findsOneWidget);
-    // 对话框里必须列出**全部缺口**（标题＋原因）。
+    // 对话框里必须列出**全部缺口**（标题＋原因），并说明未安排部分仍在待办中。
     expect(find.text('写报告 还缺 30 分钟'), findsWidgets);
+    expect(find.textContaining('仍留在待办中'), findsOneWidget);
     expect(modes, isEmpty, reason: '弹出确认框本身不是授权');
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
@@ -568,7 +618,10 @@ void main() {
     expect(modes, [PlanApplyMode.completeOnly]);
   });
 
-  testWidgets('stale ⇒ 重算入口可用，且主按钮禁用', (tester) async {
+  testWidgets('stale ⇒ 主操作是可点的"重新生成计划"，且没有应用入口', (tester) async {
+    // **本用例本轮被改写**（§2.8 三态表）：修复前这里断言的是
+    // `FilledButton('无法应用').onPressed == null` + 一条次要的重新生成入口。
+    // 现在过期状态的主操作**就是**那个可点的"重新生成计划"。
     var recalculated = 0;
     await pumpModel(
       tester,
@@ -577,10 +630,12 @@ void main() {
       onRecalculate: () async => recalculated++,
     );
 
-    final confirm = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '无法应用'),
+    expect(find.text('无法应用'), findsNothing);
+    expect(find.widgetWithText(FilledButton, '确认应用'), findsNothing);
+    final main = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
     );
-    expect(confirm.onPressed, isNull);
+    expect(main.onPressed, isNotNull);
     await tester.tap(find.byKey(const Key('recalculate-plan')));
     await tester.pumpAndSettle();
     expect(recalculated, 1);
@@ -619,6 +674,7 @@ void main() {
 
   testWidgets('应用返回 invalid ⇒ 显示具体原因，且不能继续点击同一个失败按钮', (tester) async {
     var calls = 0;
+    var recalculated = 0;
     await pumpModel(
       tester,
       modelWith(),
@@ -633,7 +689,7 @@ void main() {
           ),
         ]);
       },
-      onRecalculate: () async {},
+      onRecalculate: () async => recalculated++,
     );
 
     await tester.tap(find.widgetWithText(FilledButton, '确认应用'));
@@ -644,20 +700,20 @@ void main() {
     expect(find.text('应用未完成'), findsOneWidget);
     expect(find.textContaining('早于本次规划范围'), findsWidgets);
 
-    // 失败之后主按钮禁用：不允许无限重复点击同一个必失败操作。
-    final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '无法应用'),
+    // 失败之后**应用入口消失**：不允许无限重复点击同一个必失败操作。
+    // （本轮改动：此前是一个禁用的"无法应用"按钮 + 次要的重新生成入口，
+    //  现在主操作直接就是可点的"重新生成计划"，见 §2.8 三态表。）
+    expect(find.widgetWithText(FilledButton, '确认应用'), findsNothing);
+    final main = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
     );
-    expect(button.onPressed, isNull);
-    expect(find.byKey(const Key('recalculate-after-block')), findsOneWidget);
+    expect(main.onPressed, isNotNull);
 
-    // 再点也不会触发新的调用。
-    await tester.tap(
-      find.widgetWithText(FilledButton, '无法应用'),
-      warnIfMissed: false,
-    );
+    // 再点也不会触发新的应用调用：那个按钮已经不在页面上了。
+    await tester.tap(find.byKey(const Key('recalculate-plan')));
     await tester.pumpAndSettle();
     expect(calls, 1);
+    expect(recalculated, 1);
   });
 
   testWidgets('快速双击确认只发生一次写入', (tester) async {
@@ -707,5 +763,241 @@ void main() {
     );
 
     expect(find.textContaining(uuid), findsNothing);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 计划 §2.8 / Task 6 Step 1～3：**恢复动作**与**未使用空档证据**。
+  //
+  // 这一组验的是页面侧的三件事：
+  //   ① 每条问题卡按 `issue.actions` 显示动作，并把（动作，问题）原样报给装配层；
+  //   ② **不能做的动作不显示**（未装配、缺 taskId、阻断问题）——
+  //      给一个点了没反应的按钮比不给更糟；
+  //   ③ 空档证据默认收起，首屏最多 6 行，其余折叠成"另有 N 段"，且写的是**本地**时间。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  PreviewIssue warningWithActions({
+    String? taskId = 't-a',
+    List<PreviewRecoveryAction> actions = const [
+      PreviewRecoveryAction.openPlanningRules,
+    ],
+  }) => PreviewIssue(
+    key: 'unscheduled:t-a:30',
+    severity: PreviewIssueSeverity.warning,
+    title: '写报告 还缺 30 分钟',
+    message: '每日上限已经用满。',
+    taskId: taskId,
+    actions: actions,
+  );
+
+  testWidgets('恢复动作按 issue.actions 显示，并把（动作，问题）交给装配层', (tester) async {
+    final received = <String>[];
+    final issue = warningWithActions(
+      actions: const [
+        PreviewRecoveryAction.openPlanningRules,
+        PreviewRecoveryAction.editTask,
+      ],
+    );
+    await pumpModel(
+      tester,
+      modelWith(issues: [issue]),
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      onRecover: (action, recovered) async =>
+          received.add('${action.name}:${recovered.key}'),
+      availableRecoveryActions: const {
+        PreviewRecoveryAction.openPlanningRules,
+        PreviewRecoveryAction.editTask,
+      },
+    );
+
+    // 文案是用户语言，不是枚举名。
+    expect(find.text('调整规划规则'), findsOneWidget);
+    expect(find.text('编辑任务'), findsOneWidget);
+    expect(find.textContaining('openPlanningRules'), findsNothing);
+
+    await tester.tap(find.byKey(Key('recovery-${issue.key}-editTask')));
+    await tester.pumpAndSettle();
+
+    expect(received, ['editTask:${issue.key}']);
+  });
+
+  testWidgets('未装配的动作、缺 taskId 的"编辑任务"都不显示', (tester) async {
+    await pumpModel(
+      tester,
+      modelWith(
+        issues: [
+          warningWithActions(
+            taskId: null,
+            actions: const [
+              PreviewRecoveryAction.editTask,
+              PreviewRecoveryAction.openProtectedTimeManagement,
+            ],
+          ),
+        ],
+      ),
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      onRecover: (action, issue) async {},
+      // 保护时间管理这次没接线；editTask 虽在集合里，但这条问题没有 taskId。
+      availableRecoveryActions: const {PreviewRecoveryAction.editTask},
+    );
+
+    expect(find.text('编辑任务'), findsNothing);
+    expect(find.text('管理保护时间'), findsNothing);
+  });
+
+  testWidgets('完全没有装配恢复回调时，一条动作都不渲染', (tester) async {
+    await pumpModel(
+      tester,
+      modelWith(issues: [warningWithActions()]),
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      availableRecoveryActions: const {PreviewRecoveryAction.openPlanningRules},
+    );
+
+    expect(find.text('调整规划规则'), findsNothing);
+  });
+
+  testWidgets('阻断问题不给恢复动作：出路只在底部主操作上', (tester) async {
+    final blocker = PreviewIssue(
+      key: 'unscheduled:t-a:180',
+      severity: PreviewIssueSeverity.blocking,
+      title: '写报告 还缺 180 分钟',
+      message: '排程没有使用仍可用的合法时段。',
+      taskId: 't-a',
+      // 引擎在"无法解释"这条原因上会给出 recalculate；它是阻断问题，
+      // 因此卡片上**不显示**它（由底部那个可点的主操作承担），避免同一页两个同义按钮。
+      actions: const [PreviewRecoveryAction.recalculate],
+    );
+    await pumpModel(
+      tester,
+      modelWith(issues: [blocker]),
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      onRecover: (action, issue) async {},
+      onRecalculate: () async {},
+      availableRecoveryActions: const {PreviewRecoveryAction.recalculate},
+    );
+
+    expect(
+      find.byKey(Key('recovery-${blocker.key}-recalculate')),
+      findsNothing,
+    );
+    // 底部主操作仍然是那个可点的"重新生成计划"。
+    final main = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
+    );
+    expect(main.onPressed, isNotNull);
+  });
+
+  testWidgets('未使用空档：默认收起、首屏最多 6 行、其余折叠为"另有 N 段"，且写本地时间', (tester) async {
+    final zones = TimeZoneDatabase();
+    // 8 段空档：UTC 06:00 起每 5 分钟一段（东八区 = 本地 14:00 起）。
+    // **8 > 6**：正好越过首屏上限，用来钉住"折叠但不截断"。
+    final gaps = [
+      for (var index = 0; index < 8; index++)
+        ExcludedGapEvidence(
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 10, 12, 6, index * 5),
+            endUtc: DateTime.utc(2026, 10, 12, 6, index * 5 + 5),
+          ),
+          code: GapExclusionCode.shorterThanRequiredChunk,
+          requiredMinutes: 30,
+          availableMinutes: 5,
+        ),
+    ];
+    final issue = PreviewIssue(
+      key: 'unscheduled:t-a:30',
+      severity: PreviewIssueSeverity.warning,
+      title: '写报告 还缺 30 分钟',
+      message: '这一天的任务每日上限已经用满。',
+      taskId: 't-a',
+      excludedGaps: gaps,
+    );
+    await pumpModel(
+      tester,
+      modelWith(issues: [issue]),
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      zones: zones,
+      timeZoneId: 'Asia/Shanghai',
+    );
+
+    // ① 默认**只显示主原因**：证据收在展开项里，首屏看不到那 8 行。
+    expect(find.text('查看未使用空档'), findsOneWidget);
+    expect(find.textContaining('每日上限'), findsWidgets);
+    expect(
+      find.textContaining('短于最短片段'),
+      findsNothing,
+      reason: '默认只显示主原因；展开项里才是每段空档的排除原因',
+    );
+    expect(find.textContaining('14:00'), findsNothing);
+
+    await tester.tap(find.text('查看未使用空档'));
+    await tester.pumpAndSettle();
+
+    // ② 首屏 6 行 + "另有 2 段"；数据本身没有被截断（8 段都在 `excludedGaps` 里）。
+    expect(gaps, hasLength(8));
+    expect(find.textContaining('短于最短片段'), findsNWidgets(6));
+    expect(find.text('另有 2 段'), findsOneWidget);
+
+    // ③ 时间必须写成**本地**时间（UTC 06:00 ⇒ 东八区 14:00），不能印 UTC。
+    expect(find.textContaining('14:00'), findsWidgets);
+    expect(
+      find.textContaining('06:00'),
+      findsNothing,
+      reason: '印 UTC 会让用户去日历上找一段时间，而那段时间其实是空的',
+    );
+    // ④ 绝不显示枚举名。
+    expect(find.textContaining('shorterThanRequiredChunk'), findsNothing);
+
+    // ⑤ 展开"另有 2 段"之后 8 段全在。
+    await tester.tap(find.text('另有 2 段'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('短于最短片段'), findsNWidgets(8));
+    expect(find.text('另有 2 段'), findsNothing);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 计划 Task 6 Step 2：**从"编辑任务／规划规则／保护时间"回来之后，旧提案作废**。
+  //
+  // 装配层（`router.dart` 的 `_PlanPreviewLoaderState`）在导航之前调用 `asStale()`；
+  // 这里钉住那一步的语义：内容不变、状态变过期，页面因此只给"重新生成计划"。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('asStale：内容不变、不允许再应用，主操作只剩"重新生成计划"', (tester) async {
+    final loaded = modelWith(
+      issues: [warningWithActions()],
+      changes: const [
+        PreviewChange(
+          kind: PreviewChangeKind.added,
+          title: '新增任务',
+          reason: 'r',
+        ),
+      ],
+    );
+    final stale = loaded.asStale();
+
+    // ① 模型层：只换状态，不动内容。
+    expect(stale.isStale, isTrue);
+    expect(loaded.isStale, isFalse);
+    expect(stale.proposalId, loaded.proposalId);
+    expect(stale.changes, loaded.changes);
+    expect(stale.issues, loaded.issues);
+
+    // ② 页面层：过期 ⇒ 没有应用入口，主操作是可点的"重新生成计划"。
+    var recalculated = 0;
+    await pumpModel(
+      tester,
+      stale,
+      onConfirm: (mode) async => ApplyPlanResult.stale(),
+      onRecalculate: () async => recalculated++,
+    );
+
+    expect(find.text('提案已过期，请重新计算'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '确认应用'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, '仍应用可安排部分'), findsNothing);
+    final main = tester.widget<FilledButton>(
+      find.byKey(const Key('recalculate-plan')),
+    );
+    expect(main.onPressed, isNotNull);
+    await tester.tap(find.byKey(const Key('recalculate-plan')));
+    await tester.pumpAndSettle();
+    expect(recalculated, 1);
   });
 }

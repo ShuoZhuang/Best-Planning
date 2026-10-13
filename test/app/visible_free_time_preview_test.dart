@@ -86,6 +86,16 @@ void main() {
     expect(issue.severity, PreviewIssueSeverity.blocking);
     expect(issue.isBlocking, isTrue, reason: '不得自动应用，也不得"应用可安排部分"');
     expect(issue.title, '写报告 还缺 180 分钟');
+    // 计划 §2.8：这条原因对应的动作是"重新生成计划"，而它是**阻断**问题——
+    // 卡片上不显示动作，出路由页面底部那个可点的主操作承担（见
+    // `PlanPreviewPage` 的 `_ConfirmButton` 与 `plan_preview_test.dart` 同名用例）。
+    expect(issue.taskId, 't-a');
+    expect(issue.actions, [PreviewRecoveryAction.recalculate]);
+    expect(
+      issue.excludedGaps,
+      isEmpty,
+      reason: '证据只来自提案里的最终诊断；测试直接构造的提案没有诊断，页面就不编一段空档出来',
+    );
     expect(
       issue.message,
       isNot(contains('可用时间不足')),
