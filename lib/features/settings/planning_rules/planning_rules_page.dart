@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/models/protected_time_overlap.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/notifications/notification_preferences_section.dart';
@@ -246,6 +247,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     final errors = <String, String>{};
     final weekdaySleep = _range('weekday-sleep', errors);
     final weekendSleep = _range('weekend-sleep', errors);
+    final breakfast = _protected(ProtectedTimeKind.breakfast, errors);
     final lunch = _protected(ProtectedTimeKind.lunch, errors);
     final dinner = _protected(ProtectedTimeKind.dinner, errors);
     final rest = _protected(ProtectedTimeKind.fixedRest, errors);
@@ -270,6 +272,25 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
     if (minChunk != null && maxChunk != null && minChunk > maxChunk) {
       errors['max-chunk-minutes'] = '不能小于最短片段';
     }
+    // **保护窗口重叠必须阻止保存并指出具体区间**（计划 §2.4／Task 9 Step 3）。
+    //
+    // 放在这里而不是"保存时让服务合并"：静默合并会**重复计算保护分钟**——
+    // 早餐 30 分钟与睡眠重叠的那 30 分钟会被算两遍，而用户看到的是总保护时长变多了。
+    // 计划明确要求"不能静默合并"。
+    final protectedDrafts = [?breakfast, ?lunch, ?dinner, ?rest];
+    for (final draft in protectedDrafts) {
+      final overlaps = findProtectedTimeOverlaps(
+        kind: draft.kind,
+        range: draft.range,
+        protectedTimes: protectedDrafts,
+        // 睡眠也要比：早餐最常见的错误就是与"最低睡眠"的尾巴叠在一起。
+        sleepRange: draft.kind == ProtectedTimeKind.breakfast
+            ? weekdaySleep
+            : null,
+      );
+      if (overlaps.isEmpty) continue;
+      errors['protected-${draft.kind.name}'] = overlaps.first.describe();
+    }
     if (errors.isNotEmpty) {
       setState(() {
         _errors = errors;
@@ -283,7 +304,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
       await widget.service.saveUserRules(
         UserPlanningRules(
           common: PlanningRulesPatch(
-            protectedTimes: [?lunch, ?dinner, ?rest],
+            protectedTimes: [?breakfast, ?lunch, ?dinner, ?rest],
             minimumSleepMinutes: minimumSleep,
             defaultFocusMinutes: focus,
             breakMinutes: breakMinutes,
@@ -451,6 +472,10 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
                       _rangeRow('工作日睡眠', 'weekday-sleep'),
                       _rangeRow('周末睡眠', 'weekend-sleep'),
                       _numberField('最低睡眠（分钟）', 'minimum-sleep-minutes'),
+                      // **早餐排在睡眠之后、午餐之前**（计划 Task 9 Step 2）。
+                      // 顺序与 `ProtectedTimeKind` 的声明顺序一致，因此这里逐个列出而不是
+                      // 循环 `values`：睡眠行夹在中间，循环表达不了这个顺序。
+                      _protectedRangeRow('早餐保护', ProtectedTimeKind.breakfast),
                       _protectedRangeRow('午餐保护', ProtectedTimeKind.lunch),
                       _protectedRangeRow('晚餐保护', ProtectedTimeKind.dinner),
                       _protectedRangeRow('固定休息', ProtectedTimeKind.fixedRest),
@@ -664,7 +689,10 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
           value: enabled,
           onChanged: (value) => setState(() => _protectedEnabled[kind] = value),
         ),
-        if (enabled) _rangeRow('$label时段', key),
+        // **时段行始终显示**（计划 Task 9 Step 2："早餐保护 07:30–08:00"必须
+        // 在关闭状态下也看得见）：把建议值藏进"打开之后才出现"的行里，
+        // 用户根本不知道默认是什么，也就无法判断要不要开。
+        _rangeRow('$label时段', key),
       ],
     );
   }
