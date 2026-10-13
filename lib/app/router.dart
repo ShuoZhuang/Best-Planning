@@ -1252,6 +1252,10 @@ GoRouter createPlannerRouter({
                 // 这一页据此把那条标记出来（"定位该日程"）。为空时行为与从前一样。
                 highlightEventId: state.uri.queryParameters['event'],
                 onOpenWeek: () => context.go('/calendar'),
+                // **规则来源的保护时间给一条去设置的路**（计划 Task 8 Step 3）：
+                // 它们没有锚点行，只能在设置页改规则。
+                onOpenProtectedTimeSettings: () =>
+                    context.go('/settings/rules'),
                 // 调整固定日程的归属。领域清单从工作区读，页面只交回选中的 id。
                 onSetEventArea: calendarService == null
                     ? null

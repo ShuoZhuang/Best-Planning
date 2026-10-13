@@ -143,6 +143,8 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           categoryLabel: category.label,
           categoryColorArgb: category.colorArgb,
           categorySortOrder: category.sortOrder,
+          // **规则来源**：没有锚点，因此不能编辑也不能删除（计划 Task 8 Step 3）。
+          fromRules: true,
         ),
       );
     }

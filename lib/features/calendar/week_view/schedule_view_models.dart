@@ -86,6 +86,7 @@ final class ScheduleViewItem {
     this.notes = '',
     this.repeats = false,
     this.updatedAtUtc,
+    this.fromRules = false,
   });
 
   final String id;
@@ -154,6 +155,17 @@ final class ScheduleViewItem {
   /// 改写时原样带回去：数据库里的值变了就说明别处改过，此时应当让用户重新打开，
   /// 而不是把人家的改动覆盖掉。为空表示无从判断（手工构造的条目）。
   final DateTime? updatedAtUtc;
+
+  /// 这一条是**规则来源**的保护时间（睡眠／早餐／午餐／晚餐／固定休息）。
+  ///
+  /// 计划 Task 8 Step 3 要求日视图区别对待两类保护时间：
+  /// **自定义的**显示"编辑／删除"，**规则来源**的显示"去设置"——因为它们没有
+  /// `CalendarEvent` 锚点（计划 §2.3 末段），删不掉也改不了，只能去设置页改规则。
+  ///
+  /// **不能靠 id 前缀推断**：一类是 `fixed:<eventId>` 而另一类是
+  /// `protected:<kind>:<date>:…`，按前缀分辨等于把 id 的拼接格式当成契约——
+  /// 那个格式一变，这里就会静默地把"删得掉的"和"删不掉的"弄反。
+  final bool fromRules;
 }
 
 abstract interface class ScheduleViewSource {

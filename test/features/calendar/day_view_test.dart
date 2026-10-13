@@ -56,6 +56,7 @@ ScheduleViewItem _item({
   int? categoryColorArgb,
   int? categorySortOrder,
   String notes = '',
+  bool fromRules = false,
   // **默认 `true`**：这一页多数用例关心的是"三个范围选项各自走哪条路"，
   // 而范围选项只在重复事项上出现。一次性事项那一条另有专门用例。
   bool repeats = true,
@@ -69,6 +70,7 @@ ScheduleViewItem _item({
   categorySortOrder: categorySortOrder ?? kind.index,
   notes: notes,
   repeats: repeats,
+  fromRules: fromRules,
   range: TimeRange(
     startUtc: DateTime.utc(2026, 10, 5, startHourUtc),
     endUtc: DateTime.utc(2026, 10, 5, startHourUtc + durationHours),
@@ -1285,6 +1287,71 @@ void main() {
       findsOneWidget,
       reason: 'stale 要用户做的事是重新打开，而不是重试',
     );
+  });
+
+  testWidgets('**规则来源的保护时间给「去设置」，自定义的给「编辑／删除」**', (tester) async {
+    // 两类保护时间在界面上必须区别对待：**自定义的**（有 `CalendarEvent` 锚点）
+    // 能改名、能删；**规则来源的**（睡眠／早餐／午餐／晚餐／固定休息）没有锚点，
+    // 只能在设置页改规则。计划 §2.3 末段写明了这个区别。
+    var openedSettings = 0;
+    await tester.binding.setSurfaceSize(const Size(1000, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: Scaffold(
+          body: DayViewPage(
+            source: _Items([
+              _item(
+                id: 'fixed:evt-custom',
+                title: '自定义保护',
+                kind: ScheduleItemKind.protectedTime,
+                startHourUtc: 4,
+              ),
+              // 规则来源的那一条：显式标记 `fromRules`。
+              _item(
+                id: 'protected:lunch:2026-10-05:1',
+                title: '午餐保护',
+                kind: ScheduleItemKind.protectedTime,
+                startHourUtc: 12,
+                fromRules: true,
+              ),
+            ]),
+            dayStartUtc: _dayStartUtc,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'UTC',
+            onDeleteEvent: (id) async => true,
+            onEditEvent: (request) async => OccurrenceEditOutcome.saved,
+            onOpenProtectedTimeSettings: () => openedSettings++,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 自定义的那一条：有编辑与删除。
+    await tester.ensureVisible(find.byKey(const Key('edit-fixed:evt-custom')));
+    expect(find.byKey(const Key('edit-fixed:evt-custom')), findsOneWidget);
+    expect(find.byKey(const Key('delete-fixed:evt-custom')), findsOneWidget);
+
+    // 规则来源的那一条：没有编辑入口（改不了），但有「去设置」。
+    final settings = find.byKey(
+      const Key('settings-protected:lunch:2026-10-05:1'),
+    );
+    expect(
+      settings,
+      findsOneWidget,
+      reason:
+          '不给入口等于告诉用户这条东西没法改，而它其实改得了——'
+          '只是要在设置页改规则',
+    );
+
+    await tester.ensureVisible(settings);
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(openedSettings, 1);
   });
 
   testWidgets('从周视图可以切到日视图', (tester) async {

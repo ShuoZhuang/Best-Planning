@@ -29,6 +29,7 @@ final class DayViewPage extends StatelessWidget {
     this.onDeleteOccurrence,
     this.onDeleteFollowing,
     this.onEditEvent,
+    this.onOpenProtectedTimeSettings,
     this.onSetEventArea,
     this.loadAreaOptions,
     this.highlightEventId,
@@ -79,6 +80,13 @@ final class DayViewPage extends StatelessWidget {
   onEditEvent;
 
   final VoidCallback? onOpenWeek;
+
+  /// 规则来源的保护时间那一行的「去设置」入口（为空时不显示）。
+  ///
+  /// 规则来源的保护时间（睡眠／早餐／午餐／晚餐／固定休息）没有 `CalendarEvent` 锚点，
+  /// 因此在日视图上既不能改名也不能删除——它们只能在设置页改规则。
+  /// 不给这个入口等于告诉用户「这条东西没法改」，而它其实改得了。
+  final VoidCallback? onOpenProtectedTimeSettings;
 
   /// 调整固定日程的**所属领域**（`null` 取消归属）。返回是否改成功。
   ///
@@ -197,7 +205,12 @@ final class DayViewPage extends StatelessWidget {
                           if (onDeleteEvent != null)
                             IconButton(
                               key: Key('delete-${item.id}'),
-                              tooltip: eventId == null
+                              tooltip: item.fromRules
+                                  // **规则来源的保护时间删不掉**（计划 Task 8 Step 3）：
+                                  // 它没有锚点行，只能去设置页改规则。说"只有固定日程
+                                  // 可以删除"会让用户以为自己看错了类别。
+                                  ? '这条来自设置里的长期规则，去设置里改'
+                                  : eventId == null
                                   ? '只有固定日程可以删除'
                                   : '删除这条日程',
                               icon: const Icon(Icons.delete_outline),
@@ -211,6 +224,17 @@ final class DayViewPage extends StatelessWidget {
                                       onDeleteOccurrence: onDeleteOccurrence,
                                       onDeleteFollowing: onDeleteFollowing,
                                     ),
+                            ),
+                          // **规则来源的保护时间给一条"去设置"**（计划 Task 8 Step 3）：
+                          // 不给入口等于告诉用户"这条东西没法改"，而它其实改得了——
+                          // 只是要在设置页改规则，而不是在这一页改这一次。
+                          if (item.fromRules &&
+                              onOpenProtectedTimeSettings != null)
+                            IconButton(
+                              key: Key('settings-${item.id}'),
+                              tooltip: '去设置里改这条长期保护规则',
+                              icon: const Icon(Icons.settings_outlined),
+                              onPressed: onOpenProtectedTimeSettings,
                             ),
                           if (setArea != null && loadOptions != null)
                             IconButton(
