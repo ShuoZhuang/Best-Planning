@@ -1,37 +1,48 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
-import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/protected_time_series.dart';
+import 'package:personal_planner/domain/repositories/protected_time_series_repository.dart';
 
-/// 「管理保护时间」：一份**能看的清单**，可以新建也可以删（计划 Task 8 的
-/// `protected_time_list_page.dart`；规范 §9.1／§9.3）。
+/// 「管理保护时间」：用户自建的保护时间**系列清单**（规范 §9.1／§9.3；
+/// 课程与保护时间管理修复计划 Task 6）。
 ///
-/// **为什么需要它**：周视图工具栏那颗按钮的标签是「管理保护时间」，
-/// 而它此前直接打开**新建编辑器** —— 用户能看到"管"，却看不到"被管的东西"。
-/// `CalendarService.deleteEvent` 对保护时间也一直没有界面入口，
-/// 尽管规范 §9.3 要求"保护时间支持与固定日程相同的范围"（至少含删除）。
+/// ## 本轮改掉了什么
 ///
-/// **只列保护时间**：固定日程有自己的入口；混在一起会让这个页面名不副实
-/// （与本批次 §7.1"标签与动作必须一致"同一条口径）。
+/// 页面此前读的是"未来 180 天的**展开结果**"，于是
+///
+/// - 一条"每周二健身"按发生次数出现 26 行（用户以为建了 26 条）；
+/// - 180 天之外的系列**根本读不到**；
+/// - 只能删，不能改（改名完全没有入口）。
+///
+/// 现在读的是**锚点行**：一行 = 一条用户建的系列，可以直接打开编辑。
+///
+/// **只列用户自建的那些**：睡眠／早餐／午餐／晚餐／固定休息来自
+/// `PlanningRules.protectedTimes`，没有 `CalendarEvent` 锚点（计划 §2.3 末段），
+/// 因此这份清单里不出现它们——那不是遗漏，是事实。
 final class ProtectedTimeListPage extends StatefulWidget {
   const ProtectedTimeListPage({
-    required this.service,
+    required this.reader,
     required this.timeZoneId,
     required this.zones,
-    required this.nowUtc,
+    this.calendar,
+    this.nowUtc,
     this.onManaged,
     this.onEditSeries,
     super.key,
   });
 
-  final CalendarService service;
+  /// 系列读模型（一条锚点一行）。
+  final ProtectedTimeSeriesReader reader;
+
+  /// 删除仍走日历服务：删的是锚点行本身。为空时不显示删除入口。
+  final CalendarService? calendar;
+
   final String timeZoneId;
   final TimeZoneDatabase zones;
 
-  /// 读取窗口的起点。**由调用方给定**而不是让页面自己去问时钟：
-  /// 页面不该依赖一个可变的全局时间源，测试也才能固定它
-  /// （与全仓库"时区／时钟都从入口注入"的口径一致）。
-  final DateTime nowUtc;
+  /// 保留给"按今天高亮"之类展示用途；系列清单本身不依赖时钟。
+  final DateTime? nowUtc;
 
   /// 「新建保护时间」的去处。为空时**不显示该按钮**——不给点了没反应的入口。
   final VoidCallback? onManaged;
@@ -49,15 +60,9 @@ final class ProtectedTimeListPage extends StatefulWidget {
 }
 
 final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
-  /// 读取窗口：今天起 180 天。
-  ///
-  /// 取一个明确窗口而不是"全部"：`occurrencesBetween` 的契约就是窗口查询，
-  /// 而保护时间通常按周重复、长期有效，180 天足以覆盖用户要管理的范围。
-  static const _windowDays = 180;
-
   bool _loaded = false;
   String? _error;
-  List<CalendarOccurrence> _entries = const [];
+  List<ProtectedTimeSeries> _series = const [];
 
   @override
   void initState() {
@@ -67,19 +72,12 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
 
   Future<void> _load() async {
     try {
-      final now = widget.nowUtc;
-      final occurrences = await widget.service.occurrencesBetween(
-        now,
-        now.add(const Duration(days: _windowDays)),
-      );
+      final series = await widget.reader.listProtectedSeries();
       if (!mounted) return;
       setState(() {
         _loaded = true;
         _error = null;
-        _entries = [
-          for (final occurrence in occurrences)
-            if (occurrence.kind == CalendarEventKind.protected) occurrence,
-        ];
+        _series = series;
       });
     } on Object catch (error) {
       if (!mounted) return;
@@ -90,13 +88,19 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
     }
   }
 
-  Future<void> _delete(CalendarOccurrence entry) async {
+  Future<void> _delete(ProtectedTimeSeries series) async {
+    final calendar = widget.calendar;
+    if (calendar == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const Key('protected-delete-dialog'),
-        title: Text('删除「${entry.title}」？'),
-        content: const Text('这段时间将不再被保护，任务可以被排进来。'),
+        title: Text('删除「${series.title}」？'),
+        content: Text(
+          series.repeats
+              ? '这会删掉整条重复规则。这段时间将不再被保护，任务可以被排进来。'
+              : '这段时间将不再被保护，任务可以被排进来。',
+        ),
         actions: [
           TextButton(
             key: const Key('protected-delete-cancel'),
@@ -114,7 +118,7 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
     if (confirmed != true || !mounted) return;
 
     // **按返回结果说话**：删除失败时如实报出，而不是把它从列表里抹掉假装成功。
-    final ok = await widget.service.deleteEvent(entry.eventId);
+    final ok = await calendar.deleteEvent(series.anchorId);
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context)
@@ -150,7 +154,8 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          '保护时间是排程的硬禁区：任务不会被排进这些时段。',
+          '保护时间是排程的硬禁区：任务不会被排进这些时段。'
+          '每条规则只列一行，改一条就是改整个系列。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
@@ -168,10 +173,10 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
         child: Text(message, key: const Key('protected-list-error')),
       );
     }
-    if (_entries.isEmpty) {
+    if (_series.isEmpty) {
       return Center(
         child: Text(
-          '接下来 $_windowDays 天里还没有保护时间。'
+          '还没有自定义保护时间。'
           '可以在设置里加长期规则，或用「新建保护时间」加一次性时段。',
           key: const Key('protected-list-empty'),
           textAlign: TextAlign.center,
@@ -180,40 +185,76 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
       );
     }
     return ListView(
-      children: [
-        for (final entry in _entries)
-          ListTile(
-            key: Key('protected-list-${entry.eventId}'),
-            leading: const Icon(Icons.shield_outlined),
-            title: Text(entry.title),
-            subtitle: Text(_label(entry)),
-            trailing: IconButton(
-              key: Key('protected-delete-${entry.eventId}'),
-              onPressed: () => _delete(entry),
-              icon: const Icon(Icons.delete_outline),
-              tooltip: '删除',
+      children: [for (final series in _series) _tile(context, series)],
+    );
+  }
+
+  Widget _tile(BuildContext context, ProtectedTimeSeries series) {
+    final onEdit = widget.onEditSeries;
+    return ListTile(
+      // **一行一个系列**：key 用锚点 id，测试与"点哪一行"都落在这个身份上。
+      key: Key('protected-series-${series.anchorId}'),
+      leading: const Icon(Icons.shield_outlined),
+      title: Text(series.title),
+      subtitle: Text(_label(series)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onEdit != null)
+            IconButton(
+              key: Key('protected-edit-${series.anchorId}'),
+              onPressed: () => onEdit(series.anchorId),
+              icon: const Icon(Icons.edit_outlined),
+              // **语义标签里带上标题**（计划 §Global Constraints："非空语义标签"）：
+              // 只说"编辑"的按钮，读屏用户不知道自己在改哪一条。
+              tooltip: '编辑「${series.title}」',
             ),
-          ),
-      ],
+          if (widget.calendar != null)
+            IconButton(
+              key: Key('protected-delete-${series.anchorId}'),
+              onPressed: () => _delete(series),
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '删除「${series.title}」',
+            ),
+        ],
+      ),
     );
   }
 
   /// 按**事项自己的时区**显示（规范 §4.1：换算只在入口做一次）。
-  String _label(CalendarOccurrence entry) {
-    final start = widget.zones.toLocal(entry.range.startUtc, widget.timeZoneId);
-    final end = widget.zones.toLocal(entry.range.endUtc, widget.timeZoneId);
-    String two(int value) => value.toString().padLeft(2, '0');
-    final sameDay =
-        start.year == end.year &&
-        start.month == end.month &&
-        start.day == end.day;
-    final from =
-        '${two(start.month)}-${two(start.day)} '
-        '${two(start.hour)}:${two(start.minute)}';
-    final to = sameDay
-        ? '${two(end.hour)}:${two(end.minute)}'
-        : '${two(end.month)}-${two(end.day)} '
-              '${two(end.hour)}:${two(end.minute)}';
-    return '$from – $to';
+  ///
+  /// 这条路径**不再做 UTC 换算**：系列读模型给的就是本地分钟与本地日期，
+  /// 再换一次只会在夏令时切换日引入第二个真相。
+  String _label(ProtectedTimeSeries series) {
+    final clock = '${_hhmm(series.startMinute)}–${_hhmm(series.endMinute)}';
+    final until = series.validUntilLocalDate;
+    final span = until == null
+        ? '${_date(series.validFromLocalDate)} 起'
+        : '${_date(series.validFromLocalDate)} – ${_date(until)}';
+    if (!series.repeats) return '$span $clock（单次）';
+    final days = (series.weekdays.toList()..sort())
+        .map(_weekdayLabel)
+        .join('、');
+    final cadence = series.intervalWeeks == 2 ? '隔周' : '每周';
+    return '$span $cadence$days $clock';
   }
+
+  static String _hhmm(int minute) =>
+      '${(minute ~/ 60).toString().padLeft(2, '0')}:'
+      '${(minute % 60).toString().padLeft(2, '0')}';
+
+  static String _date(DateTime value) =>
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  static String _weekdayLabel(int weekday) => switch (weekday) {
+    DateTime.monday => '周一',
+    DateTime.tuesday => '周二',
+    DateTime.wednesday => '周三',
+    DateTime.thursday => '周四',
+    DateTime.friday => '周五',
+    DateTime.saturday => '周六',
+    DateTime.sunday => '周日',
+    _ => '周?',
+  };
 }

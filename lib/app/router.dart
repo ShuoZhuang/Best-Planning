@@ -40,6 +40,7 @@ import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/repositories/protected_time_series_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
@@ -410,6 +411,13 @@ GoRouter createPlannerRouter({
 
   /// 课程管理服务（1.8.0，规范 §10）。为空时 /calendar/courses 给出装配说明。
   CourseManagementService? courseManagement,
+
+  /// 自定义保护时间的**系列读模型**（课程与保护时间管理修复计划 Task 6）。
+  ///
+  /// **为什么单独传而不是从 `calendarService` 里拿**：那是"写入"端口，
+  /// 而"我一共建了哪几条保护规则"是一个**没有时间窗**的读问题——
+  /// 用 `occurrencesBetween` 表达它就会退回"按发生次数列行"，而那正是要修的缺陷。
+  ProtectedTimeSeriesReader? protectedTimeSeries,
 
   /// 「保存设置」保存完通知偏好之后的**对账入口**（1.8.0，设计规范 §5.2）。
   ///
@@ -1123,14 +1131,16 @@ GoRouter createPlannerRouter({
             path: '/calendar/protected',
             builder: (context, state) {
               final service = calendarService;
-              if (service == null) {
+              final reader = protectedTimeSeries;
+              if (service == null || reader == null) {
                 return const _UnavailablePage(
                   title: '管理保护时间',
                   message: '日历写入服务未装配，暂无法管理保护时间。',
                 );
               }
               return ProtectedTimeListPage(
-                service: service,
+                reader: reader,
+                calendar: service,
                 timeZoneId: timeZoneId,
                 zones: zones,
                 nowUtc: nowUtc ?? todayStartUtc,

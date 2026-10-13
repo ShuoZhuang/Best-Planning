@@ -24,6 +24,8 @@ import 'package:personal_planner/domain/repositories/calendar_event_deletion.dar
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/domain/models/protected_time_series.dart';
+import 'package:personal_planner/domain/repositories/protected_time_series_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 
@@ -52,6 +54,7 @@ void main() {
       nowUtc: _now,
       zones: TimeZoneDatabase(),
       timeZoneId: 'Asia/Shanghai',
+      protectedTimeSeries: _NoSeries(),
       calendarService: CalendarService(
         repository: calendar,
         deletion: calendar,
@@ -162,6 +165,16 @@ void main() {
       reason: '与既有的"未装配即说明"同一条口径，不留白屏也不假装能编辑',
     );
   });
+}
+
+/// 保护时间系列读模型的空替身：路由测试只关心"到了哪一页"。
+final class _NoSeries implements ProtectedTimeSeriesReader {
+  @override
+  Future<List<ProtectedTimeSeries>> listProtectedSeries() async => const [];
+
+  @override
+  Future<ProtectedTimeSeries?> findProtectedSeries(String anchorId) async =>
+      null;
 }
 
 final class _FixedClock implements Clock {

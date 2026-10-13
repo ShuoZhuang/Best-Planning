@@ -437,13 +437,24 @@ final class CalendarService {
   ///
   /// 返回 `bool`：界面据此显示"已删除／未装配"。**幂等**语义让"记录已不在"也算成功——调用方
   /// 拿到的 id 可能来自一次已过期的视图。
+  ///
+  /// **端口抛错时返回 `false` 而不是把异常抛给界面**（课程与保护时间管理修复计划 Task 6）：
+  /// 删除是用户点一下就要看到结果的动作，而界面已经有一条"这次删除没有成功，请重试"的
+  /// 提示路径。让异常穿透只会变成一次未捕获错误，用户看到的是空白或崩溃，
+  /// 而实际结果是**什么都没删**——那正是这条返回值要如实说明的事。
   Future<bool> deleteEvent(String eventId) async {
     final deletion = _deletion;
     if (deletion == null) return false;
     // **先问清要删的是哪一类**（1.8.0，规范 §9.3）：这一句必须发生在删除**之前**，
     // 删掉之后就没有任何地方能回答它了。
     final wasProtected = await _isProtectedEvent(eventId);
-    await deletion.deleteEvent(eventId);
+    try {
+      await deletion.deleteEvent(eventId);
+    } on Object {
+      // 数据库异常、外键约束、并发删除……对用户都是同一件事：**这次删除没成功**。
+      // 具体原因留在诊断日志里（仓储层会记），界面只负责如实说"没成功"。
+      return false;
+    }
     _onScheduleInputChanged?.call(
       ScheduleInputChange(
         label: wasProtected ? '保护时间删除' : '固定日程删除',
