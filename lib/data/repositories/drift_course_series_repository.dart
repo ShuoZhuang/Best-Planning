@@ -201,6 +201,7 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
       areaId: head.event.areaId,
       projectId: head.event.projectId,
       location: head.event.location,
+      // **教师在 `notes` 列**：课表导入正是用这一列存教师名的（计划 Global Constraints）。
       teacher: head.event.notes,
       importBatchId: head.event.importBatchId,
       // 课表导入的课没有"归档"概念（那要另加一列，本批次不做）；因此默认在生成。
@@ -223,6 +224,8 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
           ? null
           : DateTime.parse(row.rule.validUntilLocalDate!),
       location: row.event.location,
+      // **教师读自 `notes`**：课表导入正是用这一列存教师名的（计划 Global Constraints）。
+      teacher: row.event.notes,
       areaId: row.event.areaId,
       projectId: row.event.projectId,
       weekSpan: weekSpan,

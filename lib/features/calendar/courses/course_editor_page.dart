@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'package:personal_planner/application/course_management_service.dart';
+import 'package:personal_planner/design/planner_editor_scaffold.dart';
+import 'package:personal_planner/domain/models/course_edit.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/models/timetable_import.dart';
+import 'package:personal_planner/domain/models/workspace.dart';
 
 /// 整门课程资料的编辑页（课程与保护时间管理修复计划 Task 5）。
 ///
@@ -15,13 +21,17 @@ import 'package:personal_planner/application/course_management_service.dart';
 /// 把两者塞进同一页就会出现"选了『仅本次』却改了整门课"这种说了但没做的状态
 /// （计划 §1.1 记录的实际偏差）。这一页只做前一半。
 ///
-/// **当前状态：Task 1 的占位**。Task 5 会把它补成完整表单（资料区 + 安排区 +
-/// 冲突预览）。这里先保证路由与深链存在，好让 Task 1 的失败测试**因为行为缺失**
-/// 而红，而不是因为编译不过。
-final class CourseEditorPage extends StatelessWidget {
+/// ## 冲突预览是**两步保存**，不是一步
+///
+/// 第一次点「保存」只算预览（影响摘要 ＋ 冲突），第二次才真的写。理由写在
+/// [_preview] 上：改课程安排会**删掉片段**，而删掉的片段名下有用户逐次调整过的例外——
+/// 那个数量必须让用户先看见。
+final class CourseEditorPage extends StatefulWidget {
   const CourseEditorPage({
     required this.service,
     required this.logicalCourseId,
+    this.loadAreas,
+    this.loadProjects,
     this.onSaved,
     this.onCancel,
     super.key,
@@ -29,53 +39,846 @@ final class CourseEditorPage extends StatelessWidget {
 
   final CourseManagementService service;
   final String logicalCourseId;
+
+  /// 领域与项目清单。**为空时不显示这两个选择器**——与"不给点了没反应的入口"
+  /// 同一条口径：没有清单就选不出东西。
+  final Future<List<PlannerArea>> Function()? loadAreas;
+  final Future<List<PlannerProject>> Function()? loadProjects;
+
   final VoidCallback? onSaved;
   final VoidCallback? onCancel;
 
   @override
-  Widget build(BuildContext context) => FutureBuilder(
-    future: service.findCourse(logicalCourseId),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
-        return const Center(child: CircularProgressIndicator());
+  State<CourseEditorPage> createState() => _CourseEditorPageState();
+}
+
+final class _CourseEditorPageState extends State<CourseEditorPage> {
+  bool _loaded = false;
+  CourseSeriesDetail? _detail;
+
+  late TextEditingController _title;
+  late TextEditingController _teacher;
+  late TextEditingController _location;
+
+  String? _areaId;
+  String? _projectId;
+
+  /// 按片段逐个编辑的安排。**顺序与详情一致**，删除行用的是下标。
+  final List<_ScheduleRow> _rows = [];
+
+  List<PlannerArea> _areas = const [];
+  List<PlannerProject> _projects = const [];
+
+  Map<String, String> _errors = const {};
+  String? _status;
+
+  /// 已算出的预览；`null` 表示"当前没有有效预览"。
+  CourseEditPreview? _preview;
+
+  /// 预览对应的冲突。**阻断类与警告类分开**：
+  /// 前者禁止保存，后者要求用户勾选确认。
+  List<CourseTimeConflict> _conflicts = const [];
+  bool _acknowledgedConflicts = false;
+  bool _busy = false;
+
+  /// 「换领域后旧项目被清空」的那句说明（计划 Task 5 Step 2）。
+  String? _projectClearedNotice;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController();
+    _teacher = TextEditingController();
+    _location = TextEditingController();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _teacher.dispose();
+    _location.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final detail = await widget.service.findCourse(widget.logicalCourseId);
+    final areas = await widget.loadAreas?.call() ?? const <PlannerArea>[];
+    final projects =
+        await widget.loadProjects?.call() ?? const <PlannerProject>[];
+    if (!mounted) return;
+    setState(() {
+      _loaded = true;
+      _detail = detail;
+      _areas = areas;
+      _projects = projects;
+      if (detail != null) {
+        _title.text = detail.summary.title;
+        final head = detail.segments.firstOrNull;
+        _teacher.text = head?.teacher ?? '';
+        _location.text = head?.location ?? '';
+        _areaId = head?.areaId;
+        _projectId = head?.projectId;
+        _rows
+          ..clear()
+          ..addAll(detail.segments.map(_ScheduleRow.fromSegment));
       }
-      final detail = snapshot.data;
-      if (detail == null) {
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                '课程已删除或链接过期，找不到这门课程。',
-                key: Key('course-editor-missing'),
-                textAlign: TextAlign.center,
-              ),
-              if (onCancel != null) ...[
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  key: const Key('course-editor-back'),
-                  onPressed: onCancel,
-                  child: const Text('返回课程列表'),
-                ),
-              ],
-            ],
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 草稿
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  CourseProfileDraft? _draft() {
+    final detail = _detail;
+    if (detail == null) return null;
+    for (final row in _rows) {
+      row.writeBack();
+    }
+    return CourseProfileDraft(
+      logicalCourseId: widget.logicalCourseId,
+      title: _title.text,
+      teacher: _teacher.text.trim(),
+      location: _location.text.trim(),
+      areaId: _areaId,
+      projectId: _projectId,
+      schedule: [for (final row in _rows) row.toDraft()],
+    );
+  }
+
+  /// **任何字段变化都作废旧预览**（计划 Task 5 Step 3）。
+  ///
+  /// 留着旧预览比没有预览更糟：用户会按**过期的数字**判断"要不要真的删掉这一段"，
+  /// 而那个数字正是他做决定的依据。
+  void _invalidatePreview() {
+    if (_preview == null && _conflicts.isEmpty && _status == null) return;
+    setState(() {
+      _preview = null;
+      _conflicts = const [];
+      _acknowledgedConflicts = false;
+      _status = null;
+      _errors = const {};
+    });
+  }
+
+  void _onTextChanged() => _invalidatePreview();
+
+  void _chooseArea(String? areaId) {
+    setState(() {
+      _areaId = areaId;
+      // **换领域后旧项目若不属于新领域，立即清空并说明**（计划 Task 5 Step 2）。
+      //
+      // 悄悄留着会让这门课挂在一个不属于所选领域的项目上，而用户以为自己
+      // 只是换了领域。**不隐式创建项目**（计划原文）：找不到就把项目留空。
+      final project = _projectFor(_projectId);
+      if (project == null || project.areaId != areaId) {
+        final hadProject = _projectId != null;
+        _projectId = null;
+        _projectClearedNotice = hadProject
+            ? '原项目不属于「${_areaName(areaId)}」，已清空。请重新选择或留空。'
+            : null;
+      } else {
+        _projectClearedNotice = null;
+      }
+      _preview = null;
+      _conflicts = const [];
+      _acknowledgedConflicts = false;
+      _status = null;
+      _errors = const {};
+    });
+  }
+
+  PlannerProject? _projectFor(String? id) {
+    if (id == null) return null;
+    for (final project in _projects) {
+      if (project.id == id) return project;
+    }
+    return null;
+  }
+
+  String _areaName(String? id) {
+    for (final area in _areas) {
+      if (area.id == id) return area.name;
+    }
+    return '未命名领域';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 预览与保存
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /// 第一次点保存：算预览与冲突，**不写库**。
+  ///
+  /// 为什么必须是两步：改课程安排会**删掉片段**，而被删的片段名下有用户逐次调整过的
+  /// 例外。计划 §2.1 要求把这四项（新增／删除片段数、受影响课次变化、会删的例外数）
+  /// 明确列出来，用户二次确认后才应用。
+  Future<void> _computePreview() async {
+    final detail = _detail;
+    final draft = _draft();
+    if (detail == null || draft == null) return;
+
+    final errors = validateCourseProfile(draft);
+    if (errors.isNotEmpty) {
+      setState(() {
+        _errors = errors;
+        _preview = null;
+      });
+      return;
+    }
+
+    setState(() => _busy = true);
+    final preview = await widget.service.previewCourseEdit(
+      CourseSaveRequest(
+        logicalCourseId: widget.logicalCourseId,
+        profile: draft,
+        expectedRevisions: detail.sourceRevisions,
+        expectedFingerprint: detail.revisionFingerprint,
+      ),
+    );
+    final conflicts = await _detectConflicts(draft);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _errors = const {};
+      _preview = preview;
+      _conflicts = conflicts;
+      // **作废勾选**：换了内容之后，"我已查看"说的是上一版的内容。
+      _acknowledgedConflicts = false;
+    });
+  }
+
+  /// 把草稿展开成"改完之后每一段会落在哪些时刻"，交给服务的冲突预览。
+  ///
+  /// **按周展开整学期**：冲突可能发生在任何一周，只看第一周会漏掉"第 8 周与
+  /// 另一门课撞上"这类问题。次数有上限（一学期 16 周 × 每段最多 7 天），因此代价可控。
+  Future<List<CourseTimeConflict>> _detectConflicts(
+    CourseProfileDraft draft,
+  ) async {
+    final proposed = <({String eventId, TimeRange range})>[];
+    for (var index = 0; index < draft.schedule.length; index++) {
+      final row = draft.schedule[index];
+      final segmentId = index < _detail!.segments.length
+          ? _detail!.segments[index].eventId
+          : '$index';
+      for (final day in _occurrenceStarts(row)) {
+        proposed.add((
+          eventId: segmentId,
+          range: TimeRange(
+            startUtc: day,
+            endUtc: day.add(Duration(minutes: row.endMinute - row.startMinute)),
           ),
-        );
+        ));
       }
-      return Padding(
-        key: const Key('course-editor-page'),
-        padding: const EdgeInsets.all(24),
+    }
+    if (proposed.isEmpty) return const [];
+    final found = await widget.service.previewTimeChange(
+      logicalCourseId: widget.logicalCourseId,
+      proposed: proposed,
+    );
+    return found;
+  }
+
+  /// 一段安排在整学期里的每一次起始时刻。
+  ///
+  /// **按本地日期逐天推进、再逐次换算 UTC**，而不是"加 7×24 小时"：后者在夏令时切换
+  /// 那一周会漂一小时，于是"周三 08:00 会不会撞上别的课"这个问题的答案在那一周是错的。
+  List<DateTime> _occurrenceStarts(CourseScheduleDraft row) {
+    final starts = <DateTime>[];
+    final last = row.validUntilLocalDate ?? row.validFromLocalDate;
+    var date = DateTime(
+      row.validFromLocalDate.year,
+      row.validFromLocalDate.month,
+      row.validFromLocalDate.day,
+    );
+    final end = DateTime(last.year, last.month, last.day);
+    final zones = widget.service.zones;
+    final zoneId = widget.service.timeZoneId;
+    if (zones == null || zoneId == null) return const [];
+    while (!date.isAfter(end)) {
+      if (row.weekdays.contains(date.weekday) && _matchesInterval(row, date)) {
+        starts.add(zones.localDateTimeToUtc(date, row.startMinute, zoneId));
+      }
+      date = date.add(const Duration(days: 1));
+    }
+    return starts;
+  }
+
+  bool _matchesInterval(CourseScheduleDraft row, DateTime date) {
+    if (row.intervalWeeks <= 1) return true;
+    final anchor = DateTime(
+      row.validFromLocalDate.year,
+      row.validFromLocalDate.month,
+      row.validFromLocalDate.day,
+    );
+    final anchorMonday = anchor.subtract(
+      Duration(days: anchor.weekday - DateTime.monday),
+    );
+    final monday = date.subtract(
+      Duration(days: date.weekday - DateTime.monday),
+    );
+    final weeks = monday.difference(anchorMonday).inDays ~/ 7;
+    return weeks >= 0 && weeks % row.intervalWeeks == 0;
+  }
+
+  bool get _hasBlockingConflict => _conflicts.any(isBlockingCourseTimeConflict);
+
+  /// 第二次点保存：真的写库。
+  Future<void> _save() async {
+    final detail = _detail;
+    final draft = _draft();
+    if (detail == null || draft == null) return;
+
+    setState(() => _busy = true);
+    final result = await widget.service.saveCourse(
+      CourseSaveRequest(
+        logicalCourseId: widget.logicalCourseId,
+        profile: draft,
+        expectedRevisions: detail.sourceRevisions,
+        expectedFingerprint: detail.revisionFingerprint,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (result.status == CourseSaveStatus.saved) {
+        _status = '已保存';
+      } else if (result.status == CourseSaveStatus.invalid) {
+        _errors = result.fieldErrors ?? const {};
+      } else {
+        // **失败时如实说"原内容未改变"**：不这么说，用户会以为改了一半。
+        _status = result.error;
+      }
+    });
+    if (result.status == CourseSaveStatus.saved) widget.onSaved?.call();
+  }
+
+  Future<void> _cancel() async {
+    // **有未保存改动时先问"放弃更改？"**（计划 Task 5 Step 7）：直接走掉会让用户
+    // 白填一遍，而这一页有六七个字段。
+    final dirty =
+        _detail != null &&
+        (_title.text != _detail!.summary.title ||
+            _preview != null ||
+            _rows.any((row) => row.dirty));
+    if (!dirty) {
+      widget.onCancel?.call();
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('course-editor-discard'),
+        title: const Text('放弃更改？'),
+        content: const Text('这门课有还没保存的改动，离开后它们会丢掉。'),
+        actions: [
+          TextButton(
+            key: const Key('course-editor-discard-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          TextButton(
+            key: const Key('course-editor-discard-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('放弃更改'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true) widget.onCancel?.call();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 界面
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final detail = _detail;
+    if (detail == null) {
+      return Center(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              '编辑「${detail.summary.title}」',
-              key: const Key('course-editor-title'),
-              style: Theme.of(context).textTheme.headlineMedium,
+            const Text(
+              '课程已删除或链接过期，找不到这门课程。',
+              key: Key('course-editor-missing'),
+              textAlign: TextAlign.center,
             ),
+            if (widget.onCancel != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton(
+                key: const Key('course-editor-back'),
+                onPressed: widget.onCancel,
+                child: const Text('返回课程列表'),
+              ),
+            ],
           ],
         ),
       );
-    },
+    }
+
+    return PlannerEditorScaffold(
+      key: const Key('course-editor-page'),
+      title: '编辑「${detail.summary.title}」',
+      subtitle: '这里改的是整门课。只想改一次课，请到日历上那条安排点「编辑」。',
+      onCancel: widget.onCancel == null ? null : _cancel,
+      errorSummary: _errorSummary(),
+      actions: [
+        FilledButton(
+          key: _preview == null
+              ? const Key('course-editor-save')
+              : const Key('course-editor-confirm-save'),
+          onPressed: _busy
+              ? null
+              : () {
+                  if (_preview == null) {
+                    _computePreview();
+                    return;
+                  }
+                  // **阻断冲突时没有确认保存**：让"确认一次"就覆盖保护时间，
+                  // 等于把它降级成建议——而它的语义正是"这段时间不许安排"。
+                  if (_hasBlockingConflict) return;
+                  if (_conflicts.isNotEmpty && !_acknowledgedConflicts) return;
+                  _save();
+                },
+          child: Text(_preview == null ? '保存' : '确认保存'),
+        ),
+      ],
+      // **`Column` 而不是 `ListView`**：`PlannerEditorScaffold` 的内容区本身已经在
+      // 一个滚动视图里，再套一个纵向 viewport 会得到 "Vertical viewport was given
+      // unbounded height"——两层滚动条不是"多一层保险"，而是直接抛错。
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _sectionTitle('课程资料'),
+          _textField('course-title', '课程名称', _title),
+          _textField('course-teacher', '教师', _teacher),
+          _textField('course-location', '地点', _location),
+          if (widget.loadAreas != null) _areaField(),
+          if (widget.loadProjects != null && _areaId != null) _projectField(),
+          if (_projectClearedNotice case final notice?) ...[
+            const SizedBox(height: 4),
+            Text(
+              notice,
+              key: const Key('course-project-cleared'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+          const SizedBox(height: 24),
+          _sectionTitle('上课安排'),
+          for (var index = 0; index < _rows.length; index++)
+            _rowCard(context, index, detail),
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              key: const Key('course-add-row'),
+              onPressed: () {
+                setState(() {
+                  _rows.add(
+                    _ScheduleRow.fromSegment(detail.segments.first)
+                      ..title = detail.summary.title,
+                  );
+                  _invalidatePreview();
+                });
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('添加一段安排'),
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (_preview case final preview?) _previewCard(context, preview),
+          if (_status case final status?) ...[
+            const SizedBox(height: 12),
+            Text(status, key: const Key('course-editor-status')),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _errorSummary() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (final message in _errors.values)
+        Text(message, style: const TextStyle(color: Colors.red)),
+    ],
+  );
+
+  Widget _sectionTitle(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(text, style: Theme.of(context).textTheme.titleMedium),
+  );
+
+  Widget _textField(
+    String key,
+    String label,
+    TextEditingController controller,
+  ) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextField(
+      key: Key(key),
+      controller: controller,
+      onChanged: (_) => _onTextChanged(),
+      decoration: InputDecoration(
+        labelText: label,
+        errorText: _errors[key.replaceFirst('course-', '')],
+      ),
+    ),
+  );
+
+  Widget _areaField() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: DropdownButtonFormField<String?>(
+      key: const Key('course-area'),
+      initialValue: _areaId,
+      decoration: const InputDecoration(labelText: '领域'),
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('不归属领域')),
+        for (final area in _areas)
+          DropdownMenuItem<String?>(value: area.id, child: Text(area.name)),
+      ],
+      onChanged: _chooseArea,
+    ),
+  );
+
+  Widget _projectField() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: DropdownButtonFormField<String?>(
+      key: const Key('course-project'),
+      initialValue: _projectId,
+      decoration: const InputDecoration(
+        labelText: '项目',
+        helperText: '只列出属于所选领域的项目',
+      ),
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('不归属项目')),
+        for (final project in _projects)
+          if (project.areaId == _areaId)
+            DropdownMenuItem<String?>(
+              value: project.id,
+              child: Text(project.name),
+            ),
+      ],
+      onChanged: (value) {
+        setState(() {
+          _projectId = value;
+          _projectClearedNotice = null;
+          _preview = null;
+          _conflicts = const [];
+          _acknowledgedConflicts = false;
+          _status = null;
+        });
+      },
+    ),
+  );
+
+  Widget _rowCard(BuildContext context, int index, CourseSeriesDetail detail) {
+    final row = _rows[index];
+    final weekdayLabel = (row.weekdays.toList()..sort())
+        .map(_weekdayLabel)
+        .join('、');
+    return Card(
+      key: Key('course-row-$index'),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$weekdayLabel ${_hhmm(row.startMinute)}–${_hhmm(row.endMinute)}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  key: Key('course-remove-$index'),
+                  // **语义标签带上课程名与星期**（计划 Task 5 Step 7）：
+                  // 只说"删除"的按钮，读屏用户不知道自己在删哪一条——
+                  // 而这个页面上可能有好几行。
+                  tooltip: '删除「${detail.summary.title}」的 $weekdayLabel 这一段',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () {
+                    setState(() {
+                      _rows.removeAt(index);
+                      _invalidatePreview();
+                    });
+                  },
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+                  FilterChip(
+                    key: Key('course-row-$index-day-$day'),
+                    label: Text(_weekdayLabel(day)),
+                    selected: row.weekdays.contains(day),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          row.weekdays.add(day);
+                        } else {
+                          row.weekdays.remove(day);
+                        }
+                        _invalidatePreview();
+                      });
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    key: Key('course-row-$index-start'),
+                    initialValue: _hhmm(row.startMinute),
+                    decoration: const InputDecoration(
+                      labelText: '开始',
+                      hintText: 'HH:mm',
+                    ),
+                    onChanged: (value) {
+                      final parsed = _parseTime(value);
+                      if (parsed != null) row.startMinute = parsed;
+                      _onTextChanged();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    key: Key('course-row-$index-end'),
+                    initialValue: _hhmm(row.endMinute),
+                    decoration: const InputDecoration(
+                      labelText: '结束',
+                      hintText: 'HH:mm',
+                    ),
+                    onChanged: (value) {
+                      final parsed = _parseTime(value);
+                      if (parsed != null) row.endMinute = parsed;
+                      _onTextChanged();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    key: Key('course-row-$index-interval'),
+                    initialValue: row.intervalWeeks,
+                    decoration: const InputDecoration(labelText: '频率'),
+                    items: const [
+                      DropdownMenuItem(value: 1, child: Text('每周')),
+                      DropdownMenuItem(value: 2, child: Text('隔周')),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        row.intervalWeeks = value ?? 1;
+                        _invalidatePreview();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            if (row.intervalWeeks == 2) ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<WeekParity>(
+                key: Key('course-row-$index-parity'),
+                initialValue: row.parity,
+                decoration: const InputDecoration(labelText: '单周还是双周'),
+                items: const [
+                  DropdownMenuItem(value: WeekParity.odd, child: Text('单周')),
+                  DropdownMenuItem(value: WeekParity.even, child: Text('双周')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    row.parity = value ?? WeekParity.every;
+                    _invalidatePreview();
+                  });
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _previewCard(BuildContext context, CourseEditPreview preview) {
+    final blocking = <CourseTimeConflict>[];
+    final warnings = <CourseTimeConflict>[];
+    for (final conflict in _conflicts) {
+      if (isBlockingCourseTimeConflict(conflict)) {
+        blocking.add(conflict);
+      } else {
+        warnings.add(conflict);
+      }
+    }
+    return Card(
+      key: const Key('course-editor-preview'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('这次保存会做什么', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            // 四项都要列（计划 §2.1）。只报"删除 1 段"没有意义——
+            // 用户要知道的是"这学期会少上几次课"。
+            Text('新增片段：${preview.addedSegments} 段'),
+            Text('改写片段：${preview.updatedSegments} 段'),
+            Text('删除片段：${preview.removedSegments} 段'),
+            Text(
+              '课次变化：${preview.affectedOccurrenceDelta >= 0 ? '+' : ''}'
+              '${preview.affectedOccurrenceDelta} 次',
+            ),
+            if (preview.removedExceptionCount > 0)
+              Text(
+                '会一并删除 ${preview.removedExceptionCount} 条你单独调整过的课次',
+                key: const Key('course-editor-removed-exceptions'),
+              ),
+            if (blocking.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                '这些冲突必须先解决，不能直接保存：',
+                key: const Key('course-editor-blocking'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              for (final conflict in blocking)
+                Text(
+                  '「${conflict.title}」'
+                  '${_hhmm(_localMinute(conflict.range.startUtc))}–'
+                  '${_hhmm(_localMinute(conflict.range.endUtc))} 已被占用',
+                ),
+            ],
+            if (warnings.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                key: const Key('course-editor-ack-conflicts'),
+                contentPadding: EdgeInsets.zero,
+                value: _acknowledgedConflicts,
+                onChanged: (value) =>
+                    setState(() => _acknowledgedConflicts = value ?? false),
+                title: const Text('我已查看课程冲突'),
+                subtitle: Text(
+                  '与 ${warnings.map((c) => '「${c.title}」').toSet().join('、')} 时间重叠',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _localMinute(DateTime utc) {
+    final zones = widget.service.zones;
+    final zoneId = widget.service.timeZoneId;
+    if (zones == null || zoneId == null) return utc.hour * 60 + utc.minute;
+    final local = zones.toLocal(utc, zoneId);
+    return local.hour * 60 + local.minute;
+  }
+
+  static String _hhmm(int minute) =>
+      '${(minute ~/ 60).toString().padLeft(2, '0')}:'
+      '${(minute % 60).toString().padLeft(2, '0')}';
+
+  static int? _parseTime(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return hour * 60 + minute;
+  }
+
+  static String _weekdayLabel(int weekday) => switch (weekday) {
+    DateTime.monday => '周一',
+    DateTime.tuesday => '周二',
+    DateTime.wednesday => '周三',
+    DateTime.thursday => '周四',
+    DateTime.friday => '周五',
+    DateTime.saturday => '周六',
+    DateTime.sunday => '周日',
+    _ => '周?',
+  };
+}
+
+/// 一行安排的编辑状态。
+///
+/// **不复用 `CourseScheduleDraft`**：那个类型在构造时把集合包成不可变的
+/// （`UnmodifiableSetView`），而这里需要用户逐次开关星期。用可变的行状态、
+/// 在提交时构造草稿，比"每次改动都重建一个不可变对象"少一层噪音。
+final class _ScheduleRow {
+  _ScheduleRow({
+    required this.startMinute,
+    required this.endMinute,
+    required Set<int> weekdays,
+    required this.validFromLocalDate,
+    this.validUntilLocalDate,
+    this.intervalWeeks = 1,
+    this.parity = WeekParity.every,
+    this.startWeek = 1,
+    this.title = '',
+    this.areaId,
+    this.projectId,
+    this.teacher = '',
+    this.location = '',
+  }) : weekdays = Set.of(weekdays);
+
+  factory _ScheduleRow.fromSegment(CourseSeriesSegment segment) => _ScheduleRow(
+    startMinute: segment.startMinute,
+    endMinute: segment.endMinute,
+    weekdays: segment.weekdays,
+    validFromLocalDate: segment.validFromLocalDate,
+    validUntilLocalDate: segment.validUntilLocalDate,
+    intervalWeeks: segment.intervalWeeks,
+    parity: segment.weekSpan.parity,
+    startWeek: segment.weekSpan.startWeek,
+    title: segment.title,
+    areaId: segment.areaId,
+    projectId: segment.projectId,
+    teacher: segment.teacher,
+    location: segment.location,
+  );
+
+  int startMinute;
+  int endMinute;
+  final Set<int> weekdays;
+  final DateTime validFromLocalDate;
+  DateTime? validUntilLocalDate;
+  int intervalWeeks;
+  WeekParity parity;
+  int startWeek;
+  String title;
+  String? areaId;
+  String? projectId;
+  String teacher;
+  String location;
+
+  /// 这一行相对读进来的样子有没有被改过（取消时的"放弃更改？"要用）。
+  bool dirty = false;
+
+  void writeBack() => dirty = dirty;
+
+  CourseScheduleDraft toDraft() => CourseScheduleDraft(
+    startMinute: startMinute,
+    endMinute: endMinute,
+    weekdays: weekdays,
+    intervalWeeks: intervalWeeks,
+    parity: parity,
+    startWeek: startWeek,
+    validFromLocalDate: validFromLocalDate,
+    validUntilLocalDate: validUntilLocalDate,
   );
 }

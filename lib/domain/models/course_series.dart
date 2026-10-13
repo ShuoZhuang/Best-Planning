@@ -126,6 +126,10 @@ final class CourseSeriesSegment {
     required this.validFromLocalDate,
     this.validUntilLocalDate,
     this.location = '',
+
+    /// **教师存在 `notes` 列里**（计划 Global Constraints）：本批次不引入"课程备注"
+    /// 这个新概念，因此读模型也按教师来命名它。课表导入正是用这一列存教师名的。
+    this.teacher = '',
     this.areaId,
     this.projectId,
     this.weekSpan = const WeekSpan(startWeek: 1, endWeek: 1),
@@ -177,6 +181,10 @@ final class CourseSeriesSegment {
   final bool outsideTerm;
 
   final String location;
+
+  /// 教师名（读自 `calendar_events.notes`）。
+  final String teacher;
+
   final EntityId? areaId;
   final EntityId? projectId;
 
