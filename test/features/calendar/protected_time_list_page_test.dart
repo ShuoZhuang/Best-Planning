@@ -24,6 +24,11 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/protected_time_series_repository.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_list_page.dart';
 
+/// 哨兵：区分"没传 `validUntil`"（默认 2026-12-20）与"明确传 `null`"（永不结束）。
+final class _Unset {
+  const _Unset();
+}
+
 void main() {
   final zones = TimeZoneDatabase();
 
@@ -35,6 +40,8 @@ void main() {
     int endMinute = 5 * 60,
     Set<int> weekdays = const {},
     int intervalWeeks = 1,
+    DateTime? validFrom,
+    Object? validUntil = const _Unset(),
   }) => ProtectedTimeSeries(
     anchorId: id,
     title: title,
@@ -43,8 +50,10 @@ void main() {
     endMinute: endMinute,
     weekdays: weekdays,
     intervalWeeks: intervalWeeks,
-    validFromLocalDate: DateTime(2026, 10, 12),
-    validUntilLocalDate: DateTime(2026, 12, 20),
+    validFromLocalDate: validFrom ?? DateTime(2026, 10, 12),
+    validUntilLocalDate: validUntil is _Unset
+        ? DateTime(2026, 12, 20)
+        : validUntil as DateTime?,
     updatedAtUtc: DateTime.utc(2026, 10, 1),
   );
 
@@ -243,6 +252,128 @@ void main() {
           '因此这份清单里不该出现它们，更不该显示删除',
     );
     expect(find.textContaining('睡眠'), findsNothing);
+  });
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 8 Step 2：**「显示已结束」开关，默认关闭**
+  //
+  // 假期里打开管理页时，上学期那几十条规则会把当前要改的挤到屏幕外；但它们不能
+  // 被直接丢掉——那是真实存在的记录，用户有时正是要去删掉它。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**已结束的系列默认不显示**（假期里打开管理页不该满屏旧规则）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        series(id: 'active', title: '进行中'),
+        series(
+          id: 'ended',
+          title: '上学期那条',
+          validFrom: DateTime(2026, 9, 1),
+          // 页面时钟是 2026-10-12；这条在 09-30 就结束了。
+          validUntil: DateTime(2026, 9, 30),
+        ),
+      ],
+    );
+
+    expect(find.byKey(const Key('protected-series-active')), findsOneWidget);
+    expect(
+      find.byKey(const Key('protected-series-ended')),
+      findsNothing,
+      reason: '默认视图只放当前还在生效的规则',
+    );
+  });
+
+  testWidgets('**打开开关后已结束的系列出现**（不能被丢掉）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        series(id: 'active', title: '进行中'),
+        series(
+          id: 'ended',
+          title: '上学期那条',
+          validFrom: DateTime(2026, 9, 1),
+          validUntil: DateTime(2026, 9, 30),
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const Key('protected-show-ended')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('protected-series-ended')),
+      findsOneWidget,
+      reason: '已结束是**筛选**而不是删除：用户可能正要去改或删掉它',
+    );
+    expect(find.byKey(const Key('protected-series-active')), findsOneWidget);
+  });
+
+  testWidgets('**全部已结束时说明"东西去哪了"**，而不是说"还没有"', (tester) async {
+    await pump(
+      tester,
+      items: [
+        series(
+          id: 'ended',
+          title: '上学期那条',
+          validFrom: DateTime(2026, 9, 1),
+          validUntil: DateTime(2026, 9, 30),
+        ),
+      ],
+    );
+
+    expect(find.byKey(const Key('protected-list-all-ended')), findsOneWidget);
+    expect(
+      find.byKey(const Key('protected-list-empty')),
+      findsNothing,
+      reason: '说"还没有自定义保护时间"会让用户以为规则被删了——而它们只是都结束了',
+    );
+    expect(find.textContaining('显示已结束'), findsWidgets);
+  });
+
+  testWidgets('**没有结束日期的重复系列永不算已结束**', (tester) async {
+    // 判据必须是规则的结束日期，不是"我看到的那一次已经过去"：一条 08-03 起、
+    // 每周一重复且没有结束日期的规则，在 10-12 依然在生效。
+    await pump(
+      tester,
+      items: [
+        series(
+          id: 'ongoing',
+          title: '长期规则',
+          weekdays: const {DateTime.monday},
+          validFrom: DateTime(2026, 8, 3),
+          validUntil: null,
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const Key('protected-series-ongoing')),
+      findsOneWidget,
+      reason:
+          '拿"已过去的那一次"当判据会把所有重复系列都判成已结束，'
+          '于是默认视图里一条都不剩——那比不提供这个开关更糟',
+    );
+  });
+
+  testWidgets('**一次性事项过了那天算已结束**', (tester) async {
+    await pump(
+      tester,
+      items: [
+        series(
+          id: 'once',
+          title: '一次性的',
+          weekdays: const {},
+          validFrom: DateTime(2026, 10, 1),
+          validUntil: null,
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const Key('protected-series-once')),
+      findsNothing,
+      reason: '单次事项没有规则可言，用它自己那一天判断',
+    );
   });
 }
 

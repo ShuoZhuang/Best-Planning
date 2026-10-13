@@ -64,6 +64,13 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
   String? _error;
   List<ProtectedTimeSeries> _series = const [];
 
+  /// 是否把**已经结束**的系列也列出来（计划 Task 8 Step 2）。
+  ///
+  /// **默认关闭**：假期里打开管理页，上学期那几十条规则会把当前要改的那几条挤到屏幕外。
+  /// 但它们不能被丢掉——"上学期那条周三的保护时间"是真实存在的记录，
+  /// 而用户有时正是要去删掉它。因此开关放在这里，而不是直接过滤掉。
+  bool _showEnded = false;
+
   @override
   void initState() {
     super.initState();
@@ -153,10 +160,32 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
           ],
         ),
         const SizedBox(height: 8),
-        Text(
-          '保护时间是排程的硬禁区：任务不会被排进这些时段。'
-          '每条规则只列一行，改一条就是改整个系列。',
-          style: Theme.of(context).textTheme.bodyMedium,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '保护时间是排程的硬禁区：任务不会被排进这些时段。'
+                '每条规则只列一行，改一条就是改整个系列。',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            // **默认关闭，但不隐藏**：看不见的开关等于没有这个能力。
+            //
+            // 用 `Switch` 而不是 `SwitchListTile`：后者要一张铺满宽度的列表行才能布局，
+            // 而这里它必须与说明文字**并列**——放进 `Row` 里会得到无界宽度并直接抛
+            // `BoxConstraints forces an infinite width`（实测如此）。
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  key: const Key('protected-show-ended'),
+                  value: _showEnded,
+                  onChanged: (value) => setState(() => _showEnded = value),
+                ),
+                const Text('显示已结束'),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         Expanded(child: _body(context)),
@@ -184,8 +213,33 @@ final class _ProtectedTimeListPageState extends State<ProtectedTimeListPage> {
         ),
       );
     }
+
+    // **按"今天"过滤已结束的那些**（计划 Task 8 Step 2）。时区用页面自己的，
+    // 与展示其余部分同一口径——混用两个时区会让"已结束"的边界日差一天。
+    final today = widget.zones.toLocal(
+      widget.nowUtc ?? DateTime.now().toUtc(),
+      widget.timeZoneId,
+    );
+    final visible = [
+      for (final series in _series)
+        if (_showEnded || !series.endedBefore(today)) series,
+    ];
+
+    if (visible.isEmpty) {
+      // **空状态要说清"东西去哪了"**：直接显示"还没有自定义保护时间"会让用户
+      // 以为规则被删了——而它们只是都结束了。
+      return Center(
+        child: Text(
+          '当前没有进行中的保护时间。'
+          '打开上面的「显示已结束」可以看到已经结束的 ${_series.length} 条。',
+          key: const Key('protected-list-all-ended'),
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
     return ListView(
-      children: [for (final series in _series) _tile(context, series)],
+      children: [for (final series in visible) _tile(context, series)],
     );
   }
 

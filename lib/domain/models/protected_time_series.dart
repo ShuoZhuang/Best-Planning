@@ -76,6 +76,20 @@ final class ProtectedTimeSeries {
 
   bool get repeats => weekdays.isNotEmpty;
 
+  /// 这条系列在 [todayLocalDate] 之前就已经结束了（计划 Task 8 Step 2）。
+  ///
+  /// **判据是规则的结束日期，不是"我看到的这一次已经过去"**：一条每周重复的系列永远
+  /// 有"已经过去的那一次"，拿它当判据会把所有重复系列都判成已结束，于是默认视图
+  /// 里一条都不显示——比不提供这个开关更糟。
+  ///
+  /// 没有结束日期的系列**永不结束**；单次事项用它自己那一天判断。
+  bool endedBefore(DateTime todayLocalDate) {
+    final today = _dateOnly(todayLocalDate);
+    final last = validUntilLocalDate;
+    if (last != null) return _dateOnly(last).isBefore(today);
+    return !repeats && _dateOnly(validFromLocalDate).isBefore(today);
+  }
+
   LocalTimeRange get range =>
       LocalTimeRange(startMinute: startMinute, endMinute: endMinute);
 

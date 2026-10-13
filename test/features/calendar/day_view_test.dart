@@ -14,6 +14,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/design/planner_localization.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
@@ -1154,6 +1155,135 @@ void main() {
       reason:
           '修复前这里回传的是 `item.title`（原样传回），于是"改名"这件事在界面上'
           '根本无从发生——用户改了框里的字，保存之后一切照旧',
+    );
+  });
+
+  testWidgets('**一次性事项不显示三个同义选项**（计划 Task 8 Step 3）', (tester) async {
+    // 一条没有重复规则的保护时间上，三个范围是同一件事。摆出来会让用户以为
+    // "仅本次"与"整个系列"不同，从而在选择上犹豫——而选哪个结果都一样。
+    final records = <EditRecord>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:evt-once',
+          title: '看医生',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+          repeats: false,
+        ),
+      ],
+      onEditEvent: (request) async {
+        records.add(EditRecord(request));
+        return OccurrenceEditOutcome.saved;
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-once')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('仅本次'), findsNothing);
+    expect(find.text('本次及以后'), findsNothing, reason: '没有规则就无从"从这一次起拆分"');
+    expect(find.text('整个系列'), findsNothing);
+
+    // 表单照常可用，保存**仍然走得通**（只是没有范围可选，隐含"就改这一条"）。
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      records.single.scope,
+      EventEditScope.singleOccurrence,
+      reason: '没有范围可选时隐含的就是"改这一条"，而不是"什么都不做"',
+    );
+  });
+
+  testWidgets('**备注被带到写入请求里**（此前对话框收得到、回调没有位置放）', (tester) async {
+    final records = <EditRecord>[];
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:evt-protected',
+          title: '午休保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 4,
+          notes: '原备注',
+        ),
+      ],
+      onEditEvent: (request) async {
+        records.add(EditRecord(request));
+        return OccurrenceEditOutcome.saved;
+      },
+    );
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('occurrence-notes')), '带医保卡');
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      records.single.notes,
+      '带医保卡',
+      reason: '修复前 `OccurrenceEditResult.notes` 收到了却没人用，保存后备注消失',
+    );
+    expect(
+      records.single.draft.kind,
+      CalendarEventKind.protected,
+      reason:
+          '**类别不能丢**：保护时间被改写成固定日程之后会进入投入统计'
+          '（规范 §9.1 明确保护时间不计入任何投入）',
+    );
+  });
+
+  testWidgets('**改写失败时如实提示**，不假装成功', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:evt-protected',
+          title: '午休保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 4,
+        ),
+      ],
+      onEditEvent: (request) async => OccurrenceEditOutcome.failed,
+    );
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('occurrence-edit-failed')), findsOneWidget);
+  });
+
+  testWidgets('**数据过期时说"重新打开"而不是"重试"**', (tester) async {
+    // 两种失败要用户做的事完全不同：`failed` 可以重试，`stale` 重试永远不会成功
+    // ——必须先关掉重开。把它们说成同一句会让用户反复点同一个按钮。
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:evt-protected',
+          title: '午休保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 4,
+        ),
+      ],
+      onEditEvent: (request) async => OccurrenceEditOutcome.stale,
+    );
+
+    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('occurrence-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('occurrence-edit-stale')), findsOneWidget);
+    expect(
+      find.textContaining('重新打开'),
+      findsOneWidget,
+      reason: 'stale 要用户做的事是重新打开，而不是重试',
     );
   });
 
