@@ -111,6 +111,13 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           areaId: isProtected ? null : occurrence.areaId,
           // 保护时间不参与"完成"判定——它不是待办。
           isCompleted: !isProtected && !occurrence.range.endUtc.isAfter(nowUtc),
+          // 备注：改写对话框要预填它（负责任的实现必须"能读的字段也能写回"）。
+          notes: occurrence.notes,
+          // **有没有重复规则**：日视图据此决定要不要显示"仅本次／此次及以后／整个系列"。
+          // 一条一次性事项上摆三个同义选项，用户会以为它们不同。
+          repeats: occurrence.repeats,
+          // 页面读到这一条时的修订号：改写时要带回去做并发校验。
+          updatedAtUtc: occurrence.updatedAtUtc,
         ),
       );
     }

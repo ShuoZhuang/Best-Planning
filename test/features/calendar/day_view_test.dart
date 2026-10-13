@@ -14,6 +14,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/design/planner_localization.dart';
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -53,6 +54,10 @@ ScheduleViewItem _item({
   String? categoryLabel,
   int? categoryColorArgb,
   int? categorySortOrder,
+  String notes = '',
+  // **默认 `true`**：这一页多数用例关心的是"三个范围选项各自走哪条路"，
+  // 而范围选项只在重复事项上出现。一次性事项那一条另有专门用例。
+  bool repeats = true,
 }) => ScheduleViewItem(
   id: id,
   title: title,
@@ -61,11 +66,30 @@ ScheduleViewItem _item({
   categoryLabel: categoryLabel ?? kind.label,
   categoryColorArgb: categoryColorArgb ?? 0xff456789,
   categorySortOrder: categorySortOrder ?? kind.index,
+  notes: notes,
+  repeats: repeats,
   range: TimeRange(
     startUtc: DateTime.utc(2026, 10, 5, startHourUtc),
     endUtc: DateTime.utc(2026, 10, 5, startHourUtc + durationHours),
   ),
 );
+
+/// 把一次改写请求摊成测试关心的三件事：**锚点、范围、改成了什么样**。
+///
+/// 用记录而不是 `(id, start, end, title)` 那样的元组：范围是这一批新增的判据，
+/// 而元组的位置参数一多，"第几个是什么"就得靠数——那正是最容易断言错的地方。
+final class EditRecord {
+  const EditRecord(this.request);
+  final OccurrenceEditRequest request;
+
+  String get anchorId => request.anchorId;
+  EventEditScope get scope => request.scope;
+  CalendarEventEditDraft get draft => request.draft;
+  String get title => request.draft.title;
+  String get notes => request.draft.notes;
+  DateTime get startUtc => request.draft.startAtUtc;
+  DateTime get endUtc => request.draft.endAtUtc;
+}
 
 final _dayStartUtc = DateTime.utc(2026, 10, 5);
 
@@ -88,14 +112,8 @@ void main() {
     required List<ScheduleViewItem> items,
     String timeZoneId = 'UTC',
     Future<bool> Function(String eventId)? onDeleteEvent,
-    Future<bool> Function(
-      String eventId,
-      DateTime occurrenceStartUtc,
-      DateTime newStartUtc,
-      DateTime newEndUtc,
-      String title,
-    )?
-    onReplaceOccurrence,
+    Future<OccurrenceEditOutcome> Function(OccurrenceEditRequest request)?
+    onEditEvent,
     Future<bool> Function(String eventId, String? areaId)? onSetEventArea,
     List<ScheduleAreaOption> areaOptions = const [
       ScheduleAreaOption(id: 'area-study', name: '学业'),
@@ -117,7 +135,7 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: timeZoneId,
             onDeleteEvent: onDeleteEvent,
-            onReplaceOccurrence: onReplaceOccurrence,
+            onEditEvent: onEditEvent,
             onSetEventArea: onSetEventArea,
             loadAreaOptions: onSetEventArea == null
                 ? null
@@ -515,8 +533,7 @@ void main() {
         ),
       ],
       onDeleteEvent: (id) async => true,
-      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
-          true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
     // 图标位**保留但不可用**：不够删这两类条目（它们的 id 不是事件 id），但也不能
@@ -552,8 +569,7 @@ void main() {
         deleted.add(id);
         return true;
       },
-      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
-          true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
     await tester.ensureVisible(
@@ -596,8 +612,7 @@ void main() {
         ),
       ],
       onDeleteEvent: (id) async => true,
-      onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async =>
-          true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
     final fixed = tester.getSize(
@@ -787,7 +802,7 @@ void main() {
   });
 
   testWidgets('"改这一次"把新时间交给注入的回调，非法输入留在对话框里', (tester) async {
-    final replaced = <(String, DateTime, DateTime, DateTime)>[];
+    final replaced = <EditRecord>[];
     tester.view.physicalSize = const Size(1000, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -810,9 +825,9 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
-              replaced.add((id, startUtc, newStart, newEnd));
-              return true;
+            onEditEvent: (request) async {
+              replaced.add(EditRecord(request));
+              return OccurrenceEditOutcome.saved;
             },
           ),
         ),
@@ -841,13 +856,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(replaced, hasLength(1));
-    expect(replaced.single.$1, 'event-1');
+    expect(replaced.single.anchorId, 'event-1');
     // **按 UTC 断言，不按 `.day`**：这一页用 `timeZoneId: 'UTC'` 渲染，而回调收到的是
     // **UTC** 时刻——`.day` 在两种口径下会差一天（本地 10-06 18:00 = UTC 10-06 10:00，
     // 而同一天的起点 UTC 09:00 的 `.day` 是 05）。原用例同样按 UTC 比（14:00/15:00）。
-    expect(replaced.single.$3, DateTime.utc(2026, 10, 5, 9));
+    expect(replaced.single.startUtc, DateTime.utc(2026, 10, 5, 9));
     expect(
-      replaced.single.$4,
+      replaced.single.endUtc,
       DateTime.utc(2026, 10, 6, 10),
       reason: '结束日期改到次日 ⇒ 结束时刻整体后移一天',
     );
@@ -895,13 +910,13 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
-              single.add(id);
-              return true;
-            },
-            onReplaceSeries: (id, newStart, newEnd) async {
-              series.add(id);
-              return true;
+            onEditEvent: (request) async {
+              if (request.scope == EventEditScope.entireSeries) {
+                series.add(request.anchorId);
+              } else {
+                single.add(request.anchorId);
+              }
+              return OccurrenceEditOutcome.saved;
             },
           ),
         ),
@@ -951,17 +966,16 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
-              single.add(id);
-              return true;
-            },
-            onReplaceFollowing: (id, startUtc, newStart, newEnd) async {
-              following.add(id);
-              return true;
-            },
-            onReplaceSeries: (id, newStart, newEnd) async {
-              series.add(id);
-              return true;
+            onEditEvent: (request) async {
+              switch (request.scope) {
+                case EventEditScope.singleOccurrence:
+                  single.add(request.anchorId);
+                case EventEditScope.followingOccurrences:
+                  following.add(request.anchorId);
+                case EventEditScope.entireSeries:
+                  series.add(request.anchorId);
+              }
+              return OccurrenceEditOutcome.saved;
             },
           ),
         ),
@@ -1066,13 +1080,7 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (
-              id,
-              startUtc,
-              newStart,
-              newEnd,
-              title,
-            ) async => true,
+            onEditEvent: (request) async => OccurrenceEditOutcome.saved,
           ),
         ),
       ),
@@ -1124,9 +1132,9 @@ void main() {
             zones: TimeZoneDatabase(),
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
-            onReplaceOccurrence: (id, startUtc, newStart, newEnd, title) async {
-              titles.add(title);
-              return true;
+            onEditEvent: (request) async {
+              titles.add(request.draft.title);
+              return OccurrenceEditOutcome.saved;
             },
           ),
         ),

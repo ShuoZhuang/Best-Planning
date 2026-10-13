@@ -222,6 +222,7 @@ final class CalendarOccurrence {
     this.importBatchId,
     this.logicalCourseId,
     this.updatedAtUtc,
+    this.repeats = false,
   });
 
   final EntityId eventId;
@@ -251,6 +252,15 @@ final class CalendarOccurrence {
   /// 可空：手工构造的占用（测试、`course_transition` 之类）没有这个概念，
   /// 而"不知道修订号"与"修订号是某个值"必须能区分。
   final DateTime? updatedAtUtc;
+
+  /// 这一条背后**有没有重复规则**（课程与保护时间管理修复计划 Task 8 Step 3）。
+  ///
+  /// **只有展开器知道这件事**：它是"这一行是规则展开出来的"还是"这是一条独立事项"的
+  /// 区别，而两者的差别决定了界面该不该问"仅本次／此次及以后／整个系列"——
+  /// 一条没有规则的事项上，这三个选项是同一件事。
+  ///
+  /// 独立查询出来的行（`recurrenceRuleId` 为空）恒为 `false`；展开出来的恒为 `true`。
+  final bool repeats;
 
   final EntityId? importBatchId;
   final EntityId? logicalCourseId;

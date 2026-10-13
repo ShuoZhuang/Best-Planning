@@ -162,6 +162,8 @@ final class DriftCalendarRepository
             importBatchId: event.importBatchId,
             logicalCourseId: event.logicalCourseId,
             updatedAtUtc: anchorUpdatedAt[event.id],
+            // 展开出来的：背后**一定有**一条规则。
+            repeats: true,
           ),
         );
       }

@@ -84,6 +84,8 @@ final class ScheduleViewItem {
     this.isCompleted = false,
     this.recurringGoal,
     this.notes = '',
+    this.repeats = false,
+    this.updatedAtUtc,
   });
 
   final String id;
@@ -137,6 +139,21 @@ final class ScheduleViewItem {
   /// 课表导入还把**教师名**写在这一列里；因此日视图改写对话框预填它时必须让用户
   /// 看得见内容，而不是显示一个空框（空框会让用户以为备注丢了）。
   final String notes;
+
+  /// 这一条背后**有没有重复规则**（计划 Task 8 Step 3）。
+  ///
+  /// 日视图据此决定要不要显示"仅本次／此次及以后／整个系列"三个范围选项：
+  /// 一条一次性事项上摆三个同义选项，用户会以为它们不同，而实际上选哪个都一样。
+  ///
+  /// **由数据决定，不靠界面猜**：`CalendarOccurrence.repeats` 是展开器读规则时得到的，
+  /// 界面拿不到也推不出它（`ScheduleViewItem` 上没有 `recurrenceRuleId`）。
+  final bool repeats;
+
+  /// 页面读到这一条时锚点的修订号（Task 7 Step 4 的乐观并发）。
+  ///
+  /// 改写时原样带回去：数据库里的值变了就说明别处改过，此时应当让用户重新打开，
+  /// 而不是把人家的改动覆盖掉。为空表示无从判断（手工构造的条目）。
+  final DateTime? updatedAtUtc;
 }
 
 abstract interface class ScheduleViewSource {

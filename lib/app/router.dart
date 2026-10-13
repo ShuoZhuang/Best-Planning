@@ -1266,67 +1266,73 @@ GoRouter createPlannerRouter({
                             anchorId: id,
                             occurrenceStartUtc: startUtc,
                           ),
-                // FR-CAL-02 的"改这一次"。页面交回**本地**时刻，UTC 换算在这里做（路由持有
-                // `zones` 与时区标识），与截止时间、事件编辑器两处的分工一致。
-                onReplaceOccurrence: calendarService == null
+                // FR-CAL-02 的三种范围改写**走同一条路**（计划 Task 8 Step 3）。
+                //
+                // **为什么不再用 `replaceOccurrence` 那三个包装器**：它们只收时间与标题，
+                // 因此备注没有位置放、修订号也没有；而它们靠一张**进程内标题缓存**猜
+                // "这条事项叫什么"，冷启动猜不到时就写占位文字「未命名事项」。
+                // `updateEvent` 收的是一份完整草稿，那两件事都不再需要猜。
+                //
+                // UTC 换算在这里做（路由持有 `zones` 与时区标识），与截止时间、
+                // 事件编辑器两处的分工一致。
+                onEditEvent: calendarService == null
                     ? null
-                    : (id, startUtc, newStart, newEnd, title) =>
-                          calendarService.replaceOccurrence(
-                            anchorId: id,
-                            occurrenceStartUtc: startUtc,
-                            newStartUtc: zones.localDateTimeToUtc(
-                              DateTime(
-                                newStart.year,
-                                newStart.month,
-                                newStart.day,
-                              ),
-                              newStart.hour * 60 + newStart.minute,
-                              timeZoneId,
-                            ),
-                            newEndUtc: zones.localDateTimeToUtc(
-                              DateTime(newEnd.year, newEnd.month, newEnd.day),
-                              newEnd.hour * 60 + newEnd.minute,
-                              timeZoneId,
-                            ),
-                            title: title,
+                    : (request) async {
+                        final draft = request.draft;
+                        // **页面交回的是本地时刻**，UTC 换算在这一层做——与截止时间、
+                        // 事件编辑器两处同一条分工（路由持有 `zones` 与时区标识）。
+                        final startAtUtc = zones.localDateTimeToUtc(
+                          DateTime(
+                            draft.startAtUtc.year,
+                            draft.startAtUtc.month,
+                            draft.startAtUtc.day,
                           ),
-                onReplaceFollowing: calendarService == null
-                    ? null
-                    : (id, startUtc, newStart, newEnd) =>
-                          calendarService.replaceFollowingOccurrences(
-                            anchorId: id,
-                            occurrenceStartUtc: startUtc,
-                            newStartUtc: zones.localDateTimeToUtc(
-                              DateTime(
-                                newStart.year,
-                                newStart.month,
-                                newStart.day,
-                              ),
-                              newStart.hour * 60 + newStart.minute,
-                              timeZoneId,
-                            ),
-                            newEndUtc: zones.localDateTimeToUtc(
-                              DateTime(newEnd.year, newEnd.month, newEnd.day),
-                              newEnd.hour * 60 + newEnd.minute,
-                              timeZoneId,
-                            ),
+                          draft.startAtUtc.hour * 60 + draft.startAtUtc.minute,
+                          timeZoneId,
+                        );
+                        final endAtUtc = zones.localDateTimeToUtc(
+                          DateTime(
+                            draft.endAtUtc.year,
+                            draft.endAtUtc.month,
+                            draft.endAtUtc.day,
                           ),
-                // FR-CAL-02 的"改整个系列"：改锚点与规则本身（所有各次一起变）。
-                onReplaceSeries: calendarService == null
-                    ? null
-                    : (id, newStart, newEnd) => calendarService.replaceSeries(
-                        anchorId: id,
-                        newStartUtc: zones.localDateTimeToUtc(
-                          DateTime(newStart.year, newStart.month, newStart.day),
-                          newStart.hour * 60 + newStart.minute,
+                          draft.endAtUtc.hour * 60 + draft.endAtUtc.minute,
                           timeZoneId,
-                        ),
-                        newEndUtc: zones.localDateTimeToUtc(
-                          DateTime(newEnd.year, newEnd.month, newEnd.day),
-                          newEnd.hour * 60 + newEnd.minute,
-                          timeZoneId,
-                        ),
-                      ),
+                        );
+                        final result = await calendarService.updateEvent(
+                          target: CalendarEditTarget(
+                            anchorId: request.anchorId,
+                            scope: request.scope,
+                            occurrenceStartUtc: request.occurrenceStartUtc,
+                            expectedUpdatedAtUtc: request.expectedUpdatedAtUtc,
+                          ),
+                          // **逐字段重建而不是 `copyWith`**：草稿的时间字段在
+                          // "本地时刻"与"UTC 时刻"之间有歧义，而这个转换恰恰是危险的
+                          // 那一步——省略任何一个字段都会让那一项被静默重置。
+                          // 显式列出全部字段，遗漏会在类型层面暴露。
+                          event: CalendarEventEditDraft(
+                            title: draft.title,
+                            startAtUtc: startAtUtc,
+                            endAtUtc: endAtUtc,
+                            timeZoneId: draft.timeZoneId,
+                            notes: draft.notes,
+                            location: draft.location,
+                            areaId: draft.areaId,
+                            projectId: draft.projectId,
+                            kind: draft.kind,
+                          ),
+                        );
+                        // **三态如实回传**：界面按它决定说"没成功"还是
+                        // "别处改过了，请重新打开"——后者重试永远不会成功。
+                        return switch (result.status) {
+                          CalendarMutationStatus.saved ||
+                          CalendarMutationStatus.savedWithWarning =>
+                            OccurrenceEditOutcome.saved,
+                          CalendarMutationStatus.stale =>
+                            OccurrenceEditOutcome.stale,
+                          _ => OccurrenceEditOutcome.failed,
+                        };
+                      },
               );
             },
           ),

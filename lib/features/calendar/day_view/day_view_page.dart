@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/planner_theme.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
@@ -26,9 +28,7 @@ final class DayViewPage extends StatelessWidget {
     this.onDeleteEvent,
     this.onDeleteOccurrence,
     this.onDeleteFollowing,
-    this.onReplaceOccurrence,
-    this.onReplaceFollowing,
-    this.onReplaceSeries,
+    this.onEditEvent,
     this.onSetEventArea,
     this.loadAreaOptions,
     this.highlightEventId,
@@ -64,38 +64,19 @@ final class DayViewPage extends StatelessWidget {
   final Future<bool> Function(String eventId, DateTime occurrenceStartUtc)?
   onDeleteFollowing;
 
-  /// **改写**某一次（FR-CAL-02 的"修改单次实例"）。为空时不显示该按钮。
+  /// **改写**某一次／此次及以后／整个系列（FR-CAL-02；计划 Task 8 Step 3）。
   ///
-  /// 交回的是**本地时刻**：与 `onDeleteOccurrence` 同理，页面不做时区换算，换算由注入方
-  /// （持有 `TimeZoneDatabase` 的路由）负责。单次日程与重复日程在这一层的表现相同，"改这一次"
-  /// 与"改整条"是否等价由仓储按数据判断。
-  final Future<bool> Function(
-    String eventId,
-    DateTime occurrenceStartUtc,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-    String title,
-  )?
-  onReplaceOccurrence;
-
-  final Future<bool> Function(
-    String eventId,
-    DateTime occurrenceStartUtc,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-  )?
-  onReplaceFollowing;
-
-  /// 改写**整个系列**（FR-CAL-02 的"整个系列"编辑）。为空时对话框里不出现该选项。
+  /// **三个范围合成一个回调**：范围只是请求上的一个字段，而写入的取舍
+  /// （写例外还是改锚点与规则、要不要做并发校验）全在用例层。
   ///
-  /// 与 [onReplaceOccurrence] 分成两个回调而不是加一个布尔参数：两条路径**写入的东西不同**
-  /// （一条写例外，一条改锚点与规则），分开后各自的契约与用例也更清楚。
-  final Future<bool> Function(
-    String eventId,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-  )?
-  onReplaceSeries;
+  /// 分成三个回调时它们各自成型，于是**没有位置放备注与修订号**——而这正是
+  /// "改了名保存后一切照旧"与"填了备注却消失"两个缺陷的来源。
+  /// 交回的是**本地时刻**：与 `onDeleteOccurrence` 同理，页面不做时区换算，
+  /// 换算由注入方（持有 `TimeZoneDatabase` 的路由）负责。
+  ///
+  /// 为空时列表里不出现编辑入口。
+  final Future<OccurrenceEditOutcome> Function(OccurrenceEditRequest request)?
+  onEditEvent;
 
   final VoidCallback? onOpenWeek;
 
@@ -248,10 +229,12 @@ final class DayViewPage extends StatelessWidget {
                                       loadAreaOptions: loadOptions,
                                     ),
                             ),
-                          if (onReplaceOccurrence != null)
+                          if (onEditEvent != null)
                             IconButton(
                               key: Key('edit-${item.id}'),
-                              tooltip: eventId == null ? '只有固定日程可以改写' : '改这一次',
+                              // **不再说"只有固定日程可以改写"**：保护时间也走这一条路
+                              // （计划 Task 8 Step 3），而那句提示会让用户以为保护时间不能改。
+                              tooltip: '改这一次、此次及以后或整个系列',
                               icon: const Icon(Icons.edit_outlined),
                               onPressed: eventId == null
                                   ? null
@@ -259,9 +242,7 @@ final class DayViewPage extends StatelessWidget {
                                       context,
                                       item,
                                       eventId: eventId,
-                                      onReplaceOccurrence: onReplaceOccurrence,
-                                      onReplaceFollowing: onReplaceFollowing,
-                                      onReplaceSeries: onReplaceSeries,
+                                      onEditEvent: onEditEvent,
                                       zones: zones,
                                       timeZoneId: timeZoneId,
                                     ),
@@ -283,34 +264,63 @@ final class DayViewPage extends StatelessWidget {
 ///
 /// 用文本框而不是日期/时间选择器：**格式与事件编辑器一致**（`YYYY-MM-DD HH:mm`），用户在两个
 /// 地方看到同一种写法；也让这条路径能在测试里被直接驱动。
+/// 一次"改写这一次／此次及以后／整个系列"的请求（计划 Task 8 Step 3）。
+///
+/// ## 为什么把它收成一个类型
+///
+/// 此前这条路上有三个各自成形回调（`onReplaceOccurrence` / `...Following` / `...Series`），
+/// 而它们**只能传时间与标题**：备注根本没有位置放，修订号也没有。于是
+///
+/// - 日视图对话框收得到备注，却传不出去（`OccurrenceEditResult.notes` 无人使用）；
+/// - "只改这一次"走的还是 `@Deprecated` 的包装器，它靠一张**进程内标题缓存**猜
+///   "这条事项叫什么"，冷启动时猜不到就只能写占位文字「未命名事项」。
+///
+/// 一个请求对象把这三件事一次说清：**改哪一个范围、改哪一次、改成什么样**。
+/// 界面只负责填它，写入的取舍（写例外还是改规则、要不要做并发校验）留给用例层。
+final class OccurrenceEditRequest {
+  const OccurrenceEditRequest({
+    required this.anchorId,
+    required this.scope,
+    required this.occurrenceStartUtc,
+    required this.draft,
+    this.expectedUpdatedAtUtc,
+  });
+
+  /// 要改的**锚点**（系列的根），不是这一次的 id。
+  final String anchorId;
+
+  final EventEditScope scope;
+
+  /// 被编辑的那一次的发生时刻。`entireSeries` 时为 `null`——
+  /// "整条系列"不指向某一次，硬塞一个时刻会让写入端以为要按它定位。
+  final DateTime? occurrenceStartUtc;
+
+  final CalendarEventEditDraft draft;
+
+  /// 页面读到这一条时的修订号（空表示"无从判断"，跳过过期检测）。
+  final DateTime? expectedUpdatedAtUtc;
+}
+
+/// 一次改写在界面上的结果。
+///
+/// **三态而不是布尔**：`失败`（可以重试）与 `已过期`（必须重新打开）对用户要做的事
+/// 完全不同。压成一个 `false` 会让界面只能说"没成功"，用户于是反复重试同一件
+/// 永远不会成功的事——而正确的动作是关掉重开。
+enum OccurrenceEditOutcome { saved, stale, failed }
+
 Future<void> _editOccurrence(
   BuildContext context,
   ScheduleViewItem item, {
   required String eventId,
-  required Future<bool> Function(
-    String eventId,
-    DateTime occurrenceStartUtc,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-    String title,
+  required Future<OccurrenceEditOutcome> Function(
+    OccurrenceEditRequest request,
   )?
-  onReplaceOccurrence,
-  required Future<bool> Function(
-    String eventId,
-    DateTime occurrenceStartUtc,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-  )?
-  onReplaceFollowing,
-  required Future<bool> Function(
-    String eventId,
-    DateTime newStartUtc,
-    DateTime newEndUtc,
-  )?
-  onReplaceSeries,
+  onEditEvent,
   required TimeZoneDatabase zones,
   required String timeZoneId,
 }) async {
+  final edit = onEditEvent;
+  if (edit == null) return;
   final result = await showDialog<OccurrenceEditResult>(
     context: context,
     // 控制器由对话框**自己**持有并释放。在 `showDialog` 返回后立刻 dispose 会在退出动画
@@ -323,33 +333,59 @@ Future<void> _editOccurrence(
       initialEndUtc: item.range.endUtc,
       zones: zones,
       timeZoneId: timeZoneId,
-      allowsFollowing: onReplaceFollowing != null,
-      allowsWholeSeries: onReplaceSeries != null,
+      // **只给真正的重复系列显示范围选项**：一次性的保护时间上摆三个同义选项，
+      // 用户会以为"仅本次"与"整个系列"不同，而它们对一条没有规则的事项是同一件事。
+      allowsFollowing: item.repeats,
+      allowsWholeSeries: item.repeats,
     ),
   );
   if (result == null) return;
-  if (result.scope == EventEditScope.entireSeries) {
-    await onReplaceSeries!(eventId, result.startUtc, result.endUtc);
-    return;
-  }
-  if (result.scope == EventEditScope.followingOccurrences) {
-    await onReplaceFollowing!(
-      eventId,
-      item.range.startUtc,
-      result.startUtc,
-      result.endUtc,
-    );
-    return;
-  }
-  await onReplaceOccurrence!(
-    eventId,
-    item.range.startUtc,
-    result.startUtc,
-    result.endUtc,
-    // **用对话框里改过的标题，不是 `item.title`**（计划 §1.2）：
-    // 此前这里回传的是原值，于是"改名"保存之后一切照旧。
-    result.title,
+
+  final outcome = await edit(
+    OccurrenceEditRequest(
+      anchorId: eventId,
+      scope: result.scope,
+      occurrenceStartUtc: result.scope == EventEditScope.entireSeries
+          ? null
+          : item.range.startUtc,
+      draft: CalendarEventEditDraft(
+        title: result.title,
+        // **备注也一起带出去**（计划 §1.2）：此前对话框收得到它、回调却没有位置放，
+        // 于是用户在这一次上填的备注点保存之后就消失了。
+        notes: result.notes,
+        startAtUtc: result.startUtc,
+        endAtUtc: result.endUtc,
+        timeZoneId: timeZoneId,
+        // **类别必须从条目种类翻译过来，不能直接传**：`ScheduleItemKind` 是**视图**层的
+        // 枚举（还包含任务块、专注块等），而 `CalendarEventKind` 是**领域**层的两值枚举。
+        // 直接传在类型上就不成立；而"保护时间被改写成固定日程"会让它从此进入投入统计
+        // （规范 §9.1 明确保护时间不计入任何投入）。
+        kind: item.kind == ScheduleItemKind.protectedTime
+            ? CalendarEventKind.protected
+            : CalendarEventKind.fixed,
+      ),
+      expectedUpdatedAtUtc: item.updatedAtUtc,
+    ),
   );
+  if (!context.mounted) return;
+  switch (outcome) {
+    case OccurrenceEditOutcome.saved:
+      return;
+    case OccurrenceEditOutcome.stale:
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: Key('occurrence-edit-stale'),
+          content: Text('这一条在别处已被修改，请关掉重新打开后再改。'),
+        ),
+      );
+    case OccurrenceEditOutcome.failed:
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: Key('occurrence-edit-failed'),
+          content: Text('这次改写没有成功，原内容未改变，请重试。'),
+        ),
+      );
+  }
 }
 
 /// 选择领域并保存（`null` 表示取消归属）。
