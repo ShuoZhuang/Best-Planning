@@ -6,6 +6,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_date_time_fields.dart';
 import 'package:personal_planner/design/planner_editor_scaffold.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/protected_time_series.dart';
 
 /// 新建／编辑一条**自定义保护时间**（1.8.0，设计规范 §9.2）。
 ///
@@ -28,6 +29,8 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
     this.initialTitle = defaultTitle,
     this.initialNotes = '',
     this.editAnchorId,
+    this.series,
+    this.onUpdateSeries,
     this.onSaved,
     this.onCancel,
     super.key,
@@ -61,6 +64,33 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
   ///
   /// 为空 ⇒ 新建模式，标题是「新建保护时间」（Task 8 Step 1）。
   final String? editAnchorId;
+
+  /// 编辑模式下要预填的**系列详情**（计划 Task 8 Step 1："所有字段从详情预填"）。
+  ///
+  /// **与 `editAnchorId` 一起传，但不是同一个东西**：id 回答"改哪一条"，
+  /// 详情回答"这条现在长什么样"。只传 id 的编辑器只能显示空表单，
+  /// 用户一保存就把整条规则覆盖成"保护时间 / 今天 / 1 小时"——那比不能编辑更糟。
+  ///
+  /// 为空时按键值兜底（[initialTitle]／[initialNotes]），这是日视图那条路径用的：
+  /// 那里用户点的是**某一次**，已知的信息就是那一次本身。
+  final ProtectedTimeSeries? series;
+
+  /// 编辑模式下真正执行保存的回调；返回**用户可见的错误文案**，`null` 表示成功。
+  ///
+  /// **由调用方注入而不是编辑器自己调服务**：写哪几个字段、要做什么并发校验
+  /// （`expectedUpdatedAtUtc`）是**用例**的职责，而编辑器只管收集输入。
+  /// 这样"编辑器绝不生成新 id"这件事由结构保证：它手上根本没有 `save()` 这条路。
+  final Future<String?> Function({
+    required String title,
+    required String notes,
+    required DateTime startAtUtc,
+    required DateTime endAtUtc,
+    required bool weekly,
+    required Set<int> weekdays,
+    DateTime? recurrenceEnd,
+  })?
+  onUpdateSeries;
+
   final VoidCallback? onSaved;
   final VoidCallback? onCancel;
 
@@ -82,18 +112,53 @@ final class _ProtectedTimeEditorPageState
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.initialTitle);
-    _notesController = TextEditingController(text: widget.initialNotes);
     // 默认给"今天 14:00–15:00"：一个 60 分钟的具体区间比空字段更容易改。
     final now = widget.zones.toLocal(DateTime.now().toUtc(), widget.timeZoneId);
-    final date = DateTime(now.year, now.month, now.day);
+    final today = DateTime(now.year, now.month, now.day);
+
+    // **编辑模式从系列详情预填**（Task 8 Step 1）。逐字段的理由：
+    // 少填一项，用户一保存就把它覆盖成默认值——而"默认值"在这里是"今天"。
+    final series = widget.series;
+    // **用规则的有效期起点当开始日期，而不是"今天"**：一条 10-06 开始、每周二重复的
+    // 规则若显示成"今天开始"，用户看不出它原本从哪一周起生效，而保存时那个日期会被真的改掉。
+    final localStartDate = series?.validFromLocalDate ?? today;
+    final startTime = series == null
+        ? const TimeOfDay(hour: 14, minute: 0)
+        : TimeOfDay(
+            hour: series.startMinute ~/ 60,
+            minute: series.startMinute % 60,
+          );
+    final crossesMidnight =
+        series != null && series.endMinute < series.startMinute;
+    final endDate = series == null
+        ? today
+        : (crossesMidnight
+              ? localStartDate.add(const Duration(days: 1))
+              : localStartDate);
+    final endTime = series == null
+        ? const TimeOfDay(hour: 15, minute: 0)
+        : TimeOfDay(
+            hour: series.endMinute ~/ 60,
+            minute: series.endMinute % 60,
+          );
+
+    _titleController = TextEditingController(
+      text: series?.title ?? widget.initialTitle,
+    );
+    _notesController = TextEditingController(
+      text: series?.notes ?? widget.initialNotes,
+    );
     _range = LocalDateRangeController(
-      startDate: date,
-      startTime: const TimeOfDay(hour: 14, minute: 0),
-      endDate: date,
-      endTime: const TimeOfDay(hour: 15, minute: 0),
+      startDate: localStartDate,
+      startTime: startTime,
+      endDate: endDate,
+      endTime: endTime,
     )..addListener(_onRangeChanged);
-    _weekdays = {date.weekday};
+    _weekly = series?.repeats ?? false;
+    _weekdays = series != null && series.weekdays.isNotEmpty
+        ? Set.of(series.weekdays)
+        : {today.weekday};
+    _recurrenceEnd = series?.validUntilLocalDate;
   }
 
   void _onRangeChanged() {
@@ -125,19 +190,46 @@ final class _ProtectedTimeEditorPageState
       return;
     }
 
+    final startUtc = widget.zones.localDateTimeToUtc(
+      _range.startDate,
+      _range.startTime.hour * 60 + _range.startTime.minute,
+      widget.timeZoneId,
+    );
+    final endUtc = widget.zones.localDateTimeToUtc(
+      _range.endDate,
+      _range.endTime.hour * 60 + _range.endTime.minute,
+      widget.timeZoneId,
+    );
+
+    // **编辑模式绝不能走 `save()`**（计划 Task 8 Step 1）：
+    // `save()` 会生成一个新的 `CalendarEvent` 并落库，于是"改一次名字"变成"又建了一条"
+    // ——管理页多一行、日历上多一串，而用户以为自己只是改了个名字。
+    // 这正是本批次要修的缺陷（计划 §1.2）。
+    final update = widget.onUpdateSeries;
+    if (widget.editAnchorId != null && update != null) {
+      final failure = await update(
+        title: title,
+        notes: _notesController.text.trim(),
+        startAtUtc: startUtc,
+        endAtUtc: endUtc,
+        weekly: _weekly,
+        weekdays: _weekdays,
+        recurrenceEnd: _recurrenceEnd,
+      );
+      if (!mounted) return;
+      if (failure case final message?) {
+        setState(() => _errors = {'title': message});
+        return;
+      }
+      widget.onSaved?.call();
+      return;
+    }
+
     final result = await widget.service.save(
       EventDraft(
         title: title,
-        startAtUtc: widget.zones.localDateTimeToUtc(
-          _range.startDate,
-          _range.startTime.hour * 60 + _range.startTime.minute,
-          widget.timeZoneId,
-        ),
-        endAtUtc: widget.zones.localDateTimeToUtc(
-          _range.endDate,
-          _range.endTime.hour * 60 + _range.endTime.minute,
-          widget.timeZoneId,
-        ),
+        startAtUtc: startUtc,
+        endAtUtc: endUtc,
         timeZoneId: widget.timeZoneId,
         notes: _notesController.text.trim(),
         // **这一行就是"保护时间"的全部数据表示**（规范 §9.1）。

@@ -167,14 +167,29 @@ void main() {
   });
 }
 
-/// 保护时间系列读模型的空替身：路由测试只关心"到了哪一页"。
+/// 保护时间系列读模型的替身：路由测试只关心"到了哪一页"。
+///
+/// **它仍要能返回一条系列**（不是永远 `null`）：编辑路由到的是
+/// `ProtectedTimeSeriesEditorPage`，而它在"读不到系列"时显示的是
+/// `protected-series-missing` 那一屏——永远返回 `null` 会让"编辑模式渲染出表单"
+/// 这条断言失败，而失败的原因与路由本身无关。
 final class _NoSeries implements ProtectedTimeSeriesReader {
   @override
   Future<List<ProtectedTimeSeries>> listProtectedSeries() async => const [];
 
   @override
   Future<ProtectedTimeSeries?> findProtectedSeries(String anchorId) async =>
-      null;
+      ProtectedTimeSeries(
+        anchorId: anchorId,
+        title: '午休',
+        timeZoneId: 'Asia/Shanghai',
+        startMinute: 14 * 60,
+        endMinute: 15 * 60,
+        weekdays: const {DateTime.tuesday},
+        validFromLocalDate: DateTime(2026, 10, 6),
+        validUntilLocalDate: DateTime(2026, 12, 20),
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      );
 }
 
 final class _FixedClock implements Clock {

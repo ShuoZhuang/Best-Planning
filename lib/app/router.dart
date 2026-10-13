@@ -53,6 +53,7 @@ import 'package:personal_planner/features/calendar/courses/course_editor_page.da
 import 'package:personal_planner/features/calendar/courses/course_management_page.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
+import 'package:personal_planner/features/calendar/protected_time/protected_time_series_editor_page.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_list_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
@@ -1164,13 +1165,21 @@ GoRouter createPlannerRouter({
                   message: '日历写入服务未装配，暂无法编辑保护时间。',
                 );
               }
-              return ProtectedTimeEditorPage(
-                service: service,
+              final reader = protectedTimeSeries;
+              if (reader == null) {
+                return const _UnavailablePage(
+                  title: '编辑保护时间',
+                  message: '保护时间读模型未装配，暂无法编辑保护时间。',
+                );
+              }
+              return ProtectedTimeSeriesEditorPage(
+                reader: reader,
+                calendar: service,
+                anchorId: state.pathParameters['anchorId']!,
                 timeZoneId: timeZoneId,
                 zones: zones,
                 workspace: workspaceService,
-                editAnchorId: state.pathParameters['anchorId'],
-                onSaved: () => context.go('/calendar/protected'),
+                onSaved: (context) => context.go('/calendar/protected'),
                 onCancel: () => context.go('/calendar/protected'),
               );
             },
