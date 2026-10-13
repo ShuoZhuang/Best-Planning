@@ -116,61 +116,86 @@ final class CandidateGenerator {
             '（${task.requiredMinutes}）',
       );
     }
-    if (task.splitMode == TaskSplitMode.continuous) {
-      // 连续任务只有"一次做完"一种形态：`remainingMinutes == requiredMinutes`
-      // 时那一个整块就是候选，已经排过一段之后（remaining 更小）不再迭代。
-      if (remainingMinutes != task.requiredMinutes) return const [];
-      return remainingMinutes % granularityMinutes == 0
-          ? [remainingMinutes]
-          : const [];
-    }
-
-    if (remainingMinutes <= 0) return const [];
-
-    // **有效最小片段 = min(配置的最小片段, 当前剩余量)**（用户写进路线图 Task 12A 的规则）。
-    //
-    // 修的是什么：原先 `minimum = roundUp(minChunk)`，而 `maximum = roundDown(min(maxChunk,
-    // requiredMinutes))`。一个 15 分钟的可拆分任务配上默认片段 30–90 分钟时 minimum=30 > maximum=15，
-    // `duration <= maximum` 直接不成立 ⇒ **一个候选都不生成** ⇒ 任务既出现在"新增"里又出现在
-    // "未安排"里。实测 `required=15 min=30 max=90 → scheduled=0 shortage=15`。
-    //
-    // 为什么宽免只针对这种情况：`remainingMinutes` 是**本次排程的剩余量**，不是任务的总时长
-    // （180 → 100 → 15）。所以"最后一段"是每次排程时才知道的事。当剩余量还凑得出一个最小片段时
-    // （100 分钟），下限必须照旧生效——否则每一次排入都会用一个短片段去满足最小片段约束，
-    // 那等于把这条约束取消掉。只有当剩余量**本身**短于最小片段时，它自己就是最后一段，
-    // 此时正确的处置是让这一段短于下限，而不是拒绝安排。
-    //
-    // **1.4 冻结决策之后，短余量的取值由 `shortRemainderAllowance` 唯一决定**，与
-    // `PlanValidator.validatePlannedChunkSet` / `isValidPlannedChunk` 读的是同一个函数——
-    // 三处各写一遍正是 R4 的成因。
-    final isShortRemainder = remainingMinutes < task.minChunkMinutes;
-    final minimum = isShortRemainder
-        ? shortRemainderAllowance(
-            requiredMinutes: remainingMinutes,
-            granularityMinutes: granularityMinutes,
-          )
-        : _roundUp(task.minChunkMinutes, granularityMinutes);
-    // 上限用 `remainingMinutes`（**不再是 `task.requiredMinutes`**）：那一份旧写法会让
-    // 剩余 30 分钟时的候选集仍以 90 分钟起步，于是"每轮重算"名存实亡。
-    final maximum = _roundDown(
-      task.maxChunkMinutes < remainingMinutes
-          ? task.maxChunkMinutes
-          : remainingMinutes,
-      granularityMinutes,
+    return placementDurations(
+      task,
+      remainingMinutes: remainingMinutes,
+      granularityMinutes: granularityMinutes,
     );
-    // 剩余量不足一个粒度（例如 3 分钟、粒度 5 分钟）时 `minimum` 与 `maximum` 都为 0：
-    // 这里**如实返回空**，由缺口机制汇报容量不足，而不是伪造一个片段。
-    if (minimum <= 0 || maximum <= 0) return const [];
-    if (minimum > maximum) return const [];
-    return [
-      for (
-        var duration = minimum;
-        duration <= maximum;
-        duration += granularityMinutes
-      )
-        duration,
-    ];
   }
+}
+
+/// **一个任务的合法片段时长**（1.8.0，冻结决策 §1.4；计划 §2.3 的"共同判定"）。
+///
+/// 候选生成与最终诊断**读同一个函数**：诊断器要为每一段空档问"这里能放下哪些时长"，
+/// 而它与放置循环必须得到同一批答案——各写一套"看起来差不多"的枚举，就会让
+/// "引擎排得下、诊断说排不下"（或反过来）。
+///
+/// 契约（与 [CandidateGenerator.generate] 的文档一致）：
+/// - 连续任务只有 `remainingMinutes == task.requiredMinutes` 时产出那一个整块，
+///   且要求它落在粒度网格上；
+/// - `remainingMinutes <= 0` 或剩余量不足一个粒度时返回空——**如实报缺口，不伪造片段**；
+/// - 可拆分任务的下限是 `min(minChunkMinutes, 剩余量)`：剩余量本身就短于最小片段时，
+///   唯一合法时长由 [shortRemainderAllowance] 给出；
+/// - 上限是 `min(maxChunkMinutes, 剩余量)` 向下取整到粒度。
+List<int> placementDurations(
+  SchedulableTask task, {
+  required int remainingMinutes,
+  required int granularityMinutes,
+}) {
+  if (task.splitMode == TaskSplitMode.continuous) {
+    // 连续任务只有"一次做完"一种形态：`remainingMinutes == requiredMinutes`
+    // 时那一个整块就是候选，已经排过一段之后（remaining 更小）不再迭代。
+    if (remainingMinutes != task.requiredMinutes) return const [];
+    return remainingMinutes % granularityMinutes == 0
+        ? [remainingMinutes]
+        : const [];
+  }
+
+  if (remainingMinutes <= 0) return const [];
+
+  // **有效最小片段 = min(配置的最小片段, 当前剩余量)**（用户写进路线图 Task 12A 的规则）。
+  //
+  // 修的是什么：原先 `minimum = roundUp(minChunk)`，而 `maximum = roundDown(min(maxChunk,
+  // requiredMinutes))`。一个 15 分钟的可拆分任务配上默认片段 30–90 分钟时 minimum=30 > maximum=15，
+  // `duration <= maximum` 直接不成立 ⇒ **一个候选都不生成** ⇒ 任务既出现在"新增"里又出现在
+  // "未安排"里。实测 `required=15 min=30 max=90 → scheduled=0 shortage=15`。
+  //
+  // 为什么宽免只针对这种情况：`remainingMinutes` 是**本次排程的剩余量**，不是任务的总时长
+  // （180 → 100 → 15）。所以"最后一段"是每次排程时才知道的事。当剩余量还凑得出一个最小片段时
+  // （100 分钟），下限必须照旧生效——否则每一次排入都会用一个短片段去满足最小片段约束，
+  // 那等于把这条约束取消掉。只有当剩余量**本身**短于最小片段时，它自己就是最后一段，
+  // 此时正确的处置是让这一段短于下限，而不是拒绝安排。
+  //
+  // **1.4 冻结决策之后，短余量的取值由 `shortRemainderAllowance` 唯一决定**，与
+  // `PlanValidator.validatePlannedChunkSet` / `isValidPlannedChunk` 读的是同一个函数——
+  // 三处各写一遍正是 R4 的成因。
+  final isShortRemainder = remainingMinutes < task.minChunkMinutes;
+  final minimum = isShortRemainder
+      ? shortRemainderAllowance(
+          requiredMinutes: remainingMinutes,
+          granularityMinutes: granularityMinutes,
+        )
+      : _roundUp(task.minChunkMinutes, granularityMinutes);
+  // 上限用 `remainingMinutes`（**不再是 `task.requiredMinutes`**）：那一份旧写法会让
+  // 剩余 30 分钟时的候选集仍以 90 分钟起步，于是"每轮重算"名存实亡。
+  final maximum = _roundDown(
+    task.maxChunkMinutes < remainingMinutes
+        ? task.maxChunkMinutes
+        : remainingMinutes,
+    granularityMinutes,
+  );
+  // 剩余量不足一个粒度（例如 3 分钟、粒度 5 分钟）时 `minimum` 与 `maximum` 都为 0：
+  // 这里**如实返回空**，由缺口机制汇报容量不足，而不是伪造一个片段。
+  if (minimum <= 0 || maximum <= 0) return const [];
+  if (minimum > maximum) return const [];
+  return [
+    for (
+      var duration = minimum;
+      duration <= maximum;
+      duration += granularityMinutes
+    )
+      duration,
+  ];
 }
 
 int _roundUp(int value, int step) => ((value + step - 1) ~/ step) * step;

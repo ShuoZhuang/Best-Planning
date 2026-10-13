@@ -55,8 +55,9 @@ void main() {
     shortageMinutes: 180,
     primaryReason: UnscheduledReason(
       code: UnscheduledReasonCode.unexplainedSchedulingFailure,
-      requiredMinutes: 180,
-      availableMinutes: 240,
+      placementRemainingMinutes: 180,
+      constraintRequiredMinutes: 180,
+      constraintAvailableMinutes: 240,
     ),
   );
 
@@ -118,6 +119,7 @@ void main() {
             shortageMinutes: 180,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+              placementRemainingMinutes: 180,
             ),
           ),
         ],
@@ -163,7 +165,7 @@ void main() {
     );
   });
 
-  test('**真容量不足仍然是 warning**（数字带齐：需要／可安排／还缺）', () {
+  test('**真容量不足仍然是 warning**（两个约束数字带齐，缺口只在标题里）', () {
     final issues = buildPreviewIssues(
       proposal: proposalOf(
         unscheduled: const [
@@ -172,8 +174,9 @@ void main() {
             shortageMinutes: 25,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.insufficientCapacity,
-              requiredMinutes: 180,
-              availableMinutes: 155,
+              placementRemainingMinutes: 25,
+              constraintRequiredMinutes: 180,
+              constraintAvailableMinutes: 155,
             ),
           ),
         ],
@@ -185,7 +188,9 @@ void main() {
     expect(issue.severity, PreviewIssueSeverity.warning);
     expect(issue.message, contains('180'));
     expect(issue.message, contains('155'));
-    expect(issue.message, contains('25'), reason: '缺口分钟也要说出来');
+    // **缺口分钟只在标题里**（计划 §2.4）：正文的两个数字属于"这件事需要的分钟数"
+    // 与"同一口径下可用空档的分钟数"，从它们推总缺口正是 §6 禁止的捷径。
+    expect(issue.title, '写报告 还缺 25 分钟');
   });
 
   test('延后失败链（previewFailureLines）也翻译同一条原因', () {

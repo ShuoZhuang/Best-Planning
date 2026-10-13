@@ -102,12 +102,13 @@ void main() {
   });
 
   group('原因翻译：只说引擎给的那一条，不推测', () {
-    test('连续空档不足带上"需要/可用"两个数字', () {
+    test('连续空档不足把约束口径的两个数字都说出来', () {
       final label = unscheduledReasonLabel(
         const UnscheduledReason(
           code: UnscheduledReasonCode.continuousGapTooShort,
-          requiredMinutes: 30,
-          availableMinutes: 20,
+          placementRemainingMinutes: 25,
+          constraintRequiredMinutes: 30,
+          constraintAvailableMinutes: 20,
         ),
       );
 
@@ -117,17 +118,28 @@ void main() {
 
     test('缺少数字时不编造数字', () {
       final label = unscheduledReasonLabel(
-        const UnscheduledReason(code: UnscheduledReasonCode.dailyLimitReached),
+        const UnscheduledReason(
+          code: UnscheduledReasonCode.dailyLimitReached,
+          placementRemainingMinutes: 12,
+        ),
       );
 
       expect(label, isNotEmpty);
-      expect(RegExp(r'\d').hasMatch(label), isFalse);
+      expect(
+        RegExp(r'\d').hasMatch(label),
+        isFalse,
+        reason:
+            '引擎没给约束数字时正文里不得出现任何数字：凭空写一个"上限"会让用户'
+            '按一个不存在的额度去调设置',
+      );
     });
 
     test('枚举里的每一个取值都能翻出一句非空的话', () {
       // 漏一个的后果是那种原因在界面上显示成空行，而用户看到的是"这里什么都没说"。
       for (final code in UnscheduledReasonCode.values) {
-        final label = unscheduledReasonLabel(UnscheduledReason(code: code));
+        final label = unscheduledReasonLabel(
+          UnscheduledReason(code: code, placementRemainingMinutes: 10),
+        );
         expect(label.trim(), isNotEmpty, reason: '$code 没有对应文案');
       }
     });
@@ -227,9 +239,9 @@ void main() {
   // R7（Task 1 Step 4）：**标题的缺口分钟与正文的"还缺"必须是同一个数字**。
   //
   // 标题走 `UnscheduledTask.shortageMinutes`（"这件事总共还差多少"），
-  // 而正文由 `unscheduledReasonLabel(UnscheduledTask.primaryReason)` 生成，
-  // 其中 `_withNumbers()` 会**自己再算一遍** `requiredMinutes - availableMinutes`
-  // 并写成第二个"还缺"：
+  // 而修复前的正文由 `unscheduledReasonLabel(UnscheduledTask.primaryReason)` 生成，
+  // 其中 `_withNumbers()` 会**自己再算一遍**
+  // `constraintRequiredMinutes - constraintAvailableMinutes` 并写成第二个"还缺"：
   //
   // ```dart
   // final shortage = required - available;
@@ -240,8 +252,8 @@ void main() {
   // 连续／最小／每日分钟，`constraintAvailableMinutes` 是同一约束口径下的可用分钟
   // （计划 §2.4）。于是同一条问题会出现两个"还缺"，而用户没有任何依据判断哪一个是真的。
   //
-  // 本用例用真实的 `buildPreviewIssues` 构造这样一条：总缺口 25 分钟，
-  // 而 constraint 数字（150 / 20）另算出"还缺 130 分钟"。
+  // **Task 5 的处置**：`_withNumbers()` 已删除，每个 code 改用只描述约束的模板，
+  // 标题成为**唯一**显示缺口的地方。本组两条用例因此红转绿。
   // ─────────────────────────────────────────────────────────────────────────────
   group('R7：标题缺口与正文数字必须算得通', () {
     ScheduleProposal proposalWith(UnscheduledTask task) => ScheduleProposal(
@@ -272,11 +284,12 @@ void main() {
           taskId: 'task-algo',
           shortageMinutes: shortageMinutes,
           primaryReason: UnscheduledReason(
-            // constraint 口径的数字：任务整体 150 分钟，当前最长合法空档 20 分钟。
+            // constraint 口径的数字：最短片段要求 150 分钟，当前最长合法空档 20 分钟。
             // 它们**不是**总缺口 —— 25 分钟才是。
             code: UnscheduledReasonCode.minimumChunkTooLarge,
-            requiredMinutes: constraintRequired,
-            availableMinutes: constraintAvailable,
+            placementRemainingMinutes: shortageMinutes,
+            constraintRequiredMinutes: constraintRequired,
+            constraintAvailableMinutes: constraintAvailable,
           ),
         ),
       );
@@ -300,7 +313,7 @@ void main() {
       expect(
         issue.message,
         contains('$constraintRequired'),
-        reason: '原因正文仍要把约束口径的数字说出来（"需要 150 分钟"是有用的信息）',
+        reason: '原因正文仍要把约束口径的数字说出来（"要求 150 分钟"是有用的信息）',
       );
       expect(
         issue.message,
@@ -316,9 +329,6 @@ void main() {
             '**R7**：UI 不得再计算 `constraintRequiredMinutes - constraintAvailableMinutes` '
             '（此处 150 − 20 = 130）并称之为"还缺"。'
             '"还缺多少"只显示 `UnscheduledTask.shortageMinutes`（此处 25）。'
-            '实测当前实现给出的正文是'
-            '「剩下的时间不够一个最短片段：需要 150 分钟，本次仍可安排 20 分钟，还缺 130 分钟。」'
-            '—— 与标题的"还缺 25 分钟"直接冲突。'
             '计划 §2.4：原因正文只描述约束，例如'
             '「最短片段要求 30 分钟，当前最长合法空档 20 分钟」',
       );
@@ -340,8 +350,9 @@ void main() {
           shortageMinutes: 25,
           primaryReason: UnscheduledReason(
             code: UnscheduledReasonCode.deadlineWindowTooShort,
-            requiredMinutes: 150,
-            availableMinutes: 20,
+            placementRemainingMinutes: 25,
+            constraintRequiredMinutes: 150,
+            constraintAvailableMinutes: 20,
           ),
         ),
       );
@@ -350,15 +361,15 @@ void main() {
         titleByTaskId: const {'task-algo': '算法作业'},
       ).single;
 
-      final shortages = RegExp(
-        r'还缺 (\d+) 分钟',
-      ).allMatches('${issue.title}\n${issue.message}').map((m) => m.group(1));
+      final shortages = RegExp(r'还缺 (\d+) 分钟')
+          .allMatches('${issue.title}\n${issue.message}')
+          .map((m) => m.group(1));
       expect(
         shortages.toSet(),
         {'25'},
         reason:
             '整页关于这一条缺口只能有一个数字：`shortageMinutes`。'
-            '实测当前实现给出两个（标题 25、正文 130）',
+            '实测修复前给出两个（标题 25、正文 130）',
       );
     });
   });

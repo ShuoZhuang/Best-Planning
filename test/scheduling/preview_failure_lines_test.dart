@@ -23,16 +23,19 @@ void main() {
     String taskId, {
     int shortageMinutes = 30,
     UnscheduledReasonCode code = UnscheduledReasonCode.insufficientCapacity,
-    int? requiredMinutes = 60,
-    int? availableMinutes = 30,
+    int? constraintRequiredMinutes = 60,
+    int? constraintAvailableMinutes = 30,
     String? constraintLabel,
   }) => UnscheduledTask(
     taskId: taskId,
     shortageMinutes: shortageMinutes,
     primaryReason: UnscheduledReason(
       code: code,
-      requiredMinutes: requiredMinutes,
-      availableMinutes: availableMinutes,
+      // 不变量：`placementRemainingMinutes == shortageMinutes`
+      // （计划 §2.4；见 `UnscheduledReason` 的类型文档）。
+      placementRemainingMinutes: shortageMinutes,
+      constraintRequiredMinutes: constraintRequiredMinutes,
+      constraintAvailableMinutes: constraintAvailableMinutes,
       constraintLabel: constraintLabel,
     ),
   );
@@ -100,8 +103,8 @@ void main() {
           unscheduled(
             uuidA,
             code: UnscheduledReasonCode.continuousGapTooShort,
-            requiredMinutes: 90,
-            availableMinutes: 10,
+            constraintRequiredMinutes: 90,
+            constraintAvailableMinutes: 10,
           ),
         ],
       ),

@@ -61,22 +61,54 @@ enum UnscheduledReasonCode {
   unexplainedSchedulingFailure,
 }
 
-/// 一条拒绝证据：某个片段为什么没被采纳，附上可判定的数字。
+/// 一条拒绝证据：**哪条约束**挡住了这次放置，附上可判定的数字（计划 §2.4）。
 ///
-/// `requiredMinutes` / `availableMinutes` 允许为空——不是每条原因都有这两个数
-/// （例如"还没到最早开始时间"没有"需要多长"的概念）。**有数就带上**：预览要靠它写出
-/// "要求连续 30 分钟，但截止前最长空档只有 20 分钟"这种用户能据以行动的句子。
+/// ## 三个数字的分工（这是本类型存在的全部理由）
+///
+/// | 字段 | 含义 | 用户看到的形态 |
+/// | --- | --- | --- |
+/// | [placementRemainingMinutes] | **本次放置的剩余量**，恒等于 `UnscheduledTask.shortageMinutes` | 标题里的"还缺 N 分钟" |
+/// | [constraintRequiredMinutes] | **某一条约束**要求的连续／最小／每日分钟 | 正文里的"要求 N 分钟" |
+/// | [constraintAvailableMinutes] | **同一约束口径下**的可用分钟 | 正文里的"只有 N 分钟" |
+///
+/// **后两个数字不是总缺口**，因此界面**不得**再计算
+/// `constraintRequiredMinutes − constraintAvailableMinutes` 并称之为"还缺"：
+/// 那会造出第二个与标题矛盾的缺口数字，而用户没有任何依据判断哪一个是真的
+/// （R7 实测：标题"还缺 25 分钟"与正文"还缺 130 分钟"同时出现）。
+/// **"还缺多少"只显示 [placementRemainingMinutes]**（经 `UnscheduledTask.shortageMinutes`）。
+///
+/// ## 不变量
+///
+/// ```text
+/// placementRemainingMinutes == UnscheduledTask.shortageMinutes
+/// ```
+///
+/// 因此引擎必须**在构造每一条原因时**就把当轮的剩余量写进去，而不是事后补——
+/// 事后补会让这条不变量在"原因来自嵌套构造"的路径上悄悄失效。
+///
+/// 两个 constraint 数字允许为空：不是每条原因都有它们
+/// （例如"还没到最早开始时间"没有"需要多长"的概念）。**有数就带上**：
+/// 预览要靠它写出"最短片段要求 30 分钟，当前最长合法空档 20 分钟"这种用户能据以行动的句子。
 final class UnscheduledReason {
   const UnscheduledReason({
     required this.code,
-    this.requiredMinutes,
-    this.availableMinutes,
+    required this.placementRemainingMinutes,
+    this.constraintRequiredMinutes,
+    this.constraintAvailableMinutes,
     this.constraintLabel,
   });
 
   final UnscheduledReasonCode code;
-  final int? requiredMinutes;
-  final int? availableMinutes;
+
+  /// 见类型文档：它恒等于 `UnscheduledTask.shortageMinutes`。
+  final int placementRemainingMinutes;
+
+  /// 某一条**约束**要求的值（连续时长／最小片段／每日上限），不是总缺口。
+  final int? constraintRequiredMinutes;
+
+  /// 同一约束口径下的可用值，不是总缺口。
+  final int? constraintAvailableMinutes;
+
   final String? constraintLabel;
 }
 
@@ -117,6 +149,7 @@ UnscheduledReason primaryUnscheduledReason(List<UnscheduledReason> reasons) {
   if (reasons.isEmpty) {
     return const UnscheduledReason(
       code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+      placementRemainingMinutes: 0,
     );
   }
   for (final code in unscheduledReasonPriority) {
@@ -133,6 +166,9 @@ final class UnscheduledTask {
     required this.shortageMinutes,
     this.primaryReason = const UnscheduledReason(
       code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+      // **契约占位值**：真实提案里的 [primaryReason] 必须由引擎按最终缺口构造，
+      // 使 `placementRemainingMinutes == shortageMinutes`（见 `UnscheduledReason` 的不变量）。
+      placementRemainingMinutes: 0,
     ),
     this.reasons = const [],
   });

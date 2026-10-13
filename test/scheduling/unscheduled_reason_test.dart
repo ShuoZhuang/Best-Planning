@@ -154,8 +154,8 @@ void main() {
         UnscheduledReasonCode.continuousGapTooShort,
         reason: '唯一的空档只有 30 分钟，装不下"必须一次做完 60 分钟"的任务',
       );
-      expect(item.primaryReason.requiredMinutes, 60);
-      expect(item.primaryReason.availableMinutes, 30);
+      expect(item.primaryReason.constraintRequiredMinutes, 60);
+      expect(item.primaryReason.constraintAvailableMinutes, 30);
     });
 
     test('最早开始时间在窗口之后 ⇒ 尚未到开始时间', () {
@@ -235,7 +235,7 @@ void main() {
         UnscheduledReasonCode.dailyLimitReached,
         reason: '容量其实够（8 小时空档），是单日配额把它拦住了',
       );
-      expect(item.primaryReason.availableMinutes, 30);
+      expect(item.primaryReason.constraintAvailableMinutes, 30);
     });
   });
 
@@ -243,8 +243,14 @@ void main() {
     test('同时有"每日上限"与"休息间隔"证据时，主原因是每日上限', () {
       // 依据路线图的优先级：dailyLimitReached 高于 requiredBreakUnavailable。
       const reasons = [
-        UnscheduledReason(code: UnscheduledReasonCode.requiredBreakUnavailable),
-        UnscheduledReason(code: UnscheduledReasonCode.dailyLimitReached),
+        UnscheduledReason(
+          code: UnscheduledReasonCode.requiredBreakUnavailable,
+          placementRemainingMinutes: 30,
+        ),
+        UnscheduledReason(
+          code: UnscheduledReasonCode.dailyLimitReached,
+          placementRemainingMinutes: 30,
+        ),
       ];
 
       expect(
@@ -306,8 +312,9 @@ void main() {
         final label = unscheduledReasonLabel(
           UnscheduledReason(
             code: code,
-            requiredMinutes: 45,
-            availableMinutes: 20,
+            placementRemainingMinutes: 45,
+            constraintRequiredMinutes: 45,
+            constraintAvailableMinutes: 20,
             constraintLabel: '固定日程',
           ),
         );
@@ -328,10 +335,13 @@ void main() {
       );
     });
 
-    test('**带证据的原因必须把数字说出来**（§13.2 的 requiredMinutes/availableMinutes）', () {
-      // §13.2 点名要求复用 `requiredMinutes`／`availableMinutes`／`constraintLabel` 证据。
+    test('**带证据的原因必须把数字说出来**（§13.2 的 constraint 数字）', () {
+      // §13.2 点名要求复用两个 constraint 数字与 `constraintLabel` 证据。
       // 只验"文案非空"不够：一句"时间不够"也能通过，而那正是规范要避免的
       // （"不能退回'可用时间不足'"）。
+      //
+      // **它们不是总缺口**（计划 §2.4）：这里给的是某一条约束要求的量与同一口径下的
+      // 可用量，正文因此只说约束，不再由它们推出第二个"还缺"（R7）。
       for (final code in const [
         UnscheduledReasonCode.continuousGapTooShort,
         UnscheduledReasonCode.deadlineWindowTooShort,
@@ -341,19 +351,27 @@ void main() {
         final label = unscheduledReasonLabel(
           UnscheduledReason(
             code: code,
-            requiredMinutes: 45,
-            availableMinutes: 20,
+            placementRemainingMinutes: 45,
+            constraintRequiredMinutes: 45,
+            constraintAvailableMinutes: 20,
           ),
         );
         expect(
           label,
           contains('45'),
-          reason: '$code 必须报出"需要多少分钟"（requiredMinutes）',
+          reason: '$code 必须报出"约束要求多少分钟"（constraintRequiredMinutes）',
         );
         expect(
           label,
           contains('20'),
-          reason: '$code 必须报出"实际有多少分钟"（availableMinutes）',
+          reason: '$code 必须报出"同一口径下有多少分钟"（constraintAvailableMinutes）',
+        );
+        expect(
+          label,
+          isNot(contains('还缺')),
+          reason:
+              '正文只描述约束；"还缺多少"只在标题里显示 `shortageMinutes`（R7：'
+              'UI 不得从两个 constraint 数字推出第三个数字）',
         );
       }
     });
@@ -365,7 +383,11 @@ void main() {
       ]) {
         expect(
           unscheduledReasonLabel(
-            UnscheduledReason(code: code, constraintLabel: '固定日程'),
+            UnscheduledReason(
+              code: code,
+              placementRemainingMinutes: 30,
+              constraintLabel: '固定日程',
+            ),
           ),
           contains('固定日程'),
           reason: '$code 必须把"被什么挡住"这个证据说出来',
@@ -581,9 +603,10 @@ void main() {
   });
 
   group('证据完整性：`insufficientCapacity` 必须带真实数字', () {
-    // 1.8.0 专项 §2.5 第二条不变量：
-    //   `insufficientCapacity => availableMinutes != null
-    //                            && availableMinutes < requiredMinutes`
+    // 1.8.0 专项 §2.5 第二条不变量（字段改名后仍逐条成立，计划 §2.4）：
+    //   `insufficientCapacity => constraintAvailableMinutes != null
+    //                            && constraintAvailableMinutes
+    //                                 < constraintRequiredMinutes`
     // 这一条不是"文案好不好看"：没有数字的容量不足既无法被用户据以行动，
     // 也无法被测试证伪——它曾经是每一次排程故障的统一出口。
     test('整周被保护时间占满 ⇒ 容量不足，且两个数字都在', () {
@@ -605,12 +628,24 @@ void main() {
       final item = onlyUnscheduled(proposal);
       final reason = item.primaryReason;
       expect(reason.code, UnscheduledReasonCode.insufficientCapacity);
-      expect(reason.availableMinutes, isNotNull, reason: '必须带"实际有多少分钟"');
-      expect(reason.requiredMinutes, isNotNull);
       expect(
-        reason.availableMinutes! < reason.requiredMinutes!,
+        reason.constraintAvailableMinutes,
+        isNotNull,
+        reason: '必须带"同一口径下实际有多少分钟"',
+      );
+      expect(reason.constraintRequiredMinutes, isNotNull);
+      expect(
+        reason.constraintAvailableMinutes! < reason.constraintRequiredMinutes!,
         isTrue,
         reason: '容量不足的定义就是"可用少于需要"；不满足它就不是容量不足',
+      );
+      // 计划 §2.4 的字段不变量：放置剩余量就是最终缺口，正文里的两个
+      // constraint 数字**不是**总缺口。
+      expect(
+        reason.placementRemainingMinutes,
+        item.shortageMinutes,
+        reason:
+            '`placementRemainingMinutes == UnscheduledTask.shortageMinutes`',
       );
       // **空证据不得回落"可用时间不足"**：这一条与上面那条一起构成不变量。
       expect(
@@ -620,6 +655,55 @@ void main() {
       );
     });
 
+    test('每条原因都钉住 `placementRemainingMinutes == shortageMinutes`', () {
+      // 计划 §2.4 的不变量必须在**所有**原因上成立，而不只是主原因：
+      // "展开查看其他限制"读的就是 `reasons`，它若带着别的轮次的剩余量，
+      // 用户就会看到两组互相矛盾的数字。
+      for (final proposal in [
+        engine.generate(
+          problem(
+            tasks: [task()],
+            protected: [
+              BusyInterval(
+                id: 'all',
+                range: TimeRange(
+                  startUtc: day,
+                  endUtc: day.add(const Duration(days: 7)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        engine.generate(
+          problem(
+            tasks: [
+              task(
+                requiredMinutes: 120,
+                minChunk: 30,
+                maxChunk: 30,
+                maxMinutesPerLocalDay: 30,
+              ),
+            ],
+            window: TimeRange(
+              startUtc: day,
+              endUtc: day.add(const Duration(hours: 8)),
+            ),
+          ),
+        ),
+      ]) {
+        expect(proposal.unscheduled, isNotEmpty, reason: '前提：这条输入确实排不下');
+        for (final item in proposal.unscheduled) {
+          expect(
+            item.primaryReason.placementRemainingMinutes,
+            item.shortageMinutes,
+          );
+          for (final reason in item.reasons) {
+            expect(reason.placementRemainingMinutes, item.shortageMinutes);
+          }
+        }
+      }
+    });
+
     test('**无法解释的零安排被结构化识别**（§2.5 第三条不变量）', () {
       // 构造"有可放置容量、却一个块都没落下"的形状：这只能通过**注入**实现
       // ——引擎自己若产出这种结果，本身就是它被识别出来的理由。
@@ -627,8 +711,9 @@ void main() {
       // 且它**不含 UUID**、文案是固定那一句。
       const reason = UnscheduledReason(
         code: UnscheduledReasonCode.unexplainedSchedulingFailure,
-        requiredMinutes: 60,
-        availableMinutes: 120,
+        placementRemainingMinutes: 60,
+        constraintRequiredMinutes: 60,
+        constraintAvailableMinutes: 120,
       );
       expect(
         unscheduledReasonLabel(reason),

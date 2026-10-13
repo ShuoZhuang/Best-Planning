@@ -31,15 +31,21 @@ final class PlanApplicationService {
   /// 应用一份提案（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
   ///
   /// **执行顺序不可改变**（计划 Task 5 Step 4）：
-  /// ① 重放输入与哈希 → ② validator 阻断校验 → ③ adjustment fulfilment →
-  /// ④ partial 授权检查 → ⑤ repository write。
+  /// ① 重放输入与哈希 → ② **引擎已经报告的阻断冲突** → ③ validator 阻断校验 →
+  /// ④ adjustment fulfilment → ⑤ partial 授权检查 → ⑥ repository write。
   ///
-  /// 顺序颠倒会在三处放行不该放行的东西：
-  /// - 把 ④ 放到 ② 之前，"部分计划"这一支会盖住结构错误（**不完整计划不是错误**，
+  /// 顺序颠倒会在几处放行不该放行的东西：
+  /// - 把 ⑤ 放到 ③ 之前，"部分计划"这一支会盖住结构错误（**不完整计划不是错误**，
   ///   但**结构错误也不是"缺一部分"**）；
-  /// - 把 ④ 放到 ① 之前，过期提案会被误报成"容量缺口"，用户看到的是完全错误的原因；
-  /// - 把 ④ 放到 ③ 之前，"请求延后 30 分钟却只延后 10 分钟"会被 `allowPartial` 洗白，
+  /// - 把 ⑤ 放到 ① 之前，过期提案会被误报成"容量缺口"，用户看到的是完全错误的原因；
+  /// - 把 ⑤ 放到 ④ 之前，"请求延后 30 分钟却只延后 10 分钟"会被 `allowPartial` 洗白，
   ///   而用户要求的正是那 30 分钟。
+  ///
+  /// **② 为什么必须存在、且必须在 validator 之前**：引擎报告的阻断冲突里有一类是
+  /// `schedulingInvariantViolation`——"排程没有使用仍可用的合法时段"（计划 §2.3 / §2.4）。
+  /// 它在**块集合本身合法**的情况下出现，因此 validator 查不出来；而它恰恰是最不能
+  /// 被写进用户计划的一类。`allowPartial` 只适用于"装不下"，不适用于"排程器自己没排好"，
+  /// 因此这里对 `proposal.conflicts` 的检查**在任何模式下都不可绕过**。
   Future<ApplyPlanResult> apply(
     ScheduleProposal proposal, {
     PlanApplyMode mode = PlanApplyMode.completeOnly,
@@ -52,6 +58,12 @@ final class PlanApplicationService {
     );
     if (current.inputHash != proposal.inputHash) {
       return ApplyPlanResult.stale();
+    }
+    // **引擎已经报过的阻断冲突先落地**：`stale` 检查之后、validator 之前。
+    // 非空立即返回 `invalid`，因此 `allowPartial` 无法绕过引擎已经报告的阻断冲突，
+    // 更不许写库——提案自己带着"不得应用"的证据时，重新校验一遍块集合并不足以放行。
+    if (proposal.conflicts.isNotEmpty) {
+      return ApplyPlanResult.invalid(proposal.conflicts);
     }
     final conflicts = _validator.validate(current, proposal.blocks);
     if (conflicts.isNotEmpty) return ApplyPlanResult.invalid(conflicts);

@@ -50,8 +50,9 @@ void main() {
             shortageMinutes: 76,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.continuousGapTooShort,
-              requiredMinutes: 76,
-              availableMinutes: 20,
+              placementRemainingMinutes: 76,
+              constraintRequiredMinutes: 76,
+              constraintAvailableMinutes: 20,
             ),
           ),
         ],
@@ -299,7 +300,7 @@ void main() {
   // 白做动作：真容量不足要腾时间，连续空档不足要改拆分或截止，每日上限要调上限或换日期，
   // 而"无法解释"要重新生成并报诊断。
 
-  test('A14 真容量不足：warning，且需要／可安排／还缺三个数字都在', () {
+  test('A14 真容量不足：warning，且两个约束数字都在（缺口数字在标题）', () {
     final issue = buildPreviewIssues(
       proposal: proposalOf(
         unscheduled: const [
@@ -308,8 +309,9 @@ void main() {
             shortageMinutes: 25,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.insufficientCapacity,
-              requiredMinutes: 180,
-              availableMinutes: 155,
+              placementRemainingMinutes: 25,
+              constraintRequiredMinutes: 180,
+              constraintAvailableMinutes: 155,
             ),
           ),
         ],
@@ -321,10 +323,11 @@ void main() {
     expect(issue.title, '写报告 还缺 25 分钟');
     expect(issue.message, contains('180'));
     expect(issue.message, contains('155'));
-    expect(issue.message, contains('25'));
+    // **`25` 只在标题里**：正文的两个数字是 constraint 口径的（计划 §2.4），
+    // 从它们推不出总缺口，因此正文里也不该出现它（R7）。
   });
 
-  test('A10 连续空档不足：显示"需要连续 X 分钟，最长只有 Y 分钟"', () {
+  test('A10 连续空档不足：显示"要求连续 X 分钟，最长只有 Y 分钟"', () {
     final issue = buildPreviewIssues(
       proposal: proposalOf(
         unscheduled: const [
@@ -333,8 +336,9 @@ void main() {
             shortageMinutes: 60,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.continuousGapTooShort,
-              requiredMinutes: 120,
-              availableMinutes: 90,
+              placementRemainingMinutes: 60,
+              constraintRequiredMinutes: 120,
+              constraintAvailableMinutes: 90,
             ),
           ),
         ],
@@ -357,8 +361,10 @@ void main() {
             shortageMinutes: 60,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.dailyLimitReached,
-              requiredMinutes: 60,
-              availableMinutes: 0,
+              placementRemainingMinutes: 60,
+              constraintRequiredMinutes: 60,
+              constraintAvailableMinutes: 0,
+              constraintLabel: '每日上限',
             ),
           ),
         ],
@@ -379,8 +385,9 @@ void main() {
             shortageMinutes: 180,
             primaryReason: UnscheduledReason(
               code: UnscheduledReasonCode.unexplainedSchedulingFailure,
-              requiredMinutes: 180,
-              availableMinutes: 240,
+              placementRemainingMinutes: 180,
+              constraintRequiredMinutes: 180,
+              constraintAvailableMinutes: 240,
             ),
           ),
         ],

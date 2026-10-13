@@ -5,6 +5,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
 import 'package:personal_planner/scheduling/even_distribution_allocator.dart';
@@ -14,7 +15,7 @@ import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
-import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
+import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
 abstract interface class ScheduleEngine {
   ScheduleProposal generate(ScheduleProblem problem);
@@ -184,16 +185,17 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
 
-    // ── 拒绝证据的收集（路线图 Task 12A Step 6 第 3 条）──────────────────────
+    // ── 拒绝证据：**只在当前轮次里存在**（计划 §2.3 Task 5 Step 2）─────────────
     //
-    // 每个任务一份，按 `UnscheduledReasonCode` 去重。**刻意不记"最后一次"**：那取决于候选遍历
-    // 顺序，换个排序就换个说法；用户看到的失败原因会因此随无关改动漂移。
-    // 排程结束后由 `primaryUnscheduledReason` 按固定优先级从**全部**证据里选主原因。
-    final rejectionEvidence =
-        <String, Map<UnscheduledReasonCode, UnscheduledReason>>{};
-    void recordRejection(String taskId, UnscheduledReason reason) {
-      (rejectionEvidence[taskId] ??= {})[reason.code] = reason;
-    }
+    // 修复前这里有一份**跨轮次累计**的 `rejectionEvidence`（每个任务一张按 code 去重的表），
+    // 最终的 `unscheduled` 直接读它。那条路径有个结构性缺陷：循环里每一次拒绝都是
+    // "**试**一个候选"的副产物——判据不成立时先记一条，该候选随后仍可能被选中
+    // （`allowUnschedulableLeftover` 的第二遍就是这么做的）。于是一条在成功放置**之前**、
+    // 按**当时**剩余量算出来的拒绝会一路活到最终结论里，甚至因为
+    // `unscheduledReasonPriority` 里的位次更高而盖过真正的最终约束（R5）。
+    //
+    // 现在最终原因**只**由 `diagnoseTaskPlacement` 在最终块集合上重新诊断得出，
+    // 放置循环里的拒绝是纯粹的局部变量，成功选择候选后自然销毁。
 
     // 每日可移动上限的判定表。**增量维护**：`blocks` 每变一次就在这里加一笔，
     // 于是判定从"每个候选扫一遍所有块"退化为一次 Map 查表。
@@ -242,147 +244,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
       final evenPlanForTask = evenPlans[task.id];
-      // ── 候选**第一次**生成：只用于进入循环之前的证据分支 ─────────────────────
-      //
-      // 计划 §2.1 冻结决策：候选生成的输入是**当前剩余量**，引擎每成功放置一块就以
-      // 新的剩余量重新生成。因此这一份**绝不能**被复用为循环里的候选集——
-      // "初始候选集可代表全部后续轮次"正是 R3 的根因（实测：100 分钟的任务只排出
-      // 30+30+30，最后 10 分钟永远看不见）。
-      //
-      // 这里生成一次是为了下面三条**进入循环之前**的分支
-      // （`allCandidates.isEmpty` / `deadlineWindowTooShort` / `candidates.isEmpty`）：
-      // 它们问的是"初始状态下有没有得排"，`remainingMinutes` 就是初始剩余量。
-      // 证据逻辑本身在本任务保持原样（Task 5 会用最终诊断替换它）。
-      final generated = chunkGenerator.generate(
-        task,
-        slots,
-        remainingMinutes: remaining,
-      );
-      // ── 按日预算剪枝（计划 Issue 4a 允许的"等价剪枝"）─────────────────────────
-      //
-      // 取消每日上限对候选时间轴的截断后（Task 2），候选数明显变多：实测规模用例
-      // 1632 ms → 3255 ms（恰好两倍，计划 Step 4a 的阈值就是两倍）。
-      //
-      // 对被分配器定过预算的任务，**只保留"所属本地日仍有新增预算"的候选**。
-      // 这是**等价剪枝，不可能改变最优日分配**：均分器已经把每日分钟定死，而下面的放置循环
-      // 只消费仍有余量的日期（`_evenBudgetRemaining`）。某日本次预算为 0，则它的候选
-      // 无论保留与否都**永远不会被选中**；剪掉它们只省掉"必被跳过"的评分与拒绝记录开销。
-      //
-      // 注意保留条件用 `additionalMinutesByLocalDate` 是否**存在**该日，而不是它当前的剩余量：
-      // 剩余量会随放置递减，用剩余量做过滤会让同一份候选集在循环中变化，破坏确定性。
-      final allCandidates = evenPlanForTask == null
-          ? generated
-          : [
-              for (final candidate in generated)
-                if (evenPlanForTask.additionalMinutesByLocalDate.containsKey(
-                  candidate.localDate,
-                ))
-                  candidate,
-            ];
-      // ── 容量证据：**只从真实空闲、任务约束与已选块**算出（1.8.0 专项 §2.3）──────
-      //
-      // 归因必须建立在可核对的数字上。修复前 `insufficientCapacity` 常常**不带任何数字**
-      // （见下面 `rejectionsWithoutNumbers` 的登记），于是"可用时间不足"这句话既无法被
-      // 用户据以行动，也无法被测试证伪。证据在这里算一次，整个任务共用。
-      final evidence = analyzeTaskCapacity(
-        task: task,
-        problem: problem,
-        availability: availability,
-        allBlocks: blocks,
-        zones: _zones,
-      );
-      // ── 先分辨"根本没得排"的三种情况，再进入放置循环 ────────────────────────
-      //
-      // 这三条必须在候选为空时给出**不同**的说法，否则用户看到的永远是笼统的"可用时间不足"，
-      // 而三种情况的处置完全不同：等一等（还没到开始时间）、改截止时间、腾出/放宽时段。
-      if (allCandidates.isEmpty) {
-        final availableFrom = task.availableFromUtc;
-        if (availableFrom != null &&
-            !availableFrom.isBefore(problem.planningWindow.endUtc)) {
-          recordRejection(
-            task.id,
-            UnscheduledReason(
-              code: UnscheduledReasonCode.availableTimeNotReached,
-              requiredMinutes: remaining,
-              constraintLabel: '最早开始时间',
-            ),
-          );
-        } else if (task.splitMode == TaskSplitMode.continuous) {
-          // 连续任务要求一次做完 `requiredMinutes`。可用时段被切碎到每一段都短于它时，
-          // 真实原因是"找不到足够长的连续空档"，而不是"总容量不足"——前者改拆分方式或
-          // 截止时间就能解决，后者要靠腾时间。
-          recordRejection(
-            task.id,
-            UnscheduledReason(
-              code: UnscheduledReasonCode.continuousGapTooShort,
-              requiredMinutes: remaining,
-              availableMinutes: evidence.largestTaskWindowGapMinutes,
-              constraintLabel: '连续时长',
-            ),
-          );
-        } else if (evidence.remainingPlaceableMinutes <= 0) {
-          // **有证据的容量不足**：真实可放置分钟为 0。两个数字都在，
-          // 用户据此知道"这段区间确实放不下一个片段"。
-          recordRejection(
-            task.id,
-            UnscheduledReason(
-              code: UnscheduledReasonCode.insufficientCapacity,
-              requiredMinutes: remaining,
-              availableMinutes: evidence.remainingPlaceableMinutes,
-            ),
-          );
-        } else {
-          // 有可放置容量却连一个候选都没有 ⇒ **引擎自己解释不了**，不是容量问题。
-          recordRejection(
-            task.id,
-            UnscheduledReason(
-              code: UnscheduledReasonCode.unexplainedSchedulingFailure,
-              requiredMinutes: remaining,
-              availableMinutes: evidence.remainingPlaceableMinutes,
-            ),
-          );
-        }
-      }
-      // 截止前的窗口装不下任何一段 ⇒ 这是一个**独立**的原因，不是笼统的容量不足：
-      // 处置是"把截止时间往后挪或缩短任务"，而容量不足的处置是"腾出时间"。
-      if (allCandidates.isNotEmpty) {
-        final withinDeadline = allCandidates
-            .where(
-              (candidate) =>
-                  task.dueAtUtc == null ||
-                  !candidate.endUtc.isAfter(task.dueAtUtc!),
-            )
-            .toList();
-        if (withinDeadline.isEmpty) {
-          final longest = allCandidates
-              .map((candidate) => candidate.durationMinutes)
-              .reduce(math.max);
-          recordRejection(
-            task.id,
-            UnscheduledReason(
-              code: UnscheduledReasonCode.deadlineWindowTooShort,
-              requiredMinutes: task.minChunkMinutes,
-              availableMinutes: longest,
-              constraintLabel: '截止时间',
-            ),
-          );
-        }
-      }
-      final candidates = allCandidates
-          .where(
-            (candidate) =>
-                task.dueAtUtc == null ||
-                !candidate.endUtc.isAfter(task.dueAtUtc!),
-          )
-          .toList();
-      // 有候选、但全部被截止时间挡掉（上面已记过 `deadlineWindowTooShort`）时不再补兜底
-      // 证据：两条都记会让"截止窗口不足"这个更具体的原因被笼统原因淹没。
-      if (candidates.isEmpty && rejectionEvidence[task.id] == null) {
-        recordRejection(
-          task.id,
-          _capacityOrUnexplained(task.id, remaining, evidence),
-        );
-      }
+      final evenBudgetDates = evenPlanForTask?.additionalMinutesByLocalDate;
 
       while (remaining > 0) {
         // ── 每一轮都用**当前**剩余量重新生成候选（计划 §2.1 / Task 4 Step 4）──────
@@ -398,42 +260,34 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           slots,
           remainingMinutes: remaining,
         );
-        // ── 截止过滤 ────────────────────────────────────────────────────────────
+        // ── 截止过滤 + 按日预算剪枝 ──────────────────────────────────────────────
+        //
+        // **按日预算剪枝是"等价剪枝"**（计划 Issue 4a）：均分器已经把每日分钟定死，
+        // 而放置循环只消费仍有余量的日期（`_evenBudgetRemaining`）。某日本次预算为 0，
+        // 它的候选无论保留与否都**永远不会被选中**；剪掉它们只省掉"必被跳过"的评分开销。
+        //
+        // 取消每日上限对候选时间轴的截断后（Task 2），候选数明显变多：
+        // 实测规模用例 1632 ms → 3255 ms（恰好两倍，计划 Step 4a 的阈值就是两倍）。
+        //
+        // 保留条件用 `additionalMinutesByLocalDate` 是否**存在**该日，而不是它当前的剩余量：
+        // 剩余量会随放置递减，用剩余量做过滤会让同一份候选集在循环中变化，破坏确定性。
         final roundCandidates = roundGenerated
             .where(
               (candidate) =>
                   task.dueAtUtc == null ||
                   !candidate.endUtc.isAfter(task.dueAtUtc!),
             )
+            .where(
+              (candidate) =>
+                  evenBudgetDates == null ||
+                  evenBudgetDates.containsKey(candidate.localDate),
+            )
             .toList();
         if (roundCandidates.isEmpty) {
           // **不能让 `while` 空转**：这一轮一个可选候选都没有，
           // 再转下去只会得到同一份空集合（剩余量没变）。
-          //
-          // 证据：只有**第一轮**才可能是"截止窗口装不下任何一段"（那是一个独立原因，
-          // 处置是挪截止或缩短任务），此时如实记下来；之后的轮次剩余量只会更小，
-          // 空候选的处置由下面的兜底表达。
-          if (rejectionEvidence[task.id] == null) {
-            if (roundGenerated.isNotEmpty) {
-              final longest = roundGenerated
-                  .map((candidate) => candidate.durationMinutes)
-                  .reduce(math.max);
-              recordRejection(
-                task.id,
-                UnscheduledReason(
-                  code: UnscheduledReasonCode.deadlineWindowTooShort,
-                  requiredMinutes: task.minChunkMinutes,
-                  availableMinutes: longest,
-                  constraintLabel: '截止时间',
-                ),
-              );
-            } else {
-              recordRejection(
-                task.id,
-                _capacityOrUnexplained(task.id, remaining, evidence),
-              );
-            }
-          }
+          // 原因的归因不在循环里做——它由最终诊断（`diagnoseTaskPlacement`）按
+          // 最终块集合给出（计划 §2.3）。
           break;
         }
         // ── 均匀分布任务：按日预算放置（1.7.1 计划 Task 4 Step 3）──────────────
@@ -470,121 +324,40 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           pass++
         ) {
           allowUnschedulableLeftover = evenPlan != null || pass == 1;
+          // **判定只有一份实现**：放置循环与最终诊断都调
+          // `evaluateCandidateEligibility`（`candidate_eligibility.dart`）。
+          // 两处各写一套"看起来差不多"的硬约束判断，就必然漂移——而漂移的后果是
+          // "引擎排得下、诊断说排不下"（或反过来），用户看到的原因与事实不符。
+          final context = CandidateEligibilityContext(
+            problem: problem,
+            task: task,
+            remainingMinutes: remaining,
+            blocks: blocks,
+            movableMinutesByDate: movableMinutesByDate,
+            plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
+              problem,
+              task,
+              blocks,
+            ),
+            budgetPolicy: evenPlan == null
+                ? null
+                : (candidate) => _evenBudgetRemaining(
+                    problem,
+                    task,
+                    candidate,
+                    evenPlan,
+                    blocks,
+                  ),
+            allowUnschedulableLeftover: allowUnschedulableLeftover,
+            relaxedDailyTaskLimit: relaxedDailyQuota,
+          );
           for (final candidate in roundCandidates) {
             // **每一条拒绝都留证据**，而不是只记最后一条。同一个候选可能同时违反多条约束
             // （例如既超过今日配额、又和固定日程重叠），只记一条会让原因随遍历顺序变化。
-            // 这里逐条判定并各自记录，主原因最后由固定优先级决定。
-            if (candidate.durationMinutes > remaining) {
-              recordRejection(
-                task.id,
-                UnscheduledReason(
-                  code: UnscheduledReasonCode.minimumChunkTooLarge,
-                  requiredMinutes: candidate.durationMinutes,
-                  availableMinutes: remaining,
-                ),
-              );
-              continue;
-            }
-            if (_overlapsAny(candidate.range, blocks)) {
-              recordRejection(
-                task.id,
-                const UnscheduledReason(
-                  code: UnscheduledReasonCode.lockedPlanOccupied,
-                  constraintLabel: '已有计划块或固定日程',
-                ),
-              );
-              continue;
-            }
-            if (evenPlan != null) {
-              // 均匀分布任务只消费按日预算。预算不足即跳过——**不放宽**，
-              // 因为"放不下的部分已由均分器重新分给其他日期"。
-              final budget = _evenBudgetRemaining(
-                problem,
-                task,
-                candidate,
-                evenPlan,
-                blocks,
-              );
-              if (candidate.durationMinutes > budget) {
-                recordRejection(
-                  task.id,
-                  UnscheduledReason(
-                    code: UnscheduledReasonCode.dailyLimitReached,
-                    requiredMinutes: candidate.durationMinutes,
-                    availableMinutes: budget,
-                    constraintLabel: '本日均匀份额',
-                  ),
-                );
-                continue;
-              }
-            }
-            if (_exceedsDailyQuota(
-              problem,
-              task,
-              candidate,
-              blocks,
-              relaxed: relaxedDailyQuota,
-            )) {
-              recordRejection(
-                task.id,
-                UnscheduledReason(
-                  code: UnscheduledReasonCode.dailyLimitReached,
-                  requiredMinutes: candidate.durationMinutes,
-                  availableMinutes: task.maxMinutesPerLocalDay,
-                ),
-              );
-              continue;
-            }
-            if (_exceedsMovableDailyLimit(
-              problem,
-              candidate,
-              movableMinutesByDate,
-            )) {
-              recordRejection(
-                task.id,
-                UnscheduledReason(
-                  code: UnscheduledReasonCode.dailyLimitReached,
-                  requiredMinutes: candidate.durationMinutes,
-                  availableMinutes: problem.rules.dailyMovableTaskLimitMinutes,
-                ),
-              );
-              continue;
-            }
-            if (_violatesRestGap(problem, task, candidate, blocks)) {
-              recordRejection(
-                task.id,
-                const UnscheduledReason(
-                  code: UnscheduledReasonCode.requiredBreakUnavailable,
-                  constraintLabel: '片段间休息',
-                ),
-              );
-              continue;
-            }
-            final leftover = remaining - candidate.durationMinutes;
-            // **最终余量的判据必须与短余量宽免同口径**（1.8.0，冻结决策 §1.4）。
-            //
-            // 判据问的是"**剩下的这段还能不能构成一个合法片段**"：
-            // 宽免额度（粒度下的剩余量）为 0 才说明真的凑不出片段 ——
-            // 例如剩 2 分钟、粒度 5 分钟。见上面 [allowUnschedulableLeftover] 的说明：
-            // 这一条只排除该候选，且第二遍会放宽，因此"能排的 10 分钟"不会被丢掉。
-            final leftoverAllowance = shortRemainderAllowance(
-              requiredMinutes: leftover,
-              granularityMinutes: problem.rules.granularityMinutes,
-            );
-            if (task.splitMode == TaskSplitMode.splittable &&
-                leftover > 0 &&
-                leftoverAllowance <= 0) {
-              recordRejection(
-                task.id,
-                UnscheduledReason(
-                  code: UnscheduledReasonCode.minimumChunkTooLarge,
-                  requiredMinutes: leftover,
-                  availableMinutes: task.minChunkMinutes,
-                  constraintLabel: '最终余量不足一个片段',
-                ),
-              );
-              if (!allowUnschedulableLeftover) continue;
-            }
+            // 这里的拒绝是**当前轮的局部数据**：它只用来决定"这个候选要不要跳过"，
+            // 最终原因由 `diagnoseTaskPlacement` 在最终块集合上重新诊断（计划 §2.3）。
+            final rejections = evaluateCandidateEligibility(context, candidate);
+            if (!isCandidateAcceptable(context, rejections)) continue;
             final score = _scoreCandidate(
               problem,
               task,
@@ -600,7 +373,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                   score.totalScore!,
                   candidate.durationMinutes +
                       math.min(
-                        leftover,
+                        remaining - candidate.durationMinutes,
                         _continuationCapacity(task, slots, [
                           ...blocks,
                           _temporaryBlock(task.id, candidate),
@@ -672,45 +445,6 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       );
     }
 
-    final unscheduled = <UnscheduledTask>[];
-    // 被识别为**无法解释的排程异常**的任务（§2.5 第三条不变量）。
-    //
-    // 判据（三者同时成立）：任务存在可放置容量（`remainingPlaceableMinutes > 0`）、
-    // 最终仍有缺口、而已收集的硬约束证据不能解释它。这一条与
-    // "legalCandidateExists && selectedMinutes == 0 && noHardRejection" 等价。
-    final unexplainedTaskIds = <String>{};
-    for (final task in [
-      ...problem.tasks,
-    ]..sort((a, b) => a.id.compareTo(b.id))) {
-      final scheduled = blocks
-          .where((block) => block.taskId == task.id)
-          .fold<int>(0, (sum, block) => sum + block.durationMinutes);
-      final shortage = math.max(0, targets[task.id]! - scheduled);
-      if (shortage > 0) {
-        final evidence = [...?rejectionEvidence[task.id]?.values];
-        final reason = primaryUnscheduledReason(evidence);
-        if (_isUnexplainedShortage(
-          task: task,
-          problem: problem,
-          availability: availability,
-          allBlocks: blocks,
-          reason: reason,
-          shortageMinutes: shortage,
-          zones: _zones,
-        )) {
-          unexplainedTaskIds.add(task.id);
-        }
-        unscheduled.add(
-          UnscheduledTask(
-            taskId: task.id,
-            shortageMinutes: shortage,
-            primaryReason: reason,
-            reasons: evidence,
-          ),
-        );
-      }
-    }
-
     // ── 最小化改动（1.8.0，规范 §11.4 第 3、4 条）──────────────────────────────
     //
     // 生成是"从零排一遍"，引擎因此不知道哪些块**本来就在合适的位置**。用户按一次
@@ -718,8 +452,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // 先比被移动的块数，再比总位移分钟。
     //
     // 这一步把**还能回到原位**的块放回原位，每一步都过验证器，因此它只可能减少改动、
-    // 不可能制造新冲突。放在这里（冲突检查之前）是刻意的：如果它真的引入了冲突，
-    // 下面的 `validate` 会如实报出来，而不是被静默吞掉。
+    // 不可能制造新冲突。它**必须排在最终诊断之前**（计划 §2.3 / Task 5 Step 3 的顺序）：
+    // 诊断问的是"最终块集合上还有没有合法位置"，而最小化改动会改变块的位置，
+    // 因此诊断必须看到最小化之后的集合。
     final minimized = minimizeChangedBlocks(
       problem: problem,
       blocks: blocks,
@@ -730,6 +465,54 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     blocks
       ..clear()
       ..addAll(minimized.blocks);
+    blocks.sort(_compareBlocks);
+
+    // ── 最终诊断：**只看最终块集合**（计划 §2.3 / Task 5 Step 3）──────────────────
+    //
+    // 执行顺序是固定的，不可调换：
+    // 初次放置 → `_improve` → provenance/stability 处理 → 排序 →
+    // 计算最终 shortage → `diagnoseTaskPlacement` → `unscheduled`/`conflicts`。
+    //
+    // **最终原因不得读放置循环里的任何中间数据**：循环里每一次拒绝都是"**试**一个候选"
+    // 的副产物，它按**当时**的剩余量算出来，而那次尝试可能并没有被采纳。用旧轮次的证据
+    // 解释最终缺口，就会给出用户无法据以行动、甚至与事实矛盾的说法（R5）。
+    final unscheduled = <UnscheduledTask>[];
+    // 被识别为**无法解释的排程异常**的任务（§2.5 第三条不变量）。
+    //
+    // 判据只有一条：按**最终块集合**看，仍然存在一个可采纳的合法候选，而缺口依然大于零
+    // （`hasEligibleCandidate && shortage > 0`）。它不是"容量不足"——
+    // 用户要做的不是腾时间，而是重新生成并把问题报上来。
+    final unexplainedTaskIds = <String>{};
+    for (final task in [
+      ...problem.tasks,
+    ]..sort((a, b) => a.id.compareTo(b.id))) {
+      final scheduled = blocks
+          .where((block) => block.taskId == task.id)
+          .fold<int>(0, (sum, block) => sum + block.durationMinutes);
+      final shortage = math.max(0, targets[task.id]! - scheduled);
+      if (shortage <= 0) continue;
+      final diagnostics = diagnoseTaskPlacement(
+        problem: problem,
+        task: task,
+        remainingMinutes: shortage,
+        availability: availability,
+        finalBlocks: blocks,
+        zones: _zones,
+      );
+      if (diagnostics.hasEligibleCandidate) {
+        unexplainedTaskIds.add(task.id);
+      }
+      unscheduled.add(
+        UnscheduledTask(
+          taskId: task.id,
+          shortageMinutes: shortage,
+          primaryReason: diagnostics.reasons.first,
+          // "展开查看其他限制"读的是**同一份最终诊断**的全部证据，
+          // 不再是跨轮次累计的拒绝记录。
+          reasons: diagnostics.reasons,
+        ),
+      );
+    }
 
     // **容量缺口只有一个结构化来源**（1.8.0，冻结决策 §1.5）：`unscheduled`。
     //
@@ -749,10 +532,15 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     ];
     // ── 无法解释的零安排 ⇒ 提升为**阻断**问题（1.8.0 专项 §2.4 / §5 A13）─────────
     //
-    // **只能有一条用户可见问题**：`unscheduled` 里那条已经带着
-    // `unexplainedSchedulingFailure` 主原因，预览层会把这一条 blocker 与它**合成一条**
-    // 呈现（见 `buildPreviewIssues`）。这里不再补第二条 `insufficientCapacity` 冲突——
-    // 那是"同一件事说两三遍"的旧形态，冻结决策 §1.5 已经禁掉。
+    // 计划 §2.3 Task 5 Step 6：`hasEligibleCandidate && shortage > 0` 必须**同时**产生
+    // `unexplainedSchedulingFailure`（上面 `unscheduled` 里那条主原因）与
+    // `ConflictCode.schedulingInvariantViolation`（这里这条冲突）。
+    // `classifyProposal()` 因此返回 `blocked`，而 `PlanApplicationService.apply()`
+    // 在 validator 之前就检查 `proposal.conflicts`——`allowPartial` 也绕不过去。
+    //
+    // **只能有一条用户可见问题**：预览层会把这一条 blocker 与 `unscheduled` 里那条
+    // **合成一条**呈现（见 `buildPreviewIssues`）。这里不再补第二条
+    // `insufficientCapacity` 冲突——那是"同一件事说两三遍"的旧形态，冻结决策 §1.5 已经禁掉。
     for (final taskId in unexplainedTaskIds.toList()..sort()) {
       conflicts.add(
         PlanningConflict(
@@ -786,76 +574,6 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         unscheduledMinutes: unscheduledMinutes,
       ),
     );
-  }
-
-  /// 一个**带证据**的容量不足，或（容量其实够时）无法解释的排程异常。
-  ///
-  /// 1.8.0 专项 §2.4：`insufficientCapacity` 只能在
-  /// `remainingPlaceableMinutes < shortageMinutes` 且数字存在时使用；空证据不得自动落到
-  /// "可用时间不足"。这条纪律在此**唯一实现一次**，候选为空与候选被挡两条路径共用它。
-  UnscheduledReason _capacityOrUnexplained(
-    String taskId,
-    int shortageMinutes,
-    TaskCapacityEvidence evidence,
-  ) {
-    if (evidence.remainingPlaceableMinutes < shortageMinutes) {
-      return UnscheduledReason(
-        code: UnscheduledReasonCode.insufficientCapacity,
-        requiredMinutes: shortageMinutes,
-        availableMinutes: evidence.remainingPlaceableMinutes,
-      );
-    }
-    return UnscheduledReason(
-      code: UnscheduledReasonCode.unexplainedSchedulingFailure,
-      requiredMinutes: shortageMinutes,
-      availableMinutes: evidence.remainingPlaceableMinutes,
-    );
-  }
-
-  /// 这项缺口是不是**引擎自己解释不了**的排程异常（§2.5 第三条不变量）。
-  ///
-  /// 判据是"存在仍可用的合法容量，最终却仍有缺口"：
-  /// - `remainingPlaceableMinutes <= 0` ⇒ 容量确实不够（或已经被占满），可解释；
-  /// - 主原因是明确的硬约束（截止窗口、每日上限、片段下限、连续空档、
-  ///   或"被固定日程／保护时间／锁定块挡住"）⇒ 有证据，可解释；
-  /// - 主原因已是 [UnscheduledReasonCode.unexplainedSchedulingFailure] ⇒ 已判定，保持；
-  /// - 其余情况（典型是没有任何拒绝证据、或证据与事实对不上）⇒ **无法解释**。
-  ///
-  /// **刻意不把 `dailyLimitReached` 当成"无法解释"**：那是用户自己设的硬约束，
-  /// 处置是调上限或换一天，与"排程器没排好"完全不同。
-  bool _isUnexplainedShortage({
-    required SchedulableTask task,
-    required ScheduleProblem problem,
-    required AvailabilityAnalysis availability,
-    required List<PlannedBlock> allBlocks,
-    required UnscheduledReason reason,
-    required int shortageMinutes,
-    required TimeZoneDatabase zones,
-  }) {
-    if (reason.code == UnscheduledReasonCode.unexplainedSchedulingFailure) {
-      return true;
-    }
-    const explained = {
-      UnscheduledReasonCode.continuousGapTooShort,
-      UnscheduledReasonCode.deadlineWindowTooShort,
-      UnscheduledReasonCode.minimumChunkTooLarge,
-      UnscheduledReasonCode.dailyLimitReached,
-      UnscheduledReasonCode.protectedTimeOccupied,
-      UnscheduledReasonCode.fixedScheduleOccupied,
-      UnscheduledReasonCode.lockedPlanOccupied,
-      UnscheduledReasonCode.requiredBreakUnavailable,
-      UnscheduledReasonCode.availableTimeNotReached,
-    };
-    if (explained.contains(reason.code)) return false;
-    final evidence = analyzeTaskCapacity(
-      task: task,
-      problem: problem,
-      availability: availability,
-      allBlocks: allBlocks,
-      zones: zones,
-    );
-    // 容量确实不够 ⇒ 可解释。这里用**严格小于**与 `_capacityOrUnexplained` 同一口径。
-    return evidence.remainingPlaceableMinutes >= shortageMinutes;
   }
 
   int _targetFor(ScheduleProblem problem, SchedulableTask task) {
@@ -1057,40 +775,15 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     );
   }
 
-  /// 把 [candidate] 放进它所属的那个**本地日**之后，该日会不会超过任务自己声明的单日上限
-  /// （路线图 §3.4 "均匀分布"、Task 8 Step 5）。
-  ///
-  /// 判据是"**这一天总共**排了多少"，而不是"这一段多长"：`maxMinutesPerLocalDay` 是从周期目标
-  /// 摊出来的每日配额（例如 180÷7 ≈ 26 分钟），它约束的是一天的总量。因此必须把该日已经排进去
-  /// 的分钟（含锁定块与本次循环先前选中的块）一起算上——否则引擎仍然会把整周的量堆进同一天，
-  /// 而"均匀分布"就只是一个界面上存在、结果上无效的选项。
-  ///
-  /// **[relaxed] 的含义见 [generate] 里的两轮说明**：配额是"摊开"的偏好，不是容量的真相。
-  bool _exceedsDailyQuota(
-    ScheduleProblem problem,
-    SchedulableTask task,
-    SchedulingCandidate candidate,
-    List<PlannedBlock> blocks, {
-    required bool relaxed,
-  }) {
-    if (relaxed) return false;
-    if (task.maxMinutesPerLocalDay == null) return false;
-    return _exceedsDailyQuotaFromTable(
-      task: task,
-      candidate: candidate,
-      plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
-        problem,
-        task,
-        blocks,
-      ),
-    );
-  }
-
   /// **任务自己声明的每日上限**的判定核心：把"这一天该任务已经排了多少"做成一张表，
   /// 再由 [candidate] 问"加进去会不会超"。
   ///
-  /// **为什么必须单独存在一个查表版本**：放置循环与局部改进各有一个"当日已排分钟"的正确
-  /// 视角——放置阶段是"到目前为止的全部块"，改进阶段是"除当前这一块以外的块"。
+  /// **放置循环不再调用它，而是调用 `candidate_eligibility.dart` 的
+  /// `evaluateCandidateEligibility`**（计划 §2.3 Task 5 Step 1）：每日上限的判据必须
+  /// 与最终诊断共用同一份实现，否则"引擎排得下、诊断说排不下"迟早发生。
+  ///
+  /// **为什么仍然保留一个查表版本**：局部改进（`_improve`）需要一个"当日已排分钟"的
+  /// 不同视角——放置阶段看"到目前为止的全部块"，改进阶段看"除当前这一块以外的块"。
   /// 若两处各写一遍判据，就会再次漂移（`_exceedsMovableDailyLimit` 的注释里记着同一条教训）。
   bool _exceedsDailyQuotaFromTable({
     required SchedulableTask task,

@@ -167,8 +167,21 @@ String _dailyLimitDetail(Map<String, Object?> details) {
 /// 反过来猜原因——那正是这一步要消灭的东西。因此签名收的是 `UnscheduledReason`，
 /// 而不是任务或提案。
 ///
-/// 有 `requiredMinutes` / `availableMinutes` 的原因尽量把两个数写进句子里：用户据此才知道
-/// "差多少"，而这决定了他是该调目标还是改截止时间。
+/// ## 每个 code 用**自己的模板**，正文只描述约束（计划 §2.4，Task 5 Step 5）
+///
+/// 修复前这里有一个共用的 `_withNumbers()`，它会**自己再算一遍**
+/// `constraintRequiredMinutes − constraintAvailableMinutes` 并写成第二个"还缺"。
+/// 那两个数字**不是总缺口**（它们属于某一条约束：最短片段、连续时长、每日上限），
+/// 于是同一件事会出现两个"还缺"，而用户没有任何依据判断哪一个是真的
+/// （R7 实测：标题"还缺 25 分钟"、正文"还缺 130 分钟"）。
+///
+/// 现在：
+/// - **标题是唯一显示缺口的地方**（`UnscheduledTask.shortageMinutes`，见
+///   `plan_preview_issues.dart` 的 `PreviewIssue.title`）；
+/// - 正文只说约束本身要求的量与同一口径下的可用量；
+/// - 因此正文里**不会**出现 `还缺`，也不会出现由两个 constraint 数字推出来的第三个数字；
+/// - 所有模板都**不含 UUID、task id、内部枚举名**（[constraintLabel] 是引擎给的
+///   用户可读短语，不是枚举名）。
 ///
 /// **1.8.0 从 `features/planning/plan_preview_page.dart` 移到这里**（规范 §13.2）：
 /// 延后失败也要走同一条翻译链，而那条链现在在 `scheduling/` 与 `app/router.dart` 里。
@@ -181,25 +194,18 @@ String unscheduledReasonLabel(UnscheduledReason reason) =>
         reason.constraintLabel == null
             ? '还没到这件事可以开始的时间。'
             : '还没到这件事可以开始的时间（${reason.constraintLabel}）。',
-      UnscheduledReasonCode.deadlineWindowTooShort => _withNumbers(
-        '截止时间之前装不下一个片段',
-        required: reason.requiredMinutes,
-        available: reason.availableMinutes,
-        tail: '。',
-      ),
-      UnscheduledReasonCode.continuousGapTooShort => _withNumbers(
-        '这件事需要一次做完',
-        required: reason.requiredMinutes,
-        available: reason.availableMinutes,
-        tail: '，但最长的一段空档不够长。',
-      ),
-      UnscheduledReasonCode.minimumChunkTooLarge => _withNumbers(
-        '剩下的时间不够一个最短片段',
-        required: reason.requiredMinutes,
-        available: reason.availableMinutes,
-        tail: '。',
-      ),
-      UnscheduledReasonCode.dailyLimitReached => '已经达到这一天能安排的上限，剩下的时间排不进去了。',
+      UnscheduledReasonCode.deadlineWindowTooShort =>
+        '截止时间之前装不下一个完整的片段：最短片段要求 '
+            '${_required(reason)} 分钟，截止前的可用空档共 ${_available(reason)} 分钟。',
+      UnscheduledReasonCode.continuousGapTooShort =>
+        '这件事需要一次做完：要求连续的 ${_required(reason)} 分钟，'
+            '当前最长的一段合法空档只有 ${_available(reason)} 分钟。',
+      UnscheduledReasonCode.minimumChunkTooLarge =>
+        '最短片段要求 ${_required(reason)} 分钟，'
+            '当前最长合法空档 ${_available(reason)} 分钟。',
+      UnscheduledReasonCode.dailyLimitReached =>
+        '已经达到这一天能安排的上限：本日上限 '
+            '${_required(reason)} 分钟，本次最多还能安排 ${_available(reason)} 分钟。',
       UnscheduledReasonCode.protectedTimeOccupied => '保护时间占住了这些时段，引擎不会挤占它。',
       UnscheduledReasonCode.fixedScheduleOccupied => '固定日程占住了这些时段。',
       UnscheduledReasonCode.lockedPlanOccupied =>
@@ -208,33 +214,19 @@ String unscheduledReasonLabel(UnscheduledReason reason) =>
             : '这些时段已经被${reason.constraintLabel}占住了。',
       UnscheduledReasonCode.requiredBreakUnavailable =>
         '排满就没有片段之间的休息时间，因此没有排进去。',
-      UnscheduledReasonCode.insufficientCapacity => _withNumbers(
-        '可用时间不足',
-        required: reason.requiredMinutes,
-        available: reason.availableMinutes,
-        tail: '。',
-      ),
+      UnscheduledReasonCode.insufficientCapacity =>
+        '可用时段不足：这件事需要 ${_required(reason)} 分钟，'
+            '本次仍可安排的空档共 ${_available(reason)} 分钟。',
       // **不是"容量不足"**：用户要做的不是腾时间，而是重新生成并把问题报上来。
       // 文案与 `conflictLabel` 共用同一个常量，两条展示链不可能各说一句。
       UnscheduledReasonCode.unexplainedSchedulingFailure =>
         schedulingInvariantViolationMessage,
     };
 
-String _withNumbers(
-  String lead, {
-  required int? required,
-  required int? available,
-  required String tail,
-}) {
-  if (required != null && available != null) {
-    // 缺口的第三个数字由**同一份证据**推出（`required - available`），不再引入第三个来源：
-    // 多一个字段就多一处可能与前两个数字对不上的地方。
-    final shortage = required - available;
-    if (shortage > 0) {
-      return '$lead：需要 $required 分钟，本次仍可安排 $available 分钟，还缺 $shortage 分钟$tail';
-    }
-    return '$lead：需要 $required 分钟，可用 $available 分钟$tail';
-  }
-  if (required != null) return '$lead：需要 $required 分钟$tail';
-  return '$lead$tail';
-}
+/// 约束口径的"要求多少分钟"。引擎没给出这个数时不留空档（"要求  分钟"），
+/// 用一句不带数字的话兜底——**绝不凭空编一个数字**。
+String _required(UnscheduledReason reason) =>
+    reason.constraintRequiredMinutes?.toString() ?? '若干';
+
+String _available(UnscheduledReason reason) =>
+    reason.constraintAvailableMinutes?.toString() ?? '若干';

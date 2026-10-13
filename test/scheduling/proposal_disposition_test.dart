@@ -55,6 +55,8 @@ void main() {
     shortageMinutes: 30,
     primaryReason: UnscheduledReason(
       code: UnscheduledReasonCode.insufficientCapacity,
+      // 不变量：`placementRemainingMinutes == shortageMinutes`（计划 §2.4）。
+      placementRemainingMinutes: 30,
     ),
   );
 
@@ -217,6 +219,101 @@ void main() {
       expect(
         classifyProposal(proposal),
         ProposalDisposition.partialRequiresConfirmation,
+      );
+    });
+
+    test('缺口数字的不变量：`placementRemainingMinutes == shortageMinutes`', () {
+      // 计划 §2.4 的字段不变量。它必须对**引擎真实输出**成立，而不只是对手工夹具成立：
+      // 事后补数字（而不是构造原因时写入当轮剩余量）会让这条不变量在嵌套构造的路径上失效。
+      final proposal = DeterministicScheduleEngine(TimeZoneDatabase()).generate(
+        problem(
+          tasks: const [
+            SchedulableTask(
+              id: 't-a',
+              requiredMinutes: 60,
+              splitMode: TaskSplitMode.splittable,
+              minChunkMinutes: 30,
+              maxChunkMinutes: 60,
+            ),
+          ],
+          protectedIntervals: [
+            BusyInterval(
+              id: 'all-day',
+              range: TimeRange(
+                startUtc: DateTime.utc(2026, 10, 12),
+                endUtc: DateTime.utc(2026, 10, 13),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      expect(proposal.unscheduled, isNotEmpty, reason: '这条用例的前提是存在缺口');
+      for (final item in proposal.unscheduled) {
+        expect(
+          item.primaryReason.placementRemainingMinutes,
+          item.shortageMinutes,
+          reason: '主原因的放置剩余量必须就是这条缺口的分钟数',
+        );
+        for (final reason in item.reasons) {
+          expect(reason.placementRemainingMinutes, item.shortageMinutes);
+        }
+      }
+    });
+
+    test('**结构异常必然是 blocked**：`hasEligibleCandidate && shortage > 0`', () {
+      // **这条用例钉的是计划 Task 5 Step 6 的不可绕过性**：
+      // 引擎在"仍有合法候选"的情况下留下缺口时，必须同时给出
+      // `unexplainedSchedulingFailure`（主原因）与 `schedulingInvariantViolation`（阻断冲突）。
+      // 这里用引擎真实输出构造那种形状（任务排得下却一个块都没有），断言分类结果是 blocked。
+      final proposal = DeterministicScheduleEngine(TimeZoneDatabase()).generate(
+        problem(
+          tasks: const [
+            SchedulableTask(
+              id: 't-a',
+              requiredMinutes: 60,
+              splitMode: TaskSplitMode.splittable,
+              minChunkMinutes: 30,
+              maxChunkMinutes: 60,
+            ),
+          ],
+        ),
+      );
+      // 前置条件：正常情况下它完全排得下（因此"排不下"必然是结构异常）。
+      expect(proposal.unscheduled, isEmpty);
+      expect(classifyProposal(proposal), ProposalDisposition.fullyApplicable);
+
+      final anomalous = proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 60,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+              placementRemainingMinutes: 60,
+              constraintRequiredMinutes: 60,
+              constraintAvailableMinutes: 60,
+            ),
+          ),
+        ],
+        conflicts: [
+          PlanningConflict(
+            code: ConflictCode.schedulingInvariantViolation,
+            taskId: 't-a',
+          ),
+        ],
+      );
+      expect(
+        classifyProposal(anomalous),
+        ProposalDisposition.blocked,
+        reason:
+            '"排程没有使用仍可用的合法时段"不是"缺一部分"：它必须阻断，'
+            '而 `allowPartial` 不得把它降级成可应用的 warning',
+      );
+      expect(
+        isFullyApplicable(anomalous),
+        isFalse,
+        reason: '它也不得被当成可自动应用的完整提案',
       );
     });
   });

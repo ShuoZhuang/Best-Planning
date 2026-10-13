@@ -13,6 +13,7 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
@@ -178,6 +179,86 @@ void main() {
       _overrideProposal(inputHash: overriddenHash, override: null),
     );
     expect(withoutOverride.status, ApplyPlanStatus.staleProposal);
+  });
+
+  test('引擎报告的阻断冲突先于 validator，且 `allowPartial` 也绕不过去', () async {
+    // 计划 Task 5 Step 6：`PlanApplicationService.apply()` 必须在 **stale 检查之后、
+    // validator 之前**先看 `proposal.conflicts`。
+    //
+    // 为什么不能只靠 validator：`schedulingInvariantViolation`（"排程没有使用仍可用的
+    // 合法时段"）是在**块集合本身合法**的情况下出现的——validator 查不出来，而它恰恰是
+    // 最不能写进用户计划的一类。`allowPartial` 只适用于"装不下"，不适用于"排程器自己没排好"。
+    const snapshots = InputSnapshotBuilder();
+    final problem = _validationProblem();
+    final hash = snapshots.hash(InputSnapshot(problem: problem));
+    final service = PlanApplicationService(
+      source: _ProblemSource(problem),
+      repository: repository,
+      zones: TimeZoneDatabase(),
+      snapshots: snapshots,
+    );
+
+    // 块集合本身**完全合法**（一个 60 分钟的块，任务需要 180 分钟）。
+    final proposal = ScheduleProposal(
+      proposalId: 'blocked-proposal',
+      inputHash: hash,
+      algorithmVersion: '1',
+      planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
+      blocks: [
+        PlannedBlock(
+          id: 'one',
+          taskId: 'task',
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 10, 5, 9),
+            endUtc: DateTime.utc(2026, 10, 5, 10),
+          ),
+        ),
+      ],
+      unscheduled: const [
+        UnscheduledTask(
+          taskId: 'task',
+          shortageMinutes: 120,
+          primaryReason: UnscheduledReason(
+            code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+            placementRemainingMinutes: 120,
+          ),
+        ),
+      ],
+      conflicts: [
+        PlanningConflict(
+          code: ConflictCode.schedulingInvariantViolation,
+          taskId: 'task',
+        ),
+      ],
+      explanations: const [],
+      metrics: const ProposalMetrics(
+        isFullyFeasible: false,
+        scheduledMinutes: 60,
+        unscheduledMinutes: 120,
+      ),
+    );
+
+    // 两种模式都必须被拦下：`allowPartial` **不是**"忽略阻断冲突"的同义词。
+    for (final mode in PlanApplyMode.values) {
+      final result = await service.apply(proposal, mode: mode);
+      expect(
+        result.status,
+        ApplyPlanStatus.invalidProposal,
+        reason:
+            'mode=$mode 时引擎已经报告的阻断冲突必须立即返回 invalidProposal；'
+            '放宽部分应用不得把它降级成"缺一部分"',
+      );
+      expect(
+        result.conflicts.single.code,
+        ConflictCode.schedulingInvariantViolation,
+        reason: '返回的必须是引擎报告的那条冲突，而不是重新校验出来的别的',
+      );
+      expect(
+        await database.select(database.planVersions).get(),
+        isEmpty,
+        reason: '更不许写库',
+      );
+    }
   });
 
   // B5：通知此前**只在应用启动时同步一次**（`main.dart` 里那唯一一处调用），因此应用开着的

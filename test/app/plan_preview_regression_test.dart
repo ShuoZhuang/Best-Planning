@@ -142,7 +142,8 @@ void main() {
         shortageMinutes: 76,
         primaryReason: UnscheduledReason(
           code: UnscheduledReasonCode.insufficientCapacity,
-          requiredMinutes: 76,
+          placementRemainingMinutes: 76,
+          constraintRequiredMinutes: 76,
         ),
       ),
     ],
