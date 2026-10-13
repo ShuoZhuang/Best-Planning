@@ -102,7 +102,7 @@ final class SettingsValidationException implements Exception {
 }
 
 final class SettingsService {
-  SettingsService({required this.repository});
+  SettingsService({required this.repository, this.onPlanningRulesChanged});
 
   static const _userRulesKey = 'planning.userRules.v1';
   static const _learnedPreferencesKey = 'planning.learnedPreferences.v1';
@@ -111,6 +111,16 @@ final class SettingsService {
   static const _closeBehaviorKey = 'window.closeBehavior.v1';
 
   final SettingsRepository repository;
+
+  /// **规划规则**成功保存之后的日历失效信号（计划 §2.6）。
+  ///
+  /// 只挂在 [saveUserRules] 与 [saveDateOverride] 上：这两处改的是作息、保护时间规则与
+  /// 按日例外——它们直接决定日历上的保护时间区间。通知设置、关闭行为、信任自动调整与
+  /// 学习偏好**都不发**：它们不改变任何一条日历条目，发信号只会让页面白刷一次
+  /// （§2.6："通知设置、关闭行为等无关设置不发"）。
+  ///
+  /// 允许为空以保持测试替身轻量；生产组合根必须装配到那唯一的失效总线上。
+  final void Function()? onPlanningRulesChanged;
 
   Future<ResolvedPlanningSettings> resolveForDate(DateTime localDate) async {
     final user = await loadUserRules();
@@ -185,6 +195,9 @@ final class SettingsService {
         'weekend': _patchToJson(rules.weekend),
       }),
     );
+    // **校验通过且写入成功之后**才发（§2.6）：非法规则在上面就抛了，那时日历不该刷新
+    // ——它读到的仍是旧的合法规则，刷新只会白读一次。
+    onPlanningRulesChanged?.call();
   }
 
   /// 同一个日型里，保护窗口之间、以及与睡眠之间**不得重叠**（规范 §9.1）。
@@ -248,6 +261,8 @@ final class SettingsService {
       _overrideKey(localDate),
       jsonEncode(_patchToJson(override)),
     );
+    // 按日例外同样会改变那一天的规则，因此与 `saveUserRules` 同一口径：只在写入成功后发。
+    onPlanningRulesChanged?.call();
   }
 
   /// 读取某一天的临时例外；没有则返回 `null`。

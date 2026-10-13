@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -571,7 +572,10 @@ void main() {
           protectedTimes: [
             ProtectedTimeRule(
               kind: ProtectedTimeKind.breakfast,
-              range: LocalTimeRange(startMinute: 7 * 60 + 30, endMinute: 8 * 60),
+              range: LocalTimeRange(
+                startMinute: 7 * 60 + 30,
+                endMinute: 8 * 60,
+              ),
             ),
           ],
         ),
@@ -605,11 +609,7 @@ void main() {
         .where((item) => item.kind == ScheduleItemKind.protectedTime)
         .toList();
 
-    expect(
-      protected,
-      isNotEmpty,
-      reason: '早餐规则必须真的展开成一条日历区间（否则这条回归是空跑）',
-    );
+    expect(protected, isNotEmpty, reason: '早餐规则必须真的展开成一条日历区间（否则这条回归是空跑）');
     expect(
       protected.map((item) => item.title),
       contains('早餐'),
@@ -698,21 +698,28 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // R9（Task 1 Step 6）：生产数据源必须**发多次**。
+  // R9（Task 1 Step 6；Task 7 按 §2.6 的契约重写）。
   //
-  // `RepositoryScheduleViewSource.watch()` 现在是
+  // `RepositoryScheduleViewSource.watch()` **曾经**是
   // ```dart
   // async* { yield await _load(startUtc, endUtc); }
   // ```
   // —— 订阅后加载一次就结束。页面测试里的假数据源用 `StreamController` 手工 `add()`
   // 推出第二次事件，于是这个缺陷在测试里是隐形的（R10）。
   //
-  // 计划 §2.6 要求：订阅后立即加载一次，随后在 `tasks.watchAllTasks()` 或失效信号
-  // 到达时**重新执行完整 `_load`**，并把新结果推给同一个订阅者。
+  // **Task 7 要改的是这条红灯的触发方式，不是它的结论**：它此前只改内存仓储、
+  // **没有发任何失效信号**，然后等 5 秒——那在 §2.6 的契约下是不可满足的，因为
+  // §2.6 明确**不得**用定时轮询数据库实现刷新。现在它走真实装配：
+  // 真实 `RepositoryScheduleViewSource` + 真实 `ScheduleViewInvalidationBus` + 内存仓储，
+  // 由 `notify(calendar)` 驱动第二次加载。两条既有断言（"订阅后必须立即加载一次"、
+  // "第二份必须包含新加的课"）**一个字都没有放宽**。
   // ─────────────────────────────────────────────────────────────────────────────
   test('生产数据源在仓储变化后再推一份**不同**的列表（不是只发一次）', () async {
     final settings = MemorySettingsRepository();
     final calendar = _Calendar([]);
+    // **真实的 app-scoped 失效总线**（不是能手工 `add()` 的假数据源）。
+    final invalidation = ScheduleViewInvalidationBus();
+    addTearDown(invalidation.dispose);
     final source = RepositoryScheduleViewSource(
       tasks: _Tasks(const []),
       calendar: calendar,
@@ -733,17 +740,21 @@ void main() {
       zones: TimeZoneDatabase(),
       timeZoneId: 'UTC',
       clock: _FixedClock(_windowStart),
+      // 生产装配必传（`main.dart`）；不传就退回"只在任务流变化时重载"。
+      invalidation: invalidation,
     );
 
-    // **一次订阅**：先断言"订阅后立即加载一次"，再原地让仓储变化，
+    // **一次订阅**：先断言"订阅后立即加载一次"，再原地让仓储变化并**发出失效信号**，
     // 断言同一个订阅者收到第二份**不同**的列表。
     final emissions = <List<ScheduleViewItem>>[];
     final done = Completer<void>();
-    final subscription = source.watch(_windowStart, _windowEnd).listen(
-      emissions.add,
-      onError: done.completeError,
-      onDone: done.complete,
-    );
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(
+          emissions.add,
+          onError: done.completeError,
+          onDone: done.complete,
+        );
     addTearDown(subscription.cancel);
     addTearDown(() async {
       if (!done.isCompleted) done.complete();
@@ -751,7 +762,7 @@ void main() {
 
     // 第一次加载：窗口里本来就有默认规则展开出来的保护时间（午餐／晚餐／固定休息），
     // 因此这里只要求"订阅后**立即**推了一份"，不要求它是空的。
-    await pumpEventQueue();
+    await _waitUntil(() => emissions.isNotEmpty, what: '订阅后的第一次加载');
     expect(emissions, hasLength(1), reason: '订阅后必须立即加载一次');
     expect(
       emissions.first.map((item) => item.title),
@@ -762,29 +773,223 @@ void main() {
     // 仓储变化：新增一条固定日程，下一次 `_load` 就会读到它。
     calendar.values.add(_fixed('added', '新加的课', 9, areaId: 'study'));
 
-    // **超时红灯**：当前实现 `yield` 一次就结束了流（`onDone` 已经在 5 秒内完成），
-    // 因此第二份永远不会到来。这里失败的原因必须是"第二份没到"，
-    // 而不是"轮询轮数不够"——所以用固定 5 秒上界 + 明确的 reason。
-    await Future.any([
-      done.future,
-      Future<void>.delayed(const Duration(seconds: 5)),
-    ]);
+    // **§2.6 的驱动方式**：成功写入之后发一条失效信号，数据源据此重新执行完整 `_load`。
+    // 这里**不**推进时间、**不**轮询——生产源不会、也不应该靠定时读库发现变化。
+    invalidation.notify(ScheduleViewChangeKind.calendar);
 
+    await _waitUntil(() => emissions.length >= 2, what: '失效信号之后重新加载出的第二份列表');
     expect(
       emissions.length,
       greaterThanOrEqualTo(2),
       reason:
           '**本任务的核心红灯（R9）**：`RepositoryScheduleViewSource.watch()` 在'
-          '第一次 `yield await _load(startUtc, endUtc)` 之后就结束了流，5 秒内没有'
-          '第二份列表。页面测试看不到这一点，是因为它们注入了能手工 `add()` 的'
-          '假数据源（R10）。计划 §2.6 要求：订阅后加载一次，随后在'
-          '`tasks.watchAllTasks()` 或失效信号到达时重新执行完整 `_load`，'
+          '第一次 `yield await _load(startUtc, endUtc)` 之后就结束了流，'
+          '既没有第二次加载、也没有任何重载路径。页面测试看不到这一点，是因为它们'
+          '注入了能手工 `add()` 的假数据源（R10）。计划 §2.6 要求：订阅后加载一次，'
+          '随后在 `tasks.watchAllTasks()` 或失效信号到达时重新执行完整 `_load`，'
           '并把新结果推给同一个订阅者',
     );
     expect(
       emissions.last.map((item) => item.title),
       contains('新加的课'),
       reason: '第二份必须是**重新加载**的结果，而不是把第一份原样重发',
+    );
+    expect(done.isCompleted, isFalse, reason: '有订阅者时流不得结束');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 7 Step 5（计划 §2.6 第 3～7 条）：合并触发、乱序丢弃、取消释放、失败恢复。
+  //
+  // 这四条都只能对着**生产源**验：假数据源能手工 `add()`，因此它既不会漏掉重载，
+  // 也不会暴露出"晚到的旧结果覆盖新结果"这类只有真实加载循环才会有的问题（R10）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  test('连续 20 个失效信号合并为至多一次在途加载加一次待处理加载', () async {
+    final calendar = _MutableCalendar();
+    final invalidation = ScheduleViewInvalidationBus();
+    addTearDown(invalidation.dispose);
+    // 任务流**不在订阅时重放**：这一条只测失效信号这一条通道，避免把"任务流初始重放
+    // 也算一次重载"混进来（那种重放是真实仓储的行为，由下面的任务流用例单独覆盖）。
+    final tasks = _PushTasks();
+    final source = _sourceFor(
+      tasks: tasks,
+      calendar: calendar,
+      invalidation: invalidation,
+    );
+
+    // **先把闸门装好**：订阅时就进来的那一次加载会停在它上面，于是"一次在途"成立。
+    calendar.gate = Completer<void>();
+    final emissions = <List<ScheduleViewItem>>[];
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(emissions.add);
+    addTearDown(subscription.cancel);
+    await _waitUntil(() => calendar.calls == 1, what: '订阅时的第一次加载');
+
+    for (var index = 0; index < 20; index++) {
+      invalidation.notify(ScheduleViewChangeKind.calendar);
+    }
+    await pumpEventQueue();
+    expect(calendar.calls, 1, reason: '在途加载只有一次；20 个信号绝不允许并发 20 次读取数据库');
+
+    // 放行在途的那一次。它请求时的代际早就过期了（信号到达时递增过），因此结果被丢弃，
+    // 随后只跑**一次**待处理加载。
+    calendar.gate!.complete();
+    calendar.gate = null;
+    await _waitUntil(() => emissions.isNotEmpty, what: '待处理加载的结果');
+    await pumpEventQueue();
+    expect(calendar.calls, 2, reason: '20 个信号合并为"一次在途 ＋ 一次待处理"，因此一共只读两次');
+    expect(
+      emissions,
+      hasLength(1),
+      reason: '过期的那一次结果不得推给页面，否则用户会先看到一份旧列表再被新列表覆盖',
+    );
+  });
+
+  test('慢的第一次加载晚到时被 generation 丢弃，只有新的结果到达页面', () async {
+    final calendar = _MutableCalendar();
+    final invalidation = ScheduleViewInvalidationBus();
+    addTearDown(invalidation.dispose);
+    final source = _sourceFor(
+      tasks: _PushTasks(),
+      calendar: calendar,
+      invalidation: invalidation,
+    );
+
+    // 第一次加载会读到这一份（它在闸门之后才返回，因此是一份**已经过期**的快照）。
+    calendar.afterGate = [_fixed('first', '第一次的课', 9)];
+    calendar.gate = Completer<void>();
+    final emissions = <List<ScheduleViewItem>>[];
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(emissions.add);
+    addTearDown(subscription.cancel);
+    await _waitUntil(() => calendar.calls == 1, what: '慢的第一次加载已经开始');
+
+    // 仓储在第一次加载**还没返回**时就变了，并发出失效信号。
+    calendar.values.add(_fixed('second', '第二次的课', 10));
+    invalidation.notify(ScheduleViewChangeKind.calendar);
+    // 现在放行慢的那一次：它必须被整份丢掉。
+    calendar.gate!.complete();
+    calendar.gate = null;
+
+    await _waitUntil(() => emissions.isNotEmpty, what: '第二次加载的结果');
+    await pumpEventQueue();
+    expect(calendar.calls, 2, reason: '两次加载：慢的那次 + 失效信号触发的那次');
+    expect(
+      emissions.first.map((item) => item.title),
+      contains('第二次的课'),
+      reason: '页面拿到的必须是**新**结果',
+    );
+    expect(
+      emissions.first.map((item) => item.title),
+      isNot(contains('第一次的课')),
+      reason:
+          '**晚到的旧结果不得覆盖新结果**（§2.6 第 5 条）：第一次加载在收到失效信号时'
+          '代际就过期了，因此它整份被丢弃——不是"先推旧再推新"',
+    );
+  });
+
+  test('最后一个监听者取消后释放内部订阅与 controller', () async {
+    final calendar = _MutableCalendar();
+    final invalidation = _ObservableInvalidation();
+    addTearDown(invalidation.dispose);
+    final tasks = _PushTasks();
+    final source = _sourceFor(
+      tasks: tasks,
+      calendar: calendar,
+      invalidation: invalidation,
+    );
+
+    final emissions = <List<ScheduleViewItem>>[];
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(emissions.add);
+    await _waitUntil(() => calendar.calls == 1, what: '订阅后的第一次加载');
+    expect(invalidation.hasListeners, isTrue, reason: '订阅期间要听失效信号');
+    expect(tasks.hasListener, isTrue, reason: '订阅期间要听任务流');
+
+    await subscription.cancel();
+
+    expect(
+      invalidation.hasListeners,
+      isFalse,
+      reason: '取消订阅必须释放失效信号的内部订阅（§2.6 第 6 条）',
+    );
+    expect(
+      tasks.hasListener,
+      isFalse,
+      reason: '取消订阅必须释放任务流的内部订阅，否则这个页面的加载循环会一直跑下去',
+    );
+
+    // 取消之后任何信号都不该再读库：controller 已经释放。
+    final before = calendar.calls;
+    invalidation.notify(ScheduleViewChangeKind.calendar);
+    tasks.push(const []);
+    await pumpEventQueue();
+    expect(calendar.calls, before, reason: '取消后不得再读数据库');
+  });
+
+  test('加载失败以 stream error 交给页面，下一次信号仍能恢复', () async {
+    final calendar = _FlakyCalendar();
+    final invalidation = ScheduleViewInvalidationBus();
+    addTearDown(invalidation.dispose);
+    final source = _sourceFor(
+      tasks: _PushTasks(),
+      calendar: calendar,
+      invalidation: invalidation,
+    );
+
+    final emissions = <List<ScheduleViewItem>>[];
+    final errors = <Object>[];
+    var done = false;
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(emissions.add, onError: errors.add, onDone: () => done = true);
+    addTearDown(subscription.cancel);
+
+    await _waitUntil(() => errors.isNotEmpty, what: '第一次加载的失败');
+    expect(emissions, isEmpty, reason: '失败不该伪造一份空列表');
+    expect(done, isFalse, reason: '失败**不得**关闭流，否则页面再也等不到下一次信号');
+
+    // 下一次信号仍能恢复（§2.6 第 7 条）。
+    invalidation.notify(ScheduleViewChangeKind.calendar);
+    await _waitUntil(() => emissions.isNotEmpty, what: '恢复后的第一份列表');
+    expect(
+      emissions.single.map((item) => item.title),
+      contains('恢复了'),
+      reason: '失败之后的下一次信号必须真的重新加载',
+    );
+    expect(errors, hasLength(1), reason: '恢复成功不该再报一次错');
+    expect(done, isFalse);
+  });
+
+  test('任务流推来新列表后重新加载（任务展示刷新不经过失效总线）', () async {
+    final calendar = _MutableCalendar();
+    final tasks = _PushTasks([_task('task-1', '任务一')]);
+    // **刻意不装失效总线**：§2.6 规定任务展示刷新由 `tasks.watchAllTasks()` 驱动，
+    // 因此这条通道必须自己就能让数据源重载。
+    final source = _sourceFor(
+      tasks: tasks,
+      calendar: calendar,
+      invalidation: null,
+    );
+
+    final emissions = <List<ScheduleViewItem>>[];
+    final subscription = source
+        .watch(_windowStart, _windowEnd)
+        .listen(emissions.add);
+    addTearDown(subscription.cancel);
+    await _waitUntil(() => emissions.isNotEmpty, what: '订阅后的第一次加载');
+    expect(calendar.calls, 1);
+
+    calendar.values.add(_fixed('added', '新日程', 9));
+    tasks.push([_task('task-1', '任务一改名'), _task('task-2', '任务二')]);
+
+    await _waitUntil(() => emissions.length >= 2, what: '任务流触发的重载');
+    expect(
+      emissions.last.map((item) => item.title),
+      contains('新日程'),
+      reason: '任务流信号到达后必须重新执行**完整**的 `_load`',
     );
   });
 
@@ -1084,4 +1289,160 @@ void main() {
 
     expect(taskItems, hasLength(2), reason: '不重叠的两段是两件安排，都要在');
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 7（计划 §2.6）新增的夹具：合并触发、代际丢弃、取消释放与失败恢复都要靠
+// "能控制完成时机"的仓储才能稳定复现，用固定返回值的替身表达不出来。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 只替换数据源、其余依赖用固定替身的最小装配。
+///
+/// 这几个用例关心的只有"一次信号是否触发一次**完整**加载、结果是否被丢弃"，
+/// 因此计划、历史与规则都与本文件其它用例同形（空计划、无历史、默认规则）。
+RepositoryScheduleViewSource _sourceFor({
+  required TaskRepository tasks,
+  required CalendarRepository calendar,
+  required ScheduleViewInvalidation? invalidation,
+}) {
+  final settings = MemorySettingsRepository();
+  return RepositoryScheduleViewSource(
+    tasks: tasks,
+    calendar: calendar,
+    plans: _Plans(
+      ConfirmedPlan(
+        id: 'plan',
+        inputHash: 'hash',
+        algorithmVersion: '1',
+        blocks: const [],
+      ),
+    ),
+    history: _History(),
+    rules: PlanningRuleResolver(SettingsService(repository: settings)),
+    colors: ScheduleColorService(
+      settings: settings,
+      workspace: _Workspace([_area('study', '学业')]),
+    ),
+    zones: TimeZoneDatabase(),
+    timeZoneId: 'UTC',
+    clock: _FixedClock(_windowStart),
+    invalidation: invalidation,
+  );
+}
+
+/// 可闸住、可变更的日历仓。
+///
+/// [calls] 就是"数据源读了几次库"：`_load` 每次都会查一次窗口。用一个计数而不是
+/// 打印或时长来判"并发了几次读取"，是因为时长在 CI 上不稳定，而计数是确定的。
+final class _MutableCalendar implements CalendarRepository {
+  /// 闸门之后的返回值（一份**快照**）。为空时返回 [values]。
+  List<CalendarOccurrence>? afterGate;
+  final List<CalendarOccurrence> values = [];
+  int calls = 0;
+  Completer<void>? gate;
+
+  @override
+  Future<List<CalendarOccurrence>> occurrencesBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async {
+    calls++;
+    final gate = this.gate;
+    if (gate != null) {
+      await gate.future;
+      final after = afterGate;
+      if (after != null) return List.of(after);
+    }
+    return List.of(values);
+  }
+
+  @override
+  Future<void> save(CalendarEvent event) async {}
+}
+
+/// 第一次读窗口就抛错的日历仓；之后正常返回。用来验"失败后仍能恢复"。
+final class _FlakyCalendar implements CalendarRepository {
+  int calls = 0;
+
+  @override
+  Future<List<CalendarOccurrence>> occurrencesBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async {
+    calls++;
+    if (calls == 1) throw StateError('读取日程失败（夹具）');
+    return [_fixed('recovered', '恢复了', 9)];
+  }
+
+  @override
+  Future<void> save(CalendarEvent event) async {}
+}
+
+/// 任务流由测试显式推送的替身。
+///
+/// **订阅时不重放**：真实 drift 仓储会先推一份当前值，但那会让"失效信号驱动重载"
+/// 的计数混进一次任务流重载，于是用例测不准 —— 因此这里把两条通道分开验。
+final class _PushTasks implements TaskRepository {
+  _PushTasks([this.values = const []]);
+
+  List<PlannerTask> values;
+  final StreamController<List<PlannerTask>> _controller =
+      StreamController<List<PlannerTask>>();
+
+  bool get hasListener => _controller.hasListener;
+
+  /// 推一份新任务列表（模拟仓储的变更事件）。
+  void push(List<PlannerTask> tasks) {
+    values = tasks;
+    _controller.add(tasks);
+  }
+
+  @override
+  Future<PlannerTask?> getById(String id) async =>
+      values.where((task) => task.id == id).firstOrNull;
+
+  @override
+  Future<void> save(PlannerTask task) async {}
+
+  @override
+  Stream<List<PlannerTask>> watchAllTasks() => _controller.stream;
+
+  @override
+  Stream<List<PlannerTask>> watchOpenTasks() async* {
+    yield values;
+  }
+}
+
+/// 能报告"还有没有订阅者"的失效端口替身。
+///
+/// 真实总线用的是 broadcast controller，它自己不暴露监听者数量，而
+/// "取消订阅后必须释放内部订阅"（§2.6 第 6 条）正是要验的那一条。
+final class _ObservableInvalidation implements ScheduleViewInvalidation {
+  final StreamController<int> _controller = StreamController<int>.broadcast();
+  int _revision = 0;
+
+  bool get hasListeners => _controller.hasListener;
+
+  @override
+  Stream<int> get revisions => _controller.stream;
+
+  @override
+  void notify(ScheduleViewChangeKind kind) {
+    if (_controller.isClosed) return;
+    _controller.add(++_revision);
+  }
+
+  Future<void> dispose() => _controller.close();
+}
+
+/// 有界等待：轮询只发生在**测试**里，用来等一个由事件驱动的结果出现。
+///
+/// 上界写死，因此"永远不成立"表现为一条 `fail`，而不是把测试进程挂住。
+/// `pumpEventQueue` 推进的是事件队列本身，不改动任何被测代码的时序。
+Future<void> _waitUntil(bool Function() ready, {required String what}) async {
+  for (var attempt = 0; attempt < 200; attempt++) {
+    if (ready()) return;
+    await pumpEventQueue(times: 5);
+  }
+  fail('等待超时：$what 始终没有发生');
 }

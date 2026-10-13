@@ -21,6 +21,7 @@ import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update_check_scheduler.dart';
@@ -104,6 +105,14 @@ final class PlannerApp extends StatefulWidget {
     this.autoAdjustStore,
     this.reconcileNotifications,
     this.courseManagement,
+
+    /// 应用内**唯一**的日历失效总线（计划 §2.6）。
+    ///
+    /// 由组合根创建（唯一实例），同时注入 `RepositoryScheduleViewSource` 与各写入服务。
+    /// 这里收下它只为一件事：**释放**。`main()` 没有"应用结束"的返回点，而
+    /// `PlannerApp` 就是"应用还开着"这件事的唯一权威——与 [updateCheckScheduler] 同一口径。
+    /// 为空时（测试、未装配）什么都不做。
+    this.scheduleInvalidation,
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
@@ -256,6 +265,9 @@ final class PlannerApp extends StatefulWidget {
   /// 课程管理服务（1.8.0，规范 §10）。由组合根装配；未装配时路由给出说明页，
   /// 且日历工具栏不显示「管理课程」——不给一个点进去说没装的入口。
   final CourseManagementService? courseManagement;
+
+  /// 应用内唯一的日历失效总线。见构造参数处的说明：这里只为释放它。
+  final ScheduleViewInvalidationBus? scheduleInvalidation;
 
   /// 手动拖动的落点（FR-CAL-05）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
@@ -556,6 +568,12 @@ final class _PlannerAppState extends State<PlannerApp> {
     // 先释放调度器再拆别的：它是唯一持有**定时器**的东西，晚一步释放就意味着"应用已经在关了，
     // 那一发请求还在路上"。`dispose()` 是幂等的，重复释放不会出错。
     widget.updateCheckScheduler?.dispose();
+    // 日历失效总线同样跟着应用释放（唯一的 app-scoped 实例，计划 §2.6）：
+    // 之后到达的 `notify()` 会被安全忽略，不再产生"controller 已关闭"的未捕获异常。
+    // 它的 `dispose()` 是幂等的；这里不 await——释放时机对关闭路径没有意义。
+    if (widget.scheduleInvalidation case final invalidation?) {
+      unawaited(invalidation.dispose());
+    }
     _appearance.removeListener(_onAppearanceChanged);
     _appearance.dispose();
     _router.dispose();

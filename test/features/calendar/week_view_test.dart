@@ -1,12 +1,38 @@
 import 'dart:async';
 
+import 'package:drift/native.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/application/calendar_service.dart';
+import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/planning_rule_resolver.dart';
+import 'package:personal_planner/application/planning_service.dart';
+import 'package:personal_planner/application/repository_schedule_problem_source.dart';
+import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/application/schedule_view_invalidation.dart';
+import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/task_service.dart';
+import 'package:personal_planner/application/workspace_service.dart';
+import 'package:personal_planner/core/clock.dart';
+import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
+import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
+import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
+import 'package:personal_planner/data/repositories/drift_task_repository.dart';
+import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
+import 'package:personal_planner/features/today/today_page.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
 
 void main() {
   testWidgets('七日日历按分类键显示图例并用分类色绘制卡片', (tester) async {
@@ -635,11 +661,7 @@ void main() {
           '计划 §1.3／Task 8 要求标题改成「近期日历」——'
           '八列的范围用"七日"命名会让用户以为昨天那一列不存在',
     );
-    expect(
-      find.text('七日日历'),
-      findsNothing,
-      reason: '旧标题与八列范围不一致，必须消失',
-    );
+    expect(find.text('七日日历'), findsNothing, reason: '旧标题与八列范围不一致，必须消失');
     expect(
       find.text('未来七天暂无安排'),
       findsNothing,
@@ -671,11 +693,7 @@ void main() {
           '空状态文案中出现"七"就是在描述另一个范围。'
           '实测当前实现给的是「未来七天暂无安排」',
     );
-    expect(
-      find.textContaining('八'),
-      findsWidgets,
-      reason: '空状态应当说清真实范围（八天）',
-    );
+    expect(find.textContaining('八'), findsWidgets, reason: '空状态应当说清真实范围（八天）');
   });
 
   test('只有可移动的任务块能被拖动，固定日程与保护时间不是', () {
@@ -818,6 +836,285 @@ void main() {
     expect(borderOf('week-day--1').color, theme.colorScheme.outlineVariant);
     expect(borderOf('week-day-1').color, theme.colorScheme.outlineVariant);
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 7 Step 6（计划 §2.6）：**真实源跨页面**。
+  //
+  // 此前页面测试注入的都是能手工 `add()` 的假数据源（R10），因此"三个视图会不会一起
+  // 自己刷新"从来没被验过。这一条用**真实装配**（真实 drift 内存库 + 真实仓储 +
+  // 真实 `RepositoryScheduleViewSource` + 真实失效总线）把三个页面**同时**挂在一棵树上：
+  //
+  // · 应用新计划 → 三处都出现同一个计划块（同一 id／同一区间）；
+  // · 新建与编辑固定日程 → 三处都显示新标题与新时间；
+  // · 全程没有离开页面、没有手工点刷新、没有 `setState` 补丁。
+  //
+  // 写入走的是**生产路径**（`PlanApplicationService.apply` / `CalendarService.save` /
+  // `CalendarService.updateEvent`），信号走的是 `main.dart` 里那组接线
+  // （`ScheduleViewInvalidationWiring`）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('真实源跨页面：应用计划与编辑固定日程后，近期日历／日视图／今日页一起刷新', (tester) async {
+    tester.view.physicalSize = const Size(4200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // **真实异步必须自己推**：本用例用的是真实 drift 内存库，而 `PlanningService` 还会把
+    // 引擎放进 `Isolate.run`。`pumpAndSettle` 在假异步时钟下推不动它们——实测直接等它
+    // 会一路等到 10 分钟超时（三个页面都停在加载指示器上，指示器永远在动，于是
+    // `pumpAndSettle` 永远"还没 settle"）。这与 `today_route_test.dart` 里"延后 10 分钟"
+    // 那一条是同一条教训：**先 `runAsync` 让真实异步跑完，再 `pump` 把结果画出来**。
+    //
+    // 给 `pumpAndSettle` 一个有界超时是刻意的：万一将来某次改动真的让页面永远停在加载态，
+    // 这条用例应当在几十秒内红掉并指出原因，而不是把整个测试套件挂住。
+    Future<void> settle() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 400)),
+      );
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 30),
+      );
+    }
+
+    const timeZoneId = 'Asia/Shanghai';
+    final zones = TimeZoneDatabase();
+    // 本地 2026-10-05（周一）08:00：窗口起点就在这一刻，因此排程内容确定地落在"今天"。
+    final clock = _FixedClock(DateTime.utc(2026, 10, 5));
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+
+    final taskRepository = DriftTaskRepository(database.taskDao);
+    final calendarRepository = DriftCalendarRepository(database);
+    final planRepository = DriftPlanRepository(database, clock: clock);
+    final settingsRepository = DriftSettingsRepository(database, clock);
+    final workspaceRepository = DriftWorkspaceRepository(database);
+    final settingsService = SettingsService(repository: settingsRepository);
+    final workspaceService = WorkspaceService(
+      repository: workspaceRepository,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+    );
+    final colors = ScheduleColorService(
+      settings: settingsRepository,
+      workspace: workspaceRepository,
+    );
+    final problemSource = RepositoryScheduleProblemSource(
+      tasks: taskRepository,
+      lifeAreas: DriftLifeAreaLookup(database),
+      calendar: calendarRepository,
+      settings: settingsService,
+      plans: planRepository,
+      clock: clock,
+      timeZoneId: timeZoneId,
+      zones: zones,
+    );
+    // **应用内唯一的失效总线**，与 `main.dart` 的生产装配同形。
+    final bus = ScheduleViewInvalidationBus();
+    addTearDown(bus.dispose);
+    final invalidation = ScheduleViewInvalidationWiring(bus);
+
+    final planning = PlanningService(
+      source: problemSource,
+      engine: DeterministicScheduleEngine(zones),
+    );
+    final application = PlanApplicationService(
+      source: problemSource,
+      repository: planRepository,
+      zones: zones,
+      // 生产形状：先完成既有的提醒同步，再发 plan 信号。
+      onPlanChanged: invalidation.planAfter(() async {}),
+    );
+    final calendarService = CalendarService(
+      repository: calendarRepository,
+      deletion: calendarRepository,
+      recurringRepository: calendarRepository,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+      zones: zones,
+      // 生产形状：先记重排原因（这里没有统计落点），再发 calendar 信号。
+      onScheduleInputChanged: invalidation.calendarAfter((change) {}),
+    );
+    final source = RepositoryScheduleViewSource(
+      tasks: taskRepository,
+      calendar: calendarRepository,
+      plans: planRepository,
+      history: planRepository,
+      rules: PlanningRuleResolver(settingsService),
+      colors: colors,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      clock: clock,
+      // **生产装配必传**：不传就退回"只在任务流变化时重载"（R9 的形态）。
+      invalidation: bus,
+    );
+
+    // 造一件任务（真实仓储写入，与生产同一条路径）。
+    //
+    // **必须包在 `runAsync` 里**：drift 的查询/写入是靠零延时 timer 推进的，而
+    // `testWidgets` 的假异步时钟只有在 `pump` 时才前进——直接 `await` 一个真实写入会
+    // **永远不返回**（这正是本用例第一次运行挂住十几分钟的原因）。见 `settle()`。
+    await tester.runAsync(() async {
+      await workspaceService.ensureDefaultAreas();
+      final area = (await workspaceService.listAreas()).firstWhere(
+        (item) => item.name == '学业',
+      );
+      await TaskService(
+        repository: taskRepository,
+        workspace: workspaceRepository,
+        clock: clock,
+        idGenerator: UuidIdGenerator(),
+      ).saveDraft(
+        TaskDraft(title: '完成课程论文', estimatedMinutes: 60, areaId: area.id),
+      );
+    });
+
+    final todayStartUtc = zones.localMidnightToUtc(
+      DateTime(2026, 10, 5),
+      timeZoneId,
+    );
+    await tester.pumpWidget(
+      _threeViews(
+        source: source,
+        todayStartUtc: todayStartUtc,
+        zones: zones,
+        timeZoneId: timeZoneId,
+        nowUtc: clock.nowUtc(),
+      ),
+    );
+    await settle();
+
+    Finder inPage(Type page, Finder matching) =>
+        find.descendant(of: find.byType(page), matching: matching);
+    String clockOf(DateTime instantUtc) {
+      final local = zones.toLocal(instantUtc, timeZoneId);
+      return '${local.hour.toString().padLeft(2, '0')}:'
+          '${local.minute.toString().padLeft(2, '0')}';
+    }
+
+    // ① 应用新计划：三个页面都必须自己出现那个计划块，而且是**同一个**块。
+    //
+    // 三次写入都走 `runAsync`：它们打开真实 drift 事务，而 `apply` 还要先重放输入并
+    // 重算哈希。见 `settle()` 的说明。
+    expect(find.text('完成课程论文'), findsNothing, reason: '前置条件：应用计划之前什么都没有');
+    final proposal = (await tester.runAsync(planning.createProposal))!;
+    expect(proposal.blocks, isNotEmpty, reason: '前置条件：窗口里有可用时间');
+    final applied = (await tester.runAsync(() => application.apply(proposal)))!;
+    expect(applied.status, ApplyPlanStatus.applied);
+
+    // **不在这里再读一次库**：`apply` 已经把落库后的计划带回来了（`applied.plan`），
+    // 而紧接着再发一次 `runAsync` 去读库会和三个页面刚排队的查询**互相堵死**——
+    // drift 的查询队列是串行的，页面那几条查询要等假时钟推进才会跑，而 `runAsync`
+    // 期间假时钟不动。实测正是卡在这一句上（`XS4` 之后没有下文）。
+    final confirmed = applied.plan!;
+    final block = confirmed.blocks.single;
+    final itemId = 'block:${block.id}';
+    final blockRange =
+        '${clockOf(block.range.startUtc)}–'
+        '${clockOf(block.range.endUtc)}';
+    await settle();
+
+    for (final page in const [WeekViewPage, DayViewPage, TodayPage]) {
+      expect(
+        inPage(page, find.text('完成课程论文')),
+        findsWidgets,
+        reason: '$page 必须自己收到新的计划块（无需离开页面或手工刷新）',
+      );
+    }
+    expect(
+      inPage(DayViewPage, find.byKey(Key('day-schedule-card-$itemId'))),
+      findsOneWidget,
+      reason: '日视图渲染的是**同一份**条目 id',
+    );
+    expect(
+      inPage(TodayPage, find.byKey(ValueKey('today-schedule-card-$itemId'))),
+      findsOneWidget,
+      reason: '今日页渲染的是**同一份**条目 id',
+    );
+    expect(
+      inPage(WeekViewPage, find.byKey(ValueKey('week-schedule-card-$itemId'))),
+      findsOneWidget,
+      reason: '近期日历渲染的是**同一份**条目 id',
+    );
+    expect(
+      inPage(DayViewPage, find.textContaining(blockRange)),
+      findsWidgets,
+      reason: '日视图显示的区间就是那条计划块的区间（同一 range）',
+    );
+
+    // ② 新建固定日程：三处自动出现。
+    final saved = (await tester.runAsync(
+      () => calendarService.save(
+        EventDraft(
+          title: '数据结构课',
+          startAtUtc: todayStartUtc.add(const Duration(hours: 10)),
+          endAtUtc: todayStartUtc.add(const Duration(hours: 11)),
+          timeZoneId: timeZoneId,
+        ),
+      ),
+    ))!;
+    expect(saved.isSuccess, isTrue, reason: saved.fieldErrors.toString());
+    await settle();
+    for (final page in const [WeekViewPage, DayViewPage, TodayPage]) {
+      expect(
+        inPage(page, find.text('数据结构课')),
+        findsWidgets,
+        reason: '$page 必须自己显示新建的固定日程',
+      );
+    }
+
+    // ③ 编辑固定日程（改名 + 改时间）：三处都换成新标题与新时间。
+    final eventId = saved.event!.id;
+    final updated = (await tester.runAsync(
+      () => calendarService.updateEvent(
+        target: CalendarEditTarget(
+          anchorId: eventId,
+          scope: EventEditScope.entireSeries,
+        ),
+        event: CalendarEventEditDraft(
+          title: '数据结构课（改）',
+          startAtUtc: todayStartUtc.add(const Duration(hours: 14)),
+          endAtUtc: todayStartUtc.add(const Duration(hours: 15)),
+          timeZoneId: timeZoneId,
+        ),
+      ),
+    ))!;
+    expect(
+      updated.status,
+      CalendarMutationStatus.saved,
+      reason: updated.error ?? '',
+    );
+    await settle();
+
+    for (final page in const [WeekViewPage, DayViewPage, TodayPage]) {
+      expect(
+        inPage(page, find.text('数据结构课（改）')),
+        findsWidgets,
+        reason: '$page 必须显示改写后的新标题（而不是继续显示旧标题）',
+      );
+      expect(
+        inPage(page, find.text('数据结构课')),
+        findsNothing,
+        reason: '$page 不得同时留着旧标题',
+      );
+    }
+    expect(
+      inPage(DayViewPage, find.byKey(Key('day-schedule-card-fixed:$eventId'))),
+      findsOneWidget,
+    );
+    expect(
+      inPage(DayViewPage, find.textContaining('14:00–15:00')),
+      findsWidgets,
+      reason: '日视图显示的必须是改写后的新时间',
+    );
+
+    // **显式卸载三个页面并让 fake 时钟走一步**：`watch()` 取消时会取消它对
+    // `tasks.watchAllTasks()` 的订阅，而 drift 在"最后一个订阅者取消"时排的是一个
+    // **零延时 timer**；不把它跑掉，`flutter_test` 会在测试结束时判定"仍有待处理 timer"
+    // （那是测试框架与 fake 时钟的交互，不是生产行为——生产里的 timer 会立刻执行）。
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }
 
 ScheduleViewItem _scheduleItem({
@@ -847,6 +1144,64 @@ ScheduleViewItem _scheduleItem({
 final class _RangeRecorder {
   final List<(DateTime, DateTime)> ranges = [];
 }
+
+final class _FixedClock implements Clock {
+  const _FixedClock(this.value);
+  final DateTime value;
+  @override
+  DateTime nowUtc() => value;
+}
+
+/// 三个视图**同时**挂在树上：谁都没有被路由切走，也没有人点过"刷新"。
+///
+/// 给每页一个固定尺寸并用横向滚动兜住，避免三页挤在一起产生与被测行为无关的布局溢出。
+Widget _threeViews({
+  required ScheduleViewSource source,
+  required DateTime todayStartUtc,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+  required DateTime nowUtc,
+}) => MaterialApp(
+  home: Scaffold(
+    body: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 1100,
+            height: 2000,
+            child: WeekViewPage(
+              source: source,
+              weekStart: todayStartUtc,
+              moveController: const DisabledWeekMoveController(),
+            ),
+          ),
+          SizedBox(
+            width: 1100,
+            height: 2000,
+            child: DayViewPage(
+              source: source,
+              dayStartUtc: todayStartUtc,
+              zones: zones,
+              timeZoneId: timeZoneId,
+            ),
+          ),
+          SizedBox(
+            width: 1100,
+            height: 2000,
+            child: TodayPage(
+              source: source,
+              day: todayStartUtc,
+              toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
+              nowUtc: nowUtc,
+            ),
+          ),
+        ],
+      ),
+    ),
+  ),
+);
 
 final class _Source implements ScheduleViewSource {
   const _Source(this.stream, {this.recorder});

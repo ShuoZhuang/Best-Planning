@@ -25,6 +25,7 @@ import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/recurring_notification_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/repository_recurring_cycle_reader.dart';
@@ -219,6 +220,20 @@ Future<void> main() async {
     database,
     idGenerator: UuidIdGenerator(),
   );
+  // ── 日历展示失效总线（计划 §2.6）─────────────────────────────────────────────
+  //
+  // **整个应用只有一个实例**（app-scoped）：它同时交给 `RepositoryScheduleViewSource`
+  // 与每一个写入服务。写入方只发"某类数据变了"，展示数据仍由数据源重新读仓储——
+  // 因此不存在"某条路径自己拼一份列表推给页面"的第二份真相。
+  //
+  // **不在这里 dispose**：组合根没有"应用结束"的回调（`runApp` 不返回），释放交给
+  // `PlannerApp.dispose()`——它才是"应用还开着"这件事的唯一权威，与
+  // `updateCheckScheduler` 同一口径。`dispose()` 幂等，重复释放不会出错。
+  final scheduleInvalidation = ScheduleViewInvalidationBus();
+  // 六个写入点共用这一组回调（`schedule_view_invalidation.dart`）：类里成文了
+  // "先记重排原因再发信号""先同步提醒再发信号，失败也发"这两条时序规则。
+  final invalidation = ScheduleViewInvalidationWiring(scheduleInvalidation);
+
   // "排程输入变了"的统一落点：**两个来源共用一份定义**——先记一条统计原因（FR-STAT-06），
   // 再按领域变化的**类别**决定要不要重排（FR-REPLAN-01 起，见下面的 `ReplanningCoordinator`）。
   //
@@ -239,7 +254,21 @@ Future<void> main() async {
     // 固定日程占用的时间是排程的硬约束，因此它的增删改同样会改变排程；此前这条路径登记为
     // "未覆盖"（§13.0 W9 的 (a)），于是统计里的"重排原因"看起来像完整分布，实际缺了日历
     // 这一整类。两个写入方共用同一份 lambda 形状与同一个事件端口，此处不新造一套口径。
-    onScheduleInputChanged: (change) => onScheduleInputChange(change),
+    //
+    // **同一处再发一条日历失效信号**（计划 §2.6）：固定日程／保护时间／课程的每一次成功
+    // 写入都经这里，因此日历刷新只需要这一个落点，不给 `CalendarService` 再加一个同义回调
+    // （两个回调必然会有一天只改其中一个）。
+    //
+    // `try/finally`：上面那一句会记统计原因，而它失败不影响"数据已经写进去了"这个事实。
+    // 此时**必须仍然发信号**，否则用户看到的是"日程保存失败"（`savedWithWarning`）而日历
+    // 也不更新——数据库里明明已经有那条记录了。
+    //
+    // **外面再包一层 lambda 不是为了好看**：`onScheduleInputChange` 是 `late`，它的赋值
+    // 在更下面（它需要重排协调器，而协调器需要计划应用服务）。直接传变量会在构造日历服务
+    // 这一刻求值，抛 `LateInitializationError`。
+    onScheduleInputChanged: invalidation.calendarAfter(
+      (change) => onScheduleInputChange(change),
+    ),
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
@@ -263,7 +292,12 @@ Future<void> main() async {
     clock: clock,
   );
 
-  final settingsService = SettingsService(repository: settingsRepository);
+  // 规划规则（作息／保护时间规则／按日例外）会改变日历上的保护时间区间，因此成功保存后
+  // 必须让展示刷新（计划 §2.6）。通知设置、关闭行为等无关设置**不发**。
+  final settingsService = SettingsService(
+    repository: settingsRepository,
+    onPlanningRulesChanged: invalidation.planningRules,
+  );
   // 关闭窗口的行为：设置存在 Dart 侧（`window.closeBehavior.v1`），宿主窗口只负责执行。
   final windowBehaviorService = WindowBehaviorService(
     settings: settingsService,
@@ -448,10 +482,13 @@ Future<void> main() async {
     repository: workspaceRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
+    // 领域的名称与颜色就是日历分类的名称与颜色（计划 §2.6）。
+    onWorkspaceChanged: invalidation.workspace,
   );
   final scheduleColorService = ScheduleColorService(
     settings: settingsRepository,
     workspace: workspaceRepository,
+    onColorsChanged: invalidation.colors,
   );
   final academicCalendar = AcademicCalendarService(
     repository: DriftAcademicCalendarRepository(database),
@@ -619,7 +656,11 @@ Future<void> main() async {
     repository: planRepository,
     zones: zones,
     // B5：计划被真的改变后重新同步提醒。
-    onPlanChanged: resyncNotifications,
+    //
+    // **先同步提醒，再发失效信号**（计划 §2.6）：提醒同步失败（它内部已经吞掉平台错误，
+    // 但仓储层仍可能抛）**不得**让"计划已经落库"这件事在界面上变成没发生。
+    // `try/finally` 保证信号一定发出去，页面因此读回真实的已提交结果。
+    onPlanChanged: invalidation.planAfter(resyncNotifications),
   );
 
   // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
@@ -767,6 +808,11 @@ Future<void> main() async {
           // 由服务层的时钟给出，而不是让仓储各自取时间——那会让同一批差几毫秒，
           // 而乐观并发判的正是版本。
           clock: clock,
+          // `saveCourse` 与 `deleteCourse` 直接走 `CourseWriteGateway`，**绕过
+          // `CalendarService`**，因此那两条路径的日历刷新只能由这里发（计划 §2.6）。
+          // 经 CalendarService 的改写与暂停不发：那一条已经由上面的统一落点发过了，
+          // 这里再发就是同一次写入触发两次刷新。
+          onCalendarChanged: invalidation.calendar,
         ),
         // FR-CAL-05：与上面那个排程输入来源共用同一实例。
         pendingMoves: pendingMoves,
@@ -807,6 +853,9 @@ Future<void> main() async {
         timetableOcr: WindowsTimetableOcr(),
         timetableImport: timetableImport,
         planApplication: planApplication,
+        // 同一份失效总线交给数据源（Plan §2.6）：三个日历视图共用一个 app-scoped 实例，
+        // 因此任何一处成功写入都让它们同时刷新。
+        scheduleInvalidation: scheduleInvalidation,
         scheduleSource: RepositoryScheduleViewSource(
           tasks: taskRepository,
           calendar: calendarRepository,
@@ -819,6 +868,9 @@ Future<void> main() async {
           timeZoneId: timeZoneId,
           // M6（§3.3 最后一条）：卡片上那一行"本周已完成 x/y 分钟"。
           recurring: recurringTasks,
+          // **生产装配必须传**：不传就退回"只在任务流变化时重载"，固定日程、计划、
+          // 规划规则、配色与领域的写入都不会刷新（那正是 R9 的形态）。
+          invalidation: scheduleInvalidation,
         ),
       ),
     ),

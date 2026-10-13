@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
+import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/protected_time_labels.dart';
@@ -21,13 +24,15 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 此前这两个页面注入的是 `EmptyScheduleViewSource`，恒返回空列表，因此今日页
 /// 与周视图在真实运行中永远不显示任何安排。
 ///
-/// 已知限制（计划 Task 7 负责修）：
-/// - [watch] **只在订阅时读取一次**：`async*` 里 `yield await _load(...)` 之后流就结束了，
-///   它既不订阅 `tasks.watchOpenTasks()`／`watchAllTasks()`，也没有任何失效信号。因此
-///   固定日程或确认计划写入后，**同一个订阅者收不到第二份列表**，页面必须重新订阅才看得到。
-///   这不是"仓储只提供 `Future`"造成的：`watchOpenTasks()` 本来就是流，是这里没接刷新源。
+/// 已知限制：
 /// - `ScheduleItemKind.life` 尚无法产生：`PlannerTask` 没有生活事项标记（见 R1、R2
 ///   关于标签与项目缺失的登记），生活配额目前只在统计服务里按领域名推断。
+///
+/// **刷新（计划 §2.6）**：[watch] 不再是"读一次就结束"的 `async*`。它订阅
+/// `tasks.watchAllTasks()`（任务标题／领域／完成状态）与可选的
+/// [ScheduleViewInvalidation]（各写入服务的成功失效信号），任一到达就重新执行**完整**的
+/// `_load`。此前它只 `yield await _load(...)` 一次，于是固定日程或确认计划写入后
+/// **同一个订阅者收不到第二份列表**，页面必须重新订阅才看得到（R9）。
 final class RepositoryScheduleViewSource implements ScheduleViewSource {
   RepositoryScheduleViewSource({
     required this.tasks,
@@ -40,6 +45,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     required this.history,
     Clock? clock,
     this.recurring,
+    this.invalidation,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        _clock = clock ?? const SystemClock();
 
@@ -56,6 +62,13 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   /// 与"这不是周期目标的条目"是同一种显示结果。
   final RecurringTaskService? recurring;
 
+  /// 各写入服务的成功失效信号（计划 §2.6）。
+  ///
+  /// **可选**：既有测试与集成夹具不传它，行为就是"只由 `tasks.watchAllTasks()` 驱动"
+  /// （订阅后立即加载一次，任务变化时重载），因此向后兼容。生产组合根**必须**传，
+  /// 否则固定日程、计划、规划规则、配色与领域的写入都不会触发刷新。
+  final ScheduleViewInvalidation? invalidation;
+
   /// 历史计划块（含已被取代的版本）。过去几天当时排了什么只在那里。
   final PlanBlockHistory history;
 
@@ -67,12 +80,112 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   /// `TaskStatus.completed`。
   final Clock _clock;
 
+  /// 订阅一个窗口的日程条目；**订阅期间随仓储与失效信号自动重载**（计划 §2.6）。
+  ///
+  /// 契约定死如下（逐条对应 §2.6，不接受"差不多"的实现）：
+  ///
+  /// 1. 订阅后**立即加载一次**；
+  /// 2. 同时监听 `tasks.watchAllTasks()` 与 [invalidation] 的 revisions；
+  /// 3. 任一信号到达后重新执行**完整**的 `_load(startUtc, endUtc)`
+  ///    （不是把某个局部列表拼进半份结果）；
+  /// 4. 同一时刻的多个信号合并为**至多一次在途加载 ＋ 一次待处理加载**；
+  /// 5. 用**单调 generation** 丢弃晚到的旧结果——旧结果不得覆盖新结果；
+  /// 6. 最后一个监听者取消后释放内部订阅与 controller；
+  /// 7. 加载失败通过 stream error 交给页面，**流不关闭**，下一次信号仍能恢复。
+  ///
+  /// **不得用定时轮询数据库实现**：轮询既让"改完立刻看不见"退化成"最多晚一个周期"，
+  /// 又在没有任何变化时持续读库。这里的每一次重载都由一个具体事件驱动。
+  ///
+  /// 每个订阅者拿到**独立的一份加载循环与独立的 controller**：今日页、近期日历与日视图
+  /// 各自 `watch()` 一次，因此一个页面取消订阅不会掐掉另一个页面的刷新源。
   @override
-  Stream<List<ScheduleViewItem>> watch(
-    DateTime startUtc,
-    DateTime endUtc,
-  ) async* {
-    yield await _load(startUtc, endUtc);
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) {
+    late final StreamController<List<ScheduleViewItem>> controller;
+    StreamSubscription<List<PlannerTask>>? taskChanges;
+    StreamSubscription<int>? revisions;
+    // **代际在"请求一次重载"时递增**，不是在加载完成时（§2.6 第 5 条）。
+    //
+    // 顺序很关键：一次加载若发现自己请求时的代际已经过期，就把结果整个丢掉
+    // （不 emit、不报错）。于是"慢的第一次加载"根本不会把过期值推给页面，
+    // 而"晚到的旧结果覆盖新结果"在结构上不可能发生——不需要额外的比较或时间戳。
+    var generation = 0;
+    var loading = false;
+    var rerunRequested = false;
+    var closed = false;
+
+    Future<void> load() async {
+      loading = true;
+      final mine = generation;
+      try {
+        final items = await _load(startUtc, endUtc);
+        // 已取消：controller 已经关闭，再 `add` 会抛 `StateError`。
+        if (closed || mine != generation) return;
+        controller.add(items);
+      } on Object catch (error, stackTrace) {
+        // **过期加载的失败也要丢掉**：否则页面会先收到一条属于旧请求的错误，
+        // 而它对应的那次重载随后成功——用户白看到一次"暂时无法加载"。
+        if (closed || mine != generation) return;
+        // **不关闭流**（§2.6 第 7 条）：页面拿到 error 后仍能等下一次信号。
+        controller.addError(error, stackTrace);
+      } finally {
+        loading = false;
+        // 在途加载期间到达的信号合成为**一次**待处理加载：连续 20 次失效不会并发 20 次读取。
+        if (rerunRequested) {
+          rerunRequested = false;
+          if (!closed) unawaited(load());
+        }
+      }
+    }
+
+    void requestReload() {
+      if (closed) return;
+      generation += 1;
+      // **合并**：在途最多一个。期间的每一个信号都只是把"待处理"这一位立起来，
+      // 而它自己的代际已经递增过，因此那份在途结果注定被丢弃。
+      if (loading) {
+        rerunRequested = true;
+        return;
+      }
+      unawaited(load());
+    }
+
+    controller = StreamController<List<ScheduleViewItem>>(
+      onListen: () {
+        // ① 订阅后立即加载一次。
+        requestReload();
+        // ② 任务流。**任务展示刷新由仓储自己的流驱动**，不再要求写入方补发 bus 信号
+        // （§2.6 的装配规则）：标题、领域、完成状态的变化都在 `watchAllTasks()` 上。
+        taskChanges = tasks.watchAllTasks().listen(
+          (_) => requestReload(),
+          onError: (Object error, StackTrace stackTrace) {
+            // 仓储流的错误不能毒死整个 watch：如实报一次，并请求一次重载，
+            // 让页面在下一次信号（或这一次的重载）后恢复。
+            if (closed) return;
+            controller.addError(error, stackTrace);
+            requestReload();
+          },
+        );
+        // ③ 失效信号。未装配时（既有测试、未接总线的装配）只剩任务流这一条来源。
+        final invalidation = this.invalidation;
+        if (invalidation != null) {
+          revisions = invalidation.revisions.listen((_) => requestReload());
+        }
+      },
+      onCancel: () async {
+        // 最后一个监听者取消后释放内部订阅与 controller（§2.6 第 6 条）。
+        // 不释放的话，这个页面的加载循环会跟着应用一直跑下去。
+        closed = true;
+        final pendingTasks = taskChanges;
+        final pendingRevisions = revisions;
+        taskChanges = null;
+        revisions = null;
+        await pendingTasks?.cancel();
+        await pendingRevisions?.cancel();
+        // 不 await：这里已经在取消路径上，而 `close()` 的完成时机对调用方没有意义。
+        unawaited(controller.close());
+      },
+    );
+    return controller.stream;
   }
 
   Future<List<ScheduleViewItem>> _load(

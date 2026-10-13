@@ -225,12 +225,25 @@ final class CourseManagementService {
     this.zones,
     this.timeZoneId,
     this.clock,
+    this.onCalendarChanged,
   });
 
   final CourseSeriesRepository courses;
   final CalendarService calendar;
   final CalendarEventDeletion deletion;
   final CourseWriteGateway gateway;
+
+  /// 课程被成功写入之后的日历失效信号（计划 §2.6）。
+  ///
+  /// **只给"未经过 `CalendarService`"的那两条事务发信号**：[saveCourse] 与
+  /// [deleteCourse] 直接走 [gateway]，因此 `CalendarService.onScheduleInputChanged`
+  /// 那条统一落点看不到它们——不发信号就是"改了课，日历不变"。
+  /// 而 [editOccurrence]／[editFollowing]／[editWholeCourse]／[pauseFrom] 都经
+  /// [calendar]（`CalendarService`）写入，那一条路径已经发过 `calendar` 信号，
+  /// 这里**再发一次就是同一次写入触发两次刷新**。
+  ///
+  /// 允许为空：只读端口与测试替身不必持有它；为空时只是不刷新展示。
+  final void Function()? onCalendarChanged;
 
   /// 用于把"从哪个本地日期起暂停"换算成学期周次。为空时暂停仍可用，
   /// 只是不做"当前学期"的额外校验。
@@ -541,6 +554,9 @@ final class CourseManagementService {
       return const CourseCommandResult.failure('这门课在当前学期没有可删除的系列');
     }
     await gateway.deleteSeriesWithExceptions(anchors);
+    // **成功之后**才发（§2.6 最后一段）：上面任何一步抛错都保持数据不变，
+    // 那时发信号只会让页面白读一次库。
+    onCalendarChanged?.call();
     return const CourseCommandResult.success();
   }
 
@@ -694,6 +710,9 @@ final class CourseManagementService {
         '保存失败，原内容未改变：$error',
       );
     }
+    // **只在事务提交成功之后**发日历失效信号（§2.6）：这条路径绕过 `CalendarService`，
+    // 因此课程改了名或改了时间而这里不发信号的话，日历会继续显示旧课名。
+    onCalendarChanged?.call();
     return CourseSaveResult.saved();
   }
 

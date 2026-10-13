@@ -28,11 +28,24 @@ final class WorkspaceService {
     required this.repository,
     required this.clock,
     required this.idGenerator,
+    this.onWorkspaceChanged,
   });
 
   final WorkspaceRepository repository;
   final Clock clock;
   final IdGenerator idGenerator;
+
+  /// **会改变日历分类名称或颜色**的领域写入成功之后的日历失效信号（计划 §2.6）。
+  ///
+  /// 只有四类写入发它：新建领域、领域改名、改领域颜色，以及补齐默认领域时**真的新建了**。
+  /// 理由是日历卡片与图例直接显示领域的名称与颜色，改了它们而不知道就等于"改了颜色但日历
+  /// 还是旧色"。
+  ///
+  /// **不发的**：生活标记（[setAreaLife]）、项目的新建／改名／归档——它们不进入日历卡片的
+  /// 名称或颜色，发信号只会让三个页面白读一次库（§2.6："不影响卡片展示的项目变化不发"）。
+  ///
+  /// 允许为空以保持测试替身轻量；生产组合根必须装配到那唯一的失效总线上。
+  final void Function()? onWorkspaceChanged;
 
   Future<List<PlannerArea>> listAreas() => repository.listAreas();
 
@@ -58,13 +71,19 @@ final class WorkspaceService {
       updatedAtUtc: now,
     );
     await repository.saveArea(area);
+    // 新领域就是一个新的日历分类（名称＋颜色），因此它同样要刷新。
+    onWorkspaceChanged?.call();
     return area;
   }
 
   /// 改名。只推进修改时间，创建时间保持不变（FR-DATA-08）。
-  Future<void> renameArea(PlannerArea area, String name) => repository.saveArea(
-    area.copyWith(name: name, updatedAtUtc: clock.nowUtc()),
-  );
+  Future<void> renameArea(PlannerArea area, String name) async {
+    await repository.saveArea(
+      area.copyWith(name: name, updatedAtUtc: clock.nowUtc()),
+    );
+    // 日历卡片与图例显示的就是这个名字：写入成功之后必须让视图读回新名字。
+    onWorkspaceChanged?.call();
+  }
 
   /// 设置或取消生活标记。这是**唯一**能让生活配额与"生活"分类生效的操作。
   Future<void> setAreaLife(PlannerArea area, bool isLife) => repository
@@ -86,6 +105,8 @@ final class WorkspaceService {
     await repository.saveArea(
       areas[index].copyWith(color: colorArgb, updatedAtUtc: clock.nowUtc()),
     );
+    // 领域颜色直接画在日历卡片上（`ScheduleColorService.loadCatalog` 读它）。
+    onWorkspaceChanged?.call();
   }
 
   /// 新建项目。
@@ -166,6 +187,8 @@ final class WorkspaceService {
       usedColors.add(color);
       created++;
     }
+    // **只有真的新建了才发**：一个都没建时这次调用没有改变任何分类，发信号只是白刷。
+    if (created > 0) onWorkspaceChanged?.call();
     return created;
   }
 }
