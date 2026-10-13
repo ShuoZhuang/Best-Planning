@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/protected_time_overlap.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/window_behavior.dart';
@@ -164,6 +165,17 @@ final class SettingsService {
     _validatePatch(rules.common, errors);
     _validatePatch(rules.weekday, errors);
     _validatePatch(rules.weekend, errors);
+    // **保护窗口重叠的校验必须在服务层**（Task 10 Step 5）。
+    //
+    // 第一版只把它写在设置页的 `_save()` 里。页面上确实挡住了，但**任何不经页面的
+    // 调用方**（引导、日期覆盖、脚本、将来的批量编辑）都能写进一份"早餐与睡眠重叠"
+    // 的规则——而那条规则会让保护分钟被重复计算。集成用例正是从服务直接调用时
+    // 发现这一点的：`saveUserRules` 没有抛异常。
+    //
+    // 日型要分开算：工作日睡眠与周末早餐互不影响，因此逐日型各校验一次。
+    for (final dayKind in const [DayKind.weekday, DayKind.weekend]) {
+      _validateProtectedOverlap(rules, dayKind, errors);
+    }
     if (errors.isNotEmpty) throw SettingsValidationException(errors);
     await repository.write(
       _userRulesKey,
@@ -173,6 +185,54 @@ final class SettingsService {
         'weekend': _patchToJson(rules.weekend),
       }),
     );
+  }
+
+  /// 同一个日型里，保护窗口之间、以及与睡眠之间**不得重叠**（规范 §9.1）。
+  ///
+  /// **睡眠从 `common.sleepRange` 取，不从日型补丁取**。这一点我一开始写错了：
+  /// 我先取 `patch.sleepRange ?? common.sleepRange`，而 `PlanningRulesPatch.sleepRange`
+  /// 在**用户规则**里几乎总是 `null`——用户规则只带用户显式改过的那几项
+  /// （见 `PlanningRulesPatch` 的"可空即未设置"约定）。于是 `sleep` 恒为空、
+  /// 这个校验**一次都没生效**，而我当时以为它挡住了。
+  ///
+  /// 实测证据（探针输出）：`DBGOV entered day=DayKind.weekday` / `n=1 sleep=null`。
+  ///
+  /// 现在按真实存放位置读：睡眠是 `common` 上的一项全局规则，因此它就在那里。
+  ///
+  /// **不静默合并**：合并会**重复计算保护分钟**——重叠的那段时间被算两遍，
+  /// 用户看到的总保护时长凭空变多。因此这里报错并指出具体区间。
+  static void _validateProtectedOverlap(
+    UserPlanningRules rules,
+    DayKind dayKind,
+    Map<String, String> errors,
+  ) {
+    final patch = switch (dayKind) {
+      DayKind.weekend => rules.weekend,
+      _ => rules.weekday,
+    };
+    final protected = [
+      ...?rules.common.protectedTimes,
+      ...?patch.protectedTimes,
+    ].where((rule) => rule.enabled).toList();
+    if (protected.isEmpty) return;
+    final sleep = rules.common.sleepRange;
+    if (sleep == null) return;
+
+    for (final rule in protected) {
+      final overlaps = findProtectedTimeOverlaps(
+        kind: rule.kind,
+        range: rule.range,
+        // **只看与它同类日型的窗口**：工作日睡眠与周末早餐互不影响。
+        protectedTimes: [
+          for (final other in protected)
+            if (other.kind != rule.kind || !identical(other, rule)) other,
+        ],
+        sleepRange: sleep,
+        dayKind: dayKind,
+      );
+      if (overlaps.isEmpty) continue;
+      errors['protected-${rule.kind.name}'] = overlaps.first.describe();
+    }
   }
 
   Future<void> clearUserRules() => repository.remove(_userRulesKey);
