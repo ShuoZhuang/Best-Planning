@@ -42,7 +42,24 @@ abstract interface class RecurringTaskRepository {
   /// 排程层手里只有任务 id（`UnscheduledTask.taskId`），而缺口卡片要说的是"哪个周期目标
   /// 差多少"。`recurring_task_cycles.task_id` 上的 UNIQUE 约束让这个反查最多命中一行，
   /// 因此它可以安全地返回单值。
+  ///
+  /// **只用于单点查询**（预览、详情页）。批量装配走 [findCyclesByTaskIds]——
+  /// 对每个 open task 调一次这个方法是 N+1 查询。
   Future<RecurringTaskCycle?> findCycleByTaskId(EntityId taskId);
+
+  /// 按 task id **集合**批量反查周期归属（1.8.0，“可见空闲却报容量不足”专项）。
+  ///
+  /// **为什么必须是批量端口，而不是"对每个 task id 调一次 `findCycleByTaskId`"**：
+  /// 排程装配要在 `openTasks` 上做这件事，而 `openTasks` 的长度随用户任务数增长；
+  /// 逐任务查库是典型的 N+1，且会让"哪些 open task 是周期实例"这个判断散在调用方的
+  /// 循环里——那正是修复前只删`本周实例`、漏掉`下周实例`的成因。
+  ///
+  /// 契约（计划 §2.2 固定）：
+  /// - **空集合直接返回空列表**，不发 SQL；
+  /// - 只按 `recurring_task_cycles.task_id IN (…)` 查询，**不按日期猜**；
+  /// - 结果按 `periodStartLocalDate`、`templateId`、`taskId` 稳定排序；
+  /// - 每个 task id **最多一条**（数据库已有 UNIQUE 约束，这里仍如实保证）。
+  Future<List<RecurringTaskCycle>> findCyclesByTaskIds(Set<EntityId> taskIds);
 
   /// 落在 `[fromLocalDate, toLocalDate]`（含两端）内的全部周期实例。
   Future<List<RecurringTaskCycle>> listCyclesInRange(

@@ -170,4 +170,184 @@ void main() {
       ),
     ]);
   });
+
+  // ── 详细分析（1.8.0 专项 §2.3 / Task 4 Step 1）──────────────────────────────
+  //
+  // `analyze()` 是 `build()` 的详细形式：同一批空闲，加上**带来源标签**的占用分段与
+  // 空闲分钟总数。三条纪律在这里逐条钉住：
+  // 1. `build(input)` 必须**逐值等于** `analyze(input).slots`（旧行为不得漂移）；
+  // 2. `calendarGapMinutes == sum(slots.durationMinutes)`（两个数字不能是两件事）；
+  // 3. 同一分钟只扣一次，而一个区间可以同时带多个 blocker kind。
+  test('build(input) 与 analyze(input).slots 逐值一致', () {
+    final zones = TimeZoneDatabase();
+    const zoneId = 'Asia/Shanghai';
+    final localDate = DateTime(2026, 10, 2);
+    DateTime at(int hour, [int minute = 0]) =>
+        zones.localDateTimeToUtc(localDate, hour * 60 + minute, zoneId);
+
+    final input = AvailabilityInput(
+      planningWindow: TimeRange(
+        startUtc: zones.localMidnightToUtc(localDate, zoneId),
+        endUtc: zones.localMidnightToUtc(
+          localDate.add(const Duration(days: 1)),
+          zoneId,
+        ),
+      ),
+      timeZoneId: zoneId,
+      rules: DefaultSettings.v1(),
+      fixedIntervals: [TimeRange(startUtc: at(9), endUtc: at(11))],
+      protectedIntervals: [TimeRange(startUtc: at(12), endUtc: at(13))],
+      lockedBlocks: [TimeRange(startUtc: at(15), endUtc: at(16))],
+      chargedMovableBlocks: [TimeRange(startUtc: at(20), endUtc: at(21))],
+    );
+
+    final builder = AvailabilityBuilder(zones);
+    expect(builder.analyze(input).slots, builder.build(input));
+  });
+
+  test('calendarGapMinutes 恒等于 slots 的分钟之和', () {
+    final zones = TimeZoneDatabase();
+    final window = TimeRange(
+      startUtc: DateTime.utc(2026, 10, 2, 8),
+      endUtc: DateTime.utc(2026, 10, 2, 18),
+    );
+    final analysis = AvailabilityBuilder(zones).analyze(
+      AvailabilityInput(
+        planningWindow: window,
+        timeZoneId: 'UTC',
+        rules: DefaultSettings.v1().copyWith(
+          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+          breakMinutes: 10,
+        ),
+        fixedIntervals: [
+          TimeRange(
+            startUtc: DateTime.utc(2026, 10, 2, 9),
+            endUtc: DateTime.utc(2026, 10, 2, 10),
+          ),
+        ],
+      ),
+    );
+
+    expect(
+      analysis.calendarGapMinutes,
+      analysis.slots.fold<int>(0, (sum, slot) => sum + slot.durationMinutes),
+      reason: '"空闲"不能是两个数字：两个来源迟早会对不上',
+    );
+    expect(analysis.calendarGapMinutes, greaterThan(0));
+  });
+
+  test('**固定日程与保护时间重叠 30 分钟，总容量只扣一次，且两个标签都在**', () {
+    final zones = TimeZoneDatabase();
+    final window = TimeRange(
+      startUtc: DateTime.utc(2026, 10, 2, 8),
+      endUtc: DateTime.utc(2026, 10, 2, 12),
+    );
+    final analysis = AvailabilityBuilder(zones).analyze(
+      AvailabilityInput(
+        planningWindow: window,
+        timeZoneId: 'UTC',
+        rules: DefaultSettings.v1().copyWith(
+          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+        ),
+        // 固定 09:00–10:30、保护 10:00–10:30 ⇒ 重叠 30 分钟。
+        fixedIntervals: [
+          TimeRange(
+            startUtc: DateTime.utc(2026, 10, 2, 9),
+            endUtc: DateTime.utc(2026, 10, 2, 10, 30),
+          ),
+        ],
+        protectedIntervals: [
+          TimeRange(
+            startUtc: DateTime.utc(2026, 10, 2, 10),
+            endUtc: DateTime.utc(2026, 10, 2, 10, 30),
+          ),
+        ],
+      ),
+    );
+
+    // 08:00–12:00 共 240 分钟，被占用的是 09:00–10:30（90 分钟，只扣一次）⇒ 空闲 150。
+    expect(
+      analysis.calendarGapMinutes,
+      150,
+      reason: '重叠的 30 分钟只能扣一次（扣两次会得到 120）',
+    );
+    final overlap = analysis.blockedSegments.singleWhere(
+      (segment) =>
+          segment.range ==
+          TimeRange(
+            startUtc: DateTime.utc(2026, 10, 2, 10),
+            endUtc: DateTime.utc(2026, 10, 2, 10, 30),
+          ),
+    );
+    expect(overlap.kinds, {
+      AvailabilityBlockerKind.fixed,
+      AvailabilityBlockerKind.protected,
+    }, reason: '同一段分钟可以同时被固定日程与保护时间覆盖，两个来源都必须报出来');
+    expect(analysis.blockedSegments.map((s) => s.range).toList(), [
+      TimeRange(
+        startUtc: DateTime.utc(2026, 10, 2, 9),
+        endUtc: DateTime.utc(2026, 10, 2, 10),
+      ),
+      TimeRange(
+        startUtc: DateTime.utc(2026, 10, 2, 10),
+        endUtc: DateTime.utc(2026, 10, 2, 10, 30),
+      ),
+    ], reason: '重叠段被切开：09:00–10:00 只有 fixed，10:00–10:30 两个都有');
+  });
+
+  test('睡眠与 locked 也带标签，跨午夜时按本地日展开', () {
+    final zones = TimeZoneDatabase();
+    final window = TimeRange(
+      startUtc: DateTime.utc(2026, 10, 2, 20),
+      endUtc: DateTime.utc(2026, 10, 3, 10),
+    );
+    final analysis = AvailabilityBuilder(zones).analyze(
+      AvailabilityInput(
+        planningWindow: window,
+        timeZoneId: 'UTC',
+        rules: DefaultSettings.v1().copyWith(
+          sleepRange: LocalTimeRange(startMinute: 22 * 60, endMinute: 6 * 60),
+        ),
+        lockedBlocks: [
+          TimeRange(
+            startUtc: DateTime.utc(2026, 10, 2, 20, 30),
+            endUtc: DateTime.utc(2026, 10, 2, 21, 30),
+          ),
+        ],
+      ),
+    );
+
+    final sleepSegments = analysis.blockedSegments
+        .where(
+          (segment) => segment.kinds.contains(AvailabilityBlockerKind.sleep),
+        )
+        .toList();
+    expect(sleepSegments, hasLength(1));
+    expect(
+      sleepSegments.single.range,
+      TimeRange(
+        startUtc: DateTime.utc(2026, 10, 2, 22),
+        endUtc: DateTime.utc(2026, 10, 3, 6),
+      ),
+      reason:
+          '22:00–06:00 跨午夜：`ProtectedTimeExpander.sleep` 按本地日展开成两段，'
+          '分析层再按"标签相同且相邻即合并"合回一段。**总分钟数因此仍然是 480**——'
+          '展开与合并都只改变形状，不改变"扣多少"。窗口起点在 10-02 20:00，'
+          '因此这段完全落在窗口内。',
+    );
+    expect(sleepSegments.single.durationMinutes, 480);
+    expect(
+      analysis.blockedSegments.any(
+        (segment) =>
+            segment.kinds.contains(AvailabilityBlockerKind.locked) &&
+            segment.range.durationMinutes == 60,
+      ),
+      isTrue,
+      reason: '锁定块也必须是带标签的占用（它扣容量，但不是"不许安排"）',
+    );
+    expect(
+      analysis.calendarGapMinutes,
+      analysis.slots.fold<int>(0, (sum, slot) => sum + slot.durationMinutes),
+    );
+  });
 }

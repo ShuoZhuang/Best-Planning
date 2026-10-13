@@ -64,6 +64,15 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
   }
 
   @override
+  Future<List<RecurringTaskCycle>> findCyclesByTaskIds(
+    Set<String> taskIds,
+  ) async {
+    // 空集合由 DAO 直接短路（不发 SQL）；这里不再判一次，免得两处各有一个"空"的定义。
+    final rows = await _dao.findCyclesByTaskIds(taskIds);
+    return rows.map(_cycleToDomain).toList(growable: false);
+  }
+
+  @override
   Future<List<RecurringTaskCycle>> listCyclesInRange(
     DateTime fromLocalDate,
     DateTime toLocalDate,

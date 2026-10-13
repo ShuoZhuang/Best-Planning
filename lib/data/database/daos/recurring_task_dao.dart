@@ -88,6 +88,27 @@ class RecurringTaskDao extends DatabaseAccessor<AppDatabase>
             ..limit(1))
           .getSingleOrNull();
 
+  /// 按 task id **集合**批量读取周期实例。
+  ///
+  /// 三条约束写在 SQL 这一层，而不是交给调用方补：
+  /// - **空集合不发 SQL**（`IN ()` 是语法错误，而"空集合"在装配层是常态——没有周期目标
+  ///   的用户每次生成计划都会走到这里）；
+  /// - **只按 task id 查**，不按日期猜"哪些 open task 可能是实例"：日期不是身份，
+  ///   跨时区边界与异常遗留的实例都必须能被认出来；
+  /// - **排序在 SQL 里定死**（`period_start_local_date`、`template_id`、`task_id`）：
+  ///   排程结果不得依赖数据库返回顺序（§7.2 最后一条）。
+  Future<List<RecurringTaskCycle>> findCyclesByTaskIds(Set<String> taskIds) {
+    if (taskIds.isEmpty) return Future.value(const []);
+    final query = select(recurringTaskCycles)
+      ..where((row) => row.taskId.isIn(taskIds))
+      ..orderBy([
+        (row) => OrderingTerm.asc(row.periodStartLocalDate),
+        (row) => OrderingTerm.asc(row.templateId),
+        (row) => OrderingTerm.asc(row.taskId),
+      ]);
+    return query.get();
+  }
+
   Future<List<RecurringTaskCycle>> listCyclesInRange(
     String fromLocalDate,
     String toLocalDate,
