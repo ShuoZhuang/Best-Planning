@@ -202,6 +202,13 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       // 丢掉它的症状是"预览又把移动报成删除＋新增"——**不报错，只是说法错了**，
       // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
       confirmedBlocks: problem.confirmedBlocks,
+      // **同样必须原样搬运**（1.8.0「可见空闲却报容量不足」专项 §1.7）：
+      // 准入期的阻断输入错误由装配层判定并挂在问题上，引擎只负责让它随提案走到预览。
+      // **丢掉它的症状极难发现**：任务被静默排除、预览里什么都不显示，
+      // 用户看到的是"我的一件任务不见了"。这是同一个陷阱的**第三处**
+      // （前两处是 `referenceBlocks` 与 `adjustment`）——新增 `ScheduleProblem`
+      // 字段时，这里永远是必查的复制点。
+      admissionConflicts: problem.admissionConflicts,
     );
 
 /// 从排程输入里取出**本次延后要求**（用户第 72 轮）。

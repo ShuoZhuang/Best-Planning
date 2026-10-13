@@ -1,4 +1,5 @@
 import 'package:personal_planner/scheduling/explanations.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 /// 一条**给用户看的**失败说明：事项标题 ＋ 结构化原因。
@@ -35,6 +36,27 @@ List<PreviewFailureLine> previewFailureLines({
   int maximumLines = 3,
 }) {
   if (maximumLines <= 0) return const [];
+  // **无法解释的排程异常只由缺口行承载**（1.8.0 专项 §2.4）。
+  //
+  // 引擎为同一个任务同时给出缺口行与 `schedulingInvariantViolation` 冲突行，它们是
+  // **同一件事**（前者给数字，后者给"不得应用"这个级别）。若两条都列，用户会看到
+  // 同一句话两遍——其中一遍还多出一个「标题：」前缀，于是看起来像两个问题。
+  // 与 `buildPreviewIssues` 用**同一个判据**，因此两条展示链不会各自漂移。
+  final unexplainedTasks = proposal.unscheduled
+      .where(
+        (task) =>
+            task.shortageMinutes > 0 &&
+            (task.primaryReason.code ==
+                    UnscheduledReasonCode.unexplainedSchedulingFailure ||
+                proposal.conflicts.any(
+                  (conflict) =>
+                      conflict.code ==
+                          ConflictCode.schedulingInvariantViolation &&
+                      conflict.taskId == task.taskId,
+                )),
+      )
+      .map((task) => task.taskId)
+      .toSet();
   final lines = <PreviewFailureLine>[
     // **先列缺口**：规范 §13.2 的例句就是"某某：目标之后最大连续空档只有 10 分钟"，
     // 而"还缺 30 分钟"是用户最需要先知道的一件事。
@@ -47,17 +69,20 @@ List<PreviewFailureLine> previewFailureLines({
     // **再列冲突**：它们可能没有 `taskId`（冲突是"计划整体"的事实），
     // 因此有归属时按任务标题显示，没有时退回冲突自己的标签位置。
     for (final conflict in proposal.conflicts)
-      (
-        title: conflict.taskId == null
-            ? conflictLabel(conflict.code)
-            : _titleOf(conflict.taskId!, titleByTaskId),
-        // **同一句翻译**：与预览问题模型共用 `planningConflictMessage`，
-        // 不再各写一个 switch（那样同一条原因会在两处显示成两句话）。
-        reason: planningConflictMessage(
-          conflict,
-          taskTitle: _titleOf(conflict.taskId ?? '', titleByTaskId),
+      if (!(conflict.code == ConflictCode.schedulingInvariantViolation &&
+          conflict.taskId != null &&
+          unexplainedTasks.contains(conflict.taskId)))
+        (
+          title: conflict.taskId == null
+              ? conflictLabel(conflict.code)
+              : _titleOf(conflict.taskId!, titleByTaskId),
+          // **同一句翻译**：与预览问题模型共用 `planningConflictMessage`，
+          // 不再各写一个 switch（那样同一条原因会在两处显示成两句话）。
+          reason: planningConflictMessage(
+            conflict,
+            taskTitle: _titleOf(conflict.taskId ?? '', titleByTaskId),
+          ),
         ),
-      ),
   ];
   // 去重：同一条（标题＋原因）只说一次。保留**首次出现**的顺序，
   // 因此结果仍然是确定的。

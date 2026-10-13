@@ -1,5 +1,6 @@
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preview_failure_lines.dart'
     show unnamedTaskLabel;
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -75,22 +76,43 @@ bool visibleToForwardPreview(PlannedBlock block, TimeRange planningWindow) =>
 ///
 /// **缺口与冲突不会互相重复**：容量缺口只有一个结构化来源（`unscheduled`），
 /// 引擎不再补 `insufficientCapacity` 冲突。去重仍然保留为第二道防线。
+///
+/// **无法解释的排程异常是唯一需要跨两处合并的一类**（1.8.0 专项 §2.4）：
+/// 引擎必须同时给出 `unscheduled` 里那条 `unexplainedSchedulingFailure`（供缺口数字）
+/// 与一条 `schedulingInvariantViolation` blocker（供"不得应用"这个级别）。
+/// 它们是**同一件事**，因此这里把该任务的缺口行提升为 `blocking`，并**跳过**
+/// 对应的冲突行——否则同一件事会在页面上说两遍（一句 warning、一句 blocker），
+/// 那正是冻结决策 §1.5 要消灭的形态。
 List<PreviewIssue> buildPreviewIssues({
   required ScheduleProposal proposal,
   required Map<String, String> titleByTaskId,
 }) {
   final issues = <PreviewIssue>[];
   final seen = <String>{};
+  // 被提升为阻断的缺口：**先去重再提升**，于是 warning 与 blocker 只会留下一条。
+  final unexplainedTasks = <String>{
+    for (final conflict in proposal.conflicts)
+      if (conflict.code == ConflictCode.schedulingInvariantViolation &&
+          conflict.taskId != null)
+        conflict.taskId!,
+  };
 
   for (final task in proposal.unscheduled) {
     final title = titleOfTask(task.taskId, titleByTaskId);
+    final isUnexplained =
+        unexplainedTasks.contains(task.taskId) ||
+        task.primaryReason.code ==
+            UnscheduledReasonCode.unexplainedSchedulingFailure;
     final key = 'unscheduled:${task.taskId}:${task.shortageMinutes}';
     if (!seen.add(key)) continue;
     issues.add(
       PreviewIssue(
         key: key,
         // **容量不足是 warning**：允许用户明确确认后应用可安排的部分。
-        severity: PreviewIssueSeverity.warning,
+        // **无法解释的排程异常是 blocking**：排程器解释不了的安排不该被写进计划。
+        severity: isUnexplained
+            ? PreviewIssueSeverity.blocking
+            : PreviewIssueSeverity.warning,
         title: '$title 还缺 ${task.shortageMinutes} 分钟',
         // 原因只说引擎给的那一条，页面上不猜（与 `unscheduledReasonLabel` 同一条纪律）。
         message: unscheduledReasonLabel(task.primaryReason),
@@ -101,6 +123,14 @@ List<PreviewIssue> buildPreviewIssues({
   for (var index = 0; index < proposal.conflicts.length; index++) {
     final conflict = proposal.conflicts[index];
     final taskId = conflict.taskId;
+    // **已被缺口行承载的那条 blocker 不重复显示**（见上面的说明）。
+    // 条件用同一个 `unexplainedTasks` 集合，因此"提升"与"跳过"不会各自漂移。
+    if (conflict.code == ConflictCode.schedulingInvariantViolation &&
+        taskId != null &&
+        unexplainedTasks.contains(taskId) &&
+        proposal.unscheduled.any((item) => item.taskId == taskId)) {
+      continue;
+    }
     final title = taskId == null ? null : titleOfTask(taskId, titleByTaskId);
     // 键里带下标是必要的：同一种冲突可能合法地出现多次（例如两个不同块各与固定日程重叠，
     // 而它们都没有 taskId）。用"内容"作键会把它们合并掉，那会**少报**问题。

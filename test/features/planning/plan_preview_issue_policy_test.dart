@@ -292,4 +292,131 @@ void main() {
       isEmpty,
     );
   });
+
+  // ── 1.8.0 专项：结构化原因的数字与严重级别（§2.4 / §5 A09/A10/A13/A14）──────────
+  //
+  // 四条各自对应一种**处置完全不同**的原因。把它们说成同一句"可用时间不足"会让用户
+  // 白做动作：真容量不足要腾时间，连续空档不足要改拆分或截止，每日上限要调上限或换日期，
+  // 而"无法解释"要重新生成并报诊断。
+
+  test('A14 真容量不足：warning，且需要／可安排／还缺三个数字都在', () {
+    final issue = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 25,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.insufficientCapacity,
+              requiredMinutes: 180,
+              availableMinutes: 155,
+            ),
+          ),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    ).single;
+
+    expect(issue.severity, PreviewIssueSeverity.warning);
+    expect(issue.title, '写报告 还缺 25 分钟');
+    expect(issue.message, contains('180'));
+    expect(issue.message, contains('155'));
+    expect(issue.message, contains('25'));
+  });
+
+  test('A10 连续空档不足：显示"需要连续 X 分钟，最长只有 Y 分钟"', () {
+    final issue = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 60,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.continuousGapTooShort,
+              requiredMinutes: 120,
+              availableMinutes: 90,
+            ),
+          ),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    ).single;
+
+    expect(issue.severity, PreviewIssueSeverity.warning);
+    expect(issue.message, contains('120'));
+    expect(issue.message, contains('90'));
+    expect(issue.message, isNot(contains('可用时间不足')));
+  });
+
+  test('A09 每日上限：显示剩余上限分钟', () {
+    final issue = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 60,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.dailyLimitReached,
+              requiredMinutes: 60,
+              availableMinutes: 0,
+            ),
+          ),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    ).single;
+
+    expect(issue.severity, PreviewIssueSeverity.warning);
+    expect(issue.message, contains('上限'));
+  });
+
+  test('A13 无法解释：blocking，只一条，且不出现"可用时间不足"', () {
+    final issues = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(
+            taskId: 't-a',
+            shortageMinutes: 180,
+            primaryReason: UnscheduledReason(
+              code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+              requiredMinutes: 180,
+              availableMinutes: 240,
+            ),
+          ),
+        ],
+        conflicts: [
+          PlanningConflict(
+            code: ConflictCode.schedulingInvariantViolation,
+            taskId: 't-a',
+          ),
+        ],
+      ),
+      titleByTaskId: const {'t-a': '写报告'},
+    );
+
+    expect(issues, hasLength(1), reason: '同一件事不得显示两遍（warning ＋ blocker）');
+    expect(issues.single.isBlocking, isTrue);
+    expect(issues.single.message, isNot(contains('可用时间不足')));
+    expect(issues.single.message, contains('本次计划未自动应用'));
+  });
+
+  test('**同名不同 id 的两个周期实例不能按标题合并**（去重键必须是身份）', () {
+    // §7 禁止的捷径之一："不用标题去重周期实例；标题不是身份"。
+    //
+    // 正确行为是**上游排除未来实例**（见 `visible_free_time_shortage_regression_test.dart`）。
+    // 预览层的去重键因此必须包含 task id：两个同名实例是两件事，合并会少报一条；
+    // 而把它们按标题合成一条"还缺 420 分钟"则更糟——那个数字不对应任何一件真实的事。
+    final issues = buildPreviewIssues(
+      proposal: proposalOf(
+        unscheduled: const [
+          UnscheduledTask(taskId: 'cycle-current', shortageMinutes: 210),
+          UnscheduledTask(taskId: 'cycle-next', shortageMinutes: 210),
+        ],
+      ),
+      titleByTaskId: const {'cycle-current': '每周英语', 'cycle-next': '每周英语'},
+    );
+
+    expect(issues, hasLength(2), reason: '同名不是同一件事：去重若按标题，用户会以为只缺一份 210 分钟');
+    expect(issues.map((issue) => issue.title).toSet(), {'每周英语 还缺 210 分钟'});
+  });
 }
