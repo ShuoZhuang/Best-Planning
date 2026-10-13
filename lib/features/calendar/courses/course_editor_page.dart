@@ -629,19 +629,29 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
-                IconButton(
-                  key: Key('course-remove-$index'),
-                  // **语义标签带上课程名与星期**（计划 Task 5 Step 7）：
-                  // 只说"删除"的按钮，读屏用户不知道自己在删哪一条——
-                  // 而这个页面上可能有好几行。
-                  tooltip: '删除「${detail.summary.title}」的 $weekdayLabel 这一段',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () {
-                    setState(() {
-                      _rows.removeAt(index);
-                      _invalidatePreview();
-                    });
-                  },
+                // **用 `Semantics` 显式给名称，不依赖 `tooltip`**。
+                //
+                // `IconButton` 没有 `semanticLabel` 参数。`tooltip` 有时会进入语义树，
+                // 但实测它**不稳定**：同一棵树里这个节点的 label 时有时无
+                // （工具提示有自己的显示时机）。而"读屏用户能不能听到这个按钮叫什么"
+                // 不能靠一个看时机的机制——因此显式给 label，tooltip 只留给指针用户。
+                //
+                // 名称里必须带**课程名与星期**：这一页上可能有好几行结构相同的安排，
+                // 只读"删除"的话读屏用户不知道自己在删哪一段课。
+                Semantics(
+                  button: true,
+                  label: '删除「${detail.summary.title}」的 $weekdayLabel 这一段',
+                  child: IconButton(
+                    key: Key('course-remove-$index'),
+                    tooltip: '删除「${detail.summary.title}」的 $weekdayLabel 这一段',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () {
+                      setState(() {
+                        _rows.removeAt(index);
+                        _invalidatePreview();
+                      });
+                    },
+                  ),
                 ),
               ],
             ),
