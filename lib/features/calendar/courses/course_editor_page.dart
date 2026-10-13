@@ -133,9 +133,6 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
   CourseProfileDraft? _draft() {
     final detail = _detail;
     if (detail == null) return null;
-    for (final row in _rows) {
-      row.writeBack();
-    }
     return CourseProfileDraft(
       logicalCourseId: widget.logicalCourseId,
       title: _title.text,
@@ -162,7 +159,13 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
     });
   }
 
-  void _onTextChanged() => _invalidatePreview();
+  /// 标题／教师／地点不属于任何一条安排，因此脏标记落在页面上。
+  bool _profileDirty = false;
+
+  void _onTextChanged() {
+    _profileDirty = true;
+    _invalidatePreview();
+  }
 
   void _chooseArea(String? areaId) {
     setState(() {
@@ -323,6 +326,27 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
 
   bool get _hasBlockingConflict => _conflicts.any(isBlockingCourseTimeConflict);
 
+  /// 当前状态下这个主按钮能不能按（计划 Task 5 Step 3）。
+  ///
+  /// 三种情况：
+  /// - **还没出预览** ⇒ 能按（第一次点击就是去算预览）；
+  /// - **有警告冲突且用户没勾"我已查看"** ⇒ 不能按。勾选就是"他真的看过"的凭据，
+  ///   不让它影响按钮的可用状态，这个勾选就只是装饰；
+  /// - 其余 ⇒ 能按。
+  bool get _canSaveFromPreview {
+    if (_preview == null) return true;
+    if (_conflicts.isNotEmpty && !_acknowledgedConflicts) return false;
+    return true;
+  }
+
+  void _onPrimaryAction() {
+    if (_preview == null) {
+      _computePreview();
+      return;
+    }
+    _save();
+  }
+
   /// 第二次点保存：真的写库。
   Future<void> _save() async {
     final detail = _detail;
@@ -343,6 +367,16 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
       _busy = false;
       if (result.status == CourseSaveStatus.saved) {
         _status = '已保存';
+        // **保存成功后必须清掉预览**：留着它，按钮就还是「确认保存」，
+        // 而用户下一次点它会照着**上一版**的预览再写一遍——而预览里那句
+        // "会删除 N 段"已经不再成立。预览说的是"将要发生什么"，写完就该消失。
+        _preview = null;
+        _conflicts = const [];
+        _acknowledgedConflicts = false;
+        // 草稿现在就是"已保存的样子"，因此行不再算脏。
+        for (final row in _rows) {
+          row.markClean();
+        }
       } else if (result.status == CourseSaveStatus.invalid) {
         _errors = result.fieldErrors ?? const {};
       } else {
@@ -358,9 +392,7 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
     // 白填一遍，而这一页有六七个字段。
     final dirty =
         _detail != null &&
-        (_title.text != _detail!.summary.title ||
-            _preview != null ||
-            _rows.any((row) => row.dirty));
+        (_profileDirty || _preview != null || _rows.any((row) => row.dirty));
     if (!dirty) {
       widget.onCancel?.call();
       return;
@@ -428,25 +460,24 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
       onCancel: widget.onCancel == null ? null : _cancel,
       errorSummary: _errorSummary(),
       actions: [
-        FilledButton(
-          key: _preview == null
-              ? const Key('course-editor-save')
-              : const Key('course-editor-confirm-save'),
-          onPressed: _busy
-              ? null
-              : () {
-                  if (_preview == null) {
-                    _computePreview();
-                    return;
-                  }
-                  // **阻断冲突时没有确认保存**：让"确认一次"就覆盖保护时间，
-                  // 等于把它降级成建议——而它的语义正是"这段时间不许安排"。
-                  if (_hasBlockingConflict) return;
-                  if (_conflicts.isNotEmpty && !_acknowledgedConflicts) return;
-                  _save();
-                },
-          child: Text(_preview == null ? '保存' : '确认保存'),
-        ),
+        // **阻断冲突时按钮根本不出现**，而不是"出现了但点不动"（计划 Task 5 Step 3）。
+        //
+        // 两者的差别不是外观：一个能点但什么都不做的按钮会让人反复试，而用户**正确**
+        // 的动作是去改冲突，不是再确认一次。规范 §10.2 那句"硬冲突不能直接保存"
+        // 说的是"没有这条路"，而不是"这条路被堵着"。
+        if (!_hasBlockingConflict)
+          FilledButton(
+            key: _preview == null
+                ? const Key('course-editor-save')
+                : const Key('course-editor-confirm-save'),
+            // **守卫要体现在"能不能按"上，而不能只体现在"按了之后做什么"**。
+            //
+            // 第一版把警告冲突的判据写在 `onPressed` 的闭包里（先 `return` 掉），
+            // 于是按钮**看起来可点、点了没反应**——用户会反复试，而正确的动作是
+            // 去勾"我已查看课程冲突"。测试因此读到 `onPressed != null` 而失败。
+            onPressed: _busy || !_canSaveFromPreview ? null : _onPrimaryAction,
+            child: Text(_preview == null ? '保存' : '确认保存'),
+          ),
       ],
       // **`Column` 而不是 `ListView`**：`PlannerEditorScaffold` 的内容区本身已经在
       // 一个滚动视图里，再套一个纵向 viewport 会得到 "Vertical viewport was given
@@ -867,9 +898,15 @@ final class _ScheduleRow {
   String location;
 
   /// 这一行相对读进来的样子有没有被改过（取消时的"放弃更改？"要用）。
+  ///
+  /// **必须真的被置起**：第一版写的是 `dirty = dirty`（一个空操作），于是
+  /// `_cancel` 的"有未保存改动"判据永远为假——改了地点之后点取消会**直接走掉**，
+  /// 用户白填一遍。字段与集合的每个改动点都要调 [markDirty]。
   bool dirty = false;
 
-  void writeBack() => dirty = dirty;
+  void markDirty() => dirty = true;
+
+  void markClean() => dirty = false;
 
   CourseScheduleDraft toDraft() => CourseScheduleDraft(
     startMinute: startMinute,

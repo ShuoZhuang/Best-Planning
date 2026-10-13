@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
@@ -33,6 +34,14 @@ final class _OnboardingPageState extends State<OnboardingPage> {
     'sleep-start': TextEditingController(text: '23:30'),
     'sleep-end': TextEditingController(text: '07:30'),
     'minimum-sleep': TextEditingController(text: '420'),
+    // **建议值来自 `DefaultSettings` 的公开常量**，不在这里再写一遍字面量：
+    // 两处各写一份，改一处就会出现"引导里是 07:30、设置页里是别的"。
+    'breakfast-start': TextEditingController(
+      text: _hhmm(DefaultSettings.breakfastStartMinute),
+    ),
+    'breakfast-end': TextEditingController(
+      text: _hhmm(DefaultSettings.breakfastEndMinute),
+    ),
     'lunch-start': TextEditingController(text: '12:00'),
     'lunch-end': TextEditingController(text: '13:00'),
     'dinner-start': TextEditingController(text: '18:00'),
@@ -47,6 +56,13 @@ final class _OnboardingPageState extends State<OnboardingPage> {
 
   bool _editing = false;
   bool _saving = false;
+
+  /// **早餐在首次引导里默认开启**（计划 Task 9 Step 4）。
+  ///
+  /// 与设置页的默认值**故意不同**：设置页里早餐默认关闭（既有用户升级后不该被
+  /// 悄悄改变已确认的计划，计划 §2.4），而首次引导是在**建立**这份计划——
+  /// 用户此刻正被问"你的作息是什么样的"，此时把早餐摆出来让他自己决定才是对的。
+  bool _breakfastEnabled = true;
   bool _lunchEnabled = true;
   bool _dinnerEnabled = true;
   bool _trustAutoAdjust = false;
@@ -70,6 +86,7 @@ final class _OnboardingPageState extends State<OnboardingPage> {
       final medium = _readRange('medium', errors);
       final low = _readRange('low', errors);
       final sleep = _readRange('sleep', errors);
+      final breakfast = _readRange('breakfast', errors);
       final lunch = _readRange('lunch', errors);
       final dinner = _readRange('dinner', errors);
       final minimumSleep = _positive('minimum-sleep', errors);
@@ -105,6 +122,15 @@ final class _OnboardingPageState extends State<OnboardingPage> {
                 EnergyWindow(range: low!, level: EnergyLevel.low),
               ],
               protectedTimes: [
+                // **只写用户开启的那些**：写下 `enabled: false` 会留下一条
+                // "存在但关闭"的规则，而设置页保存时是**移除**它——
+                // 两种表示并存会让"这条规则到底有没有"有两个答案（计划 Task 9 Step 2）。
+                if (_breakfastEnabled)
+                  ProtectedTimeRule(
+                    kind: ProtectedTimeKind.breakfast,
+                    range: breakfast!,
+                    enabled: true,
+                  ),
                 ProtectedTimeRule(
                   kind: ProtectedTimeKind.lunch,
                   range: lunch!,
@@ -288,6 +314,16 @@ final class _OnboardingPageState extends State<OnboardingPage> {
           _rangeEditor('低精力区间', 'low'),
           _rangeEditor('常规睡眠', 'sleep'),
           _numberField('最低睡眠', 'minimum-sleep'),
+          // **早餐排在睡眠之后、午餐之前**（计划 Task 9 Step 2／Step 4）：
+          // 顺序与 `ProtectedTimeKind` 的声明顺序一致，也就是"作息"的自然顺序。
+          SwitchListTile(
+            key: const Key('onboarding-breakfast-enabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('保护早餐时间'),
+            value: _breakfastEnabled,
+            onChanged: (value) => setState(() => _breakfastEnabled = value),
+          ),
+          _rangeEditor('早餐保护', 'breakfast'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('保护午餐时间'),
@@ -409,3 +445,8 @@ int? _parseTime(String input) {
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return hour * 60 + minute;
 }
+
+/// 把分钟数写成 `HH:mm`（引导页的输入框格式）。
+String _hhmm(int minute) =>
+    '${(minute ~/ 60).toString().padLeft(2, '0')}:'
+    '${(minute % 60).toString().padLeft(2, '0')}';

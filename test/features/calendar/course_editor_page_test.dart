@@ -295,7 +295,9 @@ void main() {
   testWidgets('**任何字段变化立即作废旧预览**', (tester) async {
     await pump(tester);
     await editField(tester, 'course-location', 'E101');
-    await previewAndSave(tester);
+    // **只出预览、不保存**：保存成功后预览本来就该消失（它说的是"将要发生什么"），
+    // 因此用 `previewAndSave` 会让这一条的**前置断言**直接失败。
+    await previewOnly(tester);
     expect(find.byKey(const Key('course-editor-preview')), findsOneWidget);
 
     await editField(tester, 'course-location', 'E102');
@@ -328,7 +330,9 @@ void main() {
       ),
     ];
     await pump(tester);
-    await previewAndSave(tester);
+    // **只出预览、不保存**：阻断冲突下"确认保存"根本不该存在，而
+    // `previewAndSave` 会去点它（点不到就静默跳过，于是断言看到的是别的状态）。
+    await previewOnly(tester);
 
     expect(
       find.byKey(const Key('course-editor-blocking')),
