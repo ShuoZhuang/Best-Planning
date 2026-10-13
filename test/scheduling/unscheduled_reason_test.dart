@@ -258,10 +258,21 @@ void main() {
       );
     });
 
-    test('没有证据时回落到兜底的容量不足', () {
+    test('**没有证据时不得回落"可用时间不足"**（1.8.0 专项 §2.4）', () {
+      // 修复前这里返回 `insufficientCapacity`，而它**不带任何数字**——用户看到的是一句
+      // 无法行动、也无法被测试证伪的"可用时间不足"。这与 Global Constraints
+      // "引擎不得在没有 availableMinutes 或其它可判定证据时，把默认原因写成可用时间不足"
+      // 直接冲突：空证据只说明"收集不到可判定的约束证据"，那正是"无法解释"的定义。
       expect(
         primaryUnscheduledReason(const []).code,
-        UnscheduledReasonCode.insufficientCapacity,
+        UnscheduledReasonCode.unexplainedSchedulingFailure,
+      );
+    });
+
+    test('**空 evidence 不得显示"可用时间不足"**（文案层同样钉住）', () {
+      expect(
+        unscheduledReasonLabel(primaryUnscheduledReason(const [])),
+        isNot(contains('可用时间不足')),
       );
     });
 
@@ -398,6 +409,233 @@ void main() {
         UnscheduledReasonCode.values.map((code) => code.name),
         isNot(contains('requiredWindowUnavailable')),
       );
+    });
+  });
+
+  group('A06/A07：精力匹配是**软偏好**，不得让候选消失', () {
+    // 1.8.0 专项 §1.5：`CandidateScorer` 只在 `hardConstraintsSatisfied == false` 时拒绝候选；
+    // `energyMatch` 只是正负评分。它**不能**让候选消失，否则"高精力任务排不进低精力时段"
+    // 就会以"可用时间不足"的形态出现——而用户看到的日历明明还有空档。
+
+    /// 一整周只有 [freeWindow] 可用。
+    List<BusyInterval> busyExcept(TimeRange freeWindow, TimeRange window) {
+      final result = <BusyInterval>[];
+      if (freeWindow.startUtc.isAfter(window.startUtc)) {
+        result.add(
+          BusyInterval(
+            id: 'before',
+            range: TimeRange(
+              startUtc: window.startUtc,
+              endUtc: freeWindow.startUtc,
+            ),
+          ),
+        );
+      }
+      if (freeWindow.endUtc.isBefore(window.endUtc)) {
+        result.add(
+          BusyInterval(
+            id: 'after',
+            range: TimeRange(
+              startUtc: freeWindow.endUtc,
+              endUtc: window.endUtc,
+            ),
+          ),
+        );
+      }
+      return result;
+    }
+
+    test('A06 高精力时段被占、只剩低精力时段 ⇒ 仍然排进去', () {
+      final window = TimeRange(
+        startUtc: day,
+        endUtc: day.add(const Duration(days: 1)),
+      );
+      // 精力窗口：09:00–12:00 高、19:00–22:00 低。
+      final withEnergy = ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: [
+          task(
+            requiredMinutes: 60,
+            minChunk: 60,
+            maxChunk: 60,
+            splitMode: TaskSplitMode.continuous,
+          ),
+        ],
+        fixedIntervals: busyExcept(
+          TimeRange(
+            startUtc: day.add(const Duration(hours: 19)),
+            endUtc: day.add(const Duration(hours: 22)),
+          ),
+          window,
+        ),
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: PlanningRules(
+          energyWindows: [
+            EnergyWindow(
+              range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
+              level: EnergyLevel.high,
+            ),
+            EnergyWindow(
+              range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
+              level: EnergyLevel.low,
+            ),
+          ],
+          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+          minimumSleepMinutes: 60,
+          defaultFocusMinutes: 50,
+          breakMinutes: 10,
+          dailyMovableTaskLimitMinutes: 1440,
+          weeklyLifeQuotaMinutes: 0,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'energy-soft-preference',
+      );
+
+      final proposal = engine.generate(withEnergy);
+
+      expect(
+        proposal.unscheduled,
+        isEmpty,
+        reason:
+            '高精力任务在只剩低精力时段时**必须**排进去：`energyMatch` 只是评分，'
+            '不是候选资格。修复前若它被当成硬过滤，这里会以"可用时间不足"报缺口',
+      );
+      expect(proposal.blocks, isNotEmpty);
+      expect(
+        proposal.blocks.fold<int>(0, (sum, b) => sum + b.durationMinutes),
+        60,
+      );
+    });
+
+    test('A07 高低精力都有空 ⇒ 高精力候选优先（两者都合法）', () {
+      final window = TimeRange(
+        startUtc: day,
+        endUtc: day.add(const Duration(days: 1)),
+      );
+      // **只留两个空档**：09:00–12:00（高精力）与 19:00–22:00（低精力）。
+      // 这样"选中的那块落在哪个空档"就是可判定的——若把整天都留成空闲，
+      // 引擎还会在凌晨等"没有精力标签"的时段里挑位置，而那与 A07 要证的事无关。
+      final highStart = day.add(const Duration(hours: 9));
+      final highEnd = day.add(const Duration(hours: 12));
+      final lowStart = day.add(const Duration(hours: 19));
+      final lowEnd = day.add(const Duration(hours: 22));
+      final problem = ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: [task(requiredMinutes: 60, minChunk: 60, maxChunk: 60)],
+        fixedIntervals: [
+          BusyInterval(
+            id: 'before',
+            range: TimeRange(startUtc: day, endUtc: highStart),
+          ),
+          BusyInterval(
+            id: 'middle',
+            range: TimeRange(startUtc: highEnd, endUtc: lowStart),
+          ),
+          BusyInterval(
+            id: 'after',
+            range: TimeRange(
+              startUtc: lowEnd,
+              endUtc: day.add(const Duration(days: 1)),
+            ),
+          ),
+        ],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: PlanningRules(
+          energyWindows: [
+            EnergyWindow(
+              range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
+              level: EnergyLevel.high,
+            ),
+            EnergyWindow(
+              range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
+              level: EnergyLevel.low,
+            ),
+          ],
+          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+          minimumSleepMinutes: 60,
+          defaultFocusMinutes: 50,
+          breakMinutes: 10,
+          dailyMovableTaskLimitMinutes: 1440,
+          weeklyLifeQuotaMinutes: 0,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'energy-both-available',
+      );
+
+      final proposal = engine.generate(problem);
+
+      expect(proposal.unscheduled, isEmpty);
+      expect(proposal.blocks, hasLength(1));
+      final start = proposal.blocks.single.startUtc;
+      expect(start.isBefore(highEnd), isTrue);
+      expect(
+        start.isBefore(highStart),
+        isFalse,
+        reason: '两个空档都合法，但高精力时段匹配 ⇒ 优先落在 09:00–12:00',
+      );
+    });
+  });
+
+  group('证据完整性：`insufficientCapacity` 必须带真实数字', () {
+    // 1.8.0 专项 §2.5 第二条不变量：
+    //   `insufficientCapacity => availableMinutes != null
+    //                            && availableMinutes < requiredMinutes`
+    // 这一条不是"文案好不好看"：没有数字的容量不足既无法被用户据以行动，
+    // 也无法被测试证伪——它曾经是每一次排程故障的统一出口。
+    test('整周被保护时间占满 ⇒ 容量不足，且两个数字都在', () {
+      final proposal = engine.generate(
+        problem(
+          tasks: [task()],
+          protected: [
+            BusyInterval(
+              id: 'all',
+              range: TimeRange(
+                startUtc: day,
+                endUtc: day.add(const Duration(days: 7)),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      final item = onlyUnscheduled(proposal);
+      final reason = item.primaryReason;
+      expect(reason.code, UnscheduledReasonCode.insufficientCapacity);
+      expect(reason.availableMinutes, isNotNull, reason: '必须带"实际有多少分钟"');
+      expect(reason.requiredMinutes, isNotNull);
+      expect(
+        reason.availableMinutes! < reason.requiredMinutes!,
+        isTrue,
+        reason: '容量不足的定义就是"可用少于需要"；不满足它就不是容量不足',
+      );
+      // **空证据不得回落"可用时间不足"**：这一条与上面那条一起构成不变量。
+      expect(
+        item.primaryReason.code,
+        isNot(UnscheduledReasonCode.unexplainedSchedulingFailure),
+        reason: '整周被保护时间占满是**可解释**的容量不足',
+      );
+    });
+
+    test('**无法解释的零安排被结构化识别**（§2.5 第三条不变量）', () {
+      // 构造"有可放置容量、却一个块都没落下"的形状：这只能通过**注入**实现
+      // ——引擎自己若产出这种结果，本身就是它被识别出来的理由。
+      // 这里钉的是"识别规则"本身：空证据 ⇒ unexplainedSchedulingFailure，
+      // 且它**不含 UUID**、文案是固定那一句。
+      const reason = UnscheduledReason(
+        code: UnscheduledReasonCode.unexplainedSchedulingFailure,
+        requiredMinutes: 60,
+        availableMinutes: 120,
+      );
+      expect(
+        unscheduledReasonLabel(reason),
+        isNot(contains('可用时间不足')),
+        reason: '它的处置是"重新生成并导出诊断"，不是"腾时间"',
+      );
+      expect(unscheduledReasonLabel(reason), contains('本次计划未自动应用'));
     });
   });
 }

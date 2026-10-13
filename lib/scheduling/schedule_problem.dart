@@ -4,6 +4,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 
 final class SchedulableTask {
   const SchedulableTask({
@@ -227,6 +228,7 @@ final class ScheduleProblem {
     Map<String, DateTime> referenceBlocks = const {},
     this.adjustment,
     List<PlannedBlock> confirmedBlocks = const [],
+    List<PlanningConflict> admissionConflicts = const [],
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
@@ -236,7 +238,8 @@ final class ScheduleProblem {
          Set.of(pinnedUnlockedBlockIds),
        ),
        referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks)),
-       confirmedBlocks = UnmodifiableListView(List.of(confirmedBlocks));
+       confirmedBlocks = UnmodifiableListView(List.of(confirmedBlocks)),
+       admissionConflicts = UnmodifiableListView(List.of(admissionConflicts));
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -296,4 +299,24 @@ final class ScheduleProblem {
   ///
   /// **不进 `inputHash`**：它是"上一版长什么样"，不改变"哪些时间可用"。
   final List<PlannedBlock> confirmedBlocks;
+
+  /// **准入期**就判定为阻断性输入错误的冲突（1.8.0「可见空闲却报容量不足」专项 §1.7）。
+  ///
+  /// 有些任务在**装配阶段**就已经确定它不能进入本次排程：例如它自己的
+  /// `availableFromUtc >= dueAtUtc`（时间边界自相矛盾）。这类任务**不尝试排程**
+  /// ——拿一件自相矛盾的任务去排只会产出无法复现的结果。
+  ///
+  /// 但"不排它"与"静默丢弃它"是两件事：装配层因此把判定结果作为**阻断冲突**挂在问题上，
+  /// 由引擎原样并入 `proposal.conflicts`，于是预览会如实告诉用户"哪一件任务的数据有问题、
+  /// 该改什么"，而不是让它悄悄消失。
+  ///
+  /// **刻意由装配层构造而不是由排程层判定**：判定用的是
+  /// `application/schedule_window_admission.dart` 的纯函数，而 `scheduling/`
+  /// **不反过来依赖 `application/`**（否则形成依赖环）。因此这里承载的是**结果**，
+  /// 不是规则。装配层用 `ScheduleWindowAdmission.evidenceCode` 填
+  /// `PlanningConflict.blockingInput`，由 `explanations.dart` 翻译成用户文案。
+  ///
+  /// **不进 `inputHash`**：它与 `tasks` 是同一批输入的两种表达（`tasks` 已经排除了这些
+  /// 任务），把它算进哈希只会让同一份输入得到两个哈希。
+  final List<PlanningConflict> admissionConflicts;
 }

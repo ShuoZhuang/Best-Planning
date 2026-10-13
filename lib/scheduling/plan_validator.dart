@@ -23,6 +23,21 @@ enum ConflictCode {
   /// 部分计划本来就可能包含未安排任务（别的任务没排进去是常态）。
   /// 判定见 `evaluateAdjustmentFulfilment`。
   requestedAdjustmentUnsatisfied,
+
+  /// **排程不变量被违反：有可用的合法时段，任务却最终排入 0 分钟**
+  /// （1.8.0，「可见空闲却报容量不足」专项 §2.4 / §5 A13）。
+  ///
+  /// **为什么它必须是 blocker 而不是 warning**：容量不足是"事实如此"，用户可以腾时间后
+  /// 带着缺口确认部分计划；而这一条是"排程器自己没排好"——把一份自己都解释不了的安排写进
+  /// 用户的计划里，等于用一个错误覆盖已有的正确计划。因此：
+  /// - `metrics.isFullyFeasible == false`；
+  /// - 不允许自动应用，也不给"应用可安排部分"这个入口；
+  /// - 预览不显示"可用时间不足"，只显示固定异常文案。
+  ///
+  /// **只能有一条用户可见问题**：引擎把它作为一条 blocker 放进 `conflicts`，
+  /// 对应的 `UnscheduledTask` 主原因用 `unexplainedSchedulingFailure`，
+  /// 预览层把两者**合成一条**呈现（见 `buildPreviewIssues`），不得 warning＋blocker 各显示一遍。
+  schedulingInvariantViolation,
 }
 
 final class PlanningConflict {
@@ -31,6 +46,7 @@ final class PlanningConflict {
     this.taskId,
     this.shortageMinutes = 0,
     this.invalidInputReason,
+    this.blockingInput,
     List<String> relatedEntityIds = const [],
     Map<String, Object?> details = const {},
   }) : relatedEntityIds = UnmodifiableListView(List.of(relatedEntityIds)),
@@ -49,6 +65,19 @@ final class PlanningConflict {
   /// 修复前所有片段长度问题共用一个 `details['reason'] = 'chunkLength'`，
   /// 于是"片段短于允许值"与"片段长于允许值"在界面上无从区分。
   final InvalidInputReason? invalidInputReason;
+
+  /// **准入期**的阻断性输入原因：`ScheduleWindowAdmission.evidenceCode` 的稳定短码
+  /// （1.8.0「可见空闲却报容量不足」专项 §1.7）。
+  ///
+  /// **为什么是 `String` 而不是一个枚举**：这个码由**应用层**的
+  /// `classifyTaskForPlanningWindow` 产出，而本文件（排程层）**刻意不反过来依赖
+  /// 应用层**——`scheduling/` 被 `application/` 依赖，反向依赖会形成环。
+  /// 因此这里只承载"一个稳定的内部短码"，由装配层用
+  /// `ScheduleWindowAdmission.evidenceCode` 填、由 `explanations.dart` 翻译。
+  ///
+  /// **它绝不显示给用户**：翻译链把每个已知短码换成一句可行动的文案，
+  /// 未知短码回落到已有的"排程输入无效"。
+  final String? blockingInput;
 
   final List<String> relatedEntityIds;
   final Map<String, Object?> details;

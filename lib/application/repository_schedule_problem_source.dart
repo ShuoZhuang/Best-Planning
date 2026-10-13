@@ -6,6 +6,7 @@ import 'package:personal_planner/application/confirmed_block_partition.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/recurring_period.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/application/schedule_window_admission.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -20,6 +21,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -187,8 +189,55 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       }
     }
 
-    final schedulable = <SchedulableTask>[
+    // ── 排程输入准入：**先分类、再映射**（1.8.0，“可见空闲却报容量不足”专项）────────
+    //
+    // 修复前这里是"把 `openTasks` 全部映射成 `SchedulableTask`"，没有任何准入判断。
+    // 后果是一类**无法产生候选却带着目标分钟**的任务混进问题：`availableFromUtc` 落在
+    // 规划窗口终点或之后的那些。引擎为它算出一个目标、生成不出候选，最终以
+    // 「还缺 N 分钟 · 可用时间不足」出现在预览里 —— 而用户看到的日历明明还有空档。
+    //
+    // 分类是**唯一的准入判据**（`classifyTaskForPlanningWindow`），生产与测试共用同一个
+    // 函数，不得在这里复制条件。三类处置：
+    // - `intersectsWindow` ⇒ 正常进入；
+    // - `deadlineElapsed` ⇒ **也进入**，但由引擎按"截止窗口为 0"归因，不得静默消失；
+    // - `futureOutsideWindow` ⇒ 静默排除（不是错误，只是还没轮到）；
+    // - `invalid` ⇒ 阻断性输入错误，不尝试排程。
+    //
+    // **周期实例先行剥离**（见下面的 `cycleByTaskId`）：一个周期实例在数据库里既是
+    // "周期实例"又是"一件普通任务"，本函数只允许它通过**周期输入**这一条路径进入，
+    // 因此必须先按 task id 把全部实例从普通输入里摘掉，再由周期规则决定是否加回。
+    final cycleByTaskId = await _cyclesByTaskId(
+      openTasks.map((task) => task.id),
+    );
+    final planningWindowRange = TimeRange(startUtc: startUtc, endUtc: endUtc);
+    final ordinaryTasks = [
       for (final task in openTasks)
+        if (!cycleByTaskId.containsKey(task.id)) task,
+    ];
+    final schedulable = <SchedulableTask>[];
+    // **准入期就判定为阻断的输入错误**（§1.7）：`invalid` 这一支不尝试排程，
+    // 但**也不能静默丢弃**——装配层把判定结果挂成冲突，于是预览会如实告诉用户
+    // "哪一件任务的数据有问题、该改什么"。`unscheduled` 里不会有它
+    // （它从未进入 `problem.tasks`），因此不存在"缺口 ＋ 冲突"重复显示的问题。
+    final admissionConflicts = <PlanningConflict>[];
+    for (final task in ordinaryTasks) {
+      final admission = classifyTaskForPlanningWindow(
+        task: task,
+        planningWindow: planningWindowRange,
+      );
+      if (admission.code == ScheduleWindowAdmissionCode.invalid) {
+        admissionConflicts.add(
+          PlanningConflict(
+            code: ConflictCode.invalidInput,
+            taskId: task.id,
+            // 稳定短码，**不给用户看**：由 `explanations.dart` 翻译成一句可行动的文案。
+            blockingInput: admission.evidenceCode,
+          ),
+        );
+        continue;
+      }
+      if (!admission.entersSchedule) continue;
+      schedulable.add(
         SchedulableTask(
           id: task.id,
           requiredMinutes: task.schedulingRemainingMinutes,
@@ -205,7 +254,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           isLifeTask: lifeTaskIds.contains(task.id),
           preferredWindow: task.preferredWindow,
         ),
-    ];
+      );
+    }
+    // 开发期断言：普通输入里不得残留任何周期实例（生产逻辑不依赖它）。
+    assert(schedulable.every((task) => !cycleByTaskId.containsKey(task.id)));
     final schedulableIds = {for (final task in schedulable) task.id};
 
     // ── 周期目标进排程（M6，§3.4 / §11 Task 8）────────────────────────────────
@@ -214,13 +266,14 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 那份"普通任务"的排程输入**换成周期视角的那一份**：截止时间＝本周末（或按节奏提前）、
     // 只送还差的部分、`selectedWeekdays` 拆成按天窗口。没有新约束类型、没有第二个排程器。
     //
+    // **真正的隔离在上一段**：`cycleByTaskId` 收的是**滚动窗口内生成的每一个实例**，
+    // 不只是"本周那一个"。修复前这里只删 `recurringInputs` 里的 task id（＝本周实例），
+    // 于是 `ensureCycles` 为滚动七天补出来的**下周实例**留在普通输入里，成为一条同名、
+    // 不同 id、本次窗口根本不覆盖的幽灵任务 —— 预览因此显示两条一模一样的缺口。
+    //
     // **过滤掉而不是重复添加**：同一个 id 出现两次会让引擎把同一份剩余时长安排两遍。
     final recurringInputs = await _recurringInputs(nowUtc);
     if (recurringInputs.isNotEmpty) {
-      final recurringTaskIds = {
-        for (final input in recurringInputs) input.cycle.taskId,
-      };
-      schedulable.removeWhere((task) => recurringTaskIds.contains(task.id));
       for (final input in recurringInputs) {
         final expanded = recurringSchedulableTasks(input: input, zones: zones);
         for (final task in expanded) {
@@ -614,9 +667,34 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 当前确认计划里的块（裁定第 1、4 点）：生成**之后**用它建立来源关联，
       // 好让预览把"同一块换了时间"报成「移动」而不是删除＋新增。
       confirmedBlocks: confirmedBlocks,
+      // 准入期就判定为阻断的输入错误（§1.7）：它们不进 `tasks`，但必须走到预览。
+      admissionConflicts: admissionConflicts,
     );
 
     return withCurrentInputHash(problem, snapshots);
+  }
+
+  /// 一次反查这批 open task 里哪些是**已生成的周期实例**，返回 `taskId → cycle`。
+  ///
+  /// **为什么要批量而不是逐任务查**（计划 §2.2）：`openTasks` 的长度随用户任务数增长，
+  /// 逐任务调用 `findCycleByTaskId` 是典型的 N+1；更要紧的是，把"哪些 open task 是周期
+  /// 实例"这件事散进调用方的循环，就等于允许调用方**只处理其中一部分**——修复前的缺陷
+  /// 正是如此：只把"本周实例"从普通输入里换掉，`ensureCycles` 为滚动七天补出来的
+  /// **下周实例**因此留在普通输入里，成为本次窗口根本不覆盖的幽灵任务。
+  ///
+  /// 拿到的映射**覆盖全部实例**：无论它是本周、下周、跨时区边界还是异常遗留，
+  /// 都先从普通输入里剥离，再由 [recurringSchedulableTasks] 决定是否加回。
+  ///
+  /// 没有周期服务（`recurring == null`）时返回空表：那种装配下周期实例本来就是普通任务。
+  Future<Map<String, RecurringTaskCycle>> _cyclesByTaskId(
+    Iterable<String> openTaskIds,
+  ) async {
+    final service = recurring;
+    if (service == null) return const {};
+    final ids = openTaskIds.toSet();
+    if (ids.isEmpty) return const {};
+    final cycles = await service.repository.findCyclesByTaskIds(ids);
+    return {for (final cycle in cycles) cycle.taskId: cycle};
   }
 
   /// 收集窗口内**参与排程**的周期实例及其本周视角。

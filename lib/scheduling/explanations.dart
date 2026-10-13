@@ -27,7 +27,29 @@ String conflictLabel(ConflictCode code) => switch (code) {
   ConflictCode.invalidInput => '排程输入无效',
   // 用户第 72 轮要求的文案（原文）："无法按要求延后，当前计划未更改。"
   ConflictCode.requestedAdjustmentUnsatisfied => '无法按要求延后，当前计划未更改',
+  // 1.8.0 专项 §2.4：**固定文案**，与 `unscheduledReasonLabel` 的同一句保持一字不差。
+  // 两处各写一句就迟早会漂，而这条文案是用户唯一的行动指引。
+  ConflictCode.schedulingInvariantViolation =>
+    schedulingInvariantViolationMessage,
 };
+
+/// **无法解释的排程异常**的唯一用户文案（1.8.0 专项 §2.4）。
+///
+/// 计划固定要求（逐字）：
+///
+/// > 排程没有使用仍可用的合法时段。本次计划未自动应用，请重新生成；若问题持续，请导出诊断信息。
+///
+/// 三个要件都不能省：
+/// 1. **说清事实**："没有使用仍可用的合法时段"——不是"时间不够"；
+/// 2. **说清后果**："本次计划未自动应用"；
+/// 3. **给出下一步**："重新生成"／"导出诊断信息"。
+///
+/// 它由 `conflictLabel(ConflictCode.schedulingInvariantViolation)` 与
+/// `unscheduledReasonLabel(UnscheduledReasonCode.unexplainedSchedulingFailure)`
+/// **共用同一个常量**，因此同一条原因在两条展示链上不可能出现两种说法。
+/// **不含 UUID、不含 task id、不含内部枚举名。**
+const String schedulingInvariantViolationMessage =
+    '排程没有使用仍可用的合法时段。本次计划未自动应用，请重新生成；若问题持续，请导出诊断信息。';
 
 /// 一条 `invalidInput` 的**具体**说法（1.8.0，2026-10-12 故障；冻结决策 §1.4）。
 ///
@@ -56,6 +78,22 @@ String invalidInputLabel(InvalidInputReason? reason) => switch (reason) {
   null => '排程输入无效',
 };
 
+/// 把一条 `invalidInput` 的**准入期**阻断原因翻成用户能据以行动的一句话
+/// （1.8.0「可见空闲却报容量不足」专项 §1.7）。
+///
+/// 它翻译的是 `ScheduleWindowAdmission.evidenceCode`：装配层在**排程之前**就发现这件任务的
+/// 时间边界自相矛盾，因此它从未进入 `problem.tasks`。**不翻译就等于让它静默消失**——
+/// 用户会发现自己的任务既没被安排、也没被提起。
+///
+/// 未知短码回落到 [invalidInputLabel] 的"排程输入无效"：这是**旧提案**（短码新增之前
+/// 生成的）与将来新增短码时的兜底，**不是正常路径**。
+String blockingInputLabel(String? code) => switch (code) {
+  'invalid:startNotBeforeDeadline' => '最早开始时间不早于截止时间，这件任务的时间范围是空的',
+  'invalid:nonUtcBoundary' => '任务的时间边界不是 UTC 时刻，数据有误',
+  'invalid:nonPositivePlanningWindow' => '本次规划范围不是有效的时间区间',
+  _ => invalidInputLabel(null),
+};
+
 /// 把一条**完整冲突**翻成用户能据以行动的一句话（1.8.0，冻结决策 §1.4）。
 ///
 /// **这里是唯一的翻译链**：`plan_preview_issues.dart` 与 `preview_failure_lines.dart`
@@ -70,7 +108,12 @@ String planningConflictMessage(
   required String taskTitle,
 }) {
   final label = switch (conflict.code) {
-    ConflictCode.invalidInput => invalidInputLabel(conflict.invalidInputReason),
+    // **准入期判定优先**：`blockingInput` 非空说明这条冲突来自装配层的窗口分类，
+    // 它比"从块上反推的 invalid 原因"更准确（那时根本还没有块）。
+    ConflictCode.invalidInput =>
+      conflict.blockingInput == null
+          ? invalidInputLabel(conflict.invalidInputReason)
+          : blockingInputLabel(conflict.blockingInput),
     ConflictCode.insufficientCapacity =>
       conflict.shortageMinutes > 0
           ? '可用时间不足：还缺 ${conflict.shortageMinutes} 分钟'
@@ -171,6 +214,10 @@ String unscheduledReasonLabel(UnscheduledReason reason) =>
         available: reason.availableMinutes,
         tail: '。',
       ),
+      // **不是"容量不足"**：用户要做的不是腾时间，而是重新生成并把问题报上来。
+      // 文案与 `conflictLabel` 共用同一个常量，两条展示链不可能各说一句。
+      UnscheduledReasonCode.unexplainedSchedulingFailure =>
+        schedulingInvariantViolationMessage,
     };
 
 String _withNumbers(
@@ -180,6 +227,12 @@ String _withNumbers(
   required String tail,
 }) {
   if (required != null && available != null) {
+    // 缺口的第三个数字由**同一份证据**推出（`required - available`），不再引入第三个来源：
+    // 多一个字段就多一处可能与前两个数字对不上的地方。
+    final shortage = required - available;
+    if (shortage > 0) {
+      return '$lead：需要 $required 分钟，本次仍可安排 $available 分钟，还缺 $shortage 分钟$tail';
+    }
     return '$lead：需要 $required 分钟，可用 $available 分钟$tail';
   }
   if (required != null) return '$lead：需要 $required 分钟$tail';

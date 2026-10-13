@@ -41,7 +41,24 @@ enum UnscheduledReasonCode {
   requiredBreakUnavailable,
 
   /// 兜底：总体容量不足，上面几条都不成立。
+  ///
+  /// **只有在证据数字存在且确实不足时才允许使用**：
+  /// `availableMinutes != null && availableMinutes < requiredMinutes`。
+  /// 空证据不得落到这一条（见 [unexplainedSchedulingFailure]）。
   insufficientCapacity,
+
+  /// **排程没有使用仍可用的合法时段**（1.8.0，「可见空闲却报容量不足」专项 §2.4）。
+  ///
+  /// 使用条件（三者同时成立）：
+  /// 1. 任务**存在**可放置容量（`remainingPlaceableMinutes > 0`）；
+  /// 2. 最终仍有缺口；
+  /// 3. 已收集的硬约束证据**不能解释**这项缺口（没有任何候选被硬约束明确拒绝，
+  ///    或证据的数字与缺口对不上）。
+  ///
+  /// **它不是"容量不足"**：用户要做的不是腾时间，而是重新生成计划并把问题报上来。
+  /// 它同时是一个**阻断**问题（见 `ConflictCode.schedulingInvariantViolation`）：
+  /// 一个排程器解释不了的零安排，不该被写进用户的计划里。
+  unexplainedSchedulingFailure,
 }
 
 /// 一条拒绝证据：某个片段为什么没被采纳，附上可判定的数字。
@@ -79,14 +96,27 @@ const List<UnscheduledReasonCode> unscheduledReasonPriority = [
   UnscheduledReasonCode.fixedScheduleOccupied,
   UnscheduledReasonCode.lockedPlanOccupied,
   UnscheduledReasonCode.requiredBreakUnavailable,
+  // **无法解释排在容量不足之前**：前者是"引擎自己没排好"（要重新生成并报诊断），
+  // 后者是"确实没地方了"（要腾时间）。把前者说成后者会让用户白腾时间，
+  // 而真正的问题（排程异常）继续留在产品里。
+  UnscheduledReasonCode.unexplainedSchedulingFailure,
   UnscheduledReasonCode.insufficientCapacity,
 ];
 
-/// 按 [unscheduledReasonPriority] 选主原因；没有证据时回落到兜底的容量不足。
+/// 按 [unscheduledReasonPriority] 选主原因。
+///
+/// **没有证据时不再回落"可用时间不足"**（1.8.0 专项 §2.4）：
+/// 空证据只说明"引擎收集不到任何可判定的约束证据"，那正是
+/// [UnscheduledReasonCode.unexplainedSchedulingFailure] 的定义。
+///
+/// 修复前这里回落 `insufficientCapacity`，而它**不带任何数字**——用户看到的是
+/// 一句无法行动、也无法被测试证伪的"可用时间不足"。这与
+/// "引擎不得在没有 `availableMinutes` 或其它可判定证据时，把默认原因写成可用时间不足"
+/// （Global Constraints）直接冲突。
 UnscheduledReason primaryUnscheduledReason(List<UnscheduledReason> reasons) {
   if (reasons.isEmpty) {
     return const UnscheduledReason(
-      code: UnscheduledReasonCode.insufficientCapacity,
+      code: UnscheduledReasonCode.unexplainedSchedulingFailure,
     );
   }
   for (final code in unscheduledReasonPriority) {
@@ -102,7 +132,7 @@ final class UnscheduledTask {
     required this.taskId,
     required this.shortageMinutes,
     this.primaryReason = const UnscheduledReason(
-      code: UnscheduledReasonCode.insufficientCapacity,
+      code: UnscheduledReasonCode.unexplainedSchedulingFailure,
     ),
     this.reasons = const [],
   });
@@ -110,6 +140,10 @@ final class UnscheduledTask {
   final int shortageMinutes;
 
   /// 用户看到的**那一条**原因。
+  ///
+  /// **默认值刻意是 [UnscheduledReasonCode.unexplainedSchedulingFailure] 而不是
+  /// `insufficientCapacity`**（1.8.0 专项 §2.4）：没有任何证据的缺口不是"可用时间不足"，
+  /// 而是"排程结果无法解释"。默认成容量不足会把每一次引擎故障都伪装成用户该腾时间。
   final UnscheduledReason primaryReason;
 
   /// 累计到的全部拒绝证据，供"展开查看其他限制"使用。
