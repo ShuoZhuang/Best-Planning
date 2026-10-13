@@ -6,6 +6,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -108,6 +109,76 @@ Future<void> _setOccurrenceEndDate(WidgetTester tester, int day) async {
   await tester.tap(find.text('$day').last);
   await tester.pumpAndSettle();
   await tester.tap(find.text('确定'));
+  await tester.pumpAndSettle();
+}
+
+/// 日视图卡片上四种动作的 key 前缀（计划 §2.7）。
+///
+/// 与**旧图标按钮同名**：Task 3 把它们从 `IconButton` 挪到了 `PopupMenuItem` 上，
+/// 名字不变，于是"哪一条的哪一个动作"这套定位方式不必重学。
+const _dayItemActions = <String>['edit', 'area', 'delete', 'settings'];
+
+/// 打开某一条的更多菜单，点选 [action]（`edit`／`area`／`delete`／`settings`）。
+///
+/// Task 3（计划 §2.7）把"每类各自渲染几枚图标按钮"换成了**每行一个** `more_vert` 菜单，
+/// 因此"点删除"这件事在界面上变成两步：先打开菜单，再点菜单项。
+/// 这个助手把两步收在一处，既有的 48 处交互只换路径、不改断言。
+Future<void> _openActions(
+  WidgetTester tester,
+  String itemId,
+  String action,
+) async {
+  final trigger = find.byKey(Key('actions-$itemId'));
+  await tester.ensureVisible(trigger);
+  await tester.pumpAndSettle();
+  await tester.tap(trigger);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('$action-$itemId')));
+  await tester.pumpAndSettle();
+}
+
+/// 打开某一条的更多菜单，返回菜单里**实际出现**的动作（按 [_dayItemActions] 的顺序）。
+///
+/// 用于断言能力表：菜单**只列可执行动作**，不多也不少。
+Future<List<String>> _openActionsMenu(
+  WidgetTester tester,
+  String itemId,
+) async {
+  final trigger = find.byKey(Key('actions-$itemId'));
+  await tester.ensureVisible(trigger);
+  await tester.pumpAndSettle();
+  await tester.tap(trigger);
+  await tester.pumpAndSettle();
+  final present = _dayItemActions
+      .where(
+        (action) => find.byKey(Key('$action-$itemId')).evaluate().isNotEmpty,
+      )
+      .toList();
+  // 关掉菜单，别让下一条断言在"上一条的菜单还开着"的状态下跑。
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+  await tester.pumpAndSettle();
+  return present;
+}
+
+/// 断言某一条的菜单里**没有** [action] 这一项。
+///
+/// 没有菜单（动作数为 0 ⇒ 等宽空槽）同样算通过：这一批断言要表达的是
+/// "用户点不到这个动作"，而不是"菜单必须存在"——§2.7 恰恰要求没有可执行动作时
+/// 不渲染菜单，更不渲染一枚点不动的灰色图标（U5）。
+Future<void> _expectNoAction(
+  WidgetTester tester,
+  String itemId,
+  String action,
+) async {
+  expect(find.byKey(Key('$action-$itemId')), findsNothing);
+  final trigger = find.byKey(Key('actions-$itemId'));
+  if (trigger.evaluate().isEmpty) return;
+  await tester.ensureVisible(trigger);
+  await tester.pumpAndSettle();
+  await tester.tap(trigger);
+  await tester.pumpAndSettle();
+  expect(find.byKey(Key('$action-$itemId')), findsNothing);
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
   await tester.pumpAndSettle();
 }
 
@@ -568,9 +639,12 @@ void main() {
       },
     );
 
-    expect(find.byKey(const Key('delete-fixed:event-1')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('actions-fixed:event-1')),
+      findsOneWidget,
+      reason: '§2.7 起删除收进单个更多菜单：入口是 `actions-<id>`，不再是 `delete-<id>`',
+    );
+    await _openActions(tester, 'fixed:event-1', 'delete');
     // 删除自本轮起会先确认（FR-CAL-02 要区分"只删这一次"与"删除整条"），因此这里必须
     // 走完"删除整条"这一步——否则断言的是"没发生删除"。
     await tester.tap(find.byKey(const Key('delete-entire')));
@@ -603,16 +677,25 @@ void main() {
       onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
-    // 图标位**保留但不可用**：不够删这两类条目（它们的 id 不是事件 id），但也不能
-    // 只有固定日程带图标——那会让同一列里卡片宽窄参差。
-    for (final key in const [
-      Key('delete-block:block-1'),
-      Key('edit-block:block-1'),
-      Key('delete-protected:sleep'),
-      Key('edit-protected:sleep'),
-    ]) {
-      final button = tester.widget<IconButton>(find.byKey(key));
-      expect(button.onPressed, isNull, reason: '$key 应当存在但点不动');
+    // 这两类条目**一个可执行动作都没有**：计划块属于计划（该撤销计划，而不是删一条
+    // 日程），`protected:sleep` 也拿不到领域事件 id。按 §2.7 它们渲染**等宽空槽**：
+    // 既没有菜单，也没有菜单项。
+    //
+    // 旧断言是"图标在但点不动"——它要表达的正是"用户点不到"。新形态用"根本没有这个
+    // 动作"表达同一件事，而且不再给屏幕阅读器一个"这里有操作"的假信号（U5）。
+    for (final itemId in const ['block:block-1', 'protected:sleep']) {
+      expect(
+        find.byKey(Key('actions-$itemId')),
+        findsNothing,
+        reason: '$itemId 没有可执行动作 ⇒ 只渲染等宽空槽，不渲染菜单',
+      );
+      for (final action in _dayItemActions) {
+        expect(
+          find.byKey(Key('$action-$itemId')),
+          findsNothing,
+          reason: '**U5**：$itemId 不该出现「$action」入口',
+        );
+      }
     }
   });
 
@@ -639,11 +722,7 @@ void main() {
       onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('edit-fixed:evt-protected')),
-    );
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
     expect(
       find.text('改「每周二下午保护」的这一次'),
       findsOneWidget,
@@ -652,16 +731,50 @@ void main() {
     await tester.tap(find.byKey(const Key('occurrence-cancel')));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(
-      find.byKey(const Key('delete-fixed:evt-protected')),
-    );
-    await tester.tap(find.byKey(const Key('delete-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'delete');
     // 删除要先问范围。
     expect(find.textContaining('删除'), findsWidgets);
   });
 
-  testWidgets('所有条目的卡片等宽（图标位与可用性无关）', (tester) async {
+  testWidgets('菜单只列**可执行**动作：固定日程三项，自定义保护时间两项（计划 §2.7）', (tester) async {
+    await pump(
+      tester,
+      items: [
+        _item(
+          id: 'fixed:event-1',
+          title: '数据结构课',
+          kind: ScheduleItemKind.fixed,
+          startHourUtc: 9,
+        ),
+        _item(
+          id: 'fixed:evt-protected',
+          title: '每周二下午保护',
+          kind: ScheduleItemKind.protectedTime,
+          startHourUtc: 14,
+        ),
+      ],
+      onDeleteEvent: (id) async => true,
+      onEditEvent: (request) async => OccurrenceEditOutcome.saved,
+      onSetEventArea: (eventId, areaId) async => true,
+      onOpenProtectedTimeSettings: () {},
+    );
+
+    // 四个端口全开时，菜单里出现的应当**只有**这一类条目真能执行的动作：
+    // 领域只属于固定日程（保护时间在数据里没有 `areaId` 这一栏），
+    // 而「去设置」只属于规则来源的保护时间。
+    expect(
+      await _openActionsMenu(tester, 'fixed:event-1'),
+      unorderedEquals(<String>['edit', 'area', 'delete']),
+      reason: '固定日程：编辑、调整所属领域、删除',
+    );
+    expect(
+      await _openActionsMenu(tester, 'fixed:evt-protected'),
+      unorderedEquals(<String>['edit', 'delete']),
+      reason: '自定义保护时间：编辑、删除——**不给**"调整所属领域"',
+    );
+  });
+
+  testWidgets('所有条目的卡片等宽：每行都留出**固定 48 px** 的操作槽（与可用性无关）', (tester) async {
     await pump(
       tester,
       items: [
@@ -682,13 +795,30 @@ void main() {
       onEditEvent: (request) async => OccurrenceEditOutcome.saved,
     );
 
-    final fixed = tester.getSize(
-      find.byKey(const Key('day-item-fixed:event-1')),
+    // 固定日程带三项动作、任务块一项都没有；两者的卡片宽度必须**完全一样**——
+    // 图标位的宽度与"这条能不能删"无关（计划 §1.1 R2 / §2.7）。
+    final fixed = tester.getRect(
+      find.byKey(const Key('day-schedule-card-fixed:event-1')),
     );
-    final task = tester.getSize(
-      find.byKey(const Key('day-item-block:block-1')),
+    final task = tester.getRect(
+      find.byKey(const Key('day-schedule-card-block:block-1')),
     );
-    expect(task.width, fixed.width, reason: '固定日程带删除/编辑图标，其余条目也必须为同样的图标位留出宽度');
+    expect(task.width, fixed.width, reason: '固定日程带删除/编辑/归属，其余条目也必须为同样的操作槽留出宽度');
+
+    // 而且这个宽度是**固定的 48 px**：卡片右边界到列表右边界之间恒为槽宽。
+    // 只断言"两者相等"还不够——把两个槽一起改成 0 也会相等，那时右边界齐了，
+    // 但"更多"按钮会紧贴卡片边缘、没有可点区域。
+    final list = tester.getRect(find.byType(ListView));
+    expect(
+      list.right - fixed.right,
+      moreOrLessEquals(48, epsilon: 0.01),
+      reason: '有动作的行右侧必须是 48 px 操作槽',
+    );
+    expect(
+      list.right - task.right,
+      moreOrLessEquals(48, epsilon: 0.01),
+      reason: '没有动作的行右侧同样留出 48 px 空槽，否则卡片会比别人宽',
+    );
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -705,9 +835,7 @@ void main() {
   // 断言用 `getTopLeft/getTopRight` 的**横坐标**而不是宽度：宽度只说明"大小相同"，
   // 而用户看到的是"右边界在不在同一条竖线上"。
   // ─────────────────────────────────────────────────────────────────────────────
-  testWidgets('任务、固定日程、自定义保护时间、规则保护时间四类卡片右边界完全一致（R2）', (
-    tester,
-  ) async {
+  testWidgets('任务、固定日程、自定义保护时间、规则保护时间四类卡片右边界完全一致（R2）', (tester) async {
     await pump(
       tester,
       items: [
@@ -760,11 +888,7 @@ void main() {
     }
 
     for (final id in ids.skip(1)) {
-      expect(
-        lefts[id],
-        lefts[ids.first],
-        reason: '四类卡片的左边界也必须一致（它们在同一列里）',
-      );
+      expect(lefts[id], lefts[ids.first], reason: '四类卡片的左边界也必须一致（它们在同一列里）');
       expect(
         rights[id],
         rights[ids.first],
@@ -794,9 +918,7 @@ void main() {
   // 规则来源的保护时间只显示"去设置"。三枚 `onPressed: null` 的图标既占宽度
   // 又给屏幕阅读器一个"这里有操作"的假信号。
   // ─────────────────────────────────────────────────────────────────────────────
-  testWidgets('规则保护时间只有"去设置"一个可用操作，不出现不可点击的删除/归属/编辑三连（U5）', (
-    tester,
-  ) async {
+  testWidgets('规则保护时间只有"去设置"一个可用操作，不出现不可点击的删除/归属/编辑三连（U5）', (tester) async {
     await pump(
       tester,
       items: [
@@ -814,27 +936,56 @@ void main() {
       onOpenProtectedTimeSettings: () {},
     );
 
-    // 唯一可执行的入口。
-    final settings = tester.widget<IconButton>(
-      find.byKey(const Key('settings-protected:breakfast:2026-10-05:450')),
-    );
-    expect(settings.onPressed, isNotNull, reason: '规则来源的保护时间必须能"去设置"');
+    const itemId = 'protected:breakfast:2026-10-05:450';
 
-    // 三枚灰色占位图标必须**不再渲染**。
-    for (final key in const [
-      Key('delete-protected:breakfast:2026-10-05:450'),
-      Key('area-protected:breakfast:2026-10-05:450'),
-      Key('edit-protected:breakfast:2026-10-05:450'),
-    ]) {
+    // 1. 规则来源的保护时间**有一个**可执行动作，因此有更多菜单。
+    final trigger = find.byKey(const Key('actions-$itemId'));
+    expect(trigger, findsOneWidget, reason: '唯一可执行的入口是「去设置」，它必须能被点到');
+
+    // 2. 打开它：菜单里**恰好只有**「去设置」一项。
+    await tester.ensureVisible(trigger);
+    await tester.pumpAndSettle();
+    await tester.tap(trigger);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('settings-$itemId')),
+      findsOneWidget,
+      reason: '规则来源的保护时间必须能"去设置"',
+    );
+    for (final action in const ['delete', 'area', 'edit']) {
       expect(
-        find.byKey(key),
+        find.byKey(Key('$action-$itemId')),
         findsNothing,
         reason:
-            '**U5**：$key 当前渲染成一枚 `onPressed: null` 的灰色图标。'
-            '计划 §2.7 要求"没有动作时用等宽空槽，不显示灰色按钮"'
-            '（规则来源的保护时间既删不掉也改不了、也不能调整归属）',
+            '**U5**：「$action」对规则来源的保护时间不可执行'
+            '（它既删不掉、也改不了，更不能调整归属——库里没有对应的锚点行）。'
+            '计划 §2.7 要求"菜单只列可执行动作"，因此它连菜单项都不该出现。',
       );
     }
+    expect(
+      find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+      findsOneWidget,
+      reason: '规则来源的保护时间只有一个动作 ⇒ 菜单里恰好一项',
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    // 3. U5 的**真正判据**：整页不存在任何 `onPressed: null` 的 `IconButton`。
+    //
+    // 三枚灰色图标既占宽度又给屏幕阅读器一个"这里有操作"的假信号；这一条把它整体禁掉，
+    // 比"逐个点名那三枚图标"更能防回归——以后任何人再加一枚点不动的图标，这里都会红。
+    final disabled = tester
+        .widgetList<IconButton>(find.byType(IconButton))
+        .where((button) => button.onPressed == null)
+        .toList();
+    expect(
+      disabled,
+      isEmpty,
+      reason:
+          '**U5**：页面上有 ${disabled.length} 枚 `onPressed: null` 的灰色图标。'
+          '计划 §2.7 要求"没有动作时用等宽空槽，不显示灰色按钮"。',
+    );
   });
 
   testWidgets('相邻条目之间留出间距', (tester) async {
@@ -886,8 +1037,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('area-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'area');
     expect(find.byKey(const Key('area-picker-dialog')), findsOneWidget);
 
     // 改成"科研"。
@@ -922,8 +1072,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('area-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'area');
     await tester.tap(find.byKey(const Key('area-picker-cancel')));
     await tester.pumpAndSettle();
 
@@ -931,7 +1080,7 @@ void main() {
     expect(calls, isEmpty);
   });
 
-  testWidgets('非日程条目不能调整归属（图标保留但点不动）', (tester) async {
+  testWidgets('非日程条目不能调整归属（任务块那一行根本没有菜单）', (tester) async {
     await pump(
       tester,
       items: [
@@ -945,10 +1094,16 @@ void main() {
       onSetEventArea: (eventId, areaId) async => true,
     );
 
-    final button = tester.widget<IconButton>(
-      find.byKey(const Key('area-block:block-1')),
+    // 旧断言是"归属图标在但点不动"（`onPressed == null`）——它要表达的正是
+    // "用户点不到"。§2.7 下同一件事由"任务块一个可执行动作都没有"来表达：
+    // 整行只有一个等宽空槽，没有菜单，也就没有「调整所属领域」这一项。
+    // 区别是屏幕阅读器不会再把这一行读成"这里有操作"。
+    expect(
+      find.byKey(const Key('actions-block:block-1')),
+      findsNothing,
+      reason: '任务块没有可执行动作 ⇒ 只渲染等宽空槽',
     );
-    expect(button.onPressed, isNull);
+    await _expectNoAction(tester, 'block:block-1', 'area');
   });
 
   testWidgets('删除前问清"只删这一次"还是"删除整条"，并把选择交给对应入口', (tester) async {
@@ -990,9 +1145,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'delete');
     // 删除不可逆，因此对话框必须把两种后果说明白。
     expect(find.textContaining('只删这一次会保留其它各次'), findsOneWidget);
     await tester.tap(find.byKey(const Key('delete-this-occurrence')));
@@ -1005,8 +1158,7 @@ void main() {
     expect(entire, isEmpty);
 
     // 再删一次，这次选"删除整条"：应当走另一个入口，且不再走"只删这一次"。
-    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'delete');
     await tester.tap(find.byKey(const Key('delete-entire')));
     await tester.pumpAndSettle();
 
@@ -1048,9 +1200,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('edit-fixed:event-1')));
-    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'edit');
 
     // 先试非法输入：**必须在对话框内说明并留下**，而不是把非法区间交给下游。
     //
@@ -1081,7 +1231,7 @@ void main() {
     );
   });
 
-  testWidgets('未注入改写入口时不显示该按钮', (tester) async {
+  testWidgets('未注入改写入口时菜单里不出现「编辑」', (tester) async {
     await pump(
       tester,
       items: [
@@ -1095,7 +1245,9 @@ void main() {
       onDeleteEvent: (id) async => true,
     );
 
-    expect(find.byKey(const Key('edit-fixed:event-1')), findsNothing);
+    // 这一条注入了删除、没注入改写，因此菜单**在**，只是里面不该有「编辑」：
+    // 宁可没有这一项，也不要一个点了不生效的图标。
+    await _expectNoAction(tester, 'fixed:event-1', 'edit');
   });
 
   testWidgets('勾选"改整个系列"走另一条入口，而不是改这一次', (tester) async {
@@ -1137,9 +1289,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byKey(const Key('edit-fixed:event-1')));
-    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'edit');
     await tester.tap(find.byKey(const Key('occurrence-scope-series')));
     await tester.pumpAndSettle();
     // 1.8.0 起这里**不接受文本输入**（规范 §8.1：不给输入非法值的可能），
@@ -1196,7 +1346,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('edit-fixed:event-1')));
+    await _openActions(tester, 'fixed:event-1', 'edit');
     await tester.pumpAndSettle();
     expect(find.text('仅本次'), findsOneWidget);
     expect(find.text('本次及以后'), findsOneWidget);
@@ -1227,17 +1377,15 @@ void main() {
       onDeleteEvent: (id) async => true,
     );
 
-    await tester.ensureVisible(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.tap(find.byKey(const Key('delete-fixed:event-1')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:event-1', 'delete');
     await tester.tap(find.byKey(const Key('delete-cancel')));
     await tester.pumpAndSettle();
 
-    // 未注入改写入口时连编辑按钮都没有，因此这里确认的是"没有该按钮"。
-    expect(find.byKey(const Key('edit-fixed:event-1')), findsNothing);
+    // 未注入改写入口时连菜单里都没有「编辑」。
+    await _expectNoAction(tester, 'fixed:event-1', 'edit');
   });
 
-  testWidgets('未注入删除入口时不显示删除按钮', (tester) async {
+  testWidgets('未注入删除入口时菜单里不出现「删除」', (tester) async {
     await pump(
       tester,
       items: [
@@ -1250,8 +1398,14 @@ void main() {
       ],
     );
 
-    // 宁可没有按钮，也不要一个点了不生效的图标。
-    expect(find.byKey(const Key('delete-fixed:event-1')), findsNothing);
+    // 一个回调都没注入 ⇒ 这一条**一个动作都没有**，因此连菜单都不渲染（等宽空槽）。
+    // 宁可没有入口，也不要一个点了不生效的图标。
+    expect(
+      find.byKey(const Key('actions-fixed:event-1')),
+      findsNothing,
+      reason: '没有可执行动作 ⇒ 只渲染等宽空槽，不渲染一个空菜单',
+    );
+    await _expectNoAction(tester, 'fixed:event-1', 'delete');
   });
 
   testWidgets('这一天没有安排时说明"空"是什么意思', (tester) async {
@@ -1300,8 +1454,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
 
     final title = find.byKey(const Key('occurrence-title'));
     expect(
@@ -1355,8 +1508,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
     await tester.enterText(find.byKey(const Key('occurrence-title')), '看医生');
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
@@ -1391,8 +1543,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-once')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-once', 'edit');
 
     expect(find.text('仅本次'), findsNothing);
     expect(find.text('本次及以后'), findsNothing, reason: '没有规则就无从"从这一次起拆分"');
@@ -1428,8 +1579,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
     await tester.enterText(find.byKey(const Key('occurrence-notes')), '带医保卡');
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
@@ -1462,8 +1612,7 @@ void main() {
       onEditEvent: (request) async => OccurrenceEditOutcome.failed,
     );
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 
@@ -1486,8 +1635,7 @@ void main() {
       onEditEvent: (request) async => OccurrenceEditOutcome.stale,
     );
 
-    await tester.tap(find.byKey(const Key('edit-fixed:evt-protected')));
-    await tester.pumpAndSettle();
+    await _openActions(tester, 'fixed:evt-protected', 'edit');
     await tester.tap(find.byKey(const Key('occurrence-save')));
     await tester.pumpAndSettle();
 
@@ -1541,24 +1689,50 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 自定义的那一条：有编辑与删除。
-    await tester.ensureVisible(find.byKey(const Key('edit-fixed:evt-custom')));
+    // 自定义的那一条：菜单里有编辑与删除，**没有**「去设置」。
+    await tester.ensureVisible(
+      find.byKey(const Key('actions-fixed:evt-custom')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('actions-fixed:evt-custom')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('edit-fixed:evt-custom')), findsOneWidget);
     expect(find.byKey(const Key('delete-fixed:evt-custom')), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-fixed:evt-custom')),
+      findsNothing,
+      reason: '「去设置」只属于规则来源的保护时间——自定义的那一条在这一页就能改',
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
 
-    // 规则来源的那一条：没有编辑入口（改不了），但有「去设置」。
-    final settings = find.byKey(
-      const Key('settings-protected:lunch:2026-10-05:1'),
+    // 规则来源的那一条：没有编辑入口（改不了），但有「去设置」，而且只有它。
+    final settingsTrigger = find.byKey(
+      const Key('actions-protected:lunch:2026-10-05:1'),
     );
     expect(
-      settings,
+      settingsTrigger,
       findsOneWidget,
       reason:
           '不给入口等于告诉用户这条东西没法改，而它其实改得了——'
           '只是要在设置页改规则',
     );
+    await tester.ensureVisible(settingsTrigger);
+    await tester.pumpAndSettle();
+    await tester.tap(settingsTrigger);
+    await tester.pumpAndSettle();
 
-    await tester.ensureVisible(settings);
+    for (final action in const ['edit', 'delete', 'area']) {
+      expect(
+        find.byKey(Key('$action-protected:lunch:2026-10-05:1')),
+        findsNothing,
+        reason: '规则来源的保护时间「$action」不了，菜单里就不该有这一项',
+      );
+    }
+    final settings = find.byKey(
+      const Key('settings-protected:lunch:2026-10-05:1'),
+    );
+    expect(settings, findsOneWidget);
     await tester.tap(settings);
     await tester.pumpAndSettle();
     expect(openedSettings, 1);

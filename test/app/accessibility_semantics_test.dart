@@ -11,6 +11,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/task_service.dart';
@@ -22,6 +23,8 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
+import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -70,6 +73,16 @@ final class _Plans implements PlanRepository {
     ScheduleProposal proposal,
     String expectedInputHash,
   ) async => ApplyPlanResult.stale();
+}
+
+/// 日视图的条目流（A2-4）。窗口只有一天，"这一条会不会被渲染"因此不成问题。
+final class _DayItems implements ScheduleViewSource {
+  const _DayItems(this.items);
+  final List<ScheduleViewItem> items;
+
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      Stream.value(items);
 }
 
 PlannerTask _task(
@@ -145,6 +158,41 @@ _collect(WidgetTester tester) {
 
   walk(root);
   return result;
+}
+
+/// 当前键盘焦点是否落在 [finder] 命中的那棵子树里（A2-4）。
+///
+/// 不能只比 `primaryFocus.context == 元素`：焦点挂在 `InkWell` 内部的 `Focus` 上，
+/// 而断言要问的是"焦点回到触发按钮了吗""方向键选中的是哪一个菜单项"。
+bool _focusInside(WidgetTester tester, Finder finder) {
+  final element = tester.binding.focusManager.primaryFocus?.context;
+  if (element is! Element) return false;
+  final roots = finder.evaluate();
+  if (roots.isEmpty) return false;
+  final root = roots.first;
+  if (identical(element, root)) return true;
+  var inside = false;
+  element.visitAncestorElements((ancestor) {
+    if (identical(ancestor, root)) {
+      inside = true;
+      return false;
+    }
+    return true;
+  });
+  return inside;
+}
+
+/// 反复按 Tab（有界）直到焦点落进 [finder]；返回是否到达。
+///
+/// **有界**：焦点顺序本身可能改，写死"按 N 次 Tab"会把一次无关的重排变成红。
+/// 这里断言的是一件更稳的事——"Tab 键最终能走到这个控件上"。
+Future<bool> _tabUntilFocused(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+    if (_focusInside(tester, finder)) return true;
+  }
+  return false;
 }
 
 void main() {
@@ -327,6 +375,157 @@ void main() {
       // 选中态只属于当前项。
       expect(today.single.flags, contains(SemanticsFlag.isSelected));
       expect(tasks.single.flags, isNot(contains(SemanticsFlag.isSelected)));
+
+      handle.dispose();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // A2-4（计划 Task 3 Step 4）：日视图每行的**更多操作菜单**必须键盘可达、名字完整。
+  //
+  // §2.7 把每行四枚图标按钮收成一个 `more_vert` 菜单。收得对不对，光看截图看不出来：
+  // 键盘用户能不能 Tab 到它、Enter 打开、方向键选、Esc 关掉并把焦点还回来，
+  // 屏幕阅读器读出来的是"更多操作：<哪一条>"还是光秃秃的"按钮"——只有真跑一遍才知道。
+  //
+  // **为什么名字必须点名事项**：一屏十几行，每行都有一个"更多操作"；不说清是哪一条，
+  // 屏幕阅读器用户要在哪一个上面按回车就只能猜（A2-1 的"查看详情"吃过同一个亏）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('A2-4 日视图更多操作菜单的键盘与语义契约', () {
+    const courseId = 'fixed:event-1';
+    const breakfastId = 'protected:breakfast:2026-10-05:450';
+
+    Future<void> pumpDayView(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1024, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: PlannerTheme.dark(),
+          home: Scaffold(
+            body: DayViewPage(
+              source: _DayItems([
+                ScheduleViewItem(
+                  id: courseId,
+                  title: '数据结构课',
+                  kind: ScheduleItemKind.fixed,
+                  categoryKey: 'test:fixed',
+                  categoryLabel: '固定日程',
+                  categoryColorArgb: 0xff456789,
+                  categorySortOrder: 0,
+                  range: TimeRange(
+                    startUtc: DateTime.utc(2026, 10, 5, 9),
+                    endUtc: DateTime.utc(2026, 10, 5, 10),
+                  ),
+                ),
+                // 规则来源的保护时间：这一行只该有「去设置」，名字却仍要能区分。
+                ScheduleViewItem(
+                  id: breakfastId,
+                  title: '早餐',
+                  kind: ScheduleItemKind.protectedTime,
+                  categoryKey: 'test:protected',
+                  categoryLabel: '保护时间',
+                  categoryColorArgb: 0xff654321,
+                  categorySortOrder: 1,
+                  fromRules: true,
+                  range: TimeRange(
+                    startUtc: DateTime.utc(2026, 10, 5, 8),
+                    endUtc: DateTime.utc(2026, 10, 5, 8, 30),
+                  ),
+                ),
+              ]),
+              dayStartUtc: DateTime.utc(2026, 10, 5),
+              zones: TimeZoneDatabase(),
+              timeZoneId: 'UTC',
+              onDeleteEvent: (String id) async => true,
+              onEditEvent: (OccurrenceEditRequest request) async =>
+                  OccurrenceEditOutcome.saved,
+              onSetEventArea: (String eventId, String? areaId) async => true,
+              loadAreaOptions: () async => const <ScheduleAreaOption>[
+                ScheduleAreaOption(id: 'area-study', name: '学业'),
+              ],
+              onOpenProtectedTimeSettings: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('更多按钮以「更多操作：<事项标题>」为名，菜单项带动作名称', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpDayView(tester);
+
+      final namedButtons = _collect(tester)
+          .where((node) => node.flags.contains(SemanticsFlag.isButton))
+          .map((node) => node.label)
+          .where((label) => label.startsWith('更多操作：'))
+          .toList();
+      expect(
+        namedButtons,
+        unorderedEquals(<String>['更多操作：数据结构课', '更多操作：早餐']),
+        reason:
+            '每行的更多按钮必须**点名事项**。`tooltip` 不是 label，'
+            '`IconButton` 自己写的节点没有名字——只有把名字挂到 `Icon` 上，'
+            '两者才会落进同一个按钮节点。',
+      );
+
+      // 菜单项含动作名称：屏幕阅读器读得到"编辑/调整所属领域/删除"，
+      // 而不是三个只有图标的空节点。
+      await tester.tap(find.byKey(const Key('actions-$courseId')));
+      await tester.pumpAndSettle();
+      final labels = _collect(tester).map((node) => node.label).toSet();
+      expect(
+        labels,
+        containsAll(<String>['编辑', '调整所属领域', '删除']),
+        reason: '菜单项必须有可读名称（§2.7 的四种动作里，固定日程占前三种）',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      handle.dispose();
+    });
+
+    testWidgets('Tab 可达、Enter 打开、方向键选择、Esc 关闭并把焦点还给触发按钮', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpDayView(tester);
+
+      final trigger = find.byKey(const Key('actions-$courseId'));
+      expect(
+        await _tabUntilFocused(tester, trigger),
+        isTrue,
+        reason: 'Tab 必须能到达更多按钮，否则键盘用户根本用不了 §2.7 的新形态',
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('edit-$courseId')),
+        findsOneWidget,
+        reason: 'Enter 要能打开菜单',
+      );
+
+      // 方向键选择：第一次下移选中第一项，之后逐项下移。
+      for (final action in const ['edit', 'area', 'delete']) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pumpAndSettle();
+        expect(
+          _focusInside(tester, find.byKey(Key('$action-$courseId'))),
+          isTrue,
+          reason: '方向键要在菜单项之间移动（当前应停在「$action」）',
+        );
+      }
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('edit-$courseId')),
+        findsNothing,
+        reason: 'Esc 要能关闭菜单',
+      );
+      expect(
+        _focusInside(tester, trigger),
+        isTrue,
+        reason: 'Esc 之后焦点必须回到触发按钮；否则键盘用户得从头 Tab 一遍',
+      );
 
       handle.dispose();
     });

@@ -45,10 +45,10 @@ final class DayViewPage extends StatelessWidget {
   final String timeZoneId;
 
   /// 切回周视图。为空时不显示该按钮（例如未装配路由的测试场景）。
-  /// 删除这条日程（FR-CAL-01）。为空时不显示删除按钮。
+  /// 删除这条日程（FR-CAL-01）。为空时菜单里不出现「删除」。
   ///
   /// **页面不认识仓储**：它只把条目 id 交回，删除与随后的刷新由注入方负责——与
-  /// `onOpenWeek` 同理。为空时整块不渲染，而不是给一个点了没反应的图标。
+  /// `onOpenWeek` 同理。为空时这一项直接不进菜单，而不是给一个点了没反应的图标。
   final Future<bool> Function(String eventId)? onDeleteEvent;
 
   /// 只删除重复日程的**某一次**（FR-CAL-02）。为空时对话框里不出现"只删这一次"。
@@ -75,13 +75,13 @@ final class DayViewPage extends StatelessWidget {
   /// 交回的是**本地时刻**：与 `onDeleteOccurrence` 同理，页面不做时区换算，
   /// 换算由注入方（持有 `TimeZoneDatabase` 的路由）负责。
   ///
-  /// 为空时列表里不出现编辑入口。
+  /// 为空时菜单里不出现「编辑」。
   final Future<OccurrenceEditOutcome> Function(OccurrenceEditRequest request)?
   onEditEvent;
 
   final VoidCallback? onOpenWeek;
 
-  /// 规则来源的保护时间那一行的「去设置」入口（为空时不显示）。
+  /// 规则来源的保护时间那一行的「去设置」入口（为空时菜单里不出现「去设置」）。
   ///
   /// 规则来源的保护时间（睡眠／早餐／午餐／晚餐／固定休息）没有 `CalendarEvent` 锚点，
   /// 因此在日视图上既不能改名也不能删除——它们只能在设置页改规则。
@@ -93,7 +93,7 @@ final class DayViewPage extends StatelessWidget {
   /// 领域是整条日程的属性，与"改这一次"不同路，因此单独一个回调而不是塞进改写回调里。
   final Future<bool> Function(String eventId, String? areaId)? onSetEventArea;
 
-  /// 可选领域清单（供"调整归属"对话框使用）。为空时不显示该入口。
+  /// 可选领域清单（供"调整归属"对话框使用）。为空时菜单里不出现「调整所属领域」。
   final Future<List<ScheduleAreaOption>> Function()? loadAreaOptions;
 
   /// 要**定位**的那一条固定日程的领域事件 id（M1，路线图 §3.2）。
@@ -159,8 +159,8 @@ final class DayViewPage extends StatelessWidget {
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final item = items[index];
-                    // 只对**固定日程**开放删除与改写：保护时间是算出来的区间，任务块
-                    // 属于计划。把条目 id 原样交给日程端口会删 0 行而不报错。
+                    // 只对**固定日程**（与自定义保护时间）开放删除与改写：规则来源的保护时间
+                    // 是算出来的区间，任务块属于计划。把条目 id 原样交给日程端口会删 0 行而不报错。
                     final eventId = fixedEventId(item);
                     // 提升为局部变量：公开字段不会被 Dart 提升为不可空，直接判空过不了类型检查。
                     final setArea = onSetEventArea;
@@ -185,6 +185,12 @@ final class DayViewPage extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             )
                           : null,
+                      // **固定形态**：`[占满剩余宽度的卡片] [固定 48 px 操作槽]`（计划 §2.7）。
+                      //
+                      // 操作槽的宽度**与可用性无关**：动作数量随条目类型变化
+                      // （固定日程 3 项、自定义保护时间 2 项、规则保护时间 1 项、任务 0 项），
+                      // 而卡片右边界必须始终落在同一条竖线上。此前"每类各自渲染几枚图标
+                      // 按钮"正是 R2 的成因：规则保护时间多一枚 settings，卡片就窄 48 px。
                       child: Row(
                         children: [
                           Expanded(
@@ -197,80 +203,21 @@ final class DayViewPage extends StatelessWidget {
                               end: zones.toLocal(item.range.endUtc, timeZoneId),
                             ),
                           ),
-                          // 两个图标位**对每个条目都在**，只是不可用时变暗且点不动。
-                          //
-                          // 为什么不做成"不可用就不显示"：那样只有固定日程带图标，其余卡片
-                          // 右边空着，同一列里宽窄参差（用户报的就是这个）。图标位的宽度
-                          // 因此必须与可用性无关。
-                          if (onDeleteEvent != null)
-                            IconButton(
-                              key: Key('delete-${item.id}'),
-                              tooltip: item.fromRules
-                                  // **规则来源的保护时间删不掉**（计划 Task 8 Step 3）：
-                                  // 它没有锚点行，只能去设置页改规则。说"只有固定日程
-                                  // 可以删除"会让用户以为自己看错了类别。
-                                  ? '这条来自设置里的长期规则，去设置里改'
-                                  : eventId == null
-                                  ? '只有固定日程可以删除'
-                                  : '删除这条日程',
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: eventId == null
-                                  ? null
-                                  : () => _confirmDelete(
-                                      context,
-                                      item,
-                                      eventId: eventId,
-                                      onDeleteEvent: onDeleteEvent,
-                                      onDeleteOccurrence: onDeleteOccurrence,
-                                      onDeleteFollowing: onDeleteFollowing,
-                                    ),
-                            ),
-                          // **规则来源的保护时间给一条"去设置"**（计划 Task 8 Step 3）：
-                          // 不给入口等于告诉用户"这条东西没法改"，而它其实改得了——
-                          // 只是要在设置页改规则，而不是在这一页改这一次。
-                          if (item.fromRules &&
-                              onOpenProtectedTimeSettings != null)
-                            IconButton(
-                              key: Key('settings-${item.id}'),
-                              tooltip: '去设置里改这条长期保护规则',
-                              icon: const Icon(Icons.settings_outlined),
-                              onPressed: onOpenProtectedTimeSettings,
-                            ),
-                          if (setArea != null && loadOptions != null)
-                            IconButton(
-                              key: Key('area-${item.id}'),
-                              tooltip: eventId == null
-                                  ? '只有固定日程可以调整归属'
-                                  : '调整所属领域',
-                              icon: const Icon(Icons.folder_outlined),
-                              onPressed: eventId == null
-                                  ? null
-                                  : () => _chooseArea(
-                                      context,
-                                      item,
-                                      eventId: eventId,
-                                      onSetEventArea: setArea,
-                                      loadAreaOptions: loadOptions,
-                                    ),
-                            ),
-                          if (onEditEvent != null)
-                            IconButton(
-                              key: Key('edit-${item.id}'),
-                              // **不再说"只有固定日程可以改写"**：保护时间也走这一条路
-                              // （计划 Task 8 Step 3），而那句提示会让用户以为保护时间不能改。
-                              tooltip: '改这一次、此次及以后或整个系列',
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: eventId == null
-                                  ? null
-                                  : () => _editOccurrence(
-                                      context,
-                                      item,
-                                      eventId: eventId,
-                                      onEditEvent: onEditEvent,
-                                      zones: zones,
-                                      timeZoneId: timeZoneId,
-                                    ),
-                            ),
+                          // 四个入口全部按**能力**交给同一个操作槽：
+                          // 它自己决定渲染菜单还是等宽空槽，卡片这一侧不必知道有几项。
+                          _DayItemActions(
+                            item: item,
+                            onDeleteEvent: onDeleteEvent,
+                            onDeleteOccurrence: onDeleteOccurrence,
+                            onDeleteFollowing: onDeleteFollowing,
+                            onEditEvent: onEditEvent,
+                            onOpenProtectedTimeSettings:
+                                onOpenProtectedTimeSettings,
+                            onSetEventArea: setArea,
+                            loadAreaOptions: loadOptions,
+                            zones: zones,
+                            timeZoneId: timeZoneId,
+                          ),
                         ],
                       ),
                     );
@@ -900,4 +847,222 @@ final class _DayItemTile extends StatelessWidget {
   static String _clock(DateTime value) =>
       '${value.hour.toString().padLeft(2, '0')}:'
       '${value.minute.toString().padLeft(2, '0')}';
+}
+
+/// 日视图每行操作槽的**固定**宽度（计划 §2.7）。
+///
+/// 48 是 `IconButton` 的最小可点区域：窄了会让"更多"按钮的点击目标不达标，
+/// 宽了会把卡片挤得比必要的更窄。
+const double _dayItemActionSlotWidth = 48;
+
+/// 日视图卡片上**可执行**的一个动作（计划 §2.7 的那四种）。
+enum _DayItemAction {
+  edit(label: '编辑', icon: Icons.edit_outlined),
+  area(label: '调整所属领域', icon: Icons.folder_outlined),
+  delete(label: '删除', icon: Icons.delete_outline),
+  settings(label: '去设置', icon: Icons.settings_outlined);
+
+  const _DayItemAction({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
+
+  /// 菜单项 key 的前缀。
+  ///
+  /// **与旧图标按钮同名**（`delete-<id>`、`area-<id>`、`edit-<id>`、`settings-<id>`）：
+  /// key 从 `IconButton` 挪到了 `PopupMenuItem` 上，名字不变，于是"哪一条的哪一个动作"
+  /// 这套定位方式不必重学，测试里也只有"先开菜单"这一步是新的。
+  String get keyPrefix => switch (this) {
+    _DayItemAction.edit => 'edit',
+    _DayItemAction.area => 'area',
+    _DayItemAction.delete => 'delete',
+    _DayItemAction.settings => 'settings',
+  };
+}
+
+/// 一行右侧**固定 48 px** 的操作槽（计划 §2.7、§1.1 R2、§1.2 U5）。
+///
+/// ## 为什么是一个独立的 widget
+///
+/// "这一条能做哪些事"是**能力**问题，而"卡片有多宽"是**布局**问题。此前两者缠在一起：
+/// 布局直接读回调是否为空来增删 `IconButton`，于是
+///
+/// - 动作数量随条目类型变化 ⇒ 卡片宽度跟着变（R2：规则保护时间多一枚 `settings`，
+///   卡片窄 48 px，整列右边界参差）；
+/// - 不可用的动作只能渲染成 `onPressed: null` 的灰色图标 ⇒ 用户看到三枚点不动的图标，
+///   屏幕阅读器还会读出"这里有操作"（U5）。
+///
+/// 现在两件事分开：这个 widget **先按能力构造动作列表**，再决定渲染菜单还是空槽，
+/// 而两种形态的宽度都是 [_dayItemActionSlotWidth]。
+///
+/// ## 为什么用 `PopupMenuButton`
+///
+/// 键盘方向键选择、Esc 关闭并把焦点还给触发按钮都是它的既有行为（计划 Task 3 Step 4
+/// 要的正是这两条）；手搓 `MenuAnchor` 得自己把这三件事补齐，而漏掉任何一件都不会
+/// 在截图里看出来。
+final class _DayItemActions extends StatelessWidget {
+  const _DayItemActions({
+    required this.item,
+    required this.onDeleteEvent,
+    required this.onDeleteOccurrence,
+    required this.onDeleteFollowing,
+    required this.onEditEvent,
+    required this.onOpenProtectedTimeSettings,
+    required this.onSetEventArea,
+    required this.loadAreaOptions,
+    required this.zones,
+    required this.timeZoneId,
+  });
+
+  final ScheduleViewItem item;
+  final Future<bool> Function(String eventId)? onDeleteEvent;
+  final Future<bool> Function(
+    String eventId,
+    DateTime occurrenceStartUtc,
+    String title,
+  )?
+  onDeleteOccurrence;
+  final Future<bool> Function(String eventId, DateTime occurrenceStartUtc)?
+  onDeleteFollowing;
+  final Future<OccurrenceEditOutcome> Function(OccurrenceEditRequest request)?
+  onEditEvent;
+  final VoidCallback? onOpenProtectedTimeSettings;
+  final Future<bool> Function(String eventId, String? areaId)? onSetEventArea;
+  final Future<List<ScheduleAreaOption>> Function()? loadAreaOptions;
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
+
+  /// 这一条**能执行**的动作（计划 §2.7 的能力表）。
+  ///
+  /// | 条目 | 动作 |
+  /// | --- | --- |
+  /// | 固定日程（`fixedEventId != null`） | 编辑、调整所属领域、删除（各自看端口是否注入） |
+  /// | **自定义**保护时间（`fromRules == false`） | 编辑、删除（**没有**"调整所属领域"） |
+  /// | **规则来源**保护时间（`fromRules == true`） | 只有"去设置" |
+  /// | 任务块／生活块 | 一个都没有 ⇒ 空槽 |
+  ///
+  /// 领域只属于固定日程：保护时间在数据里没有 `areaId` 这一栏，摆出"调整所属领域"
+  /// 就是一个点了也不生效的入口。其余取不到领域事件 id 的组合（例如 id 没有
+  /// `fixed:` 命名空间）同样落进空槽——**宁可没有入口，也不要一个点了不生效的图标**。
+  List<_DayItemAction> get actions {
+    // 规则来源的保护时间没有 `CalendarEvent` 锚点行（计划 §2.3 末段）：改不了也删不掉，
+    // 只能在设置页改规则。反过来，它**有**"去设置"这一条真能走的路。
+    if (item.fromRules) {
+      return onOpenProtectedTimeSettings == null
+          ? const <_DayItemAction>[]
+          : const <_DayItemAction>[_DayItemAction.settings];
+    }
+    // 任务块属于计划（该撤销计划，而不是删一条日程），生活块不属于日程端口。
+    if (item.kind == ScheduleItemKind.task ||
+        item.kind == ScheduleItemKind.life) {
+      return const <_DayItemAction>[];
+    }
+    final eventId = fixedEventId(item);
+    if (eventId == null) return const <_DayItemAction>[];
+
+    return <_DayItemAction>[
+      if (onEditEvent != null) _DayItemAction.edit,
+      if (item.kind == ScheduleItemKind.fixed &&
+          onSetEventArea != null &&
+          loadAreaOptions != null)
+        _DayItemAction.area,
+      if (onDeleteEvent != null) _DayItemAction.delete,
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = actions;
+    // 动作数量为 0：**等宽空槽**，不渲染任何按钮（尤其不渲染灰色按钮）。
+    // 宽度仍然留出，卡片右边界因此与其它行完全一致。
+    if (available.isEmpty) {
+      return const SizedBox(width: _dayItemActionSlotWidth);
+    }
+    final eventId = fixedEventId(item);
+    return SizedBox(
+      width: _dayItemActionSlotWidth,
+      child: PopupMenuButton<_DayItemAction>(
+        key: Key('actions-${item.id}'),
+        // **名称挂在图标上**（计划 Task 3 Step 4：Narrator 要读「更多操作：<标题>」）。
+        //
+        // `PopupMenuButton` 用 `icon:` 时内部就是 `IconButton`，而它写的是
+        // `Semantics(container: true, button: true)`——一个**无名**的按钮节点，
+        // `tooltip` 也**不是** label。`Icon(semanticLabel:)` 产生的标注不划边界，
+        // 恰好并进那一个节点，于是树里只有一个按钮、名字完整；一屏多个"更多操作"
+        // 也分得清是哪一条。
+        //
+        // 不在外面套 `Semantics(label:)`：`IconButton` 的节点是边界，外层标注并不进它，
+        // 那样只会**多出**一个有名字却点不动的节点。
+        icon: Icon(Icons.more_vert, semanticLabel: '更多操作：${item.title}'),
+        // `tooltip` 是指针用户的悬停提示，与上面的名称同一句话。
+        tooltip: '更多操作：${item.title}',
+        onSelected: (_DayItemAction action) =>
+            _run(context, action, eventId: eventId),
+        itemBuilder: (context) => <PopupMenuEntry<_DayItemAction>>[
+          for (final action in available)
+            PopupMenuItem<_DayItemAction>(
+              key: Key('${action.keyPrefix}-${item.id}'),
+              value: action,
+              child: Row(
+                children: [
+                  // 删除项同时有文字与图标（§2.7）；**不以颜色区分危险**。
+                  Icon(action.icon),
+                  const SizedBox(width: 12),
+                  Text(action.label),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 菜单项被选中后做它该做的事。
+  ///
+  /// 删除仍然走既有的二次确认 [_confirmDelete]——菜单只是换了个入口，
+  /// "删除不可逆，先问清范围"这条约束没有变。焦点由 `PopupMenuButton` 在菜单
+  /// 关闭后自动还给触发按钮，这里不必手动处理。
+  Future<void> _run(
+    BuildContext context,
+    _DayItemAction action, {
+    required String? eventId,
+  }) async {
+    switch (action) {
+      case _DayItemAction.settings:
+        onOpenProtectedTimeSettings?.call();
+      case _DayItemAction.edit:
+        final edit = onEditEvent;
+        if (eventId == null || edit == null) return;
+        await _editOccurrence(
+          context,
+          item,
+          eventId: eventId,
+          onEditEvent: edit,
+          zones: zones,
+          timeZoneId: timeZoneId,
+        );
+      case _DayItemAction.area:
+        final setArea = onSetEventArea;
+        final loadOptions = loadAreaOptions;
+        if (eventId == null || setArea == null || loadOptions == null) return;
+        await _chooseArea(
+          context,
+          item,
+          eventId: eventId,
+          onSetEventArea: setArea,
+          loadAreaOptions: loadOptions,
+        );
+      case _DayItemAction.delete:
+        final delete = onDeleteEvent;
+        if (eventId == null || delete == null) return;
+        await _confirmDelete(
+          context,
+          item,
+          eventId: eventId,
+          onDeleteEvent: delete,
+          onDeleteOccurrence: onDeleteOccurrence,
+          onDeleteFollowing: onDeleteFollowing,
+        );
+    }
+  }
 }
