@@ -88,6 +88,83 @@ void main() {
     );
   });
 
+  testWidgets('**多个连续参数**：`returnTo` 不影响锚点 id 的解析', (tester) async {
+    // `/calendar/protected/<anchorId>/edit` 与 `?returnTo=…` 同时出现时，
+    // 路径参数必须仍然只取到 id——把查询串并进 id 会让"找不到这条保护时间"。
+    await pumpRouter(
+      tester,
+      initialLocation:
+          '/calendar/protected/anchor-1/edit?returnTo=/calendar/protected',
+    );
+
+    expect(
+      find.byKey(const Key('protected-series-missing')),
+      findsNothing,
+      reason: 'id 必须解析成 `anchor-1`，不能带上查询串',
+    );
+    expect(find.byKey(const Key('protected-title')), findsOneWidget);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 8 Step 4：**保存后的返回路径由入口决定，不由路由猜**
+  //
+  // 修复前 `/calendar/protected/new` 是写死的：保存跳 `/calendar`（周视图）、
+  // 取消跳 `/new`（**新建任务页**——一个用户根本没去过的页面）。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**取消后回管理页**（而不是跳到"新建任务"页）', (tester) async {
+    final router = await pumpRouter(
+      tester,
+      initialLocation: '/calendar/protected/new?returnTo=/calendar/protected',
+    );
+
+    expect(find.byKey(const Key('protected-title')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('editor-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(
+      router.state.uri.path,
+      '/calendar/protected',
+      reason:
+          '修复前取消跳 `/new`，那是"新建任务"页——用户从没打算去那里。'
+          '返回路径必须由**入口**填，不能由路由写死',
+    );
+  });
+
+  testWidgets('**没有 `returnTo` 时默认回管理页**', (tester) async {
+    final router = await pumpRouter(
+      tester,
+      initialLocation: '/calendar/protected/new',
+    );
+
+    await tester.tap(find.byKey(const Key('editor-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(
+      router.state.uri.path,
+      '/calendar/protected',
+      reason: '默认值也要是"这件事的管理页"，而不是某个无关页面',
+    );
+  });
+
+  testWidgets('**带外链的 `returnTo` 被忽略**（不会把用户带到站外）', (tester) async {
+    final router = await pumpRouter(
+      tester,
+      initialLocation: '/calendar/protected/new?returnTo=https://example.com',
+    );
+
+    await tester.tap(find.byKey(const Key('editor-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(
+      router.state.uri.path,
+      '/calendar/protected',
+      reason:
+          '只接受站内绝对路径。带外链的 `returnTo` 会让一次保存把用户带到别处，'
+          '而这不是他能预期的行为',
+    );
+  });
+
   testWidgets('**`/calendar/protected/new` 仍然是新建编辑器**（清单页的入口指向它）', (
     tester,
   ) async {

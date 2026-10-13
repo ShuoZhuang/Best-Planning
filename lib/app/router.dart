@@ -180,7 +180,9 @@ void _openNewItemEntry(BuildContext context, PlannerNewItemKind kind) {
     case PlannerNewItemKind.fixedEvent:
       context.go('/calendar/new');
     case PlannerNewItemKind.protectedTime:
-      context.go('/calendar/protected/new');
+      // **保存后回管理页，而不是跳到无关的今日页**（计划 Task 8 Step 4）：
+      // 这是全局"新建"入口，它与保护时间管理页是同一件事的两端。
+      context.go('/calendar/protected/new?returnTo=/calendar/protected');
   }
 }
 
@@ -1145,7 +1147,9 @@ GoRouter createPlannerRouter({
                 timeZoneId: timeZoneId,
                 zones: zones,
                 nowUtc: nowUtc ?? todayStartUtc,
-                onManaged: () => context.go('/calendar/protected/new'),
+                onManaged: () => context.go(
+                  '/calendar/protected/new?returnTo=/calendar/protected',
+                ),
                 onEditSeries: (anchorId) =>
                     context.go('/calendar/protected/$anchorId/edit'),
               );
@@ -1199,13 +1203,27 @@ GoRouter createPlannerRouter({
                   message: '日历写入服务未装配，暂无法新建保护时间。',
                 );
               }
+              // **保存后回哪里**由**入口**决定，不由这里猜（计划 Task 8 Step 4）。
+              //
+              // 修复前这里是写死的：保存跳 `/calendar`（周视图）、取消跳 `/new`。
+              // 后果是"我明明是从管理页点进来的，保存之后却在周视图上"，
+              // 而**取消更是跳到"新建任务"页**——一个用户根本没去过的页面。
+              //
+              // 判定用 `state.uri` 上的 `returnTo`，由三个入口各自填：
+              // 管理页填 `/calendar/protected`，日视图填回那一天，全局新建不填（默认管理页）。
+              final returnTo = state.uri.queryParameters['returnTo'];
+              final destination = returnTo != null && returnTo.startsWith('/')
+                  // **只接受"站内绝对路径"**：带外链或相对路径的 `returnTo` 会让
+                  // 一次保存把用户带到别处，而这不是他能预期的行为。
+                  ? returnTo
+                  : '/calendar/protected';
               return ProtectedTimeEditorPage(
                 service: service,
                 timeZoneId: timeZoneId,
                 zones: zones,
                 workspace: workspaceService,
-                onSaved: () => context.go('/calendar'),
-                onCancel: () => context.go('/new'),
+                onSaved: () => context.go(destination),
+                onCancel: () => context.go(destination),
               );
             },
           ),
