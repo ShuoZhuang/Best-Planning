@@ -29,7 +29,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// 或多一次重建。更新判定是另一回事：错了会导致"永远说已是最新"，因此那一处必须读真实元数据。
 ///
 /// 版本规则与历史回填见 `docs/release/version-policy.md`。
-const appVersion = '1.8.0+43';
+const appVersion = '1.8.0+44';
 
 /// 待恢复文件的路径：恢复**不立刻**替换正在使用的数据库，而是写到这里，等下次启动时生效。
 String pendingRestorePath(String databasePath) =>
