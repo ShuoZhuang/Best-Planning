@@ -3,6 +3,7 @@ import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/protected_time_labels.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/schedule_colors.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -20,10 +21,11 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 此前这两个页面注入的是 `EmptyScheduleViewSource`，恒返回空列表，因此今日页
 /// 与周视图在真实运行中永远不显示任何安排。
 ///
-/// 已知限制：
-/// - 只在订阅时读取一次。任务流是实时的，但固定日程与已确认计划只提供 `Future`
-///   接口，因此数据变化后需要重新订阅才能看到；要做到实时刷新需要仓储层提供
-///   变更流。
+/// 已知限制（计划 Task 7 负责修）：
+/// - [watch] **只在订阅时读取一次**：`async*` 里 `yield await _load(...)` 之后流就结束了，
+///   它既不订阅 `tasks.watchOpenTasks()`／`watchAllTasks()`，也没有任何失效信号。因此
+///   固定日程或确认计划写入后，**同一个订阅者收不到第二份列表**，页面必须重新订阅才看得到。
+///   这不是"仓储只提供 `Future`"造成的：`watchOpenTasks()` 本来就是流，是这里没接刷新源。
 /// - `ScheduleItemKind.life` 尚无法产生：`PlannerTask` 没有生活事项标记（见 R1、R2
 ///   关于标签与项目缺失的登记），生活配额目前只在统计服务里按领域名推断。
 final class RepositoryScheduleViewSource implements ScheduleViewSource {
@@ -57,8 +59,12 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   /// 历史计划块（含已被取代的版本）。过去几天当时排了什么只在那里。
   final PlanBlockHistory history;
 
-  /// 判定固定日程"时间是否已经过去"用。可注入是为了让测试能固定"现在"，
+  /// 判定"这一天是否已经完整过去"、"这块是否整段已经过去"用（历史版本还原与
+  /// 终态任务补充都读它）。可注入是为了让测试能固定"现在"，
   /// 而不是靠 `DateTime.now()`——那种测试会在跨日、跨时区时随机变红。
+  ///
+  /// **它不再参与固定日程的"完成"判定**（计划 §1.1 R11）：完成语义只属于
+  /// `TaskStatus.completed`。
   final Clock _clock;
 
   @override
@@ -109,8 +115,13 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
           categorySortOrder: category.sortOrder,
           // 保护时间没有归属：把它挂到某个领域会让"领域时间分配"多出一份并不存在的占用。
           areaId: isProtected ? null : occurrence.areaId,
-          // 保护时间不参与"完成"判定——它不是待办。
-          isCompleted: !isProtected && !occurrence.range.endUtc.isAfter(nowUtc),
+          // **固定日程与保护时间都不参与"完成"判定**（计划 §1.1 R11）。
+          //
+          // 这里此前写的是 `!isProtected && !occurrence.range.endUtc.isAfter(nowUtc)`：
+          // 它把"钟点过去了"当成了"用户做完了"，于是固定日程一过结束时间就画出一个
+          // 完成勾。两者的处置完全不同——前者无事可做，后者要记录完成——而完成语义
+          // 只属于 `TaskStatus.completed`，也就是下面计划块走的那一条（`completedIds`）。
+          isCompleted: false,
           // 备注：改写对话框要预填它（负责任的实现必须"能读的字段也能写回"）。
           notes: occurrence.notes,
           // **有没有重复规则**：日视图据此决定要不要显示"仅本次／此次及以后／整个系列"。
@@ -133,10 +144,16 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
       final category = colorCatalog.special(
         ScheduleSpecialCategory.protectedTime,
       );
+      // **类别直接读字段，不解析 id**（计划 §2.5）。这里曾经有一份
+      // `_protectedLabel(interval.id)`：它 `split(':')` 取第二段当 kind，于是
+      // 展开层给 id 改个格式就会静默读错，而且它**漏了 breakfast**（早餐被显示成
+      // 兜底的「保护时间」）。`protectedKind` 为空只是防御性的兜底——生产路径上
+      // 规则展开一定带着类别——此时回落到字面量，绝不回头去猜 id。
+      final kind = interval.protectedKind;
       items.add(
         ScheduleViewItem(
           id: interval.id,
-          title: _protectedLabel(interval.id),
+          title: kind == null ? '保护时间' : protectedTimeKindLabel(kind),
           kind: ScheduleItemKind.protectedTime,
           range: interval.range,
           categoryKey: category.key,
@@ -454,17 +471,10 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   }
 }
 
-/// 保护时间区间的 id 形如 `protected:<kind>:<yyyy-MM-dd>:<minute>`。
-String _protectedLabel(String intervalId) {
-  final parts = intervalId.split(':');
-  if (parts.length < 2) return '保护时间';
-  return switch (parts[1]) {
-    'lunch' => '午餐时间',
-    'dinner' => '晚餐时间',
-    'fixedRest' => '固定休息',
-    _ => '保护时间',
-  };
-}
-
+// 这里曾经有一个 `_protectedLabel(String intervalId)`：它把
+// `protected:<kind>:<yyyy-MM-dd>:<minute>` 的第二段当作类别，于是展开层改一次 id 的
+// 拼接格式就会静默读错，而且那份 switch **漏了 breakfast**（计划 §2.5）。
+// 类别现在由 `BusyInterval.protectedKind` 携带，文案统一取自
+// `design/protected_time_labels.dart::protectedTimeKindLabel`。
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);

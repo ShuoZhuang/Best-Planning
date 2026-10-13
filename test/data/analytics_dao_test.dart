@@ -11,7 +11,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/data/database/daos/analytics_dao.dart';
+import 'package:personal_planner/design/protected_time_labels.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 
 void main() {
@@ -381,5 +384,139 @@ void main() {
       expect(byId[id]!.areaName, '生活');
       expect(byId[id]!.isLifeTask, isTrue);
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 2（计划 §2.5）：保护时间的**两条**数据路径都要给出正确的中文标签。
+  //
+  // `AnalyticsDao._protectedWindows()` 有两条把保护时间投影成标签的路径：
+  // · `raw == null`（用户没保存过规则）→ typed 的 `_protectedLabel(ProtectedTimeKind)`；
+  // · 用户保存过规则 → JSON 字符串 switch。
+  // 后者此前只有 lunch／dinner／fixedRest，于是**开了早餐的用户在「休息保护」里看到一条
+  // 「保护时间」**，对应不到任何设置（R1 在统计侧的同一条缺陷）。
+  //
+  // **数据层不 import `lib/design/`**（计划 §2.5 明确禁止反向依赖），因此两份映射由下面
+  // 的契约测试保证一致——测试层同时 import 数据层与 design 层是允许的。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  Future<void> seedUserRules(String json) => database
+      .into(database.settings)
+      .insert(
+        SettingsCompanion.insert(
+          key: 'planning.userRules.v1',
+          jsonValue: json,
+          updatedAtUtc: 1,
+        ),
+      );
+
+  Future<void> clearUserRules() => (database.delete(
+    database.settings,
+  )..where((row) => row.key.equals('planning.userRules.v1'))).go();
+
+  Future<List<AnalyticsProtectedWindow>> protectedWindows() async =>
+      (await dao.load(filterWith(const {}))).protectedWindows;
+
+  /// 一条只含 [kind] 的用户规则 JSON（时钟点刻意与默认值都不同，免得两条路径混起来）。
+  String rulesJsonFor(ProtectedTimeKind kind) =>
+      '{"common":{"protectedTimes":[{'
+      '"kind":"${kind.name}",'
+      '"range":{"startMinute":600,"endMinute":660},'
+      '"dayKind":"any","enabled":true}]}}';
+
+  test('JSON 规则路径：breakfast 映射为「早餐」，不再回落为「保护时间」', () async {
+    await seedUserRules(
+      '{"common":{"protectedTimes":[{'
+      '"kind":"breakfast","range":{"startMinute":450,"endMinute":480},'
+      '"dayKind":"any","enabled":true}]}}',
+    );
+
+    final windows = await protectedWindows();
+    final breakfast = windows.singleWhere((item) => item.startMinute == 450);
+
+    expect(
+      breakfast.label,
+      '早餐',
+      reason:
+          'JSON 路径的 switch 必须显式覆盖 breakfast；修复前它落到 `_ =>`，'
+          '用户看到一条「保护时间」，而它对应不到任何设置',
+    );
+    expect(breakfast.endMinute, 480);
+    expect(
+      windows.map((item) => item.label),
+      isNot(contains('保护时间')),
+      reason: '兜底文案只负责"不认识的 kind"，不能替 breakfast 回答',
+    );
+  });
+
+  test('默认规则路径：每条默认保护时间的标签都取自同一份类型映射', () async {
+    // 没有保存过规则 → `raw == null` → typed 的 `_protectedLabel` 那条路径。
+    final windows = await protectedWindows();
+    final defaults = DefaultSettings.v1();
+
+    expect(windows, isNotEmpty, reason: '默认值里午餐与晚餐本来就受保护');
+    for (final rule in defaults.protectedTimes) {
+      final window = windows.singleWhere(
+        (item) => item.startMinute == rule.range.startMinute,
+      );
+      expect(
+        window.label,
+        protectedTimeKindLabel(rule.kind),
+        reason:
+            '默认路径 ${rule.kind.name} 的标签必须与日历共用同一份文案'
+            '（否则同一个类别在两个页面显示不同的话）',
+      );
+    }
+    expect(windows.map((item) => item.label), containsAll(['午餐', '晚餐']));
+  });
+
+  test('契约：两条路径的输出都与 protectedTimeKindLabel 一致（含 breakfast）', () async {
+    // ① JSON 路径：四个类别逐个比对。**这是 breakfast 唯一能真正出现的数据路径**。
+    for (final kind in ProtectedTimeKind.values) {
+      await clearUserRules();
+      await seedUserRules(rulesJsonFor(kind));
+
+      final windows = await protectedWindows();
+      final window = windows.singleWhere((item) => item.startMinute == 600);
+
+      expect(
+        window.label,
+        protectedTimeKindLabel(kind),
+        reason: 'JSON 路径的 ${kind.name} 必须与界面文案一致',
+      );
+    }
+    expect(
+      protectedTimeKindLabel(ProtectedTimeKind.breakfast),
+      '早餐',
+      reason: 'breakfast 的文案固定为「早餐」（计划 §2.5）',
+    );
+
+    // ② 默认规则路径：逐个默认规则比对——它只可能产出 v1 里真有的类别。
+    await clearUserRules();
+    final defaultWindows = await protectedWindows();
+    final labelsByStart = {
+      for (final rule in DefaultSettings.v1().protectedTimes)
+        rule.range.startMinute: protectedTimeKindLabel(rule.kind),
+    };
+
+    expect(labelsByStart, isNotEmpty);
+    for (final window in defaultWindows) {
+      final expected = labelsByStart[window.startMinute];
+      // 睡眠不在 `protectedTimes` 里（它是 `sleepRange`），标签是另一回事。
+      if (expected == null) continue;
+      expect(window.label, expected, reason: '默认路径的标签必须来自同一份界面文案');
+    }
+
+    // ③ **为什么默认路径不需要（也无法）断言 breakfast**：`v1()` 是既有用户升级后拿到的
+    //    规则，早餐刻意不在里面（`DefaultSettings.breakfastStartMinute` 的说明、计划 §2.4
+    //    "既有用户默认关闭"）。因此 typed 分支的 breakfast 只由**穷尽 switch**在编译期
+    //    保证（那份 switch 没有 `_ =>` 兜底）。这条 canary 把该前提钉住：一旦有人把早餐
+    //    放进 v1，它会立刻变红，提醒他把默认路径的 breakfast 也纳入覆盖。
+    expect(
+      DefaultSettings.v1().protectedTimes.any(
+        (rule) => rule.kind == ProtectedTimeKind.breakfast,
+      ),
+      isFalse,
+      reason: 'v1 不替既有用户开启早餐；若改成开启，本文件的默认路径覆盖必须同步扩展',
+    );
   });
 }

@@ -4,6 +4,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
+import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 void main() {
   final zones = TimeZoneDatabase();
@@ -158,5 +159,87 @@ void main() {
     for (final item in intervals) {
       expect(item.range.durationMinutes, 60);
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 2 Step 1（计划 §2.5）：类别是**数据**，不是 id 里的一段字符串。
+  //
+  // 此前类别只被编码进 id（`protected:<kind>:<date>:<minute>`），视图层于是
+  // `split(':')` 反推它——那份推断还漏了 breakfast。下面逐条钉住"展开出的区间
+  // 自己带着类别"，四个类别一个都不许少。
+  // ─────────────────────────────────────────────────────────────────────────────
+  test('展开出的保护时间逐条带上自己的类别（四个类别全都要覆盖）', () {
+    for (final kind in ProtectedTimeKind.values) {
+      final rules = DefaultSettings.v1().copyWith(
+        protectedTimes: [
+          ProtectedTimeRule(
+            kind: kind,
+            range: LocalTimeRange(startMinute: 12 * 60, endMinute: 13 * 60),
+          ),
+        ],
+      );
+
+      final intervals = expander.expand(
+        rules: rules,
+        startUtc: DateTime.utc(2026, 10, 5),
+        endUtc: DateTime.utc(2026, 10, 6),
+        timeZoneId: 'UTC',
+      );
+
+      expect(
+        intervals,
+        hasLength(1),
+        reason: '${kind.name} 必须真的展开出一条区间（否则这条断言是空跑）',
+      );
+      expect(
+        intervals.single.protectedKind,
+        kind,
+        reason:
+            '类别必须写在字段里：${kind.name} 读成 null 就意味着下游只能回头去'
+            '解析 id，而那正是漏掉 breakfast 的那条老路',
+      );
+      // id 里当然还带着类别（它是既有格式），但**不许**把它当契约：这条只是
+      // 顺手固定"字段与 id 此刻一致"，真正被断言的是上面的 `protectedKind`。
+      expect(intervals.single.id, startsWith('protected:${kind.name}:'));
+    }
+  });
+
+  test('睡眠区间不带类别——它不是 `protectedTimes` 里的规则（含跨午夜合并段）', () {
+    final intervals = expander.sleep(
+      rules: DefaultSettings.v1(),
+      startUtc: DateTime.utc(2026, 10, 4),
+      endUtc: DateTime.utc(2026, 10, 11),
+      timeZoneId: 'UTC',
+    );
+
+    expect(intervals, isNotEmpty);
+    expect(
+      intervals.every((item) => item.protectedKind == null),
+      isTrue,
+      reason: '睡眠有作息含义，但它不是一条带类别的保护时间规则',
+    );
+    // 默认 23:30–07:30 跨午夜，`splitAtMidnight` 拆出的两段会被**合并**成
+    // 一整夜（480 分钟）。窗口首夜被裁到 00:00 起，因此用 contains 而不是全体。
+    expect(
+      intervals.map((item) => item.range.durationMinutes),
+      contains(8 * 60),
+      reason: '合并路径必须真的被走到，否则"合并后仍为 null"这条断言是空跑',
+    );
+  });
+
+  test('`BusyInterval` 的类别默认是 null（固定日程与锁定块不走这条字段）', () {
+    final interval = BusyInterval(
+      id: 'class',
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 9),
+        endUtc: DateTime.utc(2026, 10, 5, 11),
+      ),
+    );
+
+    expect(
+      interval.protectedKind,
+      isNull,
+      reason: '只有 `protectedTimes` 展开出来的区间才带类别，默认必须是 null',
+    );
   });
 }

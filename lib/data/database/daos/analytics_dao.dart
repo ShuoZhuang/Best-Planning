@@ -379,7 +379,12 @@ final class AnalyticsDao implements AnalyticsDataSource {
         if (item is! Map<String, Object?> || item['enabled'] == false) continue;
         windows.add(
           AnalyticsProtectedWindow(
+            // **JSON 路径也要显式覆盖 breakfast**（计划 §2.5）：默认值的 typed 路径
+            // 有 `_protectedLabel` 兜着，字符串路径此前只有 lunch／dinner／fixedRest，
+            // 于是用户开启早餐后统计里出现一条「保护时间」——它对应不到任何设置。
+            // 兜底分支只负责"不认识的 kind"，不再替 breakfast 回答。
             label: switch (item['kind']) {
+              'breakfast' => '早餐',
               'lunch' => '午餐',
               'dinner' => '晚餐',
               'fixedRest' => '固定休息',
@@ -411,6 +416,13 @@ final class AnalyticsDao implements AnalyticsDataSource {
     return windows;
   }
 
+  /// 把 typed 的 [ProtectedTimeKind] 映射成统计里的标签（默认规则那条路径）。
+  ///
+  /// **数据层不 import `lib/design/`**（计划 §2.5）：界面文案函数是 `lib/design` 的
+  /// 职责，数据层反向依赖界面层会让分层失效。因此这里保留一份**穷尽的**映射
+  /// （没有 `_` 兜底，新增枚举值会编译报错），并由
+  /// `test/data/analytics_dao_test.dart` 的契约测试保证它与
+  /// `protectedTimeKindLabel` 输出一致。
   static String _protectedLabel(ProtectedTimeKind kind) => switch (kind) {
     ProtectedTimeKind.breakfast => '早餐',
     ProtectedTimeKind.lunch => '午餐',

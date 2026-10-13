@@ -78,6 +78,9 @@ final class ProtectedTimeExpander {
                 'protected:${rule.kind.name}:${_dateKey(localDate)}:'
                 '${rule.range.startMinute}',
             range: TimeRange(startUtc: clippedStart, endUtc: clippedEnd),
+            // **类别是数据，不是 id 的一部分**（计划 §2.5）：id 里仍然带着它，
+            // 但下游不许再靠解析 id 得到它——此前正是那次解析漏了 breakfast。
+            protectedKind: rule.kind,
           ),
         );
       }
@@ -175,6 +178,10 @@ final class ProtectedTimeExpander {
                 ? interval.range.endUtc
                 : last.range.endUtc,
           ),
+          // 合并后仍然**不是**一条带类别的保护时间规则：睡眠没有类别，
+          // 这里原样把 `last` 的值带过去（而不是写死 null），免得将来合并
+          // 别的来源时悄悄丢字段。
+          protectedKind: last.protectedKind,
         );
       } else {
         merged.add(interval);

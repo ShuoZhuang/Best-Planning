@@ -2,8 +2,8 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
+import 'package:personal_planner/design/protected_time_labels.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
-import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
@@ -567,7 +567,7 @@ final class _ShortfallGroupState extends State<_ShortfallGroup> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        '保护时间不动；缺口是在「${_protectedLabel(shortfall.protectedConstraint!)}」'
+                        '保护时间不动；缺口是在「${protectedTimeKindLabel(shortfall.protectedConstraint!)}」'
                         '等保护时段之外算出来的。',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
@@ -632,12 +632,9 @@ final class _ShortfallGroupState extends State<_ShortfallGroup> {
   );
 }
 
-String _protectedLabel(ProtectedTimeKind kind) => switch (kind) {
-  ProtectedTimeKind.breakfast => '早餐',
-  ProtectedTimeKind.lunch => '午餐',
-  ProtectedTimeKind.dinner => '晚餐',
-  ProtectedTimeKind.fixedRest => '固定休息',
-};
+// 保护时间的用户文案不再由本文件定义（计划 §2.5）：此前这里的 `_protectedLabel` 与
+// 日历数据源里那份按 id 解析的实现**各写一遍**，同一个类别在两个页面显示不同的话。
+// 现在两处都调用 `design/protected_time_labels.dart::protectedTimeKindLabel`。
 
 final class _ChangeGroup extends StatelessWidget {
   const _ChangeGroup({required this.kind, required this.changes});

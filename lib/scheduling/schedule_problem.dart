@@ -87,9 +87,25 @@ enum TaskDistributionPolicy { unconstrained, even }
 const int allWeekdaysMask = 0x7F;
 
 final class BusyInterval {
-  const BusyInterval({required this.id, required this.range});
+  const BusyInterval({
+    required this.id,
+    required this.range,
+    this.protectedKind,
+  });
+
   final String id;
   final TimeRange range;
+
+  /// 这一段保护时间**是哪一个类别**（早餐／午餐／晚餐／固定休息）。
+  ///
+  /// **为什么必须是一个字段**（计划 §2.5）：类别此前只被编码进 [id] 的字符串
+  /// （`protected:<kind>:<date>:<minute>`），于是视图层要靠 `id.split(':')` 反推
+  /// 它——那等于把 id 的拼接格式当契约，格式一变就静默读错，而且当时那份推断
+  /// **漏了 breakfast**。类型化的字段由展开层直接写入，视图层不必认识 id。
+  ///
+  /// 为空表示**这不是一条带类别的保护时间规则**：固定日程、睡眠与锁定块都是
+  /// `null`（睡眠虽然有作息含义，但它不是 `protectedTimes` 里的一条规则）。
+  final ProtectedTimeKind? protectedKind;
 }
 
 final class PlannedBlock {
