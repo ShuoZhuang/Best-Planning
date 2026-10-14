@@ -25,11 +25,16 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/tasks/task_list_page.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 final _now = DateTime.utc(2026, 10, 7, 12);
+
+/// Task 9 用的长标题：**写死字面量**，断言里逐字比对完整内容。
+const _longTitle =
+    '把数据结构课程设计的最终报告写完并逐条对照评分细则检查一遍再交给助教确认（这一句刻意写得很长，用来验证截断之后仍然能读到全文）';
 
 final class _Clock implements Clock {
   const _Clock();
@@ -525,6 +530,129 @@ void main() {
         _focusInside(tester, trigger),
         isTrue,
         reason: 'Esc 之后焦点必须回到触发按钮；否则键盘用户得从头 Tab 一遍',
+      );
+
+      handle.dispose();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 9 Step 4（计划 `2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`）：
+  // **完成状态必须只属于真正完成的任务**，以及**跨视图一致**。
+  //
+  // §Review Focus 第 12 条："固定日程时间已经过去，不等于任务已完成；完成图标和语义
+  // 只属于 `TaskStatus.completed`"。R11 的根因在数据源，日视图那一条断言在
+  // `test/features/calendar/day_view_test.dart`；这里从**近期日历**与**无障碍闸门**
+  // 的角度再钉一次，并覆盖"长标题的完整内容仍可获知"（§Review Focus 第 14 条）。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('Task 9 近期日历与日视图的完成语义', () {
+    ScheduleViewItem item({
+      required String id,
+      required String title,
+      required ScheduleItemKind kind,
+      required int startHourUtc,
+      bool isCompleted = false,
+    }) => ScheduleViewItem(
+      id: id,
+      title: title,
+      kind: kind,
+      categoryKey: 'area:study',
+      categoryLabel: '学业',
+      categoryColorArgb: 0xff2f86ff,
+      categorySortOrder: 0,
+      isCompleted: isCompleted,
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, startHourUtc),
+        endUtc: DateTime.utc(2026, 10, 5, startHourUtc + 1),
+      ),
+    );
+
+    /// 近期日历：一条"时间已过"的固定日程、一条真完成的任务、一条长标题任务。
+    Future<void> pumpWeekView(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 1024));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: PlannerTheme.dark(),
+          home: Scaffold(
+            body: WeekViewPage(
+              source: _DayItems([
+                item(
+                  id: 'fixed:past',
+                  title: '早场',
+                  kind: ScheduleItemKind.fixed,
+                  startHourUtc: 7,
+                ),
+                item(
+                  id: 'block:done',
+                  title: '已经做完的事',
+                  kind: ScheduleItemKind.task,
+                  startHourUtc: 9,
+                  isCompleted: true,
+                ),
+                item(
+                  id: 'block:long',
+                  title: _longTitle,
+                  kind: ScheduleItemKind.task,
+                  startHourUtc: 11,
+                ),
+              ]),
+              weekStart: DateTime.utc(2026, 10, 5),
+              moveController: const DisabledWeekMoveController(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('近期日历：固定日程不读「已完成」，真完成的任务才读', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpWeekView(tester);
+
+      final labels = _collect(tester).map((node) => node.label).toList();
+      expect(
+        labels.any(
+          (label) => label.contains('已经做完的事') && label.contains('已完成'),
+        ),
+        isTrue,
+        reason:
+            '**R11 的反面**：真完成的任务必须读出「已完成」，否则修复会波及任务块。'
+            '实测标签：$labels',
+      );
+      expect(
+        labels.any((label) => label.contains('早场')),
+        isTrue,
+        reason: '前置：那条固定日程必须真的渲染出来，否则下面的断言是空的',
+      );
+      expect(
+        labels.any((label) => label.contains('早场') && label.contains('已完成')),
+        isFalse,
+        reason:
+            '**R11**：固定日程结束时间已过 ≠ 任务已完成——它的语义里不得出现「已完成」。'
+            '实测标签：$labels',
+      );
+      expect(
+        find.byKey(const ValueKey('week-schedule-completed-fixed:past')),
+        findsNothing,
+        reason: '完成勾只属于 `TaskStatus.completed`',
+      );
+
+      handle.dispose();
+    });
+
+    testWidgets('近期日历：长标题的完整内容可通过语义获知', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpWeekView(tester);
+
+      // 卡片只有 176 px 宽，屏幕上必然换行；**屏幕阅读器要读得到全文**。
+      final labels = _collect(tester).map((node) => node.label).toList();
+      expect(
+        labels.any((label) => label.contains(_longTitle)),
+        isTrue,
+        reason:
+            '长标题的完整内容必须能从语义树里读到（计划 §Review Focus：'
+            '"文本截断后完整内容必须可获知"）。实测标签：$labels',
       );
 
       handle.dispose();

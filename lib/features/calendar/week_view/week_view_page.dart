@@ -674,50 +674,60 @@ final class _DraggableScheduleCard extends StatelessWidget {
         side: BorderSide(color: visual.border),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Semantics(
-        label:
-            '${item.title}，${_time((toLocal ?? (date) => date)(item.range.startUtc))}到${_time((toLocal ?? (date) => date)(item.range.endUtc))}，${item.categoryLabel}，${item.kind.label}'
-            '${item.isCompleted ? '，已完成' : ''}',
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(item.kind.icon, size: 16, color: visual.accent),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        item.categoryLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall,
+      // **给承载整条语义的那一层一个 key**（计划 Task 9 Step 1／Step 4）。
+      //
+      // 卡片里"这一类/这一条"读出来的名字全部由这个 `Semantics` 决定：它既写标题与时间，
+      // 也决定要不要念「已完成」。而它的子节点（分类名、时刻、标题）各自又是独立语义节点，
+      // 因此**光看 `week-schedule-card-<id>` 那棵子树证明不了屏幕阅读器读到了什么**——
+      // 标题里说"完整标题必须仍可获知"、说"固定日程不得读成已完成"，都需要一个稳定入口
+      // 把这一层读出来。key 只服务于定位，不改变任何语义。
+      child: Container(
+        key: ValueKey('week-card-semantics-${item.id}'),
+        child: Semantics(
+          label:
+              '${item.title}，${_time((toLocal ?? (date) => date)(item.range.startUtc))}到${_time((toLocal ?? (date) => date)(item.range.endUtc))}，${item.categoryLabel}，${item.kind.label}'
+              '${item.isCompleted ? '，已完成' : ''}',
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(item.kind.icon, size: 16, color: visual.accent),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          item.categoryLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
                       ),
-                    ),
-                    // 「已完成」标记：任务勾选完成、或固定日程时间已过。
-                    // 用 muted 而不是分类色——它是状态，不该跟分类抢注意力。
-                    if (item.isCompleted)
-                      Icon(
-                        Icons.check_circle_outline,
-                        key: ValueKey('week-schedule-completed-${item.id}'),
-                        size: 14,
-                        color: PlannerPalette.textMuted,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_time((toLocal ?? (date) => date)(item.range.startUtc))}–'
-                  '${_time((toLocal ?? (date) => date)(item.range.endUtc))}',
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(item.title),
-              ],
+                      // 「已完成」标记：任务勾选完成、或固定日程时间已过。
+                      // 用 muted 而不是分类色——它是状态，不该跟分类抢注意力。
+                      if (item.isCompleted)
+                        Icon(
+                          Icons.check_circle_outline,
+                          key: ValueKey('week-schedule-completed-${item.id}'),
+                          size: 14,
+                          color: PlannerPalette.textMuted,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_time((toLocal ?? (date) => date)(item.range.startUtc))}–'
+                    '${_time((toLocal ?? (date) => date)(item.range.endUtc))}',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(item.title),
+                ],
+              ),
             ),
           ),
         ),

@@ -6,6 +6,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -180,6 +181,117 @@ Future<void> _expectNoAction(
   expect(find.byKey(Key('$action-$itemId')), findsNothing);
   await tester.sendKeyEvent(LogicalKeyboardKey.escape);
   await tester.pumpAndSettle();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 9 的共享工具（语义树的真实读取、键盘焦点定位）。
+//
+// 与 `test/app/accessibility_semantics_test.dart` 的同名工具**同一套做法**：
+// 读的是**实跑出来的语义树**，而不是 widget 树里的 `Semantics` 配置。
+// 只看源码会以为"label 已经写好了"，而只有把树读出来才知道它有没有被子节点覆盖、
+// 有没有被 `excludeSemantics` 吃掉——这一页的卡片恰恰是后者。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 语义树里第一个满足 [matches] 的节点数据；没有就返回 `null`。
+SemanticsData? _semanticsData(
+  WidgetTester tester,
+  bool Function(SemanticsData data) matches,
+) {
+  // `binding.pipelineOwner` 在 3.10 之后被标记为弃用，但它仍是此处唯一能拿到
+  // 当前测试树语义根的入口（改 `rootPipelineOwner` 会遍历不到节点）。
+  // ignore: deprecated_member_use
+  final owner = tester.binding.pipelineOwner.semanticsOwner;
+  final root = owner?.rootSemanticsNode;
+  if (root == null) return null;
+  SemanticsData? found;
+  void walk(SemanticsNode node) {
+    if (found != null) return;
+    final data = node.getSemanticsData();
+    if (matches(data)) {
+      found = data;
+      return;
+    }
+    node.visitChildren((child) {
+      walk(child);
+      return true;
+    });
+  }
+
+  walk(root);
+  return found;
+}
+
+/// 当前键盘焦点是否落在 [finder] 命中的那棵子树里。
+///
+/// 不能只比 `primaryFocus.context == 元素`：焦点挂在 `InkWell` / `PopupMenuButton`
+/// 内部的 `Focus` 上，而断言要问的是"焦点在这一行的更多按钮上吗"。
+bool _focusInside(WidgetTester tester, Finder finder) {
+  final element = tester.binding.focusManager.primaryFocus?.context;
+  if (element is! Element) return false;
+  final roots = finder.evaluate();
+  if (roots.isEmpty) return false;
+  final root = roots.first;
+  if (identical(element, root)) return true;
+  var inside = false;
+  element.visitAncestorElements((ancestor) {
+    if (identical(ancestor, root)) {
+      inside = true;
+      return false;
+    }
+    return true;
+  });
+  return inside;
+}
+
+/// 反复按 Tab（有界）直到焦点落进 [finder]；返回是否到达。
+///
+/// **有界**是刻意的：写死"按 N 次 Tab"会把一次无关的焦点重排变成红，
+/// 而这条用例真正要证明的是"Tab 最终能走到这个控件上"。
+Future<bool> _tabUntilFocused(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+    if (_focusInside(tester, finder)) return true;
+  }
+  return false;
+}
+
+/// 焦点当前所在的条目 id（只认 `actions-<id>` 这个触发按钮）；不在任何触发按钮上时为 `null`。
+String? _focusedActionItemId(WidgetTester tester) {
+  final element = tester.binding.focusManager.primaryFocus?.context;
+  if (element is! Element) return null;
+  String? id;
+  var isTrigger = false;
+  element.visitAncestorElements((ancestor) {
+    final key = ancestor.widget.key;
+    if (key is ValueKey<String> && key.value.startsWith('actions-')) {
+      // 最内层那个才是这一行的触发按钮；继续往上会走到 ListView。
+      id = key.value.substring('actions-'.length);
+      isTrigger = true;
+      return false;
+    }
+    return true;
+  });
+  return isTrigger ? id : null;
+}
+
+/// 焦点当前所在菜单项的可读文字（用于断言"方向键停在「编辑」上"）。
+String? _focusedActionButtonLabel(WidgetTester tester) {
+  final element = tester.binding.focusManager.primaryFocus?.context;
+  if (element is! Element) return null;
+  String? label;
+  void visit(Element node) {
+    if (label != null) return;
+    final widget = node.widget;
+    if (widget is Text && widget.data != null) {
+      label = widget.data;
+      return;
+    }
+    node.visitChildren(visit);
+  }
+
+  element.visitChildren(visit);
+  return label;
 }
 
 void main() {
@@ -1778,5 +1890,349 @@ void main() {
     // 日视图与周视图互为切换，因此两者都可达且不占导航项。
     expect(find.byType(DayViewPage), findsOneWidget);
     expect(find.byKey(const Key('open-week-view')), findsOneWidget);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Task 9：文字缩放矩阵、窗口宽度矩阵与键盘路径。
+  //
+  // 计划 `2026-10-13-calendar-preview-and-scheduling-integrity-repair.md` 的
+  // §Review Focus 最后三条与 Task 9 Step 1～3。上面那些用例证明的是"在 1000×1600、
+  // 100% 缩放下行为正确"，而用户报的三件事恰恰都发生在**别的形状**下：
+  // 放大字之后长标题看不全、窄窗口里操作被挤掉、以及只能用键盘时寸步难行。
+  //
+  // **缩放为什么用 `MediaQuery(textScaler:)` 而不是
+  // `tester.platformDispatcher.textScaleFactorTestValue`**：本仓库既有的缩放门禁
+  // （`test/features/tasks/task_type_chooser_test.dart`、
+  // `test/features/planning/recurring_shortfall_preview_test.dart`、
+  // `test/features/calendar/week_timeline_test.dart`）全部用前者，本页测试因此沿用同一写法。
+  // 两者在**文字度量**上等价，但前者还额外钉住了一件本仓库真的会碰到的行为：
+  // `lib/features/today/today_page.dart` 与 `week_view/timeline_day_column.dart` 会读
+  // `MediaQuery.textScalerOf(context)` 来自己决定高度/封顶，而它们读的正是这个 `MediaQuery`。
+  // 用 `platformDispatcher` 那条路时页面内既有的 `MediaQuery` 会被整体替换，
+  // 这两种实现差异就测不出来了。
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  /// 一条长到必然换行的标题。**写死字面量**：它要在断言里逐字比对。
+  const longTitle =
+      '把数据结构课程设计的最终报告写完并逐条对照评分细则检查一遍再交给助教确认（这一句刻意写得很长，用来验证放大字号之后仍然能读到全文）';
+
+  /// 日视图的一整天：一条长标题任务块、一条固定日程、一条规则来源的保护时间。
+  ///
+  /// 三类一次到齐是因为它们的**操作槽宽度相同而动作数量不同**（0／3／1）：
+  /// 计划 §2.7 的不变量正是"宽度与可用性无关"，缩放后最容易坏的就是这一处。
+  List<ScheduleViewItem> matrixItems() => [
+    _item(
+      id: 'block:long',
+      title: longTitle,
+      kind: ScheduleItemKind.task,
+      startHourUtc: 8,
+    ),
+    _item(
+      id: 'fixed:course-1',
+      title: '数据结构课',
+      kind: ScheduleItemKind.fixed,
+      startHourUtc: 10,
+    ),
+    _item(
+      id: 'protected:breakfast:2026-10-05:450',
+      title: '早餐',
+      kind: ScheduleItemKind.protectedTime,
+      startHourUtc: 12,
+      fromRules: true,
+    ),
+  ];
+
+  /// 按给定缩放与视口泵出日视图；四个操作端口全开（"规则保护时间只有去设置"的前提）。
+  Future<void> pumpDayView(
+    WidgetTester tester, {
+    double scale = 1,
+    Size size = const Size(1024, 1600),
+    VoidCallback? onOpenProtectedTimeSettings,
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: Scaffold(
+            body: DayViewPage(
+              source: _Items(matrixItems()),
+              dayStartUtc: _dayStartUtc,
+              zones: TimeZoneDatabase(),
+              timeZoneId: 'UTC',
+              onDeleteEvent: (id) async => true,
+              onEditEvent: (request) async => OccurrenceEditOutcome.saved,
+              onSetEventArea: (eventId, areaId) async => true,
+              onOpenProtectedTimeSettings: onOpenProtectedTimeSettings ?? () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  group('Task 9 Step 1 文字缩放矩阵（100%／125%／150%／200%）', () {
+    for (final scale in const [1.0, 1.25, 1.5, 2.0]) {
+      testWidgets('${(scale * 100).round()}% 缩放下无布局异常，且长标题仍可获知全文', (
+        tester,
+      ) async {
+        await pumpDayView(tester, scale: scale);
+
+        // ① 布局异常：溢出与越界都以异常形式从渲染管线抛出来，
+        //    `takeException()` 是唯一能把它读出来的入口。
+        //
+        // **必须叫出它抓的是哪一类**：这一页现在没有别的异常源，因此"非空"就是
+        // `RenderFlex overflowed`（横向或纵向）或渲染越界；以后再冒出别的异常，
+        // 失败信息里的真实异常类型会指出它不是布局问题。
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '${(scale * 100).round()}% 缩放下出现了布局异常。'
+              '`RenderFlex overflowed`／越界都由渲染管线以异常形式抛出，'
+              '用户看到的是卡片里的字被切掉或整列错位',
+        );
+
+        // ② 三类条目都真的渲染了：溢出断言在"什么都没画"时也会绿。
+        for (final id in const [
+          'block:long',
+          'fixed:course-1',
+          'protected:breakfast:2026-10-05:450',
+        ]) {
+          expect(
+            find.byKey(Key('day-schedule-card-$id')),
+            findsOneWidget,
+            reason: '夹具必须真的渲染出 $id，否则上面的"无异常"是空断言',
+          );
+        }
+
+        // ③ **长标题的完整内容仍可获知**。这一页的卡片把子语义整棵排除
+        //    （`_DayItemTile` 的 `excludeSemantics: true`），因此"读得到全文"只有一条路：
+        //    那个容器语义节点的 label 里必须**逐字**含完整标题。
+        //    只断言 `find.text(longTitle)` 会漏掉真正的缺陷——文字被裁掉时
+        //    widget 树里那句 `Text` 依然在，用户却读不到。
+        final long = _semanticsData(
+          tester,
+          (data) => data.label.contains('把数据结构课程设计的最终报告'),
+        );
+        expect(long, isNotNull, reason: '长标题那一条必须有一个语义节点（否则屏幕阅读器读不到它）');
+        expect(
+          long!.label,
+          contains(longTitle),
+          reason:
+              '${(scale * 100).round()}% 缩放下长标题的完整内容必须仍可获知。'
+              '实测语义 label 是：<<${long.label}>>',
+        );
+
+        // ④ 那一行还要留在视口内：放大之后被挤到屏幕外同样等于"看不到"。
+        final listRect = tester.getRect(find.byType(ListView));
+        final cardRect = tester.getRect(
+          find.byKey(const Key('day-schedule-card-block:long')),
+        );
+        expect(
+          cardRect.top,
+          lessThan(listRect.bottom),
+          reason: '长标题那一条滚到视口下方去了 ⇒ 放大字号之后用户看不到它',
+        );
+        expect(
+          cardRect.bottom,
+          greaterThan(listRect.top),
+          reason: '长标题那一条滚到视口上方去了',
+        );
+      });
+    }
+  });
+
+  group('Task 9 Step 2 窗口宽度矩阵（1024／1280／1920）', () {
+    for (final width in const [1024.0, 1280.0, 1920.0]) {
+      testWidgets('${width.round()} px 下四类卡片右边界一致、操作槽恒为 48 px', (tester) async {
+        // 四类**同页**：任务块（0 个动作）、固定日程（编辑/归属/删除）、
+        // 规则保护时间（只有去设置）。计划 §2.7 的几何契约是
+        // "卡片占满剩余宽度 + 固定 48 px 操作槽"，与这一行有几个动作无关。
+        await pumpDayView(tester, size: Size(width, 1600));
+        expect(tester.takeException(), isNull, reason: '$width px 下不应有布局异常');
+
+        final list = tester.getRect(find.byType(ListView));
+        final rights = <String, double>{};
+        for (final id in const [
+          'block:long',
+          'fixed:course-1',
+          'protected:breakfast:2026-10-05:450',
+        ]) {
+          final rect = tester.getRect(find.byKey(Key('day-schedule-card-$id')));
+          rights[id] = rect.right;
+          expect(
+            list.right - rect.right,
+            moreOrLessEquals(48, epsilon: 0.01),
+            reason:
+                '$width px 下 $id 的右边界到列表右边界不是 48 px（实测 ${list.right - rect.right}）。'
+                '规则来源的保护时间只有一枚「去设置」，它的槽宽也必须与固定日程的三枚一样',
+          );
+        }
+        expect(
+          rights.values.toSet(),
+          hasLength(1),
+          reason: '$width px 下四类卡片的右边界不在同一条竖线上（R2 回归）：$rights',
+        );
+      });
+
+      testWidgets('${width.round()} px 下更多操作菜单能打开并点到菜单项', (tester) async {
+        await pumpDayView(tester, size: Size(width, 1600));
+        expect(tester.takeException(), isNull, reason: '$width px 下不应有布局异常');
+
+        final trigger = find.byKey(const Key('actions-fixed:course-1'));
+        await tester.ensureVisible(trigger);
+        await tester.pumpAndSettle();
+
+        // 触发按钮必须落在视口内——"能打开"的前提是它没有被裁掉。
+        final viewport = tester.getRect(find.byType(ListView));
+        final triggerRect = tester.getRect(trigger);
+        expect(
+          triggerRect.top,
+          greaterThanOrEqualTo(viewport.top - 0.01),
+          reason: '$width px 下更多按钮滚出了视口顶部',
+        );
+        expect(
+          triggerRect.bottom,
+          lessThanOrEqualTo(viewport.bottom + 0.01),
+          reason: '$width px 下更多按钮滚出了视口底部',
+        );
+
+        await tester.tap(trigger);
+        await tester.pumpAndSettle();
+        final item = find.byKey(const Key('delete-fixed:course-1'));
+        expect(item, findsOneWidget, reason: '$width px 下菜单必须能打开');
+        await tester.tap(item);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('delete-entire')),
+          findsOneWidget,
+          reason: '$width px 下菜单项必须真的能点到（打开了不等于点得到）',
+        );
+      });
+    }
+  });
+
+  group('Task 9 Step 3 键盘路径（不用鼠标）', () {
+    testWidgets('Tab 能走到每一行的更多按钮，且焦点顺序与视觉顺序一致', (tester) async {
+      // 视口给足：这一条验的是**顺序**，不是滚动。
+      await pumpDayView(tester, size: const Size(1024, 2000));
+      expect(tester.takeException(), isNull);
+
+      // **按满一圈就停**：焦点走完最后一个可聚焦控件后会回到页面第一个控件，
+      // 那是 Tab 的正常循环，不是"顺序错了"。因此以"回到已访问过的行"作为终点，
+      // 而不是拿循环次数硬顶。
+      var lastTop = double.negativeInfinity;
+      final visited = <String>[];
+      for (var round = 0; round < 24; round++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        final id = _focusedActionItemId(tester);
+        if (id == null) continue;
+        if (visited.contains(id)) break;
+        final top = tester.getRect(find.byKey(Key('actions-$id'))).top;
+        expect(
+          top,
+          greaterThanOrEqualTo(lastTop - 0.01),
+          reason:
+              '焦点顺序与视觉顺序不一致：焦点从纵坐标 $lastTop 跳回了 $top'
+              '（已访问 ${visited.join("、")} 之后到了 $id）。'
+              '键盘用户按 Tab 时应该自上而下走',
+        );
+        lastTop = top;
+        visited.add(id);
+      }
+
+      expect(
+        visited,
+        containsAll(<String>[
+          'fixed:course-1',
+          'protected:breakfast:2026-10-05:450',
+        ]),
+        reason:
+            'Tab 必须能到达每一行的更多按钮（这里只验有可执行动作的两行）。'
+            '任务块没有动作、只渲染等宽空槽，本来就不该有焦点',
+      );
+    });
+
+    testWidgets('只按键盘：打开「更多操作」→ 选中「去设置」', (tester) async {
+      var openedSettings = 0;
+      await pumpDayView(
+        tester,
+        onOpenProtectedTimeSettings: () => openedSettings++,
+      );
+      expect(tester.takeException(), isNull);
+
+      const ruleId = 'protected:breakfast:2026-10-05:450';
+      final trigger = find.byKey(const Key('actions-$ruleId'));
+      expect(
+        await _tabUntilFocused(tester, trigger),
+        isTrue,
+        reason: 'Tab 必须能到达规则保护时间那一行的更多按钮',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('settings-$ruleId')),
+        findsOneWidget,
+        reason: 'Enter 要能打开菜单',
+      );
+      // **方向键是这一步的一部分，不是装饰**：`PopupMenuItem` 内部是 `InkWell`，
+      // 而菜单一打开时"焦点在哪一项"由 `_PopupMenuRoute.requestFocus` 决定；
+      // 先用一次方向键把焦点显式落到那一项上，再回车激活——这正是键盘用户的实际动作，
+      // 也是既有 `accessibility_semantics_test.dart` 里那条用例的做法。
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(
+        _focusedActionButtonLabel(tester),
+        '去设置',
+        reason: '方向键之后焦点必须落在可读的菜单项上，键盘用户才知道自己选的是哪一项',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(openedSettings, 1, reason: '键盘选中「去设置」必须真的走到那个入口（不是只把菜单关掉）');
+    });
+
+    testWidgets('只按键盘：打开「更多操作」→ 进入「编辑任务」', (tester) async {
+      await pumpDayView(tester);
+      expect(tester.takeException(), isNull);
+
+      const courseId = 'fixed:course-1';
+      final trigger = find.byKey(const Key('actions-$courseId'));
+      expect(
+        await _tabUntilFocused(tester, trigger),
+        isTrue,
+        reason: 'Tab 必须能到达固定日程那一行的更多按钮',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      // 方向键选中「编辑」（菜单里第一项），再回车。
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(_focusedActionButtonLabel(tester), '编辑');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('occurrence-title')),
+        findsOneWidget,
+        reason: '键盘选中「编辑」必须真的打开改写对话框',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('occurrence-title')))
+            .controller!
+            .text,
+        '数据结构课',
+        reason: '打开的必须是这一条的对话框（标题预填当前值）',
+      );
+    });
   });
 }

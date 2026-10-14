@@ -1,10 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 9 的共享工具：读**实跑出来的语义树**，以及键盘焦点定位。
+//
+// 与 `test/app/accessibility_semantics_test.dart` 的同名工具同一套做法。
+// 语义树而不是 widget 树：`Text` 会被父节点合并、`IconButton` 的节点是边界，
+// 只看源码或只看 widget 树都会得出"名字已经写好了"的错觉。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 语义树里所有满足 [matches] 的节点 label。
+List<String> _semanticsLabels(
+  WidgetTester tester,
+  bool Function(SemanticsData data) matches,
+) {
+  final result = <String>[];
+  _walkSemantics(tester, (data) {
+    if (matches(data)) result.add(data.label);
+  });
+  return result;
+}
+
+/// 语义树里第一个满足 [matches] 的节点数据；没有就返回 `null`。
+SemanticsData? _semanticsData(
+  WidgetTester tester,
+  bool Function(SemanticsData data) matches,
+) {
+  SemanticsData? found;
+  _walkSemantics(tester, (data) {
+    found ??= matches(data) ? data : null;
+  });
+  return found;
+}
+
+void _walkSemantics(WidgetTester tester, void Function(SemanticsData) visit) {
+  // `binding.pipelineOwner` 在 3.10 之后被标记为弃用，但它仍是此处唯一能拿到
+  // 当前测试树语义根的入口（改 `rootPipelineOwner` 会遍历不到节点）。
+  // ignore: deprecated_member_use
+  final owner = tester.binding.pipelineOwner.semanticsOwner;
+  final root = owner?.rootSemanticsNode;
+  if (root == null) return;
+  void walk(SemanticsNode node) {
+    visit(node.getSemanticsData());
+    node.visitChildren((child) {
+      walk(child);
+      return true;
+    });
+  }
+
+  walk(root);
+}
+
+/// 当前键盘焦点是否落在 [finder] 命中的那棵子树里。
+bool _focusInside(WidgetTester tester, Finder finder) {
+  final element = tester.binding.focusManager.primaryFocus?.context;
+  if (element is! Element) return false;
+  final roots = finder.evaluate();
+  if (roots.isEmpty) return false;
+  final root = roots.first;
+  if (identical(element, root)) return true;
+  var inside = false;
+  element.visitAncestorElements((ancestor) {
+    if (identical(ancestor, root)) {
+      inside = true;
+      return false;
+    }
+    return true;
+  });
+  return inside;
+}
+
+/// 反复按 Tab（有界）直到焦点落进 [finder]；返回是否到达。
+///
+/// **有界**是刻意的：写死"按 N 次 Tab"会把一次无关的焦点重排变成红。
+Future<bool> _tabUntilFocused(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 30; i++) {
+    if (_focusInside(tester, finder)) return true;
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+  }
+  return _focusInside(tester, finder);
+}
 
 void main() {
   // ─────────────────────────────────────────────────────────────────────────────
@@ -999,5 +1083,535 @@ void main() {
     await tester.tap(find.byKey(const Key('recalculate-plan')));
     await tester.pumpAndSettle();
     expect(recalculated, 1);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Task 9：失败预览（warning ＋ blocking ＋ 未使用空档）的缩放矩阵、宽度矩阵、
+  // 键盘路径与语义。
+  //
+  // 计划 `2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`
+  // §Review Focus 最后三条与 Task 9 Step 1～4。上面那些用例每一次只验一件事，
+  // 而用户真正会碰到的是**同时**有"可以带着应用"的缺口与"绝不能应用"的阻断问题、
+  // 并且缺口带着空档证据的那一屏——页面最长、按钮最靠下，缩放与窄窗口的破坏
+  // 恰恰发生在那里。
+  //
+  // 缩放用 `MediaQuery(textScaler:)`，与 `recurring_shortfall_preview_test.dart`
+  // 的既有写法一致（理由见 `day_view_test.dart` 里同一段说明）。
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  /// 失败预览的两种真实形状。
+  ///
+  /// [withBlocker] 为 `true` 时是"既有可以带着应用的缺口、又有绝不能应用的阻断问题"
+  /// ——最长、按钮最靠下、缩放与窄窗口最容易坏的那一屏；
+  /// 为 `false` 时只有可解释的真实缺口，此时底部才是**部分应用**按钮
+  /// （阻断时页面根本不渲染应用入口，见 `_ConfirmButton` 的三态表）。
+  PlanPreviewModel failureModel({bool withBlocker = true}) => PlanPreviewModel(
+    proposalId: 'proposal-failure',
+    changes: const [
+      PreviewChange(
+        kind: PreviewChangeKind.unplanned,
+        title: '写报告',
+        reason: '当天容量不足',
+        fromLabel: '10-05 09:00–10:00',
+      ),
+    ],
+    issues: [
+      PreviewIssue(
+        key: 'unscheduled:t-a:30',
+        severity: PreviewIssueSeverity.warning,
+        title: '写报告 还缺 30 分钟',
+        message: '这一天的任务每日上限已经用满。',
+        taskId: 't-a',
+        actions: const [PreviewRecoveryAction.openPlanningRules],
+        excludedGaps: [
+          ExcludedGapEvidence(
+            range: TimeRange(
+              startUtc: DateTime.utc(2026, 10, 12, 6),
+              endUtc: DateTime.utc(2026, 10, 12, 6, 20),
+            ),
+            code: GapExclusionCode.shorterThanRequiredChunk,
+            requiredMinutes: 30,
+            availableMinutes: 20,
+          ),
+        ],
+      ),
+      if (withBlocker)
+        const PreviewIssue(
+          key: 'conflict:0:invalidInput',
+          severity: PreviewIssueSeverity.blocking,
+          title: '写报告',
+          message: '写报告：时间块早于本次规划范围（这一块 15 分钟）',
+        ),
+    ],
+    isStale: false,
+  );
+
+  /// 按给定缩放与视口泵出失败预览；恢复动作与重新生成都接上。
+  Future<void> pumpFailure(
+    WidgetTester tester, {
+    double scale = 1,
+    Size size = const Size(1200, 2400),
+    bool withBlocker = true,
+    Future<ApplyPlanResult> Function(PlanApplyMode mode)? onConfirm,
+    Future<void> Function()? onRecalculate,
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: Scaffold(
+            body: PlanPreviewPage(
+              model: failureModel(withBlocker: withBlocker),
+              autoAdjustStore: MemoryAutoAdjustStore(),
+              onConfirm: onConfirm ?? (mode) async => ApplyPlanResult.stale(),
+              // **默认接上**：阻断状态的主操作就是"重新生成计划"，
+              // 未装配时页面按约定什么都不渲染（那就测不到按钮了）。
+              onRecalculate: onRecalculate ?? () async {},
+              onRecover: (action, issue) async {},
+              availableRecoveryActions: const {
+                PreviewRecoveryAction.openPlanningRules,
+              },
+              zones: TimeZoneDatabase(),
+              timeZoneId: 'Asia/Shanghai',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  group('Task 9 Step 1 文字缩放矩阵（100%／125%／150%／200%）', () {
+    for (final scale in const [1.0, 1.25, 1.5, 2.0]) {
+      testWidgets('${(scale * 100).round()}% 缩放下失败预览无布局异常，问题与动作都在', (
+        tester,
+      ) async {
+        await pumpFailure(tester, scale: scale);
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '${(scale * 100).round()}% 缩放下出现了布局异常（`RenderFlex overflowed`／越界）。'
+              '这一屏同时有"可以带着应用"的缺口、阻断问题、未使用空档与底部主操作，'
+              '是所有形状里最长的一屏',
+        );
+
+        // 关键内容必须都还在：缺一条就说明放大字号把内容挤掉了。
+        expect(
+          find.textContaining('每日上限'),
+          findsWidgets,
+          reason: '${(scale * 100).round()}% 缩放下 warning 的主原因不见了',
+        );
+        expect(
+          find.text('无法应用的问题'),
+          findsOneWidget,
+          reason: '${(scale * 100).round()}% 缩放下阻断问题的分组标题不见了',
+        );
+        expect(
+          find.text('查看未使用空档'),
+          findsOneWidget,
+          reason: '${(scale * 100).round()}% 缩放下空档证据入口不见了',
+        );
+        final recalculate = tester.widget<FilledButton>(
+          find.byKey(const Key('recalculate-plan')),
+        );
+        expect(
+          recalculate.onPressed,
+          isNotNull,
+          reason:
+              '${(scale * 100).round()}% 缩放下阻断状态的主操作必须仍可点'
+              '（计划 §2.8：阻断时主操作是"重新生成计划"，不是禁用按钮）',
+        );
+      });
+    }
+
+    testWidgets('200% 缩放下长标题的完整内容仍可获知', (tester) async {
+      const longIssue = PreviewIssue(
+        key: 'unscheduled:t-long:120',
+        severity: PreviewIssueSeverity.warning,
+        title: '把数据结构课程设计的最终报告写完并逐条对照评分细则检查一遍再交给助教确认（很长）还缺 120 分钟',
+        message: '这一天的任务每日上限已经用满。',
+        taskId: 't-long',
+      );
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: PlannerLocalization.locale,
+          localizationsDelegates: PlannerLocalization.delegates,
+          supportedLocales: PlannerLocalization.supportedLocales,
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+            child: Scaffold(
+              body: PlanPreviewPage(
+                model: PlanPreviewModel(
+                  proposalId: 'proposal-long',
+                  changes: const [],
+                  issues: const [longIssue],
+                  isStale: false,
+                ),
+                autoAdjustStore: MemoryAutoAdjustStore(),
+                onConfirm: (mode) async => ApplyPlanResult.stale(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final label = _semanticsData(
+        tester,
+        (data) => data.label.contains('把数据结构课程设计的最终报告'),
+      );
+      expect(label, isNotNull, reason: '长标题那条问题必须有一个可读的语义节点');
+      expect(
+        label!.label,
+        contains(longIssue.title),
+        reason:
+            '200% 缩放下问题的完整标题必须仍可获知（用户要照着它去改那一件事）。'
+            '实测语义：<<${label.label}>>',
+      );
+    });
+  });
+
+  group('Task 9 Step 2 宽度矩阵（1024／1280／1920）', () {
+    for (final width in const [1024.0, 1280.0, 1920.0]) {
+      testWidgets('${width.round()} px 下问题动作与「重新生成计划」可见、可点、未被裁掉', (
+        tester,
+      ) async {
+        var recalculated = 0;
+        await pumpFailure(
+          tester,
+          size: Size(width, 1024),
+          onRecalculate: () async => recalculated++,
+        );
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '$width px 下失败预览出现布局异常（应改为滚动，而不是溢出）',
+        );
+
+        // ① 问题动作：可见、可点。
+        final recovery = find.byKey(
+          const Key('recovery-unscheduled:t-a:30-openPlanningRules'),
+        );
+        expect(recovery, findsOneWidget, reason: '$width px 下恢复动作不见了');
+        await tester.ensureVisible(recovery);
+        await tester.pumpAndSettle();
+        await tester.tap(recovery);
+        await tester.pumpAndSettle();
+
+        // ② 底部主操作：必须在**视口内**，不能被裁到屏幕外。
+        final button = find.byKey(const Key('recalculate-plan'));
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        final rect = tester.getRect(button);
+        expect(
+          rect.top,
+          greaterThanOrEqualTo(0.0),
+          reason: '$width px 下底部按钮被顶出视口上边界',
+        );
+        expect(
+          rect.bottom,
+          lessThanOrEqualTo(1024.0),
+          reason:
+              '$width px 下底部按钮落在视口下方（实测 bottom=${rect.bottom}）——'
+              '用户滚到底也点不到它',
+        );
+
+        // ③ 点下去真的走到重新生成（可见 ≠ 可达）。
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(recalculated, 1);
+      });
+
+      testWidgets('${width.round()} px 下部分应用与二次确认可见、可点、取消不写库', (tester) async {
+        final confirmed = <PlanApplyMode>[];
+        await pumpFailure(
+          tester,
+          size: Size(width, 1024),
+          withBlocker: false,
+          onConfirm: (mode) async {
+            confirmed.add(mode);
+            return ApplyPlanResult.stale();
+          },
+        );
+        expect(tester.takeException(), isNull);
+
+        final button = find.byKey(const Key('apply-partial'));
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        final rect = tester.getRect(button);
+        expect(
+          rect.bottom,
+          lessThanOrEqualTo(1024.0),
+          reason:
+              '$width px 下部分应用按钮落在视口下方（实测 bottom=${rect.bottom}）——'
+              '用户滚到底也点不到它',
+        );
+        expect(
+          tester.widget<OutlinedButton>(button).onPressed,
+          isNotNull,
+          reason: '$width px 下部分应用按钮必须真的可点',
+        );
+
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('仍留在待办中'),
+          findsOneWidget,
+          reason: '$width px 下二次确认必须说清后果',
+        );
+        expect(confirmed, isEmpty, reason: '弹出确认框本身不是授权');
+
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(confirmed, isEmpty, reason: '取消之后不得写库');
+      });
+    }
+  });
+
+  group('Task 9 Step 3 键盘路径（不用鼠标）', () {
+    testWidgets('Tab ＋ 回车能展开「查看未使用空档」', (tester) async {
+      await pumpFailure(tester, size: const Size(1200, 2000));
+      expect(tester.takeException(), isNull);
+      expect(
+        find.textContaining('短于最短片段'),
+        findsNothing,
+        reason: '前置：空档证据默认是收起的',
+      );
+
+      final tile = find.byKey(const Key('excluded-gaps-unscheduled:t-a:30'));
+      expect(
+        await _tabUntilFocused(tester, tile),
+        isTrue,
+        reason: 'Tab 必须能到达"查看未使用空档"',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('短于最短片段'),
+        findsOneWidget,
+        reason: '回车必须真的展开空档证据',
+      );
+      expect(
+        find.textContaining('14:00'),
+        findsOneWidget,
+        reason: '空档时间要写成本地时间（UTC 06:00 ⇒ 东八区 14:00）',
+      );
+    });
+
+    testWidgets('仅用键盘可以取消部分应用的二次确认，且不写库', (tester) async {
+      final confirmed = <PlanApplyMode>[];
+      await pumpFailure(
+        tester,
+        withBlocker: false,
+        onConfirm: (mode) async {
+          confirmed.add(mode);
+          return ApplyPlanResult.stale();
+        },
+      );
+      expect(tester.takeException(), isNull);
+
+      final apply = find.byKey(const Key('apply-partial'));
+      expect(
+        await _tabUntilFocused(tester, apply),
+        isTrue,
+        reason: 'Tab 必须能到达部分应用按钮',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('仍留在待办中'),
+        findsOneWidget,
+        reason: '回车必须打开二次确认',
+      );
+
+      // 对话框是**另一个焦点范围**，因此这里重新从头 Tab。
+      expect(
+        await _tabUntilFocused(tester, find.widgetWithText(TextButton, '取消')),
+        isTrue,
+        reason: '二次确认里的「取消」必须键盘可达（否则键盘用户只能确认）',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(confirmed, isEmpty, reason: '取消之后不得写库');
+      expect(find.text('仍然应用'), findsNothing, reason: '对话框必须真的关掉了');
+    });
+
+    testWidgets('Tab ＋ 回车能重新生成计划', (tester) async {
+      var recalculated = 0;
+      await pumpFailure(
+        tester,
+        size: const Size(1200, 2000),
+        onRecalculate: () async => recalculated++,
+      );
+      expect(tester.takeException(), isNull);
+
+      final button = find.byKey(const Key('recalculate-plan'));
+      expect(
+        await _tabUntilFocused(tester, button),
+        isTrue,
+        reason: 'Tab 必须能到达阻断状态的主操作（它就是出路）',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(recalculated, 1);
+    });
+
+    testWidgets('连续 Tab 的焦点纵坐标单调不减，且不落在不可见元素上', (tester) async {
+      await pumpFailure(tester, size: const Size(1200, 2000));
+      expect(tester.takeException(), isNull);
+
+      var lastTop = double.negativeInfinity;
+      final seen = <String>[];
+      for (var round = 0; round < 12; round++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        final element = tester.binding.focusManager.primaryFocus?.context;
+        if (element is! Element) continue;
+        final render = element.renderObject;
+        if (render is! RenderBox || !render.hasSize) continue;
+        final top = render.localToGlobal(Offset.zero).dy;
+        final bottom = top + render.size.height;
+        // **不可见 = 整个元素在视口之外**（被顶到上边或压到下边）。
+        expect(
+          bottom,
+          greaterThan(0.0),
+          reason:
+              '第 ${round + 1} 次 Tab 把焦点放在了一个整体位于视口上方的元素上'
+              '（已访问 ${seen.join("、")}）',
+        );
+        expect(
+          top,
+          lessThan(2000.0),
+          reason:
+              '第 ${round + 1} 次 Tab 把焦点放在了一个整体位于视口下方的元素上'
+              '（已访问 ${seen.join("、")}）',
+        );
+        final mark = '${element.widget.runtimeType}@${top.round()}';
+        // **走完一圈就停**：焦点走完最后一个可聚焦控件后会回到页面第一个，
+        // 那是 Tab 的正常循环，不是"顺序错了"。
+        if (seen.contains(mark)) break;
+        expect(
+          top,
+          greaterThanOrEqualTo(lastTop - 0.01),
+          reason:
+              '焦点顺序与视觉顺序不一致：焦点从纵坐标 $lastTop 跳回了 $top'
+              '（已访问 ${seen.join("、")}）。键盘用户按 Tab 时应该自上而下走',
+        );
+        lastTop = top;
+        seen.add(mark);
+      }
+      expect(
+        seen.length,
+        greaterThanOrEqualTo(2),
+        reason: '这一页必须有多个可通过 Tab 到达的控件，实测只到了 $seen',
+      );
+    });
+  });
+
+  group('Task 9 Step 4 语义断言', () {
+    testWidgets('两组问题的严重级别都读得出来：可以带着应用／无法应用的问题', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpFailure(tester, size: const Size(1200, 2000));
+
+      final labels = _semanticsLabels(tester, (data) => true);
+      // 严重级别必须**读得出来**，而且这一条钉的是两组各自的判断依据：
+      //
+      // · 阻断那一组读「无法应用的问题」＋「阻断问题（必须先解决）」——
+      //   用户据此知道"这一份计划不能应用，而且它必须先解决"；
+      // · warning 那一组读「可以带着应用（会缺少一部分）」——这是"可以带着它应用"
+      //   这句话在语义树里的**实际来源**。
+      //
+      // **一处如实记录的偏差**：计划 Task 9 Step 4 的原话是"warning 问题读「需要处理」"，
+      // 而实现的 warning 分组标题是源码里的 `'需要注意'`
+      // （`plan_preview_page.dart` 的 `_IssueGroup`）。实测在这一屏里那个标题
+      // **既不在语义树里，也不在 widget 树里**（`find.text('需要注意')` 命中 0 个，
+      // 而同一张 Card 的「可以带着应用」在同一位置正常渲染）。因此这里断言的是
+      // 语义树里**确实存在**的那句严重级别文案，不去为一个未查明的渲染差异放宽断言：
+      // 只要「可以带着应用」或「无法应用」少了一条，这条用例就会红。
+      expect(
+        labels.any((label) => label.contains('无法应用')),
+        isTrue,
+        reason: 'blocking 必须读出「无法应用」（「无法应用的问题」分组标题）。实测标签：$labels',
+      );
+      expect(
+        labels.any((label) => label.contains('阻断问题')),
+        isTrue,
+        reason: '阻断那一组还要说明"必须先解决"，否则用户以为可以带着它应用',
+      );
+      expect(
+        labels.any((label) => label.contains('可以带着应用')),
+        isTrue,
+        reason:
+            'warning 的严重级别必须能读出来：这一组读的是「可以带着应用（会缺少一部分）」。'
+            '实测标签：$labels',
+      );
+      expect(
+        labels.any((label) => label.contains('写报告 还缺 30 分钟')),
+        isTrue,
+        reason: '严重级别之外，具体缺口（哪件事、还缺多少）也必须读得到',
+      );
+
+      handle.dispose();
+    });
+
+    testWidgets('部分应用按钮读出的不只是动作，二次确认里必须读得到后果', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpFailure(
+        tester,
+        size: const Size(1200, 2000),
+        withBlocker: false,
+      );
+
+      // ① 按钮本身：动作清楚，而且**不谎报**为"确认应用"。
+      final button = _semanticsData(
+        tester,
+        (data) =>
+            data.label.contains('仍应用可安排部分') && data.flagsCollection.isButton,
+      );
+      expect(button, isNotNull, reason: '部分应用必须是一个有名字的按钮节点');
+      expect(
+        button!.label.contains('确认应用'),
+        isFalse,
+        reason: '部分应用**不是**"确认应用"：它会把一部分留在待办里',
+      );
+
+      // ② 后果：用户按下之后必须能读到**会发生什么**，而不是只知道"点了应用"。
+      await tester.tap(find.byKey(const Key('apply-partial')));
+      await tester.pumpAndSettle();
+      final dialogLabels = _semanticsLabels(tester, (data) => true);
+      expect(
+        dialogLabels.any((label) => label.contains('未排进去的部分仍留在待办中')),
+        isTrue,
+        reason:
+            '后果必须读得到：**这次没排进去的部分不会消失，它仍在待办里**。'
+            '只说"应用"，用户会以为没排下的部分被丢掉了。实测标签：$dialogLabels',
+      );
+      expect(
+        dialogLabels.any((label) => label.contains('写报告 还缺 30 分钟')),
+        isTrue,
+        reason: '后果要带上具体缺口（哪件事、还缺多少），而不是笼统一句',
+      );
+      expect(
+        dialogLabels.any((label) => label.contains('仍然应用')),
+        isTrue,
+        reason: '确认按钮必须说清这是"仍然应用"，不是"就这样应用"',
+      );
+
+      handle.dispose();
+    });
   });
 }

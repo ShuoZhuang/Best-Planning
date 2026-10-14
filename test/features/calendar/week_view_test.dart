@@ -1122,6 +1122,238 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Task 9：近期日历（八列）的文字缩放矩阵、宽度矩阵与语义。
+  //
+  // 计划 `2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`
+  // §Review Focus 最后三条与 Task 9 Step 1／2／4。上面那些用例都在默认缩放与默认窗口下跑，
+  // 而这一页最容易坏的地方恰恰在别处：列宽是**固定 176 px**，字号一放大，
+  // 列头与卡片就得自己在列内换行，不能把列撑破。
+  //
+  // 缩放用 `MediaQuery(textScaler:)`，与 `week_timeline_test.dart` 的既有写法一致
+  // （理由见 `day_view_test.dart` 里同一段说明）。
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  const longTitle =
+      '把数据结构课程设计的最终报告写完并逐条对照评分细则检查一遍再交给助教确认（这一句刻意写得很长，用来验证放大字号之后仍然能读到全文）';
+
+  Future<void> pumpWeek(
+    WidgetTester tester, {
+    required List<ScheduleViewItem> items,
+    double scale = 1,
+    Size size = const Size(1280, 1024),
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: Scaffold(
+            body: WeekViewPage(
+              source: _Source(Stream.value(items)),
+              weekStart: DateTime.utc(2026, 10, 5),
+              moveController: _MoveController(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  ScheduleViewItem weekItem({
+    required String id,
+    required String title,
+    required ScheduleItemKind kind,
+    required DateTime start,
+    bool isCompleted = false,
+  }) => _scheduleItem(
+    id: id,
+    title: title,
+    kind: kind,
+    categoryKey: 'area:study',
+    categoryLabel: '学业',
+    categoryColorArgb: const Color(0xff2f86ff).toARGB32(),
+    categorySortOrder: 0,
+    start: start,
+    isCompleted: isCompleted,
+  );
+
+  group('Task 9 Step 1 文字缩放矩阵（100%／125%／150%／200%）', () {
+    for (final scale in const [1.0, 1.25, 1.5, 2.0]) {
+      testWidgets('${(scale * 100).round()}% 缩放下八列都在、无布局异常、长标题能读到全文', (
+        tester,
+      ) async {
+        await pumpWeek(
+          tester,
+          scale: scale,
+          items: [
+            weekItem(
+              id: 'block:long',
+              title: longTitle,
+              kind: ScheduleItemKind.task,
+              start: DateTime.utc(2026, 10, 5, 9),
+            ),
+          ],
+        );
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '${(scale * 100).round()}% 缩放下出现了布局异常（`RenderFlex overflowed`／越界）。'
+              '列宽固定 176 px，字号放大后列头与卡片必须在列内换行，不能把列撑破',
+        );
+
+        // 八列是这一页的产品事实（R12 的修复保留了"昨天 + 今天起七天"），
+        // 放大字号不得把它减少或藏掉。
+        expect(find.byKey(const Key('week-day--1')), findsOneWidget);
+        for (var index = 0; index < 7; index++) {
+          expect(
+            find.byKey(Key('week-day-$index')),
+            findsOneWidget,
+            reason:
+                '${(scale * 100).round()}% 缩放下第 ${index + 2} 列'
+                '（今天起第 ${index + 1} 天）不见了',
+          );
+        }
+        expect(find.byKey(const Key('week-day-7')), findsNothing);
+
+        // **完整标题仍可获知**：卡片可视区域只有 176 px，长标题必然换行；
+        // 屏幕上读不全没关系，屏幕阅读器必须读得到全文——那一层语义由
+        // `week-card-semantics-<id>` 承载（key 见 `week_view_page.dart`）。
+        final semantics = find.byKey(
+          const ValueKey('week-card-semantics-block:long'),
+        );
+        expect(
+          semantics,
+          findsOneWidget,
+          reason: '承载整条语义的那一层必须存在，否则"读得到全文"无从验证',
+        );
+        final label = tester.getSemantics(semantics).label;
+        expect(
+          label,
+          contains(longTitle),
+          reason:
+              '${(scale * 100).round()}% 缩放下近期日历必须仍能获知完整标题。'
+              '实测语义：<<$label>>',
+        );
+      });
+    }
+  });
+
+  group('Task 9 Step 2 宽度矩阵（1024／1280／1920）', () {
+    for (final width in const [1024.0, 1280.0, 1920.0]) {
+      testWidgets('${width.round()} px 下八列正常渲染、今天那一列在视口内、最后一列滚得到', (
+        tester,
+      ) async {
+        await pumpWeek(
+          tester,
+          size: Size(width, 1024),
+          items: [
+            weekItem(
+              id: 'fixed:today',
+              title: '今天的课',
+              kind: ScheduleItemKind.fixed,
+              start: DateTime.utc(2026, 10, 7, 8),
+            ),
+          ],
+        );
+        // 窄窗口允许横向滚动，但**不允许溢出**。
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '$width px 下近期日历出现布局异常（应改为横向滚动，而不是溢出）',
+        );
+
+        final today = tester.getRect(find.byKey(const Key('week-day-0')));
+        // 视口宽 = 窗口宽，左右各 20 px 内边距。
+        expect(
+          today.left,
+          greaterThanOrEqualTo(19.0),
+          reason: '$width px 下"今天"那一列被推到左边界外',
+        );
+        expect(
+          today.right,
+          lessThanOrEqualTo(width - 19.0),
+          reason:
+              '$width px 下"今天"那一列右边界超出视口（实测 ${today.right} > ${width - 19.0}）——'
+              '八列本来就靠横向滚动，但第一屏必须能完整看到今天',
+        );
+        expect(today.top, lessThan(1024), reason: '$width px 下"今天"那一列整体落在视口下方');
+
+        // 横向滚动仍然可用：八列里最后一列必须滚得到。
+        final last = find.byKey(const Key('week-day-6'));
+        await tester.ensureVisible(last);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(last).left,
+          lessThan(width),
+          reason: '$width px 下最后一列滚进视口之后仍然不可见',
+        );
+      });
+    }
+  });
+
+  group('Task 9 Step 4 语义：固定日程不得冒充"已完成"（R11）', () {
+    testWidgets('近期日历：固定日程时间已过也读不到"已完成"，真完成的任务才读', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpWeek(
+        tester,
+        items: [
+          // 时间已过的固定日程：上游已把 `isCompleted` 收紧成"只属于
+          // `TaskStatus.completed`"，这一条从**页面侧**再钉一次。
+          weekItem(
+            id: 'fixed:past',
+            title: '早场',
+            kind: ScheduleItemKind.fixed,
+            start: DateTime.utc(2026, 10, 5, 7),
+          ),
+          weekItem(
+            id: 'block:done',
+            title: '已经做完的事',
+            kind: ScheduleItemKind.task,
+            start: DateTime.utc(2026, 10, 5, 9),
+            isCompleted: true,
+          ),
+        ],
+      );
+
+      String labelOf(String id) => tester
+          .getSemantics(find.byKey(ValueKey('week-card-semantics-$id')))
+          .label;
+
+      // 前置：两条都真的渲染了，否则下面的断言是空的。
+      expect(
+        find.byKey(const ValueKey('week-schedule-card-fixed:past')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('week-schedule-completed-fixed:past')),
+        findsNothing,
+        reason: '**R11**：固定日程结束时间已过 ≠ 任务已完成，不得出现完成勾',
+      );
+      expect(
+        labelOf('fixed:past'),
+        isNot(contains('已完成')),
+        reason:
+            '**R11**：屏幕阅读器不得把一条时间已过的固定日程读成"已完成"。'
+            '实测语义：<<${labelOf('fixed:past')}>>',
+      );
+      expect(
+        labelOf('block:done'),
+        contains('已完成'),
+        reason:
+            '真完成的任务必须照旧读"已完成"，否则这条修改会波及任务块。'
+            '实测语义：<<${labelOf('block:done')}>>',
+      );
+
+      handle.dispose();
+    });
+  });
 }
 
 ScheduleViewItem _scheduleItem({
@@ -1133,6 +1365,7 @@ ScheduleViewItem _scheduleItem({
   required int categoryColorArgb,
   required int categorySortOrder,
   required DateTime start,
+  bool isCompleted = false,
 }) => ScheduleViewItem(
   id: id,
   title: title,
@@ -1141,6 +1374,7 @@ ScheduleViewItem _scheduleItem({
   categoryLabel: categoryLabel,
   categoryColorArgb: categoryColorArgb,
   categorySortOrder: categorySortOrder,
+  isCompleted: isCompleted,
   range: TimeRange(
     startUtc: start,
     endUtc: start.add(const Duration(hours: 1)),
