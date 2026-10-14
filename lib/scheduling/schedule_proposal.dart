@@ -317,7 +317,15 @@ final class ScheduleProposal {
   ///
   /// 用于"生成**之后**建立来源关联"：`linkBlockProvenance` 只给块补上
   /// `continuedFromId`，不改位置也不改 id，因此其余字段（未安排、冲突、指标、
-  /// 规则覆盖）逐值不变。
+  /// 规则覆盖、**延后要求**）逐值不变。
+  ///
+  /// **`adjustmentRequirement` 必须显式带过去**：它此前被漏在这里，而 `withRuleOverride`
+  /// 与 `withAdjustmentRequirement` 都传了。当时的调用链（`PlanningService.createProposal`）
+  /// 恰好把 `withAdjustmentRequirement` 排在 `withLinkedBlocks` **之后**、且那一刻该字段
+  /// 本来就是 `null`，所以生产路径没有被咬到——但这是一个"只要有人调整那三行的顺序、
+  /// 或在带要求的提案上再关联一次来源，就会静默丢掉用户延后要求"的陷阱，而丢掉的后果是
+  /// 应用前那次兑现校验拿不到要求（`PlanApplicationService` 会以为"这次没有延后意图"）。
+  /// 三个 `with*` 现在对它的处理完全一致。
   ScheduleProposal withLinkedBlocks(List<PlannedBlock> linked) =>
       ScheduleProposal(
         proposalId: proposalId,
@@ -331,5 +339,6 @@ final class ScheduleProposal {
         metrics: metrics,
         placementDiagnostics: placementDiagnostics,
         ruleOverride: ruleOverride,
+        adjustmentRequirement: adjustmentRequirement,
       );
 }

@@ -147,12 +147,11 @@ Review Focus 要求"早餐规则**在所有日历视图**中必须显示「早�
 | 5 | `plan_validator_test.dart`「集合校验对单块至少与 isValidPlannedChunk 一样严」 | 禁止"单块检查接受而集合校验拒绝" | 禁止反方向（"集合校验接受而单块检查拒绝"），并单独钉住 `12 / min30 / 粒度 5` 的 5 分钟块 | 计划 §2.2 亲自把那个 5 分钟块判为**非法**，而单块快速检查只看"不超过宽免额度"因此接受它。集合校验**必须**能更严，否则 R4 会以另一种形态回来 |
 | 6 | `plan_preview_issue_policy_test.dart` / `visible_free_time_preview_test.dart` | 断言正文含缺口分钟（如 `contains('25')`） | 断言标题就是 `… 还缺 25 分钟` | 计划 §2.4／Task 5 Step 5 明确"标题是唯一显示 shortage 的位置"，正文只描述约束 |
 
-**另一处未查明（未修，如实登记）**：`plan_preview_page.dart` 的 `_IssueGroup` 在"同时有
+**一处曾登记为"未查明"的偏差，本轮已查明并修掉**（详见 §6.7）：`_IssueGroup` 在"同时有
 warning 与 blocking"时卡片标题取 `无法应用的问题`（源码即
-`title ?? (blocking.isEmpty ? '需要注意' : '无法应用的问题')`），因此 `find.text('需要注意')`
-命中 0 个。这是**既有实现的分支选择**，不是本计划引入的缺陷；每一条问题的严重级别由 tile
-上的图标与语义标签表达（`无法应用`／`可以带着应用（会缺少一部分）`）。Task 9 的语义门禁
-钉的是语义树里**确实存在**的那几句文案，没有为迁就实现而放宽。
+`title ?? (blocking.isEmpty ? '需要注意' : '无法应用的问题')`），因此 `需要注意` 整屏不出现。
+原因就是那一行三元表达式，不是渲染差异；修法是让 **warning 的分组标题**成为这一组固定的名字
+（`需要注意：可以带着应用（会缺少一部分）`），不随同屏有没有阻断而变。
 
 ## 5. 安全边界
 
@@ -185,18 +184,37 @@ warning 与 blocking"时卡片标题取 `无法应用的问题`（源码即
    发布目录里那个 `personal_planner_1.8.0.1_x64.msix` 是**更早的会话**留下的产物，
    本计划没有重新打包 MSIX，也没有改动安装器与包身份。
 
-3. **`ScheduleProposal.withLinkedBlocks` 不传递 `adjustmentRequirement`**（Task 6 实施时
-   发现，先于本计划存在）。它意味着"建立来源关联"之后的那份提案会丢掉"用户要求延后 30 分钟"
-   这件事，而 `PlanApplicationService` 应用前还要再校验一次这个要求。**本计划刻意没有顺手修**
-   （超出授权范围），但它是真实存在的缺陷，建议单独开一份修复计划。
-4. **`_IssueGroup` 的 `需要注意` 分支在同时有 blocking 时不渲染**（§4 末段）。未修。
-5. **`plan_preview_page` 的"查看未使用空档"在未传时区时不渲染**（Task 6 的刻意选择：
+3. **`plan_preview_page` 的"查看未使用空档"在未传时区时不渲染**（Task 6 的刻意选择：
    拿不到时区就只能印 UTC，那会让用户去找一段实际空闲的时间）。生产装配两处都传了时区。
-6. **`excludedGaps` 里的 `occupiedByFixedSchedule`／`occupiedByProtectedTime`／`occupiedByLockedBlock`**
+4. **`excludedGaps` 里的 `occupiedByFixedSchedule`／`occupiedByProtectedTime`／`occupiedByLockedBlock`**
    在真实诊断路径上很少出现：固定日程与保护时间会被 `AvailabilityBuilder` 从空闲里扣掉，
    空档起点总落在它们之后。Task 5 没有为了"矩阵好看"伪造起点，而是让这三个 code 的**映射与分类**
    由放置循环也会调用的同一个 `evaluateCandidateEligibility` 逐条钉住（见
    `test/scheduling/task_placement_diagnostics_test.dart`）。
+
+### 6.7 本轮顺带修掉的两处既有缺陷（经用户确认后实施）
+
+这两处**先于本计划存在**，实施时发现并登记，本轮经用户明确要求后修掉。两者都先写了能因目标缺陷
+失败的红灯（把修复临时回退后实测变红），再恢复修复：
+
+| # | 缺陷 | 修复前的**实测**红灯 | 修法 | 修复后 |
+| --- | --- | --- | --- | --- |
+| ① | `ScheduleProposal.withLinkedBlocks` 漏传 `adjustmentRequirement`（同文件的 `withRuleOverride`／`withAdjustmentRequirement` 都传了） | `test/scheduling/schedule_engine_test.dart` 的「with* 包装原样传递诊断」：`Expected: <Instance of 'AdjustmentRequirement'>` / `Actual: <null>` | `withLinkedBlocks` 补上 `adjustmentRequirement: adjustmentRequirement`；并把该用例的夹具从 `withAdjustmentRequirement(null)` 改成**先附上一个真实要求再包装**——传 `null` 的写法根本观察不到"某一层把它丢了" | 绿 |
+| ② | `_IssueGroup` 在同时有阻断时，warning 分组只剩后果、丢掉「需要注意」级别 | `test/features/planning/plan_preview_test.dart` 的「两组问题的严重级别都读得出来」：`Expected: true` / `Actual: <false>` | warning 的分组标题写全为 `需要注意：可以带着应用（会缺少一部分）`，让它成为这一组**固定**的名字 | 绿 |
+
+**关于 ① 的影响，此处更正实施过程中的一处夸大**：当时登记为"建立来源关联后就会丢掉延后要求"，
+但生产调用链 `PlanningService.createProposal` 是
+`withRuleOverride → withLinkedBlocks → withAdjustmentRequirement`，附加动作排在**最后**，
+而那一刻该字段本来就是 `null`——因此**当时没有任何生产路径被咬到**。它是"只要有人调整这三行的
+顺序、或在带要求的提案上再关联一次来源就会静默丢字段"的陷阱，属于真实但未发作的不一致。
+本节的措辞以此处为准。
+
+修复后的复验：`test/scheduling/schedule_engine_test.dart`、
+`test/features/planning/plan_preview_test.dart`、`test/features/planning/plan_preview_issue_policy_test.dart`、
+`test/features/planning/unscheduled_display_test.dart`、`test/app/visible_free_time_preview_test.dart`、
+`test/application/plan_application_service_test.dart`、`test/application/plan_generation_safety_test.dart`、
+`test/application/planning_service_test.dart` 共 **117 通过 / 0 失败**；全量 **+2496 / 0 失败**；
+`analyze` 0 问题；Windows 集成测试 **+1 / 0 失败**。
 
 ## 7. 结论
 
@@ -250,10 +268,6 @@ Status: NOT COMPLETE
 
 ### Remaining risk
 - 人工验收 A–F 未执行 ⇒ 目视、Narrator、200% 缩放与高对比主题的实际观感尚未被人工确认。
-- `ScheduleProposal.withLinkedBlocks` 不传递 `adjustmentRequirement`（先于本计划存在的缺陷，
-  本计划刻意未修）。
-- `plan_preview_page.dart` 的 `_IssueGroup` 在同时有 blocking 时不渲染 `需要注意` 分支
-  （既有实现的分支选择，未修，已登记）。
 - `excludedGaps` 的三种"被占住"code 在真实诊断路径上很少出现（固定日程／保护时间会被
   `AvailabilityBuilder` 从空闲里扣掉），其映射由共同判定函数钉住而非端到端复现。
 

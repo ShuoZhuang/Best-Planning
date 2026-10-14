@@ -7,6 +7,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -642,13 +643,32 @@ void main() {
     });
 
     test('with* 包装原样传递诊断（规则覆盖／延后要求／来源关联都没有丢）', () {
-      final proposal = engine.generate(shortWindowProblem());
+      final generated = engine.generate(shortWindowProblem());
       final gapCount =
-          proposal.placementDiagnostics.values.single.excludedGaps.length;
+          generated.placementDiagnostics.values.single.excludedGaps.length;
+
+      // **先附上一个真实的延后要求再包装**。此前的写法是 `withAdjustmentRequirement(null)`，
+      // 于是"某一层把它丢了"根本观察不到——`withLinkedBlocks` 漏传这个字段时，
+      // 这条用例照样是绿的。夹具必须带着它才有判据。
+      final proposal = generated.withAdjustmentRequirement(
+        AdjustmentRequirement(
+          targetBlockId: 'block-1',
+          notBeforeUtc: DateTime.utc(2026, 10, 5, 10),
+          requiredMinutes: 60,
+          originalStartUtc: DateTime.utc(2026, 10, 5, 9),
+        ),
+      );
 
       final overridden = proposal.withRuleOverride(null);
       final adjustment = proposal.withAdjustmentRequirement(null);
       final linked = proposal.withLinkedBlocks(proposal.blocks);
+
+      // `withAdjustmentRequirement(null)` 是唯一**故意**换掉该字段的那一个，单独断言。
+      expect(
+        adjustment.adjustmentRequirement,
+        isNull,
+        reason: '它是"改写这个字段"的那一个包装，传 null 就该得到 null',
+      );
 
       for (final wrapper in [overridden, adjustment, linked]) {
         expect(
@@ -659,6 +679,17 @@ void main() {
           wrapper.placementDiagnostics.values.single.excludedGaps,
           hasLength(gapCount),
           reason: '包装只换一层外壳，不该丢掉"为什么排不下"的证据',
+        );
+      }
+
+      for (final wrapper in [overridden, linked]) {
+        expect(
+          wrapper.adjustmentRequirement,
+          proposal.adjustmentRequirement,
+          reason:
+              '包装只换一层外壳：**延后要求必须原样带过去**。'
+              '`withLinkedBlocks` 曾经漏传它（其余两个 `with*` 都传了），'
+              '丢掉之后应用前那次"这次延后到底兑现了没有"的校验会以为用户没有提过要求',
         );
       }
     });

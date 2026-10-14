@@ -608,4 +608,27 @@ abstract interface class ScheduleViewInvalidation {
 | 缩放／键盘／语义 | `test/app/accessibility_semantics_test.dart`、`test/features/calendar/*`、`test/features/planning/plan_preview_test.dart` | 零失败 |
 | 人工 | `docs/testing/manual-windows-checklist.md` §J | 需 Windows 实机执行；未执行前不得记为通过 |
 
+### 18.11 顺带修掉的两处既有缺陷（2026-10-14）
+
+这两条先于 §18 的存在，实施 §18 时发现并登记，随后按用户要求修掉。它们从此是**不变量**：
+
+1. **`ScheduleProposal` 的三个 `with*` 包装必须传递全部字段。**
+   `withRuleOverride` / `withAdjustmentRequirement` / `withLinkedBlocks` 只换自己负责的那一层
+   外壳，其余字段——包括 `placementDiagnostics`、`ruleOverride`、`adjustmentRequirement`——
+   **逐值不变**。`withLinkedBlocks` 曾经漏传 `adjustmentRequirement`：当时的生产调用链
+   （`PlanningService.createProposal`）恰好把 `withAdjustmentRequirement` 排在它之后、
+   且那一刻该字段为 `null`，所以没有发作；但只要有人调整那几行的顺序、或在已带要求的提案上
+   再关联一次来源，用户提出的延后要求就会**静默消失**，应用前那次兑现校验会以为用户没提过要求。
+   回归门禁：`test/scheduling/schedule_engine_test.dart` 的「with* 包装原样传递诊断」
+   ——它的夹具**必须先附上一个真实的 `AdjustmentRequirement` 再包装**，传 `null` 观察不到这个缺陷。
+
+2. **预览问题卡的两个严重级别各自有固定分组标题，不随同屏内容变化。**
+   阻断组为「无法应用的问题」＋「阻断问题（必须先解决）」；警告组为
+   「需要注意：可以带着应用（会缺少一部分）」。卡片标题在有阻断时取「无法应用的问题」是**对的**
+   （那一屏确实不能应用），但警告组**不能因此只剩后果、丢掉级别**——用户要能一眼看出
+   "哪一条只是可以带着应用"。回归门禁：`test/features/planning/plan_preview_test.dart` 的
+   「两组问题的严重级别都读得出来」（语义树断言「需要注意」与「可以带着应用」同时存在，
+   并在 widget 树里断言两个分组标题与卡片标题都被画出）。
+
+
 

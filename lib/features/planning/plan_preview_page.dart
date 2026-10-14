@@ -905,7 +905,12 @@ final class _IssueGroup extends StatelessWidget {
             ],
             if (warnings.isNotEmpty) ...[
               Text(
-                '可以带着应用（会缺少一部分）',
+                // **警告那一组自己带「需要注意」**：卡片标题在**同时**有阻断时取
+                // 「无法应用的问题」（那是对的——那一屏确实不能应用），于是
+                // `需要注意` 这个措辞此前整屏都不出现，用户只能从「可以带着应用」这一句
+                // 反推严重级别。分组标题是这一组**固定的名字**，不该随同屏有没有阻断而变，
+                // 因此这里把它写全：先说级别，再说后果。
+                '需要注意：可以带着应用（会缺少一部分）',
                 style: Theme.of(context).textTheme.labelLarge,
               ),
               for (final issue in warnings) tile(issue),
