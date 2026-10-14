@@ -164,6 +164,8 @@ warning 与 blocking"时卡片标题取 `无法应用的问题`（源码即
    | 命令 | 结果 |
    | --- | --- |
    | `fx.ps1 build windows --release --no-pub` | `Building Windows application... 41.8s` → `√ Built build\windows\x64\runner\Release\personal_planner.exe`，**exit 0** |
+   | 产物哈希（SHA-256） | `8AAF66980C7AC6F97CA01F09FC5AC5FF24BBCAC7FA2C5D5A908F2FFDDB0A2D2B`（`Release\personal_planner.exe`，2026-10-13 10:14:02Z） |
+   | 产物对应的生产代码 | `6130a2d8`（此后只有测试与文档提交，`lib/` 未再改动） |
    | 安装到测试目录 | **NOT RUN**（未获发布授权；且安装会写出真实用户目录） |
    | 创建 tag / GitHub Release | **未执行**（未获发布授权） |
 
