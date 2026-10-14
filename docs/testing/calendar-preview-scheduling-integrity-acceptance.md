@@ -178,3 +178,56 @@ Status: NOT COMPLETE
 2490 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
 未完成的：Task 10 Step 3–10 的人工验收场景 A–F（NOT RUN），因此**不能**声明"修复完成"或
 "发布就绪"。
+
+## 8. 执行交接（计划 §8 模板，按真实结果填写）
+
+```markdown
+## Calendar / Preview / Scheduling Integrity Repair — Handoff
+
+### Scope
+- Implemented tasks: Task 1–9 全部；Task 10 的 Step 1（格式／分析／全量测试）、
+  Step 2（Windows 集成测试）、Step 3（构建候选，未发布）、Step 11（规范与验收记录）已完成。
+- Deferred tasks and reason: Task 10 Step 3 的"安装到测试目录"与 Step 4–10 的人工场景 A–F
+  ——需要在可交互的 Windows 桌面会话里用真实用户数据、Narrator 与目视完成，
+  本会话没有该环境，且不得接触真实用户数据库。
+
+### Root-cause evidence
+- Dynamic remaining reproduction: `test/scheduling/dynamic_short_tail_test.dart`
+  （修复前 `100 / min30 / max30` 只排出 `[30,30,30]`，期望 `[10,30,30,30]`）。
+- Final-diagnostics reproduction: `test/scheduling/task_placement_diagnostics_test.dart`
+  ＋ `test/scheduling/dynamic_short_tail_test.dart` 的 R5/R6 用例（修复前主原因是
+  旧轮次的 `minimumChunkTooLarge`，而不是最终真实的 `dailyLimitReached`）。
+- Production refresh reproduction: `test/features/calendar/schedule_view_source_test.dart`
+  （修复前真实生产源在 5 秒内只发 1 份列表，期望 ≥ 2 份且第二份含新写入的内容）。
+
+### Verification
+- Targeted tests: 每个 Task 的定向门禁均实测通过（数字见 §2.1 与各 Task 提交）。
+- Full test count: `+2490` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`00:59`）。
+- Analyze: `No issues found!`（exit 0）。
+- Format: `Formatted 584 files (0 changed)`，exit 0。
+- Windows integration: `integration_test/calendar_preview_consistency_test.dart`
+  → `+1 / 0 失败`；`Building Windows application... 21.8s`，exit 0。
+- Release build: `√ Built build\windows\x64\runner\Release\personal_planner.exe`（41.8s，exit 0），
+  **未安装、未打包 MSIX、未发布**。
+- Manual scenarios A–F: **NOT RUN**（见 §3）。
+
+### Safety
+- Schema unchanged: 是（`schemaVersion => 9` 未动；`drift_schemas` 未动）。
+- Backup format unchanged: 是。
+- Product version unchanged: 是（`pubspec.yaml` 仍 `1.8.0+44`；MSIX 与发布台账未动）。
+- No user data used: 是（全部为匿名夹具）。
+- No remote action performed: 是（未 push、未 rebase、未建 tag、未建 Release）。
+
+### Remaining risk
+- 人工验收 A–F 未执行 ⇒ 目视、Narrator、200% 缩放与高对比主题的实际观感尚未被人工确认。
+- `ScheduleProposal.withLinkedBlocks` 不传递 `adjustmentRequirement`（先于本计划存在的缺陷，
+  本计划刻意未修）。
+- `plan_preview_page.dart` 的 `_IssueGroup` 在同时有 blocking 时不渲染 `需要注意` 分支
+  （既有实现的分支选择，未修，已登记）。
+- `excludedGaps` 的三种"被占住"code 在真实诊断路径上很少出现（固定日程／保护时间会被
+  `AvailabilityBuilder` 从空闲里扣掉），其映射由共同判定函数钉住而非端到端复现。
+
+### Status
+- NOT COMPLETE（计划 §7 的"Windows 人工验收 A–F 有真实记录"未满足）
+```
+
