@@ -414,3 +414,198 @@ ScoringFactor.adjustmentMovedBlockCount
 | 两任务间 20 分钟不可用空档 | 有更优合法解时消除；无解时明确显示为空闲而非偷偷占用 |
 | 旧 v8 数据升级 | 所有旧日程仍可见，kind 均为 fixed，备份恢复通过 |
 
+## 18. 日历、计划预览与排程完整性（2026-10-13 修复的最终接口与不变量）
+
+本节记录实施计划
+`docs/superpowers/plans/2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`
+落地之后的**最终接口与不变量**。凡与 §12、§13 的旧表述冲突之处，**以本节为准**。
+验收证据见 `docs/testing/calendar-preview-scheduling-integrity-acceptance.md`。
+
+### 18.1 排程：剩余量是候选生成的显式输入
+
+```dart
+List<SchedulingCandidate> generate(
+  SchedulableTask task,
+  List<AvailabilitySlot> slots, {
+  required int remainingMinutes,   // 无默认值：漏改的调用点必须编译失败
+});
+```
+
+不变量：
+
+- `0 <= remainingMinutes <= task.requiredMinutes`，否则 `ArgumentError`；
+- **连续任务**只有 `remainingMinutes == task.requiredMinutes` 时产出那一整块，放置成功即不再迭代；
+- **可拆分任务**的时长上限用 `remainingMinutes`（**不再**读 `task.requiredMinutes`）；
+- `remainingMinutes < minChunkMinutes` 时，唯一候选时长是
+  `shortRemainderAllowance(remainingMinutes, granularity)`；结果为 0 时不生成候选；
+- 引擎每成功放置一块就**以新的剩余量重新生成**候选，不存在"初始候选集代表全部后续轮次"；
+- 每日上限（`maxMinutesPerLocalDay`）与每日可移动上限在放置阶段**都是硬约束**：
+  第二遍只放宽"最终余量凑不出片段"这一条软性偏好，**不放宽每日配额**。
+
+算法版本因此从 `15` 抬到 **`16`**（内部排程算法版本，不是软件版本号）。
+
+### 18.2 最终校验按同任务整组块判定"唯一短尾"
+
+```dart
+enum ChunkSetViolation {
+  none, nonPositiveDuration, offGranularity, aboveMaximum,
+  belowMinimumBeforeTail, multipleShortTails, shortTailMismatch,
+  totalExceedsRequired, continuousTaskSplit,
+}
+ChunkSetValidation validatePlannedChunkSet({
+  required SchedulableTask task,
+  required Iterable<PlannedBlock> blocks,
+  required int granularityMinutes,
+});
+```
+
+- `PlanValidator.validate()` 按 task id 分组调用它，集合合法性**只由它**决定；
+- `isValidPlannedChunk()` 保留为**单候选的快速前置检查**（它只可能更宽，不可能更严）；
+- 判定顺序：正时长／网格／不超过 max ⇒ 总量不超 required ⇒ 常规块 = `>= minChunkMinutes`
+  ⇒ 短块最多一个 ⇒ `remaining = required − regularTotal`；`remaining >= minChunkMinutes`
+  则是"过早用了短尾"（`belowMinimumBeforeTail`），否则短块必须**严格等于**
+  `shortRemainderAllowance(remaining, granularity)`；
+- **不足一个粒度的余数允许作为真实缺口保留**，不得伪造块。
+
+### 18.3 最终诊断只看最终计划
+
+```dart
+TaskPlacementDiagnostics diagnoseTaskPlacement({
+  required ScheduleProblem problem,
+  required SchedulableTask task,
+  required int remainingMinutes,
+  required AvailabilityAnalysis availability,
+  required List<PlannedBlock> finalBlocks,
+  required TimeZoneDatabase zones,
+});
+```
+
+- 调用时机固定在 `_improve()` → 稳定块最小化 → 最终排序**之后**；
+- **不得读取**放置循环里累计的拒绝证据（跨轮次证据已整体删除）；
+- 候选资格判定与引擎放置**共用**同一个纯 evaluator（`evaluateCandidateEligibility`），
+  禁止第二套"看起来差不多"的约束；
+- `hasEligibleCandidate == true && remainingMinutes > 0` ⇒ 主原因固定
+  `unexplainedSchedulingFailure`，并生成 blocking conflict
+  `ConflictCode.schedulingInvariantViolation`；`classifyProposal()` 必然是 `blocked`；
+- `PlanApplicationService.apply()` 在 stale 检查之后、validator 之前先检查
+  `proposal.conflicts`，非空立即返回 `invalid`——因此 `allowPartial` **也绕不过**；
+- `excludedGaps` 按起点排序后合并相邻同 code 的区间，相同输入输出顺序稳定；
+- 诊断数据随内存提案走（`ScheduleProposal.placementDiagnostics`），**不写日志与遥测**。
+
+### 18.4 `UnscheduledReason` 的字段不再承担两种含义
+
+```dart
+UnscheduledReason({
+  required UnscheduledReasonCode code,
+  required int placementRemainingMinutes,   // == UnscheduledTask.shortageMinutes
+  int? constraintRequiredMinutes,           // 某条约束要求的分钟，不是总缺口
+  int? constraintAvailableMinutes,          // 同一约束口径下的可用分钟
+  String? constraintLabel,
+})
+```
+
+- UI **不得**计算 `constraintRequiredMinutes − constraintAvailableMinutes` 并称为"还缺"；
+- "还缺多少"只在**标题**里显示 `UnscheduledTask.shortageMinutes`；
+- 原因正文只描述约束（例如"最短片段要求 30 分钟，当前最长合法空档 20 分钟"）。
+
+### 18.5 保护时间标签以类型传递，不解析 id
+
+- `BusyInterval` 携带 `ProtectedTimeKind? protectedKind`；`ProtectedTimeExpander.expand()`
+  写入 `rule.kind`，睡眠／固定日程／锁定块保持 `null`；
+- 唯一文案函数 `protectedTimeKindLabel(ProtectedTimeKind)`
+  在 `lib/design/protected_time_labels.dart`，文案为 **早餐／午餐／晚餐／固定休息**；
+- 日历与预览都调用它，**不再**有 `intervalId.split(':')` 推断；
+- `AnalyticsDao` 属于数据层，**不得**反向依赖 `lib/design/`：它继续把统计窗口投影为字符串，
+  但默认规则与 JSON 规则两条路径都必须显式覆盖 `breakfast → 早餐`，由契约测试保证与界面一致；
+- `ScheduleViewItem.isCompleted` **只表示任务完成**（`TaskStatus.completed`）：
+  固定日程无论钟点是否已过都恒为 `false`。
+
+### 18.6 日历刷新使用显式失效信号
+
+```dart
+enum ScheduleViewChangeKind { calendar, plan, task, planningRules, colors, workspace }
+
+abstract interface class ScheduleViewInvalidation {
+  Stream<int> get revisions;             // 单调递增；broadcast
+  void notify(ScheduleViewChangeKind kind);
+}
+```
+
+装配规则（唯一实例、app-scoped，由组合根创建与释放）：
+
+| 写入点 | 发什么 | 时机 |
+| --- | --- | --- |
+| `CalendarService.onScheduleInputChanged` | `calendar` | 既有重排记录之后；记录抛错也发（数据已落库） |
+| `PlanApplicationService` / `PlanUndoService.onPlanChanged` | `plan` | 既有提醒同步之后；同步失败也发（计划已提交） |
+| `CourseManagementService.onCalendarChanged` | `calendar` | 仅 `saveCourse` / `deleteCourse`（绕过 CalendarService 的两条）；经 CalendarService 的路径**不得**重复发 |
+| `SettingsService.onPlanningRulesChanged` | `planningRules` | 仅 `saveUserRules` / `saveDateOverride` 成功后 |
+| `ScheduleColorService.onColorsChanged` | `colors` | 仅颜色写入成功后 |
+| `WorkspaceService.onWorkspaceChanged` | `workspace` | 仅改变日历分类名称／颜色的 area 写入成功后 |
+| 任务变化 | **不发 bus 信号** | 由 `TaskRepository.watchAllTasks()` 驱动 |
+
+`RepositoryScheduleViewSource.watch()` 的契约：
+
+1. 订阅后立即加载一次；
+2. 监听 `tasks.watchAllTasks()` 与 `invalidation.revisions`；
+3. 任一信号到达后重新执行**完整**的 `_load(startUtc, endUtc)`；
+4. 同一时刻多个信号合并为**至多一次在途加载 ＋ 一次待处理加载**；
+5. 用**单调 generation** 丢弃晚到的旧结果；旧结果不得覆盖新结果；
+6. 最后一个监听者取消后释放内部订阅与 controller；
+7. 加载失败通过 stream error 交给页面，**流不关闭**，下一次信号仍能恢复；
+8. **不得**用定时轮询数据库实现。
+
+失效信号只在事务／写入**成功后**发送；失败、取消与 stale 发零信号。
+
+### 18.7 日视图操作区固定宽度且只显示可执行动作
+
+每行固定为 `[占满剩余宽度的卡片] [48 px 操作槽]`：
+
+- 所有行都有 48 px 槽，卡片右边界因此逐行对齐；
+- 有至少一个动作时显示**单个** `more_vert`；没有动作时用**等宽空槽**，
+  **不显示灰色按钮**（不可用的操作不渲染，而不是渲染成 `onPressed: null`）；
+- 菜单只列可执行动作：编辑／调整所属领域／删除／去设置；
+- 规则来源保护时间只有「去设置」；自定义保护时间「编辑／删除」；
+  任务块不显示任何固定日程动作；
+- 删除仍走二次确认；菜单关闭后焦点回到触发按钮；不以颜色区分危险。
+
+### 18.8 预览的恢复路径与按钮层级
+
+- `PreviewIssue` 携带 `taskId`、`excludedGaps`、`actions`；
+  `buildPreviewIssues()` **只按 reason code** 映射恢复动作，不读任务属性猜原因；
+- 动作映射：`deadlineWindowTooShort`／`continuousGapTooShort`／`minimumChunkTooLarge`
+  ⇒ 编辑任务；`dailyLimitReached` ⇒ 调整规划规则 ＋ 编辑任务；`protectedTimeOccupied`
+  ⇒ 管理保护时间 ＋ 编辑任务；`availableTimeNotReached` ⇒ 编辑任务；
+  `insufficientCapacity` ⇒ 编辑任务 ＋ 调整规划规则；
+  `unexplainedSchedulingFailure` ⇒ 重新生成；
+- 存在 `excludedGaps` 时给可展开的「查看未使用空档」，每行写**本地**日期时间与排除原因，
+  首屏最多 6 行、其余折叠为"另有 N 段"，数据本身不截断；
+- 按钮层级固定为：
+
+  | 状态 | 主操作 | 部分应用 |
+  | --- | --- | --- |
+  | 完整可行 | `FilledButton`「确认应用」 | 不显示 |
+  | 可解释的真实缺口 | 每条问题卡显示恢复动作；底部**没有**全宽主按钮 | `OutlinedButton`「仍应用可安排部分」＋二次确认（逐条列出准确 shortage，并说明未安排部分仍留在待办中；取消零写入） |
+  | 无法解释／结构错误 | `FilledButton`「重新生成计划」（**可点**） | 不显示 |
+  | stale | `FilledButton`「重新生成计划」 | 不显示 |
+
+- 「信任自动调整」**只在设置页**；预览页不再有该开关。开关的持久化与"完整提案自动应用"
+  逻辑不变，且打开它**仍然不会**自动应用 warning／blocking 提案。
+
+### 18.9 命名与范围
+
+- 标题为「**近期日历**」，空状态为「当前范围暂无安排」，教程说明写"昨天及未来七天"；
+- 列范围**仍是**"昨天 ＋ 今天起七天"共**八列**（`index -1..6` 与既有拖动 key 保持不变）；
+  修正的是**命名**，不是删掉昨天那一列。
+
+### 18.10 验收门禁（自动化）
+
+| 门禁 | 命令 | 门槛 |
+| --- | --- | --- |
+| 格式 | `dart format --output=none --set-exit-if-changed lib test integration_test tool` | 零改动 |
+| 静态分析 | `flutter analyze --no-pub` | 零问题 |
+| 全量测试 | `flutter test --no-pub` | 零失败 |
+| 跨视图一致性 | `flutter test integration_test/calendar_preview_consistency_test.dart -d windows` | 零失败 |
+| 缩放／键盘／语义 | `test/app/accessibility_semantics_test.dart`、`test/features/calendar/*`、`test/features/planning/plan_preview_test.dart` | 零失败 |
+| 人工 | `docs/testing/manual-windows-checklist.md` §J | 需 Windows 实机执行；未执行前不得记为通过 |
+
+

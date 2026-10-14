@@ -831,3 +831,7 @@ Get-FileHash <导出的 zip> -Algorithm SHA256        # 记下源备份的 SHA-2
 > **任何一档缩放或宽度出现"操作被裁掉／文本截断后无从获知完整内容"，都算 FAIL**，
 > 必须回到 Task 9 或对应生产修复，不得只改测试期望。
 > **未执行的行保持为空**——空白和不通过一样是发布阻断项。
+
+> 本批的自动化门禁结果、已确认缺陷的红灯→绿灯证据、安全边界与与计划的偏差说明，
+> 记在 `docs/testing/calendar-preview-scheduling-integrity-acceptance.md`。
+> 那份文件的结论目前是 **NOT COMPLETE**——原因正是本节 J.1–J.4 尚未执行。
