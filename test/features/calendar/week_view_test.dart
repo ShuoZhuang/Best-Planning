@@ -24,6 +24,7 @@ import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_workspace_repository.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
@@ -1119,6 +1120,122 @@ void main() {
     // `tasks.watchAllTasks()` 的订阅，而 drift 在"最后一个订阅者取消"时排的是一个
     // **零延时 timer**；不把它跑掉，`flutter_test` 会在测试结束时判定"仍有待处理 timer"
     // （那是测试框架与 fake 时钟的交互，不是生产行为——生产里的 timer 会立刻执行）。
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Review Focus：「早餐规则在所有日历视图中必须显示「早餐」，不得回落为「保护时间」
+  // 或英文枚举名」；对应计划 §1.1 的 R1 与人工场景 A 的第一句。
+  //
+  // **为什么数据层的断言不够**：`schedule_view_source_test.dart` 已经钉住"数据源给出的
+  // 标题是「早餐」"，`analytics_dao_test.dart` 钉住统计口径一致。但计划的要求是
+  // "在**所有日历视图**中"——三个页面各自渲染的是 `ScheduleViewItem.title`，
+  // 而它们此前确实可以各自把它换掉（日视图的改写对话框、今日页的气泡文案都会碰标题）。
+  // 因此这一条从**真实装配链**上再验一次：用户规则 → `PlanningRuleResolver` →
+  // `ProtectedTimeExpander` → `RepositoryScheduleViewSource` → 三个页面。
+  //
+  // 它同时是 R1 的端到端形式：修复前 `_protectedLabel()` 靠 `intervalId.split(':')` 推断，
+  // 早餐没有分支，于是三处都显示「保护时间」。
+  // ─────────────────────────────────────────────────────────────────────────────
+  testWidgets('早餐规则在近期日历、日视图与今日页里都显示「早餐」（R1／人工场景 A）', (tester) async {
+    tester.view.physicalSize = const Size(4200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const timeZoneId = 'UTC';
+    final zones = TimeZoneDatabase();
+    final todayStartUtc = DateTime.utc(2026, 10, 5);
+    final clock = _FixedClock(todayStartUtc);
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+
+    final taskRepository = DriftTaskRepository(database.taskDao);
+    final calendarRepository = DriftCalendarRepository(database);
+    final planRepository = DriftPlanRepository(database, clock: clock);
+    final settingsRepository = DriftSettingsRepository(database, clock);
+    final workspaceRepository = DriftWorkspaceRepository(database);
+    final bus = ScheduleViewInvalidationBus();
+    addTearDown(bus.dispose);
+    final settingsService = SettingsService(
+      repository: settingsRepository,
+      onPlanningRulesChanged: ScheduleViewInvalidationWiring(bus).planningRules,
+    );
+    final colors = ScheduleColorService(
+      settings: settingsRepository,
+      workspace: workspaceRepository,
+    );
+    final source = RepositoryScheduleViewSource(
+      tasks: taskRepository,
+      calendar: calendarRepository,
+      plans: planRepository,
+      history: planRepository,
+      rules: PlanningRuleResolver(settingsService),
+      colors: colors,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      clock: clock,
+      invalidation: bus,
+    );
+
+    // 真实异步必须自己推：drift 的写入靠零延时 timer 推进（见 settle 的说明）。
+    await tester.runAsync(
+      () => settingsService.saveUserRules(
+        UserPlanningRules(
+          common: PlanningRulesPatch(
+            protectedTimes: [
+              ProtectedTimeRule(
+                kind: ProtectedTimeKind.breakfast,
+                range: LocalTimeRange(
+                  startMinute: 7 * 60 + 30,
+                  endMinute: 8 * 60,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _threeViews(
+        source: source,
+        todayStartUtc: todayStartUtc,
+        zones: zones,
+        timeZoneId: timeZoneId,
+        nowUtc: clock.nowUtc(),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 400)),
+    );
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 30),
+    );
+
+    for (final page in const [WeekViewPage, DayViewPage, TodayPage]) {
+      expect(
+        find.descendant(of: find.byType(page), matching: find.text('早餐')),
+        findsWidgets,
+        reason:
+            '$page 必须显示「早餐」。'
+            '**R1**：修复前断言的是「保护时间」——`_protectedLabel()` 按 id 推断类别，'
+            '早餐没有分支，于是三处都回落成「保护时间」',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(page),
+          matching: find.text('breakfast'),
+        ),
+        findsNothing,
+        reason: '$page 不得把英文枚举名当标题显示出来',
+      );
+    }
+
+    // 卸载三个页面，跑掉 drift 取消订阅时排的零延时 timer（原因同上一条用例）。
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });

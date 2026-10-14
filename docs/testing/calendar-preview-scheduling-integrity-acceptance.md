@@ -60,7 +60,20 @@ Review Focus 第 9 条要求"应用计划、撤销计划、编辑/删除日程�
 课程的保存／删除仍由 `schedule_view_invalidation_test.dart` 在真实 drift 库上覆盖（需要学期与
 课表导入批次夹具），而"发信号 ⇒ 数据源完整重载"这条链与写入路径无关——因此没有重复搭一套学期夹具。
 
-### 1.2 计划示例表的逐行验证（§2.2）
+### 1.2 Review Focus 第 11 条（早餐标签）从数据层提到视图层
+
+Review Focus 要求"早餐规则**在所有日历视图**中必须显示「早餐」"。此前只有两处数据层断言
+（`schedule_view_source_test.dart` 的标题、`analytics_dao_test.dart` 的统计契约）——而计划说的是
+"在所有日历视图中"。本轮补上 `week_view_test.dart` 的
+「早餐规则在近期日历、日视图与今日页里都显示「早餐」（R1／人工场景 A）」：
+
+- 走**真实装配链**：`SettingsService.saveUserRules`（真实 drift 库）→ `PlanningRuleResolver`
+  → `ProtectedTimeExpander` → `RepositoryScheduleViewSource` → 三个页面同挂一棵树；
+- 三个页面各自断言能读到「早餐」，并断言读不到英文枚举名 `breakfast`；
+- 它同时是 R1 的端到端形式：修复前 `_protectedLabel()` 按 `intervalId.split(':')` 推断类别、
+  早餐没有分支，三处都回落成「保护时间」。
+
+### 1.3 计划示例表的逐行验证（§2.2）
 
 `test/scheduling/plan_validator_test.dart` 把计划 §2.2 的示例表**逐行**写成用例，六行全部按表成立：
 
@@ -79,7 +92,7 @@ Review Focus 第 9 条要求"应用计划、撤销计划、编辑/删除日程�
 | --- | --- | --- |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool` | `Formatted 584 files (0 changed)`，**exit 0** |
 | 静态分析 | `fx.ps1 analyze --no-pub` | **No issues found!**（exit 0） |
-| 全量测试 | `fx.ps1 test --no-pub` | **+2495 / 0 失败**（`01:00`） |
+| 全量测试 | `fx.ps1 test --no-pub` | **+2496 / 0 失败**（`00:59`） |
 | Windows 集成测试 | `fx.ps1 test --no-pub integration_test/calendar_preview_consistency_test.dart -d windows` | **+1 / 0 失败**（`Building Windows application... 21.8s`；exit 0） |
 | 构建候选（不发布） | `fx.ps1 build windows --release --no-pub` | 见 §2.2 |
 
@@ -93,7 +106,7 @@ Review Focus 第 9 条要求"应用计划、撤销计划、编辑/删除日程�
 | Task 6 提交后 | +2414 / −3 | 仅剩 R9 与 R12×2 |
 | Task 7 提交后 | +1138 / −2（定向门禁） | 仅剩 R12×2 |
 | Task 9 提交后 | **+2490 / 0** | 全绿 |
-| 覆盖审计补测（`test/application/calendar_refresh_paths_test.dart`，5 条） | **+2495 / 0** | 全绿 |
+| 覆盖审计补测（`calendar_refresh_paths_test.dart` 5 条 + `week_view_test.dart` 早餐跨视图 1 条） | **+2496 / 0** | 全绿 |
 
 ### 2.2 构建候选（不发布）
 
@@ -192,7 +205,7 @@ Status: NOT COMPLETE
 ```
 
 已完成的：Task 1–9 的全部代码与测试改动、全量自动化（格式 0 改动、analyze 0 问题、
-2495 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
+2496 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
 未完成的：Task 10 Step 3–10 的人工验收场景 A–F（NOT RUN），因此**不能**声明"修复完成"或
 "发布就绪"。
 
@@ -219,7 +232,7 @@ Status: NOT COMPLETE
 
 ### Verification
 - Targeted tests: 每个 Task 的定向门禁均实测通过（数字见 §2.1 与各 Task 提交）。
-- Full test count: `+2495` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`01:00`）。
+- Full test count: `+2496` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`00:59`）。
 - Analyze: `No issues found!`（exit 0）。
 - Format: `Formatted 584 files (0 changed)`，exit 0。
 - Windows integration: `integration_test/calendar_preview_consistency_test.dart`
