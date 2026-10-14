@@ -4,10 +4,37 @@
 “已发布”，才算正式发布。
 
 > **当前正式发布：`1.6.2+37` / MSIX `1.6.2.0`（2026-10-08，tag `v1.6.2-build37`）** —— 见下方 `1.6.2+37` 批次。
-> **当前候选：`1.8.0+44` / MSIX `1.8.0.1`（2026-10-13）** —— 产物已就绪，**尚未发布**；见下方 `1.8.0+44` 批次。
+> **当前候选：`1.8.0+44` / MSIX `1.8.0.2`（2026-10-14）** —— 产物已就绪，**尚未发布**；见下方 `1.8.0+44 / MSIX 1.8.0.2` 批次。
+> `1.8.0+44` / MSIX `1.8.0.1` 已被**同批次重打包**的 `1.8.0.2` 取代（前者是日历修复**之前**的构建；产物仍在 `release\` 下留档）。
 > `1.8.0+43` / MSIX `1.8.0.0` 已被 `1.8.0+44` 取代（其产物仍在 `release\` 下留档）。
 > `1.7.1+42` / MSIX `1.7.1.1` 已被 `1.8.0+43` 取代（其产物仍在 `release\` 下留档）。
 > `1.6.2+37` 之前的所有批次都保持"候选构建"状态，未对外发布。
+
+## 1.8.0+44 / MSIX 1.8.0.2 — 2026-10-14（`1.8` 发布线 · 日历与排程完整性修复批次 · **同批重打包**）
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **候选构建**（产物已就绪，**尚未发布**）——等待人工验收 |
+| 变更范围 | **日历、计划预览与排程完整性修复**（计划 `docs/superpowers/plans/2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`）：① **动态短尾**——候选按"当前剩余量"逐轮重算，100 分钟的任务第一次能排出 `30+30+30+10`（R3）；② **唯一短尾集合校验**——`validatePlannedChunkSet` 按同任务整组块判定，合法短尾不再被自己拒掉（R4）；③ **最终诊断只看最终计划**——删除跨轮次拒绝证据，原因由 `diagnoseTaskPlacement` 依最终块集合重算（R5/R6/R7）；④ **异常提案必为阻断**——`allowPartial` 也无法写库（R8）；⑤ **日历三视图自动刷新**——app-scoped 失效总线接上全部成功写入点（计划／撤销／日程／课程／规划规则／配色／领域，R9/R10）；⑥ **近期日历命名**——标题改「近期日历」、空状态改「当前范围暂无安排」（仍是八列，R12）；⑦ 日视图固定 48 px 操作槽、只显示可执行动作（R2/U5）；⑧ 预览恢复动作、部分应用降级、未使用空档证据、移除预览页自动调整开关（U1–U4）；⑨ 保护时间标签由类型承载（R1）、固定日程不再冒充「已完成」（R11）。另修掉两处既有缺陷：`withLinkedBlocks` 漏传 `adjustmentRequirement`；同时有阻断时警告分组丢掉「需要注意」级别 |
+| 版本段位 | **仍为 `1.8.0`**、构建号**仍为 `+44`**（与 `1.8.0.1` 是**同一批代码**）；**MSIX 第四段 `1` → `2`**：`1.8.0+44` 已产出过 `1.8.0.1` 且**本机已安装它**，而 `Add-AppxPackage` 不接受更低版本、同版本覆盖不可靠——按"第四段 = 同一批次重打包计数"这条规则 +1（用户 2026-10-14 明确要求）。**代码、`version`、包身份均未变**；判定内容是否变化要看 `data/app.so` 指纹（本批 `C474317B…` vs `1.8.0.1` 的 `39FBB4C8…`） |
+| 数据库 | **schema 仍为 v9，无迁移**；`drift_schemas/` 未改 |
+| 排程算法 | **`15` → `16`**（候选按剩余量逐轮重算 ＋ 唯一短尾集合校验 ＋ 每日上限在放置阶段恢复为硬约束） |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test integration_test tool`：**585 文件 0 改动**；`flutter analyze --no-pub`：**0 问题**；`flutter test --no-pub`：**2496 项通过 / 0 失败** |
+| Windows 集成测试 | `flutter test --no-pub integration_test/calendar_preview_consistency_test.dart -d windows`：**1 项通过 / 0 失败**（应用计划、编辑固定日程、完成任务后三个视图在同一进程内保持一致） |
+| Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 `1.8.0+44` |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014`（13 个顶层条目） |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014.zip`（**35094838 字节**，**35 条目**） |
+| MSIX | 同目录内 `PersonalPlanner-1.8.0-build44-windows-x64-20261014.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.8.0.2`** / x64（已解包核对 `<Identity … Version="1.8.0.2"`） |
+| EXE SHA-256 | `8AAF66980C7AC6F97CA01F09FC5AC5FF24BBCAC7FA2C5D5A908F2FFDDB0A2D2B`（与 `1.8.0.1` **同值**：EXE 只是启动器，Dart 代码改动不会改变它——这正是不能拿它当内容判据的原因） |
+| app.so SHA-256 | `C474317B53D7336A9318F01A39C4E042522089ED7602EB1087517F36D76A9719`（真正的 Dart 代码；与 `1.8.0.1` 的 `39FBB4C8…` **不同**） |
+| ZIP SHA-256 | `28E981AE46ACE2C604D7B7F052D8536F23720036467C07EEE2EBA9AD4EB333D5` |
+| MSIX SHA-256 | `7358D1F408433E25D7520EC59077D3247C11380296ADAFBAF8C342A369D93B05` |
+| 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
+| MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
+| 覆盖安装 | **`1.8.0.2` > 已装 `1.8.0.1`** ⇒ 可原位升级（安装前需先退出正在运行的应用，否则 `0x80073D02`）。**本次未由自动化执行安装**：就地替换已安装包留给用户在人工验收时决定并执行 |
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器（`安装.cmd` + `install-planner.ps1`）、验收说明、`SHA-256.txt` 齐全；ZIP **35 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`（已按条目名正则自检）。**一条实测提醒**：免安装版首次运行会在 exe 旁生成 `user-data\`（数据库 ＋ 诊断日志）——打包前做过一次启动冒烟测试，那个目录**已被删除**，不在交付包里 |
+| 隐私 | `.pfx` 与私钥不进版本库也不进交付包；交付包只带**公钥** `.cer` |
+| 尚未完成 | **人工验收未执行**（`manual-windows-checklist.md` §J 与 `docs/testing/calendar-preview-scheduling-integrity-acceptance.md` §3 的场景 A–F 每格仍为空）⇒ 按 `windows-release.md` 只能登记为**内部构建／候选**，不得登记为正式发布。GitHub Release、tag 亦未做 |
 
 ## 1.8.0+44 / MSIX 1.8.0.1 — 2026-10-13（`1.8` 发布线 · 课程与保护时间管理修复批次）
 

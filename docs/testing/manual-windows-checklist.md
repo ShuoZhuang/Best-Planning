@@ -560,7 +560,8 @@ Get-FileHash <导出的 zip> -Algorithm SHA256        # 记下源备份的 SHA-2
 ## I. 课程与保护时间管理（2026-10-13 修复）
 
 > **计划**：`docs/superpowers/plans/2026-10-12-course-and-protected-time-management-repair.md`（Task 11 §Step 2）
-> **候选构建**：`1.8.0+44` / MSIX `1.8.0.1`
+> **候选构建**：`1.8.0+44` / MSIX `1.8.0.2`（2026-10-14 重打包；本批功能在 `1.8.0.1` 与
+> `1.8.0.2` 里都在，但**请用 `1.8.0.2` 验收**——`1.8.0.1` 是日历修复之前的构建）
 > **自动化证据**：全量 **2317 项通过**；Windows 集成测试
 > `integration_test/course_and_protection_management_test.dart` **6 项通过**
 >
@@ -722,6 +723,8 @@ Get-FileHash <导出的 zip> -Algorithm SHA256        # 记下源备份的 SHA-2
 ## J. 日历与预览的可访问性、缩放与视觉回归（2026-10-13 修复，Task 9）
 
 > **计划**：`docs/superpowers/plans/2026-10-13-calendar-preview-and-scheduling-integrity-repair.md`（Task 9 Step 1～5）
+> **候选构建**：`1.8.0+44` / MSIX **`1.8.0.2`**（2026-10-14 重打包；`1.8.0.1` 是修复之前的构建，
+> 已被本批取代——第四段 +1 的原因见 `pubspec.yaml` 的 `msix_version` 注释与 `build-ledger.md`）
 > **对应 Review Focus**：最后三条——"日视图所有卡片右边界一致"、"100%／125%／150%／200%
 > 文字缩放及 1024／1280／1920 宽度下不出现横向溢出、按钮遮挡或文本截断后不可获知完整内容"、
 > "不可用操作不以三枚灰色图标占位，键盘与屏幕阅读器仍能访问可用操作"。

@@ -223,9 +223,15 @@ msix_config:
   #
   # 第四段**不是**构建计数器，而是"同一批次重打包"的计数：只改了签名/清单/打包参数而代码没变时，
   # 在这里 +1（如 `1.4.0.1`），而不是抬第三段。构建号另有其位——在 `version` 的 `+N` 里。
+  #
+  # **2026-10-14 `1` → `2`（用户明确要求）**：`1.8.0+44` 的**同一批代码**先打过一次
+  # `1.8.0.1`，而本机**已经装了** `1.8.0.1`——那是修复之前的构建（`data\app.so` = `39FBB4C8…`）。
+  # `Add-AppxPackage` **不接受更低版本**，同版本覆盖又不可靠，因此为了让"修好之后的构建"
+  # 能真正装进本机，按本文档自己那条规则把第四段 +1。**代码、`version`、包身份都没变**：
+  # 判定是否真的换了内容要看已安装副本的 `data/app.so` 指纹（本批 = `C474317B…`），不看版本号。
   # 规则与历史回填见 docs/release/version-policy.md。
-  msix_version: 1.8.0.1
-  output_name: personal_planner_1.8.0.1_x64
+  msix_version: 1.8.0.2
+  output_name: personal_planner_1.8.0.2_x64
   # 通知点击的**激活器**（A②）。打包应用走的是**清单声明**，不是插件那套
   # `HKCU\Software\Classes\AppUserModelId\<aumid>` 注册表约定——这正是"点通知只把窗口带到
   # 前台、不跳转"的原因之一（实测证据见 `docs/testing/flow-verification.md` 第九节）。
