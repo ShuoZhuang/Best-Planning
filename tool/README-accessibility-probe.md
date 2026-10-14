@@ -48,8 +48,8 @@ python tool/probe_window_tree.py personal_planner.exe
 `tool/probe_window_tree.py` 把窗口层级也问了一遍（2026-10-07 实测）：
 
 ```text
-顶层 hwnd=3542668 class='FLUTTER_RUNNER_WIN32_WINDOW' text='智能日程'
-  MSAA: name='智能日程' role=10 children=1 kids=["[simple name='' role=]"]
+顶层 hwnd=3542668 class='FLUTTER_RUNNER_WIN32_WINDOW' text='优计主义'
+  MSAA: name='优计主义' role=10 children=1 kids=["[simple name='' role=]"]
   子窗口 hwnd=3543190 class='FLUTTERVIEW' text='FLUTTERVIEW' pid=41640
     MSAA: name='FLUTTERVIEW' role=10 children=0 kids=[]
 ```

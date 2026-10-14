@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
+import 'package:personal_planner/app/app_brand.dart';
 import 'package:personal_planner/app/planner_rail_index.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
@@ -2350,7 +2351,7 @@ final class _PlannerShell extends StatelessWidget {
             _BrandMark(),
             SizedBox(width: 12),
             Text(
-              '智能日程',
+              AppBrand.displayName,
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
           ],

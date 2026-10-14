@@ -1,6 +1,6 @@
-# Best Planning / 智能日程
+# Best-Planning / 优计主义
 
-### A local-first intelligent schedule planner for Windows / 面向大学生的本地优先智能日程软件
+### A local-first intelligent schedule planner for Windows / 面向大学生的本地优先日程规划软件
 
 [![Release](https://img.shields.io/github/v/release/ShuoZhuang/Best-Planning?include_prereleases&logo=github&label=Release)](https://github.com/ShuoZhuang/Best-Planning/releases)
 [![Downloads](https://img.shields.io/github/downloads/ShuoZhuang/Best-Planning/total?logo=github&label=Downloads)](https://github.com/ShuoZhuang/Best-Planning/releases)

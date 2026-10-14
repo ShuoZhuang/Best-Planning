@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:personal_planner/app/app_brand.dart';
+import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/analytics_chart_preference_service.dart';
@@ -30,7 +32,6 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
-import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -782,7 +783,7 @@ final class _PlannerAppState extends State<PlannerApp> {
               );
             }
             return MaterialApp.router(
-              title: '智能日程',
+              title: AppBrand.displayName,
               debugShowCheckedModeBanner: false,
               // **Material 自带控件要说中文**：不配这三行，日期／时间选择器与对话框按钮会回落到
               // Flutter 内置的英文文案——确认按钮显示成 `Save`、月份显示 `October 2026`。那正是
@@ -819,7 +820,7 @@ final class _PlannerAppState extends State<PlannerApp> {
 
   /// 非路由状态的统一外壳：引导、解锁与加载都共用同一套标题与主题。
   Widget _shell(Widget home) => MaterialApp(
-    title: '智能日程',
+    title: AppBrand.displayName,
     debugShowCheckedModeBanner: false,
     // 与路由形态共用同一份本地化设置：引导、解锁与加载页同样会弹选择器。
     locale: PlannerLocalization.locale,

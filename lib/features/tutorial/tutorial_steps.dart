@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:personal_planner/app/app_brand.dart';
 
 /// 新手教程的一步：一张**真实界面截图** + 标题 + 说明 +（可选）要点。
 ///
@@ -32,7 +33,7 @@ final class TutorialStep {
 /// 步骤数变化不需要动别处——页面用的是 `tutorialSteps.length`。
 const List<TutorialStep> tutorialSteps = [
   TutorialStep(
-    title: '欢迎使用智能日程',
+    title: AppBrand.welcomeTitle,
     body:
         '这个应用只做一件事：把你想做的事排进你能用的时间里。'
         '下面用六张真实界面截图带你走一遍，大约两分钟。',

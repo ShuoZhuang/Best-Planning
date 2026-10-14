@@ -1,4 +1,4 @@
-﻿# 智能日程 —— MSIX 一键安装／升级
+﻿# 优计主义 —— MSIX 一键安装／升级
 #
 # **为什么需要它**：本包是**自签名**的，Windows 要求先信任签名证书，否则双击 MSIX 会报
 # 「证书链已处理，但终止于不受信任的根证书」(0x800B0109)。手动翻证书库要选"本地计算机"、
@@ -89,7 +89,7 @@ try {
   else {
     Write-Host '完成。' -ForegroundColor Green
   }
-  Write-Host '可以从开始菜单打开「智能日程」。' -ForegroundColor Green
+  Write-Host '可以从开始菜单打开「优计主义」。' -ForegroundColor Green
 }
 catch {
   Write-Host ''

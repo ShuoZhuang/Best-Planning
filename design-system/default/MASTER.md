@@ -1,4 +1,4 @@
-# 智能日程设计系统
+# 优计主义设计系统
 
 > 视觉基准：`design/visual-directions/direction-3-focus-console-selected.png`
 

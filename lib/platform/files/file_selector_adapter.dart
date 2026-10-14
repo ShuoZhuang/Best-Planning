@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:personal_planner/app/app_brand.dart';
 import 'package:personal_planner/application/export_service.dart';
 
 final class FileSelectorAdapter implements ExportFilePort {
@@ -37,7 +38,7 @@ final class FileSelectorAdapter implements ExportFilePort {
       initialDirectory: initialDirectory,
       suggestedName: 'planner-backup.zip',
       acceptedTypeGroups: const [
-        XTypeGroup(label: '智能日程备份', extensions: ['zip']),
+        XTypeGroup(label: AppBrand.backupTypeLabel, extensions: ['zip']),
       ],
     );
     return location?.path;
@@ -46,7 +47,7 @@ final class FileSelectorAdapter implements ExportFilePort {
   Future<String?> chooseBackupSource() async {
     final file = await openFile(
       acceptedTypeGroups: const [
-        XTypeGroup(label: '智能日程备份', extensions: ['zip']),
+        XTypeGroup(label: AppBrand.backupTypeLabel, extensions: ['zip']),
       ],
     );
     return file?.path;

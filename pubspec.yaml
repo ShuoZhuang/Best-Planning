@@ -1,5 +1,5 @@
 name: personal_planner
-description: "本地优先、可解释的个人智能日程规划工具。"
+description: "优计主义：本地优先、可解释的个人日程规划工具。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -178,8 +178,8 @@ flutter:
 # v1 使用稳定的侧载身份；未来接入 Microsoft Store 时，商店渠道必须使用后台分配的
 # identity/publisher，并作为独立发布渠道迁移，不能悄悄覆盖这个身份。
 msix_config:
-  display_name: 智能日程
-  publisher_display_name: Personal Planner
+  display_name: 优计主义
+  publisher_display_name: 优计主义
   # 侧载用的稳定身份：3–50 字符，只允许字母数字与 . 和 -。**发布后不可更改**
   # （换身份等于换应用，用户数据不会自动迁移）。
   #
@@ -242,7 +242,7 @@ msix_config:
   # （`test/platform/windows_notification_activator_config_test.dart`）。
   toast_activator:
     clsid: 7D40D6B0-AC23-4E16-9F0F-21C8AEF635B4
-    display_name: 智能日程
+    display_name: 优计主义
   # 构建过程不得静默修改本机的受信任证书库；安装测试单独请求用户授权。
   install_certificate: false
 

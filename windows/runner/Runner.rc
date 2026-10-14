@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "app.personalplanner" "\0"
-            VALUE "FileDescription", "智能日程" "\0"
+            VALUE "FileDescription", "优计主义" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "personal_planner" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 app.personalplanner. All rights reserved." "\0"
             VALUE "OriginalFilename", "personal_planner.exe" "\0"
-            VALUE "ProductName", "智能日程" "\0"
+            VALUE "ProductName", "优计主义" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

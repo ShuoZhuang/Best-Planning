@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:personal_planner/app/app_brand.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -118,7 +119,7 @@ final class FlutterWindowsNotificationBackend
 
   WindowsInitializationSettings get _initialization =>
       WindowsInitializationSettings(
-        appName: '智能日程',
+        appName: AppBrand.displayName,
         appUserModelId: effectiveAppUserModelId,
         guid: activatorGuid,
       );

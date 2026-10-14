@@ -81,7 +81,7 @@ bool FlutterWindow::EnsureTrayIcon() {
   // The tooltip repeats the window title; \u escapes keep this file pure ASCII (see the
   // note in tray_icon.cpp about code page 936 and warning C4819).
   auto tray = std::make_unique<TrayIcon>(handle, icon,
-                                         L"\u667A\u80FD\u65E5\u7A0B",
+                                         L"\u4F18\u8BA1\u4E3B\u4E49",
                                          [this]() { QuitFromTray(); });
   if (!tray->Add()) {
     // Report the shell's own error: it is the only clue to why there is no icon, and the

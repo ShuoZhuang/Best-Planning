@@ -8,6 +8,31 @@ import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
 
 void main() {
+  testWidgets('主窗口与应用元数据显示优计主义品牌名', (tester) async {
+    final settings = MemorySettingsRepository();
+    await settings.write(
+      OnboardingPage.schemaVersionKey,
+      OnboardingPage.currentSchemaVersion.toString(),
+    );
+    await settings.write(
+      TutorialPage.seenKey,
+      TutorialPage.currentVersion.toString(),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: PlannerApp(
+          timeZoneId: 'Asia/Shanghai',
+          settingsRepository: settings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('优计主义'), findsOneWidget);
+    expect(tester.widget<MaterialApp>(find.byType(MaterialApp)).title, '优计主义');
+  });
+
   testWidgets('首次启动先显示默认设置引导', (tester) async {
     await tester.pumpWidget(
       const ProviderScope(child: PlannerApp(timeZoneId: 'Asia/Shanghai')),
