@@ -90,7 +90,7 @@ Review Focus 要求"早餐规则**在所有日历视图**中必须显示「早�
 
 | 步骤 | 命令 | 结果 |
 | --- | --- | --- |
-| 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool` | `Formatted 584 files (0 changed)`，**exit 0** |
+| 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool` | `Formatted 585 files (0 changed)`，**exit 0** |
 | 静态分析 | `fx.ps1 analyze --no-pub` | **No issues found!**（exit 0） |
 | 全量测试 | `fx.ps1 test --no-pub` | **+2496 / 0 失败**（`00:59`） |
 | Windows 集成测试 | `fx.ps1 test --no-pub integration_test/calendar_preview_consistency_test.dart -d windows` | **+1 / 0 失败**（`Building Windows application... 21.8s`；exit 0） |
@@ -170,19 +170,43 @@ warning 与 blocking"时卡片标题取 `无法应用的问题`（源码即
 
 1. **人工验收 A–F 全部未执行**（§3）。计划 §7「完成定义」明确：缺一项就不能写"修复完成"。
    因此本文件的结论是 **NOT COMPLETE**。
-2. **候选构建未发布**：`fx.ps1 build windows --release --no-pub` 的结果见下表；本计划未获
-   发布授权，因此没有创建 tag／Release，也没有安装到任何测试目录。
+2. **候选已打包、未发布**：release 构建与签名 MSIX 都已完成并组装成交付包（见下表）；
+   本计划未获发布授权，因此没有创建 tag／Release，也**没有安装到本机**——安装由用户在执行
+   人工验收时自行完成。
 
    | 命令 | 结果 |
    | --- | --- |
-   | `fx.ps1 build windows --release --no-pub` | `Building Windows application... 41.8s` → `√ Built build\windows\x64\runner\Release\personal_planner.exe`，**exit 0** |
-   | 产物哈希（SHA-256） | `8AAF66980C7AC6F97CA01F09FC5AC5FF24BBCAC7FA2C5D5A908F2FFDDB0A2D2B`（`Release\personal_planner.exe`，2026-10-13 10:14:02Z） |
-   | 产物对应的生产代码 | `6130a2d8`（此后只有测试与文档提交，`lib/` 未再改动） |
-   | 安装到测试目录 | **NOT RUN**（未获发布授权；且安装会写出真实用户目录） |
+   | `fx.ps1 build windows --release --no-pub` | `Building Windows application... 41.5s` → `√ Built build\windows\x64\runner\Release\personal_planner.exe`，**exit 0** |
+   | `fx.ps1 pub run msix:create` | `msix created: build\windows\x64\runner\Release\personal_planner_1.8.0.1_x64.msix`（1.8s），**exit 0** |
+   | MSIX 签名 | `Get-AuthenticodeSignature` → **Valid**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
+   | 交付目录 | `G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014\`（便携目录 ＋ 已签名 MSIX ＋ 公钥证书 ＋ 安装脚本 ＋ `验收说明.txt` ＋ `SHA-256.txt`） |
+   | 交付 ZIP | `G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014.zip`（33.5 MB，35 项） |
+   | 产物对应的生产代码 | `9e8be775`（本计划最后一次改动 `lib/` 的提交） |
+   | 便携版能否启动 | 实测启动后进程存活 8 秒、stderr 只有 Impeller 后端提示，随后已显式关闭、无残留进程 |
+   | 安装到本机 | **未执行**（由用户执行人工验收时安装；理由见下） |
    | 创建 tag / GitHub Release | **未执行**（未获发布授权） |
 
-   发布目录里那个 `personal_planner_1.8.0.1_x64.msix` 是**更早的会话**留下的产物，
-   本计划没有重新打包 MSIX，也没有改动安装器与包身份。
+   **产物哈希（SHA-256）**——注意 `personal_planner.exe` **不是**代码身份的判据：
+   Windows 上 Dart AOT 代码在 `data\app.so` 里，EXE 只是启动器，因此**改了 Dart 代码 EXE 的哈希
+   可以完全不变**。本文件早先只记了 EXE 的哈希，那一条不具备区分能力，此处更正为两者都记：
+
+   | 文件 | SHA-256 |
+   | --- | --- |
+   | `personal_planner.exe` | `8AAF66980C7AC6F97CA01F09FC5AC5FF24BBCAC7FA2C5D5A908F2FFDDB0A2D2B` |
+   | `data\app.so`（真正的代码） | `C474317B53D7336A9318F01A39C4E042522089ED7602EB1087517F36D76A9719` |
+   | `PersonalPlanner-1.8.0-build44-windows-x64-20261014.msix` | `E6AFA1C2BE73529076112C3853C52BB7BFECF64995CB6E40D0B3E3FAF2412F1B` |
+   | `PersonalPlanner-1.8.0-build44-windows-x64-20261014.zip` | `0DE965F83EA83B21B67DFB2FEA90FCDC5590FBAE97CFF15443F2E46BA0B0B6B8` |
+   | `PersonalPlanner-signing-cert.cer` | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C` |
+
+   **一处必须交代的环境事实**：本机**已安装** `ShuoZhuang.PersonalPlanner 1.8.0.1`，
+   而那是**修复之前**的构建——上一批候选 `PersonalPlanner-1.8.0-build44-windows-x64-20261013`
+   的 `SHA-256.txt` 记录的 `data\app.so` 是 `39FBB4C8A5F7BC7E558227A615DABD85D765F97547785CED376333603A5F8072`，
+   与已安装包的 `data\app.so` **逐字节相同**，与本批的 `C474317B…` 不同。
+   因此人工验收**必须安装本批候选**，否则看到的是修复前的行为。
+   `Add-AppxPackage` 只升不降（同版本覆盖通常可行）；若报 `0x80073D02` 需先完全退出应用，
+   仍不行则先 `Remove-AppxPackage`——数据库在真实「文档」已知文件夹、不经 MSIX 重定向，
+   卸载不会删数据。**要不要把 MSIX 第四段抬到 `1.8.0.2` 以构成明确升级，需要用户点头**：
+   计划 §Global Constraints 写明"不修改 `pubspec.yaml` 的 `1.8.0+44`、MSIX 版本或发布台账"。
 
 3. **`plan_preview_page` 的"查看未使用空档"在未传时区时不渲染**（Task 6 的刻意选择：
    拿不到时区就只能印 UTC，那会让用户去找一段实际空闲的时间）。生产装配两处都传了时区。
@@ -222,10 +246,12 @@ warning 与 blocking"时卡片标题取 `无法应用的问题`（源码即
 Status: NOT COMPLETE
 ```
 
-已完成的：Task 1–9 的全部代码与测试改动、全量自动化（格式 0 改动、analyze 0 问题、
-2496 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
-未完成的：Task 10 Step 3–10 的人工验收场景 A–F（NOT RUN），因此**不能**声明"修复完成"或
-"发布就绪"。
+已完成的：Task 1–10 的全部代码与测试改动、两处既有缺陷的修复、全量自动化（格式 0 改动、
+analyze 0 问题、**+2496 通过 / 0 失败**、Windows 集成测试 **+1 / 0 失败**），以及**可安装的
+候选交付包**（已签名 MSIX ＋ 便携目录 ＋ ZIP ＋ 公钥证书 ＋ 验收说明，哈希见 §6.2）。
+未完成的：人工验收场景 A–F（NOT RUN），因此**不能**声明"修复完成"或"发布就绪"。
+交付包位置：`G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014\`
+（与同名 `.zip`）。
 
 ## 8. 执行交接（计划 §8 模板，按真实结果填写）
 
@@ -233,11 +259,15 @@ Status: NOT COMPLETE
 ## Calendar / Preview / Scheduling Integrity Repair — Handoff
 
 ### Scope
-- Implemented tasks: Task 1–9 全部；Task 10 的 Step 1（格式／分析／全量测试）、
-  Step 2（Windows 集成测试）、Step 3（构建候选，未发布）、Step 11（规范与验收记录）已完成。
-- Deferred tasks and reason: Task 10 Step 3 的"安装到测试目录"与 Step 4–10 的人工场景 A–F
-  ——需要在可交互的 Windows 桌面会话里用真实用户数据、Narrator 与目视完成，
-  本会话没有该环境，且不得接触真实用户数据库。
+- Implemented tasks: Task 1–10 全部——Step 1（格式／分析／全量测试）、Step 2（Windows 集成测试）、
+  Step 3（构建候选并打包签名 MSIX，**未安装、未发布**）、Step 4–10 的人工场景 A–F
+  **未执行**、Step 11（规范与验收记录）已完成。
+- 额外完成：经用户确认后修掉两处既有缺陷（`withLinkedBlocks` 漏传延后要求；警告分组丢掉
+  「需要注意」级别），见 §6.7。
+- Deferred tasks and reason: Task 10 的人工场景 A–F（以及清单 §J）——需要在可交互的
+  Windows 桌面会话里由人执行 Narrator 朗读、100%–200% 缩放与高对比主题目视、
+  真实用户数据下的早餐与时区场景；本会话没有该环境，也不得接触真实用户数据库。
+  **候选交付包已备好，用户可直接安装验收**（见 §6.2）。
 
 ### Root-cause evidence
 - Dynamic remaining reproduction: `test/scheduling/dynamic_short_tail_test.dart`
@@ -252,11 +282,18 @@ Status: NOT COMPLETE
 - Targeted tests: 每个 Task 的定向门禁均实测通过（数字见 §2.1 与各 Task 提交）。
 - Full test count: `+2496` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`00:59`）。
 - Analyze: `No issues found!`（exit 0）。
-- Format: `Formatted 584 files (0 changed)`，exit 0。
+- Format: `Formatted 585 files (0 changed)`，exit 0。
 - Windows integration: `integration_test/calendar_preview_consistency_test.dart`
   → `+1 / 0 失败`；`Building Windows application... 21.8s`，exit 0。
-- Release build: `√ Built build\windows\x64\runner\Release\personal_planner.exe`（41.8s，exit 0），
-  **未安装、未打包 MSIX、未发布**。
+- Release build: `√ Built build\windows\x64\runner\Release\personal_planner.exe`（41.5s，exit 0）；
+  `fx.ps1 pub run msix:create` → `msix created: …personal_planner_1.8.0.1_x64.msix`（exit 0），
+  签名 **Valid**（`CN=Shuo Zhuang, O=Personal User, C=CN`）。
+- 交付包：`G:\best-planing\release\PersonalPlanner-1.8.0-build44-windows-x64-20261014\`
+  （便携目录 ＋ 已签名 MSIX ＋ 公钥证书 ＋ 安装脚本 ＋ `验收说明.txt` ＋ `SHA-256.txt`），
+  同名 `.zip` 33.5 MB；便携版实测可启动（存活 8 秒、无残留进程）。
+  **已安装、未发布**：本机已装的 `1.8.0.1` 是**修复前**的构建
+  （`data\app.so` = `39FBB4C8…`，本批 = `C474317B…`），因此验收前必须安装本批候选；
+  安装动作留给用户，未创建 tag／Release。
 - Manual scenarios A–F: **NOT RUN**（见 §3）。
 
 ### Safety
