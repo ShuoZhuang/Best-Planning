@@ -46,7 +46,21 @@ PowerShell 不返回），因此全部命令都写成 `& G:\best-planing\.toolin
 | R8 异常提案可被误认为普通部分计划 | Task 1 未能独立建红灯（见 §4） | `hasEligibleCandidate && shortage > 0` ⇒ `unexplainedSchedulingFailure` ＋ `schedulingInvariantViolation`；`PlanApplicationService.apply()` 在 stale 检查后、validator 前先看 `proposal.conflicts`，非空直接 `invalid`（`allowPartial` 也绕不过） | `test/application/plan_application_service_test.dart` |
 | R10 测试替身掩盖生产问题 | 不是独立红灯（它是 R9 的成因） | Task 7 Step 6 的真实源跨页面用例改用**真实** `RepositoryScheduleViewSource` ＋ 真实总线 | `test/features/calendar/week_view_test.dart` |
 
-### 1.1 计划示例表的逐行验证（§2.2）
+### 1.1 Review Focus 第 9 条的覆盖审计（本轮补测）
+
+Review Focus 第 9 条要求"应用计划、撤销计划、编辑/删除日程、编辑课程、修改保护规则和完成任务后，
+日视图、近期日历和今日页必须在同一进程内自动刷新"。它由两半组成，本轮做了一次覆盖审计：
+
+| 环节 | 已有门禁 |
+| --- | --- |
+| "信号发了吗"（六个写入点各自成功发一次／失败发零次） | `test/application/schedule_view_invalidation_test.dart`（真实 drift 库） |
+| "三个页面真的会跟着刷新吗" | `test/features/calendar/week_view_test.dart` 的跨页面用例（真实数据源 ＋ 真实总线 ＋ 三页同挂一棵树）＋ Windows 集成测试 |
+| **真空档**：跨页面用例只驱动了"应用计划／编辑固定日程／完成任务"三条路径 | **本轮补上** `test/application/calendar_refresh_paths_test.dart`：删除日程、修改保护规则（按日例外）、保存配色、领域改名、撤销计划，**每条都要求真实生产数据源重新发一份"不同"的列表**（只断言"又发了一份"会被"原样重发"蒙过去） |
+
+课程的保存／删除仍由 `schedule_view_invalidation_test.dart` 在真实 drift 库上覆盖（需要学期与
+课表导入批次夹具），而"发信号 ⇒ 数据源完整重载"这条链与写入路径无关——因此没有重复搭一套学期夹具。
+
+### 1.2 计划示例表的逐行验证（§2.2）
 
 `test/scheduling/plan_validator_test.dart` 把计划 §2.2 的示例表**逐行**写成用例，六行全部按表成立：
 
@@ -65,7 +79,7 @@ PowerShell 不返回），因此全部命令都写成 `& G:\best-planing\.toolin
 | --- | --- | --- |
 | 格式检查 | `dart format --output=none --set-exit-if-changed lib test integration_test tool` | `Formatted 584 files (0 changed)`，**exit 0** |
 | 静态分析 | `fx.ps1 analyze --no-pub` | **No issues found!**（exit 0） |
-| 全量测试 | `fx.ps1 test --no-pub` | **+2490 / 0 失败**（`00:59`） |
+| 全量测试 | `fx.ps1 test --no-pub` | **+2495 / 0 失败**（`01:00`） |
 | Windows 集成测试 | `fx.ps1 test --no-pub integration_test/calendar_preview_consistency_test.dart -d windows` | **+1 / 0 失败**（`Building Windows application... 21.8s`；exit 0） |
 | 构建候选（不发布） | `fx.ps1 build windows --release --no-pub` | 见 §2.2 |
 
@@ -79,6 +93,7 @@ PowerShell 不返回），因此全部命令都写成 `& G:\best-planing\.toolin
 | Task 6 提交后 | +2414 / −3 | 仅剩 R9 与 R12×2 |
 | Task 7 提交后 | +1138 / −2（定向门禁） | 仅剩 R12×2 |
 | Task 9 提交后 | **+2490 / 0** | 全绿 |
+| 覆盖审计补测（`test/application/calendar_refresh_paths_test.dart`，5 条） | **+2495 / 0** | 全绿 |
 
 ### 2.2 构建候选（不发布）
 
@@ -175,7 +190,7 @@ Status: NOT COMPLETE
 ```
 
 已完成的：Task 1–9 的全部代码与测试改动、全量自动化（格式 0 改动、analyze 0 问题、
-2490 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
+2495 通过 / 0 失败、Windows 集成测试 1 通过 / 0 失败）。
 未完成的：Task 10 Step 3–10 的人工验收场景 A–F（NOT RUN），因此**不能**声明"修复完成"或
 "发布就绪"。
 
@@ -202,7 +217,7 @@ Status: NOT COMPLETE
 
 ### Verification
 - Targeted tests: 每个 Task 的定向门禁均实测通过（数字见 §2.1 与各 Task 提交）。
-- Full test count: `+2490` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`00:59`）。
+- Full test count: `+2495` 通过 / `0` 失败（`fx.ps1 test --no-pub`，`01:00`）。
 - Analyze: `No issues found!`（exit 0）。
 - Format: `Formatted 584 files (0 changed)`，exit 0。
 - Windows integration: `integration_test/calendar_preview_consistency_test.dart`
