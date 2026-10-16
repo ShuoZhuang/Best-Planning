@@ -4,6 +4,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
@@ -57,6 +58,22 @@ final class PlanApplicationService {
       snapshots,
     );
     if (current.inputHash != proposal.inputHash) {
+      return ApplyPlanResult.stale();
+    }
+    // ── 算法版本闸门（计划 Task 10「应用安全」）────────────────────────────────
+    //
+    // 输入哈希只能证明**输入**没变。算法本身升级之后，同一份输入会算出不同的块集合，
+    // 而旧提案的块在新算法下可能已经违反新的硬约束——把它写进计划等于用已经被
+    // 判定不合格的安排覆盖用户的确认计划。
+    //
+    // 因此版本不符与"输入已变"同等处理：**过期、零写入、要求重新生成**。
+    // 判据用引擎自己的常量，不留第二份版本号（两份必然漂移）。
+    //
+    // 位置在哈希之后、冲突与 validator 之前：`stale` 是"这份提案已经作废"，
+    // 它必须先于一切"内容是否合法"的判断——否则用户会看到"容量不足"之类
+    // 完全错误的原因（同 §①/⑤ 顺序那两条说明）。
+    if (proposal.algorithmVersion !=
+        DeterministicScheduleEngine.algorithmVersion) {
       return ApplyPlanResult.stale();
     }
     // **引擎已经报过的阻断冲突先落地**：`stale` 检查之后、validator 之前。

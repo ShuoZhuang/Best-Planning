@@ -231,7 +231,7 @@ void main() {
     final seed = ScheduleProposal(
       proposalId: 'seed',
       inputHash: 'seed-hash',
-      algorithmVersion: '14',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: TimeRange(startUtc: nowUtc, endUtc: local(19, 0)),
       blocks: [
         confirmedBlock('past-yesterday', local(11, 15), 60, taskId: open.id),
@@ -356,7 +356,7 @@ void main() {
     final partial = ScheduleProposal(
       proposalId: 'partial',
       inputHash: (await h.source.load()).inputHash,
-      algorithmVersion: '14',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: TimeRange(
         startUtc: nowUtc,
         endUtc: dayStart.add(const Duration(days: 1)),
@@ -465,7 +465,7 @@ void main() {
     final illegal = ScheduleProposal(
       proposalId: 'illegal',
       inputHash: problem.inputHash,
-      algorithmVersion: '14',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: problem.planningWindow,
       blocks: illegalBlocks,
       unscheduled: const [],

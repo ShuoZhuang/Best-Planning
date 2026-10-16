@@ -14,6 +14,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
@@ -45,6 +46,67 @@ void main() {
 
   tearDown(() => database.close());
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 算法版本闸门（计划 Task 10「应用安全」）
+  //
+  // 提案携带 `algorithmVersion`，它记录"这份块集合是哪个排程算法算出来的"。
+  // 输入哈希只能证明**输入**没变；算法本身升级之后，同一份输入会算出不同的
+  // 块集合，而旧提案的块在新算法下可能已经违反新的硬约束。
+  // 因此版本不符的提案必须与"输入已变"同样处理：**判为过期、零写入**。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('算法版本闸门（Task 10）', () {
+    test('**算法版本不符 ⇒ 过期、零写入**', () async {
+      // 先用真实哈希与合法块集合造一份提案：除了版本号，它一切正常。
+      // 这样"被拒"只可能来自版本这一条判据。
+      final problem = _applyProblem();
+      const snapshots = InputSnapshotBuilder();
+      final hash = snapshots.hash(InputSnapshot(problem: problem));
+      final service = PlanApplicationService(
+        source: _ProblemSource(problem),
+        repository: repository,
+        zones: TimeZoneDatabase(),
+        snapshots: snapshots,
+      );
+
+      final proposal = _applyProposal(
+        inputHash: hash,
+        algorithmVersion: 'algorithm-from-an-older-release',
+      );
+      final result = await service.apply(proposal);
+
+      expect(
+        result.status,
+        ApplyPlanStatus.staleProposal,
+        reason: '算法版本不符必须判为过期，而不是尝试写入',
+      );
+      expect(
+        await database.select(database.planVersions).get(),
+        isEmpty,
+        reason: '被判过期的提案不得留下任何计划版本（零写入）',
+      );
+    });
+
+    test('版本相符时正常应用（闸门不能误伤合法提案）', () async {
+      final problem = _applyProblem();
+      const snapshots = InputSnapshotBuilder();
+      final hash = snapshots.hash(InputSnapshot(problem: problem));
+      final service = PlanApplicationService(
+        source: _ProblemSource(problem),
+        repository: repository,
+        zones: TimeZoneDatabase(),
+        snapshots: snapshots,
+      );
+
+      final result = await service.apply(
+        _applyProposal(
+          inputHash: hash,
+          algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
+        ),
+      );
+
+      expect(result.status, ApplyPlanStatus.applied);
+    });
+  });
   test(
     'third block failure rolls back plan, blocks, log and supersede',
     () async {
@@ -103,7 +165,7 @@ void main() {
     final proposal = ScheduleProposal(
       proposalId: 'invalid-proposal',
       inputHash: hash,
-      algorithmVersion: '1',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
       blocks: [
         PlannedBlock(
@@ -206,7 +268,7 @@ void main() {
     final proposal = ScheduleProposal(
       proposalId: 'blocked-proposal',
       inputHash: hash,
-      algorithmVersion: '1',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
       blocks: [
         PlannedBlock(
@@ -312,7 +374,7 @@ void main() {
         ScheduleProposal(
           proposalId: 'overlapping',
           inputHash: hash,
-          algorithmVersion: '1',
+          algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
           planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
           blocks: [
             PlannedBlock(
@@ -370,7 +432,7 @@ ScheduleProposal _proposal() {
   return ScheduleProposal(
     proposalId: 'proposal-1',
     inputHash: 'snapshot-hash',
-    algorithmVersion: '1',
+    algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
     planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
     blocks: blocks,
     unscheduled: const [],
@@ -485,6 +547,46 @@ ScheduleProblem _withRules(ScheduleProblem problem, PlanningRules rules) {
   );
 }
 
+/// 版本闸门用例用的输入：单任务 60 分钟、窗口恰好一天、UTC。
+ScheduleProblem _applyProblem() => _overrideProblem();
+
+/// 一份**除了版本号之外全部合法**的提案。
+///
+/// 之所以能这样构造：`_overrideProblem()` 的任务要 60 分钟，而这里给一个
+/// 10:00–11:00 的块，正好满足；窗口是一整天，块落在窗口内；没有 unscheduled、
+/// 没有 conflicts、没有 adjustment 请求。因此"被拒"只可能来自版本这一条判据。
+ScheduleProposal _applyProposal({
+  required String inputHash,
+  required String algorithmVersion,
+}) => ScheduleProposal(
+  proposalId: 'apply-proposal',
+  inputHash: inputHash,
+  algorithmVersion: algorithmVersion,
+  planningWindow: TimeRange(
+    startUtc: DateTime.utc(2026, 10, 5),
+    endUtc: DateTime.utc(2026, 10, 6),
+  ),
+  blocks: [
+    PlannedBlock(
+      id: 'block-0',
+      taskId: 'task',
+      range: TimeRange(
+        startUtc: DateTime.utc(2026, 10, 5, 10),
+        endUtc: DateTime.utc(2026, 10, 5, 11),
+      ),
+      explanationCode: 'priority',
+    ),
+  ],
+  unscheduled: const [],
+  conflicts: const [],
+  explanations: const [],
+  metrics: const ProposalMetrics(
+    isFullyFeasible: true,
+    scheduledMinutes: 60,
+    unscheduledMinutes: 0,
+  ),
+);
+
 ScheduleProblem _overrideProblem() {
   final day = DateTime.utc(2026, 10, 5);
   final window = TimeRange(
@@ -532,7 +634,7 @@ ScheduleProposal _overrideProposal({
 }) => ScheduleProposal(
   proposalId: 'recovery-proposal',
   inputHash: inputHash,
-  algorithmVersion: '1',
+  algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
   planningWindow: _dayWindow(DateTime.utc(2026, 10, 5)),
   blocks: [
     PlannedBlock(
