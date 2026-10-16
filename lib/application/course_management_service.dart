@@ -410,7 +410,12 @@ final class CourseManagementService {
     if (anchors.isEmpty) {
       return const CourseCommandResult.failure('这门课在当前学期没有可删除的系列');
     }
-    await gateway.deleteSeriesWithExceptions(anchors);
+    // **单一 UTC 时间由服务层给一次**（Task 7 Step 2）：仓储不得在循环里多次读系统时钟，
+    // 否则"同一次删除"在数据上会留下几个不同的时间戳。
+    await gateway.deleteSeriesWithExceptions(
+      anchorEventIds: anchors,
+      deletedAtUtc: _nowUtc(),
+    );
     // **成功之后**才发（§2.6 最后一段）：上面任何一步抛错都保持数据不变，
     // 那时发信号只会让页面白读一次库。
     onCalendarChanged?.call();

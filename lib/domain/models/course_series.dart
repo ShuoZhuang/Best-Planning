@@ -391,6 +391,54 @@ final class CourseSeriesSegment {
   final EntityId? importBatchId;
 }
 
+/// **一次课程删除的真实结果**（计划 §2.3／Task 7 Step 1）。
+///
+/// 四个计数缺一不可：只报"删掉了"无法回答"到底删了什么"，
+/// 而删除是用户在课程管理里最不可逆的动作。
+///
+/// **id 集合只供内部与测试核对，界面不得显示**（规范全局不变量第 7 条）。
+/// 界面要展示的是计数与课程名，而不是 uuid。
+final class CourseDeletionResult {
+  const CourseDeletionResult({
+    required this.deletedAnchorIds,
+    required this.deletedExceptionIds,
+    required this.deletedRuleIds,
+    required this.affectedImportBatchIds,
+  });
+
+  /// 什么都没删（空集合、或 id 全部不存在）。
+  static const CourseDeletionResult empty = CourseDeletionResult(
+    deletedAnchorIds: {},
+    deletedExceptionIds: {},
+    deletedRuleIds: {},
+    affectedImportBatchIds: {},
+  );
+
+  final Set<String> deletedAnchorIds;
+  final Set<String> deletedExceptionIds;
+  final Set<String> deletedRuleIds;
+
+  /// **状态真的发生转移**的批次（`committed → partiallyDeleted`）。
+  ///
+  /// 不是"涉及到的批次"：一个已经是 `partiallyDeleted` 的批次被再删一门课时
+  /// 不在这里——它的状态没有变，而"变更了几行"才是调用方要如实汇报的事实。
+  final Set<String> affectedImportBatchIds;
+
+  int get deletedAnchorCount => deletedAnchorIds.length;
+  int get deletedExceptionCount => deletedExceptionIds.length;
+  int get deletedRuleCount => deletedRuleIds.length;
+  int get affectedImportBatchCount => affectedImportBatchIds.length;
+
+  bool get isEmpty =>
+      deletedAnchorIds.isEmpty &&
+      deletedExceptionIds.isEmpty &&
+      deletedRuleIds.isEmpty &&
+      affectedImportBatchIds.isEmpty;
+
+  int get totalDeletedRows =>
+      deletedAnchorCount + deletedExceptionCount + deletedRuleCount;
+}
+
 /// 删除课程前的影响预览（规范 §10.2："删除：先预览受影响次数，再二次确认"）。
 final class CourseDeletionPreview {
   const CourseDeletionPreview({

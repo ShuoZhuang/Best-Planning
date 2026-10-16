@@ -411,7 +411,10 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
 final class _NoopGateway implements CourseWriteGateway {
   const _NoopGateway();
   @override
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {}
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  }) async => CourseDeletionResult.empty;
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;

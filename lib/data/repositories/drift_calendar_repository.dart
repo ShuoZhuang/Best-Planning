@@ -9,6 +9,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
+import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
 import 'package:personal_planner/domain/services/recurrence_membership.dart';
 
@@ -864,24 +865,112 @@ final class DriftCalendarRepository
   }
 
   @override
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {
-    if (anchorEventIds.isEmpty) return;
-    // **一个事务**（规范 §10.2：事务中任一写入失败时全部回滚）。
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  }) async {
+    if (!deletedAtUtc.isUtc) {
+      throw ArgumentError.value(deletedAtUtc, 'deletedAtUtc', 'Must be UTC.');
+    }
+    if (anchorEventIds.isEmpty) return CourseDeletionResult.empty;
+    // **一个事务**（规范 §10.2：事务中任一写入失败时全部回滚）。事务内的顺序见端口文档：
+    // 先读真实锚点 → 删例外 → 删锚点 → 只删已无引用的规则 → 标记批次状态。
     //
-    // 顺序是刻意的：**先删例外行，再删锚点行**。`exception_of_id` 是指向
-    // `calendar_events(id)` 的外键，反过来的话锚点一删，例外行立刻变成孤儿，
-    // 而 `PRAGMA foreign_keys = ON` 会让那次删除整个失败。
-    //
-    // 例外行必须一起删：它们不会出现在 `occurrencesBetween` 的锚点查询里，
-    // 但展开器会**按锚点分组读取全部例外**，因此留下的孤儿例外会在下一次同名锚点
-    // 出现时被应用到一条不相干的系列上。
-    await _database.transaction(() async {
+    // **顺序是刻意的**：`exception_of_id` 是指向 `calendar_events(id)` 的外键，
+    // 先删锚点会让例外行立刻变成孤儿，而 `PRAGMA foreign_keys = ON` 会让那次删除整个失败。
+    return _database.transaction(() async {
+      // ① 读取目标锚点：只认库里**真实存在**的行。
+      final anchors =
+          await (_database.select(_database.calendarEvents)..where(
+                (row) =>
+                    row.id.isIn(anchorEventIds) &
+                    // 只删系列锚点，不把某一次的例外当锚点删。
+                    row.exceptionOfId.isNull(),
+              ))
+              .get();
+      if (anchors.isEmpty) return CourseDeletionResult.empty;
+      final realAnchorIds = {for (final anchor in anchors) anchor.id};
+      final candidateRuleIds = {
+        for (final anchor in anchors)
+          if (anchor.recurrenceRuleId != null) anchor.recurrenceRuleId!,
+      };
+      final batchIds = {
+        for (final anchor in anchors)
+          if (anchor.importBatchId != null && anchor.importBatchId!.isNotEmpty)
+            anchor.importBatchId!,
+      };
+
+      // ② 例外先删。
+      final exceptions =
+          await (_database.select(_database.calendarEvents)..where(
+                (row) => row.exceptionOfId.isIn(realAnchorIds),
+              ))
+              .get();
+      final exceptionIds = {for (final row in exceptions) row.id};
+      if (exceptionIds.isNotEmpty) {
+        await (_database.delete(
+          _database.calendarEvents,
+        )..where((row) => row.id.isIn(exceptionIds))).go();
+      }
+
+      // ③ 锚点后删。
       await (_database.delete(
         _database.calendarEvents,
-      )..where((row) => row.exceptionOfId.isIn(anchorEventIds))).go();
-      await (_database.delete(
-        _database.calendarEvents,
-      )..where((row) => row.id.isIn(anchorEventIds))).go();
+      )..where((row) => row.id.isIn(realAnchorIds))).go();
+
+      // ④ **逐个确认已无引用**再删规则：规则可以被多条锚点共享，
+      //    "目标锚点引用过它"不等于"它只被目标锚点引用"。
+      final deletedRuleIds = <String>{};
+      for (final ruleId in candidateRuleIds) {
+        final stillReferenced =
+            await (_database.selectOnly(_database.calendarEvents)
+                  ..addColumns([_database.calendarEvents.id.count()])
+                  ..where(
+                    _database.calendarEvents.recurrenceRuleId.equals(ruleId),
+                  ))
+                .getSingle();
+        final references =
+            stillReferenced.read(_database.calendarEvents.id.count()) ?? 0;
+        if (references != 0) continue;
+        await (_database.delete(
+          _database.recurrenceRules,
+        )..where((row) => row.id.equals(ruleId))).go();
+        deletedRuleIds.add(ruleId);
+      }
+
+      // ⑤ **只转移允许的状态**：`committed → partiallyDeleted`；
+      //    `partiallyDeleted` 保持；`rolledBack` 与 `draft` 不动（计划 Task 7 Step 4）。
+      //    时间戳与课程删除同事务：不可能出现"课删了、批次还说完整"的中间态。
+      var affectedBatches = 0;
+      if (batchIds.isNotEmpty) {
+        affectedBatches =
+            await (_database.update(_database.timetableImportBatches)..where(
+                  (row) =>
+                      row.id.isIn(batchIds) &
+                      row.status.equals(
+                        TimetableImportBatchStatus.committed.storageValue,
+                      ),
+                ))
+                .write(
+                  db.TimetableImportBatchesCompanion(
+                    status: Value(
+                      TimetableImportBatchStatus
+                          .partiallyDeleted
+                          .storageValue,
+                    ),
+                    updatedAtUtc: Value(deletedAtUtc.microsecondsSinceEpoch),
+                  ),
+                );
+      }
+
+      return CourseDeletionResult(
+        deletedAnchorIds: realAnchorIds,
+        deletedExceptionIds: exceptionIds,
+        deletedRuleIds: deletedRuleIds,
+        affectedImportBatchIds: affectedBatches == 0
+            ? const {}
+            : batchIds,
+      );
     });
   }
 

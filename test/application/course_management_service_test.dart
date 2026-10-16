@@ -317,8 +317,12 @@ final class _GatewaySpy implements CourseWriteGateway {
   final List<Set<String>> deletedSets = [];
 
   @override
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  }) async {
     deletedSets.add(anchorEventIds);
+    return CourseDeletionResult.empty;
   }
 
   @override

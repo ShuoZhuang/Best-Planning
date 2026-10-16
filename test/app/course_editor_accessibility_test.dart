@@ -241,7 +241,10 @@ final class _Courses implements CourseSeriesRepository {
 
 final class _Gateway implements CourseWriteGateway {
   @override
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {}
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  }) async => CourseDeletionResult.empty;
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;

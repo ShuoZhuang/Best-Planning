@@ -16,6 +16,7 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
+import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 
 void main() {
   const zoneId = 'Asia/Shanghai';
@@ -422,5 +423,281 @@ void main() {
           '替换的范围是**这门课**。同名但不同 `logicalCourseId` 的是两门课，'
           '把另一门删掉会让用户改一次 A 班的时间表、B 班的课消失',
     );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 7（课程编辑完整性修复计划）：**删除课程是一个事务**（D1–D4、B1–B3）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('删除课程（计划 §2.3）', () {
+    /// 四张表的完整快照——"失败即整体回滚"必须逐表核对，而不是只看锚点还在不在。
+    Future<List<String>> tableSnapshot() async {
+      final rows = <String>[];
+      for (final table in [
+        'calendar_events',
+        'recurrence_rules',
+        'timetable_import_batches',
+        'academic_terms',
+      ]) {
+        final result = await database.customSelect('SELECT * FROM $table').get();
+        for (final row in result) {
+          rows.add(
+            '$table:${row.data.entries.map((e) => '${e.key}=${e.value}').join(',')}',
+          );
+        }
+      }
+      rows.sort();
+      return rows;
+    }
+
+    Future<({String status, int updatedAt})> batch(String id) async {
+      final row = await database
+          .customSelect(
+            "SELECT status, updated_at_utc FROM timetable_import_batches "
+            "WHERE id = '$id'",
+          )
+          .getSingle();
+      return (
+        status: row.read<String>('status'),
+        updatedAt: row.read<int>('updated_at_utc'),
+      );
+    }
+
+    test('D1：锚点、例外与**独占规则**全部删除', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      // 三条例外：两条"替换"、一条"删除标记"（零长度）。
+      await repository.replaceOccurrence(
+        anchorId: 'evt-a',
+        occurrenceStartUtc: utc(9, 7, 0, 0),
+        patch: CalendarEventPatch(
+          title: '高等数学(上)',
+          startAtUtc: utc(9, 7, 2, 0),
+          endAtUtc: utc(9, 7, 2, 45),
+        ),
+        exceptionId: 'exc-1',
+        updatedAtUtc: utc(10, 1, 0, 0),
+      );
+      await repository.replaceOccurrence(
+        anchorId: 'evt-a',
+        occurrenceStartUtc: utc(9, 14, 0, 0),
+        patch: CalendarEventPatch(
+          title: '高等数学(上)',
+          startAtUtc: utc(9, 14, 2, 0),
+          endAtUtc: utc(9, 14, 2, 45),
+        ),
+        exceptionId: 'exc-2',
+        updatedAtUtc: utc(10, 1, 0, 0),
+      );
+
+      final result = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+
+      expect(result.deletedAnchorCount, 1);
+      expect(result.deletedExceptionCount, 2);
+      expect(
+        result.deletedRuleCount,
+        1,
+        reason: '这条规则只被目标锚点引用：不删它就会留下孤儿规则（C21）',
+      );
+      expect(await segmentIds(), isEmpty);
+      expect(await ruleCount(), 0);
+      final leftovers = await database
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM calendar_events "
+            "WHERE exception_of_id = 'evt-a'",
+          )
+          .get();
+      expect(leftovers.first.read<int>('c'), 0);
+    });
+
+    test('D2：**共享规则**在仍有引用时保留', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-shared');
+      await seedSegment(eventId: 'evt-b', ruleId: 'rule-shared');
+
+      final result = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+
+      expect(
+        result.deletedRuleCount,
+        0,
+        reason: '另一条锚点还在引用它；直接删会打断那一段的展开',
+      );
+      expect(await ruleCount(), 1);
+      expect(await segmentIds(), ['evt-b']);
+
+      // 最后一个引用被删掉时才回收。
+      final second = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-b'},
+        deletedAtUtc: utc(10, 12, 2, 0),
+      );
+      expect(second.deletedRuleCount, 1);
+      expect(await ruleCount(), 0);
+    });
+
+    test('D4：重复删除返回 0 变化，且**不更新批次时间戳**', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      final first = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+      expect(first.deletedAnchorCount, 1);
+      final afterFirst = await batch('batch-autumn');
+
+      final second = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 9, 0),
+      );
+
+      expect(second.isEmpty, isTrue);
+      expect(
+        await batch('batch-autumn'),
+        afterFirst,
+        reason: '一次无操作不该看起来像一次真实变更',
+      );
+      expect(
+        (await repository.deleteSeriesWithExceptions(
+          anchorEventIds: const {},
+          deletedAtUtc: utc(10, 12, 9, 0),
+        )).isEmpty,
+        isTrue,
+      );
+    });
+
+    test('D3：删除规则时失败 ⇒ 四张表全部回滚', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      await repository.replaceOccurrence(
+        anchorId: 'evt-a',
+        occurrenceStartUtc: utc(9, 7, 0, 0),
+        patch: CalendarEventPatch(
+          title: '高等数学(上)',
+          startAtUtc: utc(9, 7, 2, 0),
+          endAtUtc: utc(9, 7, 2, 45),
+        ),
+        exceptionId: 'exc-1',
+        updatedAtUtc: utc(10, 1, 0, 0),
+      );
+      final before = await tableSnapshot();
+      // **真实失败注入**：让"删规则"这一步在事务里失败。
+      await database.customStatement('''
+        CREATE TRIGGER block_rule_delete BEFORE DELETE ON recurrence_rules
+        BEGIN SELECT RAISE(ABORT, '注入的失败'); END
+      ''');
+
+      await expectLater(
+        repository.deleteSeriesWithExceptions(
+          anchorEventIds: {'evt-a'},
+          deletedAtUtc: utc(10, 12, 1, 0),
+        ),
+        throwsA(isA<SqliteException>()),
+      );
+
+      expect(
+        await tableSnapshot(),
+        before,
+        reason: '例外与锚点已经删过了，但整体回滚必须把它们带回来',
+      );
+      await database.customStatement('DROP TRIGGER block_rule_delete');
+    });
+
+    test('D3：更新批次状态时失败 ⇒ 四张表全部回滚', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      final before = await tableSnapshot();
+      await database.customStatement('''
+        CREATE TRIGGER block_batch_update BEFORE UPDATE ON timetable_import_batches
+        BEGIN SELECT RAISE(ABORT, '注入的失败'); END
+      ''');
+
+      await expectLater(
+        repository.deleteSeriesWithExceptions(
+          anchorEventIds: {'evt-a'},
+          deletedAtUtc: utc(10, 12, 1, 0),
+        ),
+        throwsA(isA<SqliteException>()),
+      );
+
+      expect(await tableSnapshot(), before);
+      await database.customStatement('DROP TRIGGER block_batch_update');
+    });
+
+    test('B1：删除导入课程 ⇒ committed → partiallyDeleted', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      expect((await batch('batch-autumn')).status, 'committed');
+
+      final result = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+
+      expect(result.affectedImportBatchCount, 1);
+      final after = await batch('batch-autumn');
+      expect(after.status, 'partiallyDeleted');
+      expect(
+        after.updatedAt,
+        utc(10, 12, 1, 0).microsecondsSinceEpoch,
+        reason: '状态与时间戳必须来自**同一个** deletedAtUtc',
+      );
+      expect(
+        TimetableImportBatchStatus.fromStorage(after.status),
+        TimetableImportBatchStatus.partiallyDeleted,
+      );
+    });
+
+    test('B2：删掉手工课程（没有批次）不改任何批次', () async {
+      await repository.saveRecurring(
+        CalendarEvent(
+          id: 'evt-manual',
+          title: '手工课',
+          startAtUtc: utc(9, 7, 0, 0),
+          endAtUtc: utc(9, 7, 0, 45),
+          timeZoneId: zoneId,
+          recurrenceRuleId: 'rule-manual',
+          sourceKind: CalendarEventSourceKind.manual,
+          logicalCourseId: 'course-manual',
+          updatedAtUtc: utc(10, 1, 0, 0),
+        ),
+        RecurrenceRule(
+          id: 'rule-manual',
+          weekdays: const {DateTime.monday},
+          localStartMinute: 8 * 60,
+          durationMinutes: 45,
+          validFromLocalDate: DateTime(2026, 9, 7),
+          validUntilLocalDate: DateTime(2026, 12, 20),
+          timeZoneId: zoneId,
+        ),
+      );
+      final before = await batch('batch-autumn');
+
+      final result = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-manual'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+
+      expect(result.affectedImportBatchCount, 0);
+      expect(await batch('batch-autumn'), before);
+    });
+
+    test('B3：rolledBack／draft 批次的状态不被覆盖', () async {
+      await database.customStatement(
+        "UPDATE timetable_import_batches SET status = 'rolledBack' "
+        "WHERE id = 'batch-autumn'",
+      );
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+
+      final result = await repository.deleteSeriesWithExceptions(
+        anchorEventIds: {'evt-a'},
+        deletedAtUtc: utc(10, 12, 1, 0),
+      );
+
+      expect(
+        result.affectedImportBatchCount,
+        0,
+        reason: '只有 committed 会转移；已撤销的批次不该被这次删除改写',
+      );
+      expect((await batch('batch-autumn')).status, 'rolledBack');
+    });
   });
 }

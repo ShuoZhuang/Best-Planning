@@ -10,10 +10,32 @@ import 'package:personal_planner/domain/models/course_series.dart';
 ///
 /// 端口只暴露"按 id 集合做一次事务性清理"这一个动作，范围解析与冲突预览留在服务层。
 abstract interface class CourseWriteGateway {
-  /// 在一个事务里删除这些锚点，**连同它们各自的例外行**。
+  /// 在一个事务里删除这些锚点，**连同它们各自的例外行**，并把受影响批次标记为
+  /// 部分删除。
   ///
-  /// 幂等：id 不存在就当已经删掉（调用方拿到的 id 可能来自一次已过期的视图）。
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds);
+  /// ## 事务内的固定顺序（计划 §2.3）
+  ///
+  /// 1. 读取目标锚点，收集**真实存在**的锚点 id、候选规则 id 与非空批次 id；
+  /// 2. 删除 `exception_of_id` 指向目标锚点的例外；
+  /// 3. 删除目标锚点；
+  /// 4. 对候选规则逐个确认**已经没有任何** `calendar_events.recurrence_rule_id` 引用，
+  ///    再删除规则——规则可以被多条锚点共享，不查引用就删会打断别的片段；
+  /// 5. 把受影响且当前为 `committed` 的批次改为 `partiallyDeleted`，
+  ///    写同一个 [deletedAtUtc]；
+  /// 6. 返回实际删除的锚点、例外、规则与受影响批次数。
+  ///
+  /// **为什么第 1 步必须先读**：调用方传来的 id 可能已经不存在（过期的视图）。
+  /// 不先读就无法区分"删掉了 3 条"与"3 个 id 里只有 1 个是真的"，
+  /// 更糟的是会**用不存在的 id** 去标记批次状态——那是把别人的数据标成"被删过"。
+  ///
+  /// **幂等**：空集合、不存在的 id、第二次调用都返回 [CourseDeletionResult.empty]，
+  /// 且**不更新批次的 `updated_at_utc`**（否则一次无操作会看起来像一次真实变更）。
+  ///
+  /// **失败即整体回滚**：任一步抛错时锚点、例外、规则与批次状态全部保持原样。
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  });
 
   /// 在**一个事务里**把一门课的安排换成 [rows]（课程与保护时间管理修复计划 Task 4）。
   ///

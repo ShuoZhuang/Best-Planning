@@ -669,7 +669,10 @@ final class _Gateway implements CourseWriteGateway {
   List<CourseWriteRow> savedRows = const [];
 
   @override
-  Future<void> deleteSeriesWithExceptions(Set<String> anchorEventIds) async {}
+  Future<CourseDeletionResult> deleteSeriesWithExceptions({
+    required Set<String> anchorEventIds,
+    required DateTime deletedAtUtc,
+  }) async => CourseDeletionResult.empty;
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;
