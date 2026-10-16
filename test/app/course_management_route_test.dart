@@ -28,7 +28,10 @@ import 'package:personal_planner/domain/models/timetable_import.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/course_series_repository.dart';
+import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
+import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_history_page.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
@@ -71,6 +74,7 @@ void main() {
   Future<GoRouter> pumpRouter(
     WidgetTester tester, {
     CourseManagementService? courses,
+    TimetableImportService? import,
     String initialLocation = '/calendar/courses',
   }) async {
     await tester.binding.setSurfaceSize(const Size(1400, 900));
@@ -91,6 +95,7 @@ void main() {
       zones: TimeZoneDatabase(),
       timeZoneId: 'Asia/Shanghai',
       courseManagement: courses,
+      timetableImport: import,
     );
     addTearDown(router.dispose);
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -119,6 +124,85 @@ void main() {
     expect(find.text('管理课程'), findsOneWidget);
     // 两门同名课各占一行。
     expect(find.textContaining('高等数学(上)'), findsNWidgets(2));
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 10（计划 §2.6／H1）：**导入记录是持久入口，重启后仍然可达**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  testWidgets('H1：管理课程 → 导入记录，重启后仍能打开并撤销', (tester) async {
+    final importRepository = _HistoryImportRepository();
+    final importer = TimetableImportService(
+      calendarRepository: const _NoopCalendar(),
+      zones: TimeZoneDatabase(),
+      importRepository: importRepository,
+    );
+
+    // 第一次"会话"：从管理课程进入记录页并撤销。
+    await pumpRouter(tester, courses: service(), import: importer);
+
+    expect(
+      find.byKey(const Key('course-import-history')),
+      findsOneWidget,
+      reason: '入口固定在近期日历 → 管理课程 → 导入记录',
+    );
+    await tester.tap(find.byKey(const Key('course-import-history')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TimetableImportHistoryPage), findsOneWidget);
+    expect(
+      find.textContaining('schedule.png'),
+      findsOneWidget,
+      reason: '只显示文件名（不是绝对路径）',
+    );
+    await tester.tap(
+      find.byKey(const Key('import-history-rollback-batch-1')),
+    );
+    await tester.pumpAndSettle();
+    expect(importRepository.rollbackCalls, ['batch-1']);
+
+    // 第二次"会话"：**同一个数据库**、全新的 router。
+    // 记录仍然可见，且已撤销的行不再可撤销——这条断言不依赖任何提示条。
+    await pumpRouter(
+      tester,
+      courses: service(),
+      import: importer,
+      initialLocation: '/calendar/import/history',
+    );
+
+    expect(find.byType(TimetableImportHistoryPage), findsOneWidget);
+    expect(find.textContaining('schedule.png'), findsOneWidget);
+    // 列表里的那一行显示"已撤销"；上一次会话的提示条也可能还挂在树上，
+    // 因此用 findsWidgets，而"不可再撤销"那条断言才是本用例真正要钉住的。
+    expect(find.textContaining('已撤销'), findsWidgets);
+    expect(
+      find.byKey(const Key('import-history-rollback-batch-1')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('未装配导入服务时不渲染死按钮，也不崩溃', (tester) async {
+    await pumpRouter(tester, courses: service());
+
+    expect(
+      find.byKey(const Key('course-import-history')),
+      findsNothing,
+      reason: '没有去处就不给按钮（与「导入课表」同一条口径）',
+    );
+  });
+
+  testWidgets('导入记录路由在服务未装配时给出装配说明', (tester) async {
+    await pumpRouter(
+      tester,
+      courses: service(),
+      initialLocation: '/calendar/import/history',
+    );
+
+    expect(
+      find.textContaining('课表导入服务未装配'),
+      findsOneWidget,
+      reason: '未装配时说明原因，而不是空白页或死按钮',
+    );
   });
 
   testWidgets('**深链按 logicalCourseId 打开对应详情**：同名课不会打开错项', (tester) async {
@@ -388,4 +472,54 @@ final class _NoopGateway implements CourseWriteGateway {
     required CourseSeriesProvenance provenance,
     required String expectedFingerprint,
   }) async {}
+}
+
+/// 导入记录页的替身：**同一个实例跨"两次会话"复用**，因此它能证明
+/// "记录不是活在提示条里，而是活在数据库里"（H1）。
+final class _HistoryImportRepository implements TimetableImportRepository {
+  final List<String> rollbackCalls = [];
+  bool rolledBack = false;
+
+  @override
+  Future<List<TimetableImportHistoryItem>> listHistory({
+    String? termId,
+    bool includeRolledBack = true,
+  }) async => [
+    TimetableImportHistoryItem(
+      batchId: 'batch-1',
+      sourceFileName: 'schedule.png',
+      termId: 'term-autumn',
+      termName: '2026 秋季学期',
+      createdAtUtc: DateTime.utc(2026, 10, 1),
+      createdSeriesCount: 3,
+      remainingSeriesCount: rolledBack ? 0 : 3,
+      protectedSeriesCount: 0,
+      status: rolledBack
+          ? TimetableImportBatchStatus.rolledBack
+          : TimetableImportBatchStatus.committed,
+      canRollback: !rolledBack,
+      requiresForceConfirmation: false,
+    ),
+  ];
+
+  @override
+  Future<RollbackPreview> inspectRollback(String batchId) async => RollbackPreview(
+    batchId: batchId,
+    eventIds: const {'evt-a'},
+    protectedEventIds: const {},
+  );
+
+  @override
+  Future<RollbackResult> rollback(
+    String batchId, {
+    Set<String> forceEventIds = const {},
+  }) async {
+    rollbackCalls.add(batchId);
+    rolledBack = true;
+    return RollbackResult(batchId: batchId, deletedEventCount: 1);
+  }
+
+  @override
+  Future<TimetableImportBatch> commit(TimetableImportCommit request) =>
+      throw UnimplementedError();
 }

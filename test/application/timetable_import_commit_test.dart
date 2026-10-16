@@ -43,6 +43,12 @@ final class _FakeImportRepository implements TimetableImportRepository {
   }
 
   @override
+  Future<List<TimetableImportHistoryItem>> listHistory({
+    String? termId,
+    bool includeRolledBack = true,
+  }) async => const [];
+
+  @override
   Future<RollbackPreview> inspectRollback(String batchId) =>
       throw UnimplementedError();
 

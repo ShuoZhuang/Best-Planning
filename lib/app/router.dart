@@ -57,11 +57,13 @@ import 'package:personal_planner/features/calendar/protected_time/protected_time
 import 'package:personal_planner/features/calendar/protected_time/protected_time_series_editor_page.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_list_page.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_history_page.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_page.dart';
+import 'package:personal_planner/features/calendar/timetable_import/timetable_import_rollback.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
-import 'package:personal_planner/features/calendar/timetable_import/timetable_import_page.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
@@ -1065,6 +1067,34 @@ GoRouter createPlannerRouter({
                 onImportTimetable: timetableImport == null
                     ? null
                     : () => context.go('/calendar/import'),
+                // 「导入记录」是撤销导入的**持久入口**（计划 §2.6）：未装配导入服务时
+                // 不显示按钮，而不是渲染一个点了没反应的死按钮。
+                onOpenImportHistory: timetableImport == null
+                    ? null
+                    : () => context.go('/calendar/import/history'),
+              );
+            },
+          ),
+          GoRoute(
+            // **导入记录页**（计划 §2.6／Task 10）：入口固定为
+            // 近期日历 → 管理课程 → 导入记录。
+            //
+            // 放在 `/calendar/import` **之前**：GoRouter 按声明顺序匹配，而
+            // `/calendar/import` 是 `/calendar/import/history` 的前缀。顺序反了会让
+            // 记录页永远打不开（先命中导入向导），而那种缺陷只在真机上点一次才会发现。
+            path: '/calendar/import/history',
+            builder: (context, state) {
+              final importer = timetableImport;
+              if (importer == null) {
+                return const _UnavailablePage(
+                  title: '导入记录',
+                  message: '课表导入服务未装配，暂时看不到导入记录。',
+                );
+              }
+              return TimetableImportHistoryPage(
+                service: importer,
+                onImportTimetable: () => context.go('/calendar/import'),
+                onCancel: () => context.go('/calendar/courses'),
               );
             },
           ),
@@ -1094,14 +1124,14 @@ GoRouter createPlannerRouter({
                 // 恢复路径二（计划 §2.0.3）：删除受损课程之后回到课表导入页，
                 // 让用户用**原来那张图片**重新导入。
                 onRestoreFromTimetable: () => context.go('/calendar/import'),
-                // **能力齐备前保持关闭**（计划 Task 4 Step 4 的 feature gate）。
+                // **能力齐备，因此打开这条路径**（计划 Task 4 Step 4 的 feature gate）。
                 //
-                // 这条路径依赖"删掉整门课之后同一张图片还能重新导入"——那需要
-                // Task 7 的批次 `partiallyDeleted` 状态与 Task 9 的重导入判定。
-                // 两者落地之前把它打开，就是把用户送到**仍会被同哈希拦住的死路**：
-                // 课程删掉了、图片却导不回来，而这门课的数据已经不在库里了。
-                // Task 9 完成、并有用例证明"同图可恢复"之后再打开这一项。
-                restoreFromTimetableAvailable: false,
+                // 它依赖两件已经落地、且都有用例守着的事：删除课程时把批次写成
+                // `partiallyDeleted`（Task 7，`course_write_gateway_test` 的 B1），
+                // 以及同图重导入只拦截 `committed`（Task 9，
+                // `timetable_import_repository_test` 的 R2／R3）。
+                // 能力齐备之后还把它关着，只会让用户看不到本来可用的恢复路径。
+                restoreFromTimetableAvailable: true,
               );
             },
           ),
@@ -2853,48 +2883,36 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
   }
 }
 
+/// 提示条上的"撤销本次导入"。
+///
+/// **确认流程与文案都在 `confirmAndRollbackTimetableImport()` 里**（计划 Task 10 Step 5）：
+/// 导入记录页调用同一个函数，两处因此不可能出现"提示条问、记录页不问"或
+/// "force 集合不一样"这种只改一半的偏差。这里只负责把结果说给用户听。
 Future<void> _undoTimetableImport(
   BuildContext context,
   TimetableImportService importer,
   String batchId,
 ) async {
-  try {
-    final preview = await importer.inspectRollback(batchId);
-    if (!context.mounted) return;
-    var force = const <String>{};
-    if (preview.protectedEventIds.isNotEmpty) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('有课程在导入后被修改过'),
-          content: Text(
-            '共 ${preview.protectedEventIds.length} 组课程有手动修改或新增例外。'
-            '继续撤销会一并删除这些修改。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('仍然撤销'),
-            ),
-          ],
-        ),
+  final result = await confirmAndRollbackTimetableImport(
+    context,
+    importer,
+    batchId,
+  );
+  if (!context.mounted) return;
+  switch (result.outcome) {
+    case TimetableImportRollbackOutcome.rolledBack:
+      showPlannerMessage(
+        context,
+        message: '已撤销本次导入，删除 ${result.deletedEventCount} 组课程',
       );
-      if (confirmed != true) return;
-      force = preview.protectedEventIds;
-    }
-    final result = await importer.rollback(batchId, forceEventIds: force);
-    if (!context.mounted) return;
-    showPlannerMessage(
-      context,
-      message: '已撤销本次导入，删除 ${result.deletedEventCount} 组课程',
-    );
-  } on Object {
-    if (!context.mounted) return;
-    showPlannerMessage(context, message: '撤销失败：课程可能在确认期间再次发生变化');
+    case TimetableImportRollbackOutcome.cancelled:
+      // 用户自己取消的：什么都不说，也不该有任何写入。
+      return;
+    case TimetableImportRollbackOutcome.failed:
+      showPlannerMessage(
+        context,
+        message: '撤销失败：课程可能在确认期间再次发生变化',
+      );
   }
 }
 

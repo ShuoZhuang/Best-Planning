@@ -17,6 +17,7 @@ final class CourseManagementPage extends StatefulWidget {
     required this.service,
     this.onOpenCourse,
     this.onImportTimetable,
+    this.onOpenImportHistory,
     super.key,
   });
 
@@ -27,6 +28,11 @@ final class CourseManagementPage extends StatefulWidget {
 
   /// 无课程时的"去导入课表"入口。为空时不显示。
   final VoidCallback? onImportTimetable;
+
+  /// 「导入记录」的去处（计划 §2.6：入口固定为近期日历 → 管理课程 → 导入记录）。
+  ///
+  /// 与 [onImportTimetable] 同一口径：为空时不显示按钮，**不渲染死按钮**。
+  final VoidCallback? onOpenImportHistory;
 
   @override
   State<CourseManagementPage> createState() => _CourseManagementPageState();
@@ -114,6 +120,21 @@ final class _CourseManagementPageState extends State<CourseManagementPage> {
                       ),
                   ],
                 ),
+              if (widget.onOpenImportHistory case final onHistory?) ...[
+                const SizedBox(width: 12),
+                // **导入记录的持久入口**（计划 §2.6）：撤销导入不再只活在一条
+                // 会消失的提示条上。点击区是标准 `TextButton.icon`
+                // （`minimumSize` 由主题给足 44×44），带 tooltip 与语义标签。
+                Tooltip(
+                  message: '查看课表导入记录并撤销',
+                  child: OutlinedButton.icon(
+                    key: const Key('course-import-history'),
+                    onPressed: onHistory,
+                    icon: const Icon(Icons.history_rounded),
+                    label: const Text('导入记录'),
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),

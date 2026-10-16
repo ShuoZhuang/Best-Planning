@@ -120,6 +120,24 @@ final class TimetableImportService {
     return result;
   }
 
+  /// 导入记录列表（计划 §2.6／Task 10 Step 3）。
+  ///
+  /// **它只代理读**：历史页不得直接摸 Drift、不得拼 SQL、不得绕过本服务。
+  /// 回滚仍然走 [rollback]，因此提示条与历史页用的是同一套检查与失效信号。
+  Future<List<TimetableImportHistoryItem>> listHistory({
+    String? termId,
+    bool includeRolledBack = true,
+  }) {
+    final repository = importRepository;
+    if (repository == null) {
+      throw StateError('Timetable import persistence is not configured.');
+    }
+    return repository.listHistory(
+      termId: termId,
+      includeRolledBack: includeRolledBack,
+    );
+  }
+
   Future<TimetableImportPreview> preview(
     TimetableDraft draft,
     AcademicTerm term,

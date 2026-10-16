@@ -13,25 +13,35 @@ final class DriftTimetableImportRepository
 
   @override
   Future<TimetableImportBatch> commit(TimetableImportCommit request) async {
-    final duplicate =
-        await (_database.select(_database.timetableImportBatches)
-              ..where(
-                (row) =>
-                    row.termId.equals(request.termId) &
-                    row.sourceImageHash.equals(request.sourceImageHash) &
-                    row.status.equals(
-                      TimetableImportBatchStatus.committed.storageValue,
-                    ),
-              )
-              ..limit(1))
-            .getSingleOrNull();
-    if (duplicate != null) {
-      throw DuplicateTimetableImportException(duplicate.id);
-    }
-
     final timestamp = request.createdAtUtc.microsecondsSinceEpoch;
     final fileName = request.sourceFileName.split(RegExp(r'[\\/]')).last;
     await _database.transaction(() async {
+      // **同图重复判定在同一个事务里**（计划 Task 9 Step 1）：此前它在事务之外，
+      // 于是"检查通过"与"真正落库"之间另一个提交可以先写进去，两个完整课表同时入库
+      // （R4）。放进事务之后，同一连接上的并发提交只有一个能成功。
+      //
+      // **只拦截 `committed`**（Task 9 Step 2）：
+      // - `partiallyDeleted` 表示"这个批次里至少有一门课被用户删掉了"，
+      //   而用户接下来想做的正是**用原图把那门课补回来**；
+      // - `rolledBack` 是用户主动撤销过的批次；
+      // - `draft` 是保留的兼容值，从来不是"完整导入"的意思。
+      // 用"当前还剩几条锚点"去猜状态是错的：删除事务已经写下了明确状态（§2.2）。
+      final duplicate =
+          await (_database.select(_database.timetableImportBatches)
+                ..where(
+                  (row) =>
+                      row.termId.equals(request.termId) &
+                      row.sourceImageHash.equals(request.sourceImageHash) &
+                      row.status.equals(
+                        TimetableImportBatchStatus.committed.storageValue,
+                      ),
+                )
+                ..limit(1))
+              .getSingleOrNull();
+      if (duplicate != null) {
+        throw DuplicateTimetableImportException(duplicate.id);
+      }
+
       await _database
           .into(_database.timetableImportBatches)
           .insert(
@@ -134,6 +144,109 @@ final class DriftTimetableImportRepository
       createdAtUtc: request.createdAtUtc,
       updatedAtUtc: request.createdAtUtc,
     );
+  }
+
+  @override
+  Future<List<TimetableImportHistoryItem>> listHistory({
+    String? termId,
+    bool includeRolledBack = true,
+  }) async {
+    // **固定四次查询**（计划 Task 10 Step 2），不是一个批次一次：
+    // ① 批次（顺带学期名称）② 与本批次相关的全部锚点 ③ 这些锚点的例外
+    // ④ 学期清单。N+1 会在导入记录变多之后拖慢整页，而那段代码在每次打开都要跑。
+    final batchQuery = _database.select(_database.timetableImportBatches);
+    if (termId != null) {
+      batchQuery.where((row) => row.termId.equals(termId));
+    }
+    final batches = await batchQuery.get();
+    if (batches.isEmpty) return const [];
+
+    final terms = {
+      for (final row in await _database.select(_database.academicTerms).get())
+        row.id: row.name,
+    };
+
+    final batchIds = {for (final batch in batches) batch.id};
+    final anchors =
+        await (_database.select(_database.calendarEvents)..where(
+              (row) =>
+                  row.importBatchId.isIn(batchIds) &
+                  row.exceptionOfId.isNull(),
+            ))
+            .get();
+    final anchorIds = {for (final anchor in anchors) anchor.id};
+    final exceptions = anchorIds.isEmpty
+        ? const <db.CalendarEvent>[]
+        : await (_database.select(_database.calendarEvents)..where(
+                (row) =>
+                    row.exceptionOfId.isIn(anchorIds) &
+                    // **手工加的例外不算"受保护"**：它不该阻止用户撤销一次导入；
+                    // 真正要拦的是"这条锚点本身被改过"或"它名下的例外来自别的批次"。
+                    row.importBatchId.isNotIn(batchIds),
+              ))
+              .get();
+
+    final anchorsByBatch = <String, List<db.CalendarEvent>>{};
+    for (final anchor in anchors) {
+      (anchorsByBatch[anchor.importBatchId ?? ''] ??= []).add(anchor);
+    }
+    final foreignExceptionAnchors = {
+      for (final exception in exceptions) exception.exceptionOfId,
+    };
+
+    final items = <TimetableImportHistoryItem>[];
+    for (final batch in batches) {
+      final status = TimetableImportBatchStatus.fromStorage(batch.status);
+      if (!includeRolledBack &&
+          status == TimetableImportBatchStatus.rolledBack) {
+        continue;
+      }
+      final owned = anchorsByBatch[batch.id] ?? const <db.CalendarEvent>[];
+      // "受保护"的判据与 `inspectRollback` **完全一致**：锚点被改过（`updated_at_utc`
+      // 已不是批次创建时间），或者它名下挂着一条属于别处的例外。
+      final protectedCount = owned
+          .where(
+            (anchor) =>
+                anchor.updatedAtUtc != batch.createdAtUtc ||
+                foreignExceptionAnchors.contains(anchor.id),
+          )
+          .length;
+      final canRollback = switch (status) {
+        TimetableImportBatchStatus.committed => true,
+        // 还有剩余系列时才能撤销；已经一条不剩的批次没有可撤销的东西，
+        // 但它的历史仍然要看得见（§2.6）。
+        TimetableImportBatchStatus.partiallyDeleted => owned.isNotEmpty,
+        TimetableImportBatchStatus.rolledBack => false,
+        TimetableImportBatchStatus.draft => false,
+      };
+      items.add(
+        TimetableImportHistoryItem(
+          batchId: batch.id,
+          sourceFileName: batch.sourceFileName,
+          termId: batch.termId,
+          termName: terms[batch.termId],
+          createdAtUtc: DateTime.fromMicrosecondsSinceEpoch(
+            batch.createdAtUtc,
+            isUtc: true,
+          ),
+          createdSeriesCount: batch.createdEventCount,
+          remainingSeriesCount: owned.length,
+          protectedSeriesCount: protectedCount,
+          status: status,
+          canRollback: canRollback,
+          requiresForceConfirmation: protectedCount > 0,
+        ),
+      );
+    }
+
+    // **顺序在 Dart 侧定死**：不依赖数据库返回顺序；时间相同时按 batch id
+    // 保证两次查询给出同一个列表。
+    items.sort((a, b) {
+      final byTime = b.createdAtUtc.compareTo(a.createdAtUtc);
+      if (byTime != 0) return byTime;
+      return a.batchId.compareTo(b.batchId);
+    });
+    return List.unmodifiable(items);
   }
 
   @override

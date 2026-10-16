@@ -166,6 +166,63 @@ final class ProtectedTimetableEventsException implements Exception {
   final Set<String> eventIds;
 }
 
+/// **导入记录页的一行**（计划 §2.6／Task 10 Step 1）。
+///
+/// **它是读模型而不是批次本身**：页面要回答的是"这次导入现在还剩什么、
+/// 我能不能撤销它"，而那需要把批次、它的锚点与例外一起算过。
+///
+/// 字段里**没有图片哈希**：它既不该出现在界面上（规范全局不变量第 7 条），
+/// 也不该出现在任何导出或日志里。批次 id 只供动作调用，**不直接显示**。
+final class TimetableImportHistoryItem {
+  const TimetableImportHistoryItem({
+    required this.batchId,
+    required this.sourceFileName,
+    required this.termId,
+    required this.termName,
+    required this.createdAtUtc,
+    required this.createdSeriesCount,
+    required this.remainingSeriesCount,
+    required this.protectedSeriesCount,
+    required this.status,
+    required this.canRollback,
+    required this.requiresForceConfirmation,
+  });
+
+  final String batchId;
+
+  /// 源文件名（**只有文件名，没有绝对路径**）：界面要显示"这是哪张课表"，
+  /// 而用户的目录结构不是它该出现在界面的东西。
+  final String sourceFileName;
+
+  final String termId;
+
+  /// 学期名称；查不到时为 `null`，界面退回显示"未命名学期"而不是一个 id。
+  final String? termName;
+
+  final DateTime createdAtUtc;
+
+  /// 这次导入原创建了多少个系列。
+  final int createdSeriesCount;
+
+  /// 现在还剩多少个系列。
+  final int remainingSeriesCount;
+
+  /// 其中有多少个**受保护**（用户改过、或挂着他手工加的例外）。
+  final int protectedSeriesCount;
+
+  final TimetableImportBatchStatus status;
+
+  /// **仓储事实算出来的**，页面不根据状态文案猜：
+  ///
+  /// - `committed`：可以撤销；
+  /// - `partiallyDeleted`：还有剩余系列时可以撤销；一条都不剩时没有可撤销的东西；
+  /// - `rolledBack`：不可再撤销（历史仍然可见）。
+  final bool canRollback;
+
+  /// 撤销它必须先让用户确认"会连带去掉被改过的课程"。
+  final bool requiresForceConfirmation;
+}
+
 abstract interface class TimetableImportRepository {
   Future<TimetableImportBatch> commit(TimetableImportCommit request);
 
@@ -174,5 +231,17 @@ abstract interface class TimetableImportRepository {
   Future<RollbackResult> rollback(
     String batchId, {
     Set<String> forceEventIds = const {},
+  });
+
+  /// **持久入口的读模型**（计划 §2.6／Task 10 Step 2）。
+  ///
+  /// 顺序固定为 `createdAtUtc` 降序，时间相同时按 batch id 保证确定性
+  /// （否则同一份数据在不同查询顺序下会显示出两个不同的列表）。
+  ///
+  /// **禁止每个批次调用一次 `inspectRollback()` 形成 N+1**：实现方必须用固定次数的
+  /// 批量查询（批次 ＋ 学期、锚点、例外）在内存里按 batch id 分组。
+  Future<List<TimetableImportHistoryItem>> listHistory({
+    String? termId,
+    bool includeRolledBack = true,
   });
 }
