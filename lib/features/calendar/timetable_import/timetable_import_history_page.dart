@@ -97,7 +97,8 @@ final class _TimetableImportHistoryPageState
 
   void _show(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -178,8 +179,7 @@ final class _TimetableImportHistoryPageState
               child: ListView.builder(
                 key: const Key('import-history-list'),
                 itemCount: items.length,
-                itemBuilder: (context, index) =>
-                    _row(context, items[index]),
+                itemBuilder: (context, index) => _row(context, items[index]),
               ),
             ),
         ],

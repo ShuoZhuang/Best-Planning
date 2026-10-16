@@ -157,15 +157,13 @@ void main() {
     validUntilLocalDate: validUntil ?? DateTime(2026, 12, 20),
   );
 
-  Future<db.CalendarEvent> anchorRow(String id) async =>
-      (database.select(database.calendarEvents)
-            ..where((row) => row.id.equals(id)))
-          .getSingle();
+  Future<db.CalendarEvent> anchorRow(String id) async => (database.select(
+    database.calendarEvents,
+  )..where((row) => row.id.equals(id))).getSingle();
 
-  Future<db.RecurrenceRule> ruleRow(String id) async =>
-      (database.select(database.recurrenceRules)
-            ..where((row) => row.id.equals(id)))
-          .getSingle();
+  Future<db.RecurrenceRule> ruleRow(String id) async => (database.select(
+    database.recurrenceRules,
+  )..where((row) => row.id.equals(id))).getSingle();
 
   /// 把 `weekdays_mask` 还原成 `DateTime.monday`…`sunday`（周一是 bit 0）。
   Set<int> weekdaysOf(db.RecurrenceRule rule) => {
@@ -190,7 +188,10 @@ void main() {
 
     // 本地 2026-09-07（周一）07:30 = 2026-09-06T23:30Z，而 09-06 是**周日**。
     expect(
-      DateTime.fromMicrosecondsSinceEpoch(anchor.startAtUtc, isUtc: true).weekday,
+      DateTime.fromMicrosecondsSinceEpoch(
+        anchor.startAtUtc,
+        isUtc: true,
+      ).weekday,
       DateTime.sunday,
       reason: '这是那个陷阱本身：从 UTC `.weekday` 推导本地星期会得到"周日"',
     );
@@ -205,21 +206,24 @@ void main() {
       reason: '按**规则自己的 IANA 时区**解释，它确实是周一',
     );
     expect(rule.localStartMinute, 7 * 60 + 30, reason: '本地钟点必须逐分钟保留');
-    expect(recurrenceIncludesLocalDate(
-      RecurrenceRule(
-        id: rule.id,
-        weekdays: {DateTime.monday},
-        localStartMinute: rule.localStartMinute,
-        durationMinutes: rule.durationMinutes,
-        intervalWeeks: rule.intervalWeeks,
-        validFromLocalDate: DateTime.parse(rule.validFromLocalDate),
-        validUntilLocalDate: rule.validUntilLocalDate == null
-            ? null
-            : DateTime.parse(rule.validUntilLocalDate!),
-        timeZoneId: rule.timeZoneId,
+    expect(
+      recurrenceIncludesLocalDate(
+        RecurrenceRule(
+          id: rule.id,
+          weekdays: {DateTime.monday},
+          localStartMinute: rule.localStartMinute,
+          durationMinutes: rule.durationMinutes,
+          intervalWeeks: rule.intervalWeeks,
+          validFromLocalDate: DateTime.parse(rule.validFromLocalDate),
+          validUntilLocalDate: rule.validUntilLocalDate == null
+              ? null
+              : DateTime.parse(rule.validUntilLocalDate!),
+          timeZoneId: rule.timeZoneId,
+        ),
+        DateTime(2026, 9, 7),
       ),
-      DateTime(2026, 9, 7),
-    ), isTrue);
+      isTrue,
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -261,11 +265,7 @@ void main() {
     expect(after.importBatchId, before.importBatchId, reason: 'C17：不得丢批次');
     expect(after.logicalCourseId, before.logicalCourseId);
     expect(after.timeZoneId, before.timeZoneId);
-    expect(
-      after.kind,
-      before.kind,
-      reason: 'C06：类别不得被默认值覆盖',
-    );
+    expect(after.kind, before.kind, reason: 'C06：类别不得被默认值覆盖');
     expect(
       zones
           .toLocal(
@@ -302,10 +302,7 @@ void main() {
           title: '高等数学(上)',
           schedule: [
             draft(startMinute: 14 * 60),
-            draft(
-              startMinute: 10 * 60,
-              weekdays: const {DateTime.thursday},
-            ),
+            draft(startMinute: 10 * 60, weekdays: const {DateTime.thursday}),
           ],
         ),
       ),
@@ -352,11 +349,7 @@ void main() {
       23 * 60 + 30,
       zoneId,
     );
-    final endUtc = zones.localDateTimeToUtc(
-      DateTime(2026, 9, 8),
-      30,
-      zoneId,
-    );
+    final endUtc = zones.localDateTimeToUtc(DateTime(2026, 9, 8), 30, zoneId);
     await repository.replaceSeries(
       anchorId: 'evt-mon',
       patch: CalendarEventPatch(

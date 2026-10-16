@@ -62,6 +62,21 @@ void main() {
   Future<String> fingerprintOf(String logicalCourseId) async =>
       (await courses.findCourse(logicalCourseId))!.revisionFingerprint;
 
+  /// 若干张表的完整快照：逐表逐行逐列比对，而不是"只看锚点还在不在"。
+  Future<List<String>> tableSnapshotOf(List<String> tables) async {
+    final rows = <String>[];
+    for (final table in tables) {
+      final result = await database.customSelect('SELECT * FROM $table').get();
+      for (final row in result) {
+        rows.add(
+          '$table:${row.data.entries.map((e) => '${e.key}=${e.value}').join(',')}',
+        );
+      }
+    }
+    rows.sort();
+    return rows;
+  }
+
   DateTime utc(int month, int day, int hour, int minute) =>
       DateTime.utc(2026, month, day, hour, minute);
 
@@ -382,8 +397,8 @@ void main() {
         profile: profile([good, bad]),
         zoneId: zoneId,
         updatedAtUtc: utc(10, 12, 1, 0),
-      provenance: CourseSeriesProvenance.imported('batch-autumn'),
-      expectedFingerprint: await fingerprintOf('course-calc'),
+        provenance: CourseSeriesProvenance.imported('batch-autumn'),
+        expectedFingerprint: await fingerprintOf('course-calc'),
       ),
       throwsA(isA<ArgumentError>()),
     );
@@ -446,6 +461,63 @@ void main() {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Task 11／CE3（计划 §3.0）：**整门课程只有一次事务提交**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('CE3：第二个片段写入失败 ⇒ 第一个片段也回滚，来源与规则全部不变', () async {
+    await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+    final before = await tableSnapshotOf([
+      'calendar_events',
+      'recurrence_rules',
+      'timetable_import_batches',
+    ]);
+
+    final added = draft(
+      weekdays: const {DateTime.wednesday},
+      startMinute: 14 * 60,
+    );
+    // **真实失败注入**：新片段的锚点 id 由仓储按 `<课程>-<序号>` 生成，
+    // 因此让"写这个 id"失败，就等于让第二段写入失败。
+    await database.customStatement('''
+      CREATE TRIGGER block_second_segment BEFORE INSERT ON calendar_events
+      WHEN NEW.id = 'course-calc-1'
+      BEGIN SELECT RAISE(ABORT, '注入的失败'); END
+    ''');
+
+    await expectLater(
+      repository.replaceCourseSeries(
+        rows: [
+          CourseWriteRow(
+            schedule: draft(startMinute: 10 * 60),
+            index: 0,
+            reuseAnchorId: 'evt-a',
+          ),
+          CourseWriteRow(schedule: added, index: 1),
+        ],
+        profile: profile([draft(startMinute: 10 * 60), added]),
+        zoneId: zoneId,
+        updatedAtUtc: utc(10, 12, 1, 0),
+        provenance: CourseSeriesProvenance.imported('batch-autumn'),
+        expectedFingerprint: await fingerprintOf('course-calc'),
+      ),
+      throwsA(isA<SqliteException>()),
+    );
+
+    expect(
+      await tableSnapshotOf([
+        'calendar_events',
+        'recurrence_rules',
+        'timetable_import_batches',
+      ]),
+      before,
+      reason:
+          '第一段已经写过锚点与规则了；整门课程必须只有一个事务，'
+          '否则用户会得到"3 个片段里改了 2 个"的半完成状态',
+    );
+    await database.customStatement('DROP TRIGGER block_second_segment');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Task 7（课程编辑完整性修复计划）：**删除课程是一个事务**（D1–D4、B1–B3）
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -459,7 +531,9 @@ void main() {
         'timetable_import_batches',
         'academic_terms',
       ]) {
-        final result = await database.customSelect('SELECT * FROM $table').get();
+        final result = await database
+            .customSelect('SELECT * FROM $table')
+            .get();
         for (final row in result) {
           rows.add(
             '$table:${row.data.entries.map((e) => '${e.key}=${e.value}').join(',')}',
@@ -541,11 +615,7 @@ void main() {
         deletedAtUtc: utc(10, 12, 1, 0),
       );
 
-      expect(
-        result.deletedRuleCount,
-        0,
-        reason: '另一条锚点还在引用它；直接删会打断那一段的展开',
-      );
+      expect(result.deletedRuleCount, 0, reason: '另一条锚点还在引用它；直接删会打断那一段的展开');
       expect(await ruleCount(), 1);
       expect(await segmentIds(), ['evt-b']);
 
@@ -615,11 +685,7 @@ void main() {
         throwsA(isA<SqliteException>()),
       );
 
-      expect(
-        await tableSnapshot(),
-        before,
-        reason: '例外与锚点已经删过了，但整体回滚必须把它们带回来',
-      );
+      expect(await tableSnapshot(), before, reason: '例外与锚点已经删过了，但整体回滚必须把它们带回来');
       await database.customStatement('DROP TRIGGER block_rule_delete');
     });
 

@@ -35,7 +35,10 @@ void main() {
     );
 
     test('起始日本身是成员', () {
-      expect(recurrenceIncludesLocalDate(subject, DateTime(2026, 9, 7)), isTrue);
+      expect(
+        recurrenceIncludesLocalDate(subject, DateTime(2026, 9, 7)),
+        isTrue,
+      );
     });
 
     test('结束日本身是成员（闭区间，不是半开区间）', () {
@@ -77,7 +80,10 @@ void main() {
   group('星期', () {
     test('错误星期不是成员', () {
       final monday = rule(from: DateTime(2026, 9, 7));
-      expect(recurrenceIncludesLocalDate(monday, DateTime(2026, 9, 8)), isFalse);
+      expect(
+        recurrenceIncludesLocalDate(monday, DateTime(2026, 9, 8)),
+        isFalse,
+      );
     });
 
     test('规则可以同时覆盖多天', () {
@@ -96,18 +102,21 @@ void main() {
         from: DateTime(2026, 9, 6),
       );
       expect(recurrenceIncludesLocalDate(sunday, DateTime(2026, 9, 6)), isTrue);
-      expect(recurrenceIncludesLocalDate(sunday, DateTime(2026, 9, 7)), isFalse);
+      expect(
+        recurrenceIncludesLocalDate(sunday, DateTime(2026, 9, 7)),
+        isFalse,
+      );
     });
   });
 
   group('单双周（周偏移）', () {
-    final biweekly = rule(
-      intervalWeeks: 2,
-      from: DateTime(2026, 9, 7),
-    );
+    final biweekly = rule(intervalWeeks: 2, from: DateTime(2026, 9, 7));
 
     test('起始周是成员，间隔周不是，再下一周又是', () {
-      expect(recurrenceIncludesLocalDate(biweekly, DateTime(2026, 9, 7)), isTrue);
+      expect(
+        recurrenceIncludesLocalDate(biweekly, DateTime(2026, 9, 7)),
+        isTrue,
+      );
       expect(
         recurrenceIncludesLocalDate(biweekly, DateTime(2026, 9, 14)),
         isFalse,
@@ -127,11 +136,11 @@ void main() {
     });
 
     test('每 3 周：第 1、4、7 周是成员', () {
-      final everyThird = rule(
-        intervalWeeks: 3,
-        from: DateTime(2026, 9, 7),
+      final everyThird = rule(intervalWeeks: 3, from: DateTime(2026, 9, 7));
+      expect(
+        recurrenceIncludesLocalDate(everyThird, DateTime(2026, 9, 7)),
+        isTrue,
       );
-      expect(recurrenceIncludesLocalDate(everyThird, DateTime(2026, 9, 7)), isTrue);
       expect(
         recurrenceIncludesLocalDate(everyThird, DateTime(2026, 9, 14)),
         isFalse,

@@ -96,9 +96,7 @@ final class CourseLineageResolution {
 /// | 1 | 无 | [CourseLineageState.imported] → 全部沿用该批次 |
 /// | 1 | 有 | [CourseLineageState.recoverableMixed] → 允许保存并统一来源 |
 /// | ≥2 | — | [CourseLineageState.conflicting] → 禁止保存、零写入 |
-CourseLineageResolution resolveCourseLineage(
-  Iterable<String?> importBatchIds,
-) {
+CourseLineageResolution resolveCourseLineage(Iterable<String?> importBatchIds) {
   final all = List<String?>.of(importBatchIds);
   final distinct = <String>{
     for (final id in all)
@@ -216,9 +214,7 @@ final class CourseIntegrityIssue {
   CourseIntegrityIssue({
     required this.kind,
     required List<String> affectedAnchorIds,
-  }) : affectedAnchorIds = UnmodifiableListView(
-         List.of(affectedAnchorIds),
-       );
+  }) : affectedAnchorIds = UnmodifiableListView(List.of(affectedAnchorIds));
 
   final CourseIntegrityIssueKind kind;
   final List<String> affectedAnchorIds;
@@ -292,9 +288,7 @@ final class CourseSeriesDetail {
 /// ```
 ///
 /// 最后拼接后**整体排序**：顺序不参与指纹，因此一次纯排序变化不会把用户的编辑判成过期。
-String courseSeriesRevisionFingerprint(
-  Iterable<CourseSeriesSegment> segments,
-) {
+String courseSeriesRevisionFingerprint(Iterable<CourseSeriesSegment> segments) {
   final rows = [
     for (final segment in segments)
       '${segment.eventId}|'
@@ -321,16 +315,21 @@ String courseSeriesRevisionFingerprint(
 /// 逐行拼接把这两种情况都变成可见的差异，代价只是一次内存拼接。
 String exceptionRevisionFingerprint(
   Iterable<
-    ({String id, int startAtUtc, int endAtUtc, String timeZoneId, int updatedAtUtc})
+    ({
+      String id,
+      int startAtUtc,
+      int endAtUtc,
+      String timeZoneId,
+      int updatedAtUtc,
+    })
   >
   exceptions,
 ) {
-  final rows =
-      [
-        for (final row in exceptions)
-          '${row.id}|${row.startAtUtc}|${row.endAtUtc}|${row.timeZoneId}|'
-              '${row.updatedAtUtc}',
-      ]..sort();
+  final rows = [
+    for (final row in exceptions)
+      '${row.id}|${row.startAtUtc}|${row.endAtUtc}|${row.timeZoneId}|'
+          '${row.updatedAtUtc}',
+  ]..sort();
   return rows.join(';');
 }
 

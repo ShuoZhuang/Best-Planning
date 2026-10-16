@@ -155,11 +155,7 @@ void main() {
       final duplicates = results
           .whereType<DuplicateTimetableImportException>()
           .toList();
-      expect(
-        successes,
-        hasLength(1),
-        reason: '两个提交不能同时写入同一张完整课表',
-      );
+      expect(successes, hasLength(1), reason: '两个提交不能同时写入同一张完整课表');
       expect(duplicates, hasLength(1));
       expect(
         await database.select(database.timetableImportBatches).get(),
@@ -228,22 +224,21 @@ void main() {
 
       final items = await repository.listHistory();
 
-      expect(
-        items.map((item) => item.batchId).toList(),
-        ['batch-b', 'batch-c', 'batch-a'],
-        reason: '按 createdAtUtc 降序；时间相同时按 batch id 保证确定性',
-      );
+      expect(items.map((item) => item.batchId).toList(), [
+        'batch-b',
+        'batch-c',
+        'batch-a',
+      ], reason: '按 createdAtUtc 降序；时间相同时按 batch id 保证确定性');
       final byId = {for (final item in items) item.batchId: item};
       expect(byId['batch-b']!.status, TimetableImportBatchStatus.committed);
       expect(byId['batch-b']!.canRollback, isTrue);
       expect(byId['batch-b']!.createdSeriesCount, 1);
       expect(byId['batch-b']!.remainingSeriesCount, 1);
-      expect(byId['batch-c']!.status, TimetableImportBatchStatus.partiallyDeleted);
       expect(
-        byId['batch-c']!.canRollback,
-        isTrue,
-        reason: '还有剩余系列时可以撤销',
+        byId['batch-c']!.status,
+        TimetableImportBatchStatus.partiallyDeleted,
       );
+      expect(byId['batch-c']!.canRollback, isTrue, reason: '还有剩余系列时可以撤销');
       expect(byId['batch-a']!.status, TimetableImportBatchStatus.rolledBack);
       expect(
         byId['batch-a']!.canRollback,
@@ -292,10 +287,7 @@ void main() {
       await repository.rollback('batch-1');
 
       expect(await repository.listHistory(), hasLength(1));
-      expect(
-        await repository.listHistory(includeRolledBack: false),
-        isEmpty,
-      );
+      expect(await repository.listHistory(includeRolledBack: false), isEmpty);
     });
   });
 
@@ -333,6 +325,7 @@ void main() {
 TimetableImportCommit timetableTestCommit({
   String batchId = 'batch-1',
   List<TimetableImportSeriesWrite>? series,
+
   /// 重导入时锚点与规则的 id 是**新生成的**：复用同一批 id 会撞上主键约束，
   /// 而那条失败报的是"夹具坏了"，不是"重导入被拦住"。
   String idSuffix = '',

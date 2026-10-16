@@ -7,6 +7,7 @@ import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 
 void main() {
   late AppDatabase database;
@@ -181,9 +182,50 @@ void main() {
     expect(occurrence.logicalCourseId, event.logicalCourseId);
   });
 
+  // Task 11（计划 §15 的 M1／备份往返）：**v10 的三种批次状态都能往返**。
+  //
+  // 这一条守的是"新增的 `partiallyDeleted` 不是只在迁移里认得，而是真的能存能读"：
+  // 备份／恢复、导出与仓储读路径都必须原样带出它，否则"删过部分课程"这个事实
+  // 会在一次恢复之后消失，而用户再导入同一张图片时会被同哈希拦住。
+  test('v10：committed／partiallyDeleted／rolledBack 三种批次状态往返一致', () async {
+    await database.customInsert('''
+      INSERT INTO academic_terms
+        (id, name, first_week_monday_local_date, total_weeks, time_zone_id,
+         created_at_utc, updated_at_utc)
+      VALUES ('term-autumn', '2026 秋季学期', '2026-09-07', 16,
+              'Asia/Shanghai', 1, 1)
+    ''');
+    const statuses = ['committed', 'partiallyDeleted', 'rolledBack'];
+    for (final (index, status) in statuses.indexed) {
+      await database.customInsert('''
+        INSERT INTO timetable_import_batches
+          (id, term_id, source_image_hash, source_file_name, status,
+           created_event_count, created_at_utc, updated_at_utc)
+        VALUES ('batch-$index', 'term-autumn', 'sha256:$index',
+                'schedule$index.png', '$status', ${index + 1},
+                ${100 + index}, ${200 + index})
+      ''');
+    }
+
+    final rows = await database.select(database.timetableImportBatches).get();
+    expect(rows, hasLength(3));
+    for (final row in rows) {
+      final index = int.parse(row.id.split('-').last);
+      expect(row.status, statuses[index]);
+      expect(
+        TimetableImportBatchStatus.fromStorage(row.status).storageValue,
+        row.status,
+        reason: '解析必须显式认得每一个存储值；未知值要抛受控错误而不是回落',
+      );
+      expect(row.sourceFileName, 'schedule$index.png');
+      expect(row.createdEventCount, index + 1);
+      expect(row.createdAtUtc, 100 + index);
+      expect(row.updatedAtUtc, 200 + index);
+    }
+  });
+
   // 1.8.0（规范 §9.1，计划 Task 7 Step 2）：`kind` 必须保存、读取、展开后都不丢。
-  test('固定日程与保护时间的 kind 在往返后不丢失', () async {
-    final calendarRepository = DriftCalendarRepository(database);
+  test('固定日程与保护时间的 kind 在往返后不丢失', () async {    final calendarRepository = DriftCalendarRepository(database);
     await calendarRepository.save(
       CalendarEvent(
         id: 'evt-fixed',

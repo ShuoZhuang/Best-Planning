@@ -2909,10 +2909,7 @@ Future<void> _undoTimetableImport(
       // 用户自己取消的：什么都不说，也不该有任何写入。
       return;
     case TimetableImportRollbackOutcome.failed:
-      showPlannerMessage(
-        context,
-        message: '撤销失败：课程可能在确认期间再次发生变化',
-      );
+      showPlannerMessage(context, message: '撤销失败：课程可能在确认期间再次发生变化');
   }
 }
 

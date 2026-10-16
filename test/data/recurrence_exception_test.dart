@@ -372,6 +372,96 @@ void main() {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Task 11／CE2（计划 §3.0）：**改写只这一次时，未展示的字段逐值不变**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('CE2：单次改写只提交标题、备注与时间——地点／领域／项目／类别／来源／'
+      '身份／时区全部继承锚点', () async {
+    await database.customInsert('''
+      INSERT INTO areas
+        (id, name, color, sort_order, is_life, created_at_utc, updated_at_utc)
+      VALUES ('area-math', '数学', 1, 1, 0, 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO projects (id, area_id, name, created_at_utc, updated_at_utc)
+      VALUES ('project-calc', 'area-math', '微积分', 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO academic_terms
+        (id, name, first_week_monday_local_date, total_weeks, time_zone_id,
+         created_at_utc, updated_at_utc)
+      VALUES ('term', '秋季', '2026-10-05', 16, 'UTC', 1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO timetable_import_batches
+        (id, term_id, source_image_hash, source_file_name, status,
+         created_event_count, created_at_utc, updated_at_utc)
+      VALUES ('batch-1', 'term', 'sha256:x', 'schedule.png', 'committed',
+              1, 1, 1)
+    ''');
+    await repository.saveRecurring(
+      CalendarEvent(
+        id: 'anchor-1',
+        title: '数据结构课',
+        startAtUtc: _weekStart,
+        endAtUtc: _weekStart.add(const Duration(hours: 1)),
+        timeZoneId: 'UTC',
+        recurrenceRuleId: 'rule-1',
+        sourceKind: CalendarEventSourceKind.timetableImport,
+        importBatchId: 'batch-1',
+        logicalCourseId: 'course-ds',
+        location: '教一 302',
+        notes: '张老师',
+        areaId: 'area-math',
+        projectId: 'project-calc',
+        kind: CalendarEventKind.protected,
+        updatedAtUtc: DateTime.utc(2026, 10, 1),
+      ),
+      _weeklyRule(),
+    );
+
+    // **patch 里只有用户真的改过的东西**：标题、备注、时间。
+    // 地点没有入口 → 必须保留锚点原值（而不是被写成空串）。
+    await repository.replaceOccurrence(
+      anchorId: 'anchor-1',
+      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
+      patch: CalendarEventPatch(
+        title: '数据结构课（补课）',
+        notes: '张老师',
+        startAtUtc: DateTime.utc(2026, 10, 12, 16),
+        endAtUtc: DateTime.utc(2026, 10, 12, 17),
+      ),
+      exceptionId: 'exception-1',
+      updatedAtUtc: DateTime.utc(2026, 10, 2),
+    );
+
+    final row = await (database.select(
+      database.calendarEvents,
+    )..where((candidate) => candidate.id.equals('exception-1'))).getSingle();
+    expect(row.title, '数据结构课（补课）');
+    expect(
+      row.startAtUtc,
+      DateTime.utc(2026, 10, 12, 16).microsecondsSinceEpoch,
+    );
+    expect(row.location, '教一 302', reason: '地点不在 patch 里 ⇒ 保持原值');
+    expect(row.areaId, 'area-math');
+    expect(row.projectId, 'project-calc');
+    expect(row.notes, '张老师');
+    expect(
+      row.kind,
+      CalendarEventKind.protected.storageValue,
+      reason: '类别由锚点决定：把保护时间改写成固定日程会让排程硬禁区凭空消失',
+    );
+    expect(
+      row.sourceKind,
+      CalendarEventSourceKind.timetableImport.storageValue,
+    );
+    expect(row.importBatchId, 'batch-1');
+    expect(row.logicalCourseId, 'course-ds');
+    expect(row.timeZoneId, 'UTC', reason: '时区取权威值（规则／锚点），patch 里根本没有这个字段');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Task 8（课程编辑完整性修复计划 §3.3）：**清理不再属于新规则的逐次例外**
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -501,11 +591,7 @@ void main() {
         ),
       );
 
-      expect(
-        await exceptionCount(),
-        1,
-        reason: '成员判定必须真的按新规则算，而不是"改了规则就一律清空"',
-      );
+      expect(await exceptionCount(), 1, reason: '成员判定必须真的按新规则算，而不是"改了规则就一律清空"');
     });
   });
 }

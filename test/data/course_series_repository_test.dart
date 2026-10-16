@@ -721,11 +721,7 @@ void main() {
       final before = await snapshot();
       final detail = await courses.findCourse('course-damaged');
       expect(detail!.hasIntegrityIssues, isTrue);
-      expect(
-        await snapshot(),
-        before,
-        reason: '打开课程、跑检测都不得改写任何一行（计划 §3.0）',
-      );
+      expect(await snapshot(), before, reason: '打开课程、跑检测都不得改写任何一行（计划 §3.0）');
     });
 
     test('P2／P3：一个非空批次 + 若干空批次 ≠ 冲突；两个不同批次 = 冲突', () async {
@@ -784,10 +780,7 @@ void main() {
 
   group('课程来源（计划 §2.1）', () {
     test('纯解析器四格：manual／imported／recoverableMixed／conflicting', () {
-      expect(
-        resolveCourseLineage(const []).state,
-        CourseLineageState.manual,
-      );
+      expect(resolveCourseLineage(const []).state, CourseLineageState.manual);
       expect(
         resolveCourseLineage(const [null, '']).state,
         CourseLineageState.manual,
@@ -908,7 +901,8 @@ void main() {
         zoneId: 'Asia/Shanghai',
         updatedAtUtc: DateTime.utc(2026, 10, 2),
         provenance: lineage.provenance,
-        expectedFingerprint: (await courses.findCourse('course-calc-p1'))!.revisionFingerprint,
+        expectedFingerprint: (await courses.findCourse('course-calc-p1'))!
+            .revisionFingerprint,
       );
 
       final after = await courses.findCourse('course-calc-p1');

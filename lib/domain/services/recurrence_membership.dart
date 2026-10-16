@@ -35,7 +35,11 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 /// 会得到 6 或 7——整除判定于是随机地把那一周算进／算错一个间隔（TZ2）。
 /// 把两个日历日映射到 `DateTime.utc` 再相减，差值恒为整数天。
 bool recurrenceIncludesLocalDate(RecurrenceRule rule, DateTime localDate) {
-  final candidate = DateTime.utc(localDate.year, localDate.month, localDate.day);
+  final candidate = DateTime.utc(
+    localDate.year,
+    localDate.month,
+    localDate.day,
+  );
   final first = DateTime.utc(
     rule.validFromLocalDate.year,
     rule.validFromLocalDate.month,

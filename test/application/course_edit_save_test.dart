@@ -86,6 +86,7 @@ void main() {
     int startMinute = 8 * 60,
     int durationMinutes = 45,
     int intervalWeeks = 1,
+
     /// `null` 表示"这条锚点没有批次归属"——旧缺陷造成的混合来源形状（§2.1）。
     String? batchId = 'batch-autumn',
   }) async {
@@ -197,11 +198,10 @@ void main() {
       );
 
       expect(result.isSuccess, isTrue, reason: result.error ?? '');
-      expect(
-        await batchIdsOfCourse('course-calc'),
-        ['batch-autumn', 'batch-autumn'],
-        reason: '成功事务把全部最终片段统一到那个唯一批次（§2.1）',
-      );
+      expect(await batchIdsOfCourse('course-calc'), [
+        'batch-autumn',
+        'batch-autumn',
+      ], reason: '成功事务把全部最终片段统一到那个唯一批次（§2.1）');
       final detail = await courses.findCourse('course-calc');
       expect(
         resolveCourseLineage([
@@ -212,7 +212,8 @@ void main() {
       );
     });
 
-    test('P3：两个不同的非空批次 ⇒ 阻止保存、零写入、给出可执行的一句话', () async {      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+    test('P3：两个不同的非空批次 ⇒ 阻止保存、零写入、给出可执行的一句话', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
       await database.customInsert('''
         INSERT INTO timetable_import_batches
           (id, term_id, source_image_hash, source_file_name, status,
@@ -247,6 +248,62 @@ void main() {
       expect(await segmentIds(), before, reason: '零写入');
       expect(await batchIdsOfCourse('course-calc'), beforeBatches);
     });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 11／LI3（计划 §2.0.3 路径一）：**手工修复一次事务保存，修复后提示消失**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('LI3：受损课程补全资料后重读，确定性问题消失且其它字段不被顺手改掉', () async {
+    await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+    // 造出旧版损伤的确定形状：占位标题 ＋ 事件时区与规则时区不一致。
+    await database.customStatement(
+      "UPDATE calendar_events SET title = '未命名事项', time_zone_id = 'UTC' "
+      "WHERE id = 'evt-a'",
+    );
+
+    final damaged = await courses.findCourse('course-calc');
+    expect(damaged!.hasLegacyPlaceholderTitle, isTrue);
+    expect(
+      damaged.integrityIssues.map((issue) => issue.kind),
+      contains(CourseIntegrityIssueKind.eventRuleTimeZoneMismatch),
+    );
+
+    final result = await service.saveCourse(
+      CourseSaveRequest(
+        logicalCourseId: 'course-calc',
+        expectedRevisions: damaged.sourceRevisions,
+        expectedFingerprint: damaged.revisionFingerprint,
+        profile: CourseProfileDraft(
+          logicalCourseId: 'course-calc',
+          title: '算法与数据结构',
+          teacher: '张老师',
+          location: '教一 302',
+          schedule: [draft()],
+        ),
+      ),
+    );
+
+    expect(result.isSuccess, isTrue, reason: result.error ?? '');
+    final repaired = await courses.findCourse('course-calc');
+    expect(
+      repaired!.hasIntegrityIssues,
+      isFalse,
+      reason: '只有所有确定性问题都消失，提示条才该移除（Task 4 Step 3）',
+    );
+    expect(repaired.summary.title, '算法与数据结构');
+    expect(repaired.segments.single.teacher, '张老师');
+    expect(repaired.segments.single.location, '教一 302');
+    expect(
+      repaired.segments.single.timeZoneId,
+      zoneId,
+      reason: '保存时把事件时区对齐到规则时区，两处不再分家',
+    );
+    expect(
+      repaired.segments.single.importBatchId,
+      'batch-autumn',
+      reason: '手工修复资料不该把导入课程变成手工课程（C16）',
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -363,7 +420,9 @@ void main() {
       );
       expect(await exceptionCount('evt-a'), 1, reason: '零写入：那条调整必须还在');
       expect(
-        (await database.customSelect('SELECT COUNT(*) AS c FROM recurrence_rules').get())
+        (await database
+                .customSelect('SELECT COUNT(*) AS c FROM recurrence_rules')
+                .get())
             .first
             .read<int>('c'),
         beforeRules.first.read<int>('c'),
@@ -395,14 +454,12 @@ void main() {
       await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
       await addException('evt-a', 'exc-1', DateTime(2026, 9, 7));
 
-      final first = (await courses.findCourse('course-calc'))!.revisionFingerprint;
-      final second = (await courses.findCourse('course-calc'))!.revisionFingerprint;
+      final first = (await courses.findCourse('course-calc'))!
+          .revisionFingerprint;
+      final second = (await courses.findCourse('course-calc'))!
+          .revisionFingerprint;
 
-      expect(
-        first,
-        second,
-        reason: '指纹整体排序后拼接，因此仓储返回顺序不参与判定',
-      );
+      expect(first, second, reason: '指纹整体排序后拼接，因此仓储返回顺序不参与判定');
       expect(first, isNotEmpty);
     });
   });

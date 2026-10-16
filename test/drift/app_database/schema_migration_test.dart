@@ -53,10 +53,13 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('generated schema includes the partially deleted batch state version 10', () {
-    expect(GeneratedHelper.versions.last, 10);
-    expect(plannerSchemaVersion, 10);
-  });
+  test(
+    'generated schema includes the partially deleted batch state version 10',
+    () {
+      expect(GeneratedHelper.versions.last, 10);
+      expect(plannerSchemaVersion, 10);
+    },
+  );
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
   const versions = GeneratedHelper.versions;
@@ -1002,21 +1005,20 @@ void main() {
     }
 
     final rows = await snapshot();
-    expect(
-      rows,
-      hasLength(8),
-      reason: '一学期 ＋ 三批次 ＋ 一规则 ＋ 一事件与一例外 ＋ 一任务',
-    );
+    expect(rows, hasLength(8), reason: '一学期 ＋ 三批次 ＋ 一规则 ＋ 一事件与一例外 ＋ 一任务');
     // **逐值原样**：v9 的 draft／committed／rolledBack 一律保留，不做猜测式回填。
     expect(
-      rows.where((row) => row.startsWith('timetable_import_batches:')).map(
-        (row) => RegExp(r'status=(\w+)').firstMatch(row)!.group(1),
-      ).toList()..sort(),
+      rows
+          .where((row) => row.startsWith('timetable_import_batches:'))
+          .map((row) => RegExp(r'status=(\w+)').firstMatch(row)!.group(1))
+          .toList()
+        ..sort(),
       ['committed', 'draft', 'rolledBack'],
     );
     expect(
       rows.firstWhere(
-        (row) => row.startsWith('calendar_events:') && row.contains('id=evt-calc'),
+        (row) =>
+            row.startsWith('calendar_events:') && row.contains('id=evt-calc'),
       ),
       contains('import_batch_id=batch-1'),
       reason: '外键与批次归属不得因重建批次表而改变',
@@ -1028,7 +1030,9 @@ void main() {
     );
 
     // **外键必须干净**。
-    final fkViolations = await db.customSelect('PRAGMA foreign_key_check').get();
+    final fkViolations = await db
+        .customSelect('PRAGMA foreign_key_check')
+        .get();
     expect(fkViolations, isEmpty);
 
     // 允许写新状态，并且新状态**确实**是可识别的枚举值。

@@ -155,9 +155,7 @@ void main() {
       findsOneWidget,
       reason: '只显示文件名（不是绝对路径）',
     );
-    await tester.tap(
-      find.byKey(const Key('import-history-rollback-batch-1')),
-    );
+    await tester.tap(find.byKey(const Key('import-history-rollback-batch-1')));
     await tester.pumpAndSettle();
     expect(importRepository.rollbackCalls, ['batch-1']);
 
@@ -503,11 +501,12 @@ final class _HistoryImportRepository implements TimetableImportRepository {
   ];
 
   @override
-  Future<RollbackPreview> inspectRollback(String batchId) async => RollbackPreview(
-    batchId: batchId,
-    eventIds: const {'evt-a'},
-    protectedEventIds: const {},
-  );
+  Future<RollbackPreview> inspectRollback(String batchId) async =>
+      RollbackPreview(
+        batchId: batchId,
+        eventIds: const {'evt-a'},
+        protectedEventIds: const {},
+      );
 
   @override
   Future<RollbackResult> rollback(

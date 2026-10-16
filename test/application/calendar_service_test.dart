@@ -26,12 +26,11 @@ void main() {
     onScheduleInputChanged: onChanged,
   );
 
-  CalendarEventPatch draft({String title = '数据结构课'}) =>
-      CalendarEventPatch(
-        title: title,
-        startAtUtc: DateTime.utc(2026, 10, 5, 1),
-        endAtUtc: DateTime.utc(2026, 10, 5, 2),
-      );
+  CalendarEventPatch draft({String title = '数据结构课'}) => CalendarEventPatch(
+    title: title,
+    startAtUtc: DateTime.utc(2026, 10, 5, 1),
+    endAtUtc: DateTime.utc(2026, 10, 5, 2),
+  );
 
   test('草稿非法 ⇒ invalid，**不碰端口**', () async {
     final spy = _DeletionSpy();

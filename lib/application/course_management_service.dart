@@ -443,6 +443,7 @@ final class CourseManagementService {
 
     final claimed = <String>{};
     final addedRows = <CourseScheduleDraft>[];
+
     /// 被保留的锚点 → 它的**新规则草稿**。保留锚点的例外清理要用新规则来判定。
     final replacementOf = <String, CourseScheduleDraft>{};
     var updated = 0;
@@ -467,7 +468,9 @@ final class CourseManagementService {
     for (final segment in targets) {
       if (claimed.contains(segment.eventId)) continue;
       removedOccurrences += _occurrenceCount(segment);
-      removedSegmentExceptions += await gateway.countExceptions(segment.eventId);
+      removedSegmentExceptions += await gateway.countExceptions(
+        segment.eventId,
+      );
     }
 
     // **保留锚点的失效例外**（计划 §2.5／Task 8 Step 4）：用与展开器相同的成员判定

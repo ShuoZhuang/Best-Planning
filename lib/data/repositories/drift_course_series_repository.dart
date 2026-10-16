@@ -234,7 +234,9 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
           termId:
               batches[row.readTable(_database.calendarEvents).importBatchId],
           exceptionFingerprint:
-              exceptionFingerprints[row.readTable(_database.calendarEvents).id] ??
+              exceptionFingerprints[row
+                  .readTable(_database.calendarEvents)
+                  .id] ??
               '',
         ),
     ];

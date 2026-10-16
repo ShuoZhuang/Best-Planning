@@ -170,8 +170,7 @@ final class DriftTimetableImportRepository
     final anchors =
         await (_database.select(_database.calendarEvents)..where(
               (row) =>
-                  row.importBatchId.isIn(batchIds) &
-                  row.exceptionOfId.isNull(),
+                  row.importBatchId.isIn(batchIds) & row.exceptionOfId.isNull(),
             ))
             .get();
     final anchorIds = {for (final anchor in anchors) anchor.id};

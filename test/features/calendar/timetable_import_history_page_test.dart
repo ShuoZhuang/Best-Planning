@@ -178,15 +178,15 @@ void main() {
       find.byKey(const Key('import-history-rollback-batch-empty')),
       findsNothing,
     );
-    await tester.tap(find.byKey(const Key('import-history-reimport-batch-empty')));
+    await tester.tap(
+      find.byKey(const Key('import-history-reimport-batch-empty')),
+    );
     await tester.pumpAndSettle();
     expect(importTapped, 1);
   });
 
   testWidgets('H2：受保护批次撤销前必须二次确认；取消 ⇒ 零写入', (tester) async {
-    repository.items = [
-      item(batchId: 'batch-1', protectedCount: 2),
-    ];
+    repository.items = [item(batchId: 'batch-1', protectedCount: 2)];
     repository.protectedEventIds = {'evt-a', 'evt-b'};
     await pump(tester);
 
@@ -196,17 +196,11 @@ void main() {
 
     await tester.tap(find.byKey(const Key('import-rollback-cancel')));
     await tester.pumpAndSettle();
-    expect(
-      repository.rollbackCalls,
-      isEmpty,
-      reason: '未确认时不许有任何写入',
-    );
+    expect(repository.rollbackCalls, isEmpty, reason: '未确认时不许有任何写入');
   });
 
   testWidgets('H2：确认之后按 force 集合回滚，并刷新列表', (tester) async {
-    repository.items = [
-      item(batchId: 'batch-1', protectedCount: 1),
-    ];
+    repository.items = [item(batchId: 'batch-1', protectedCount: 1)];
     repository.protectedEventIds = {'evt-a'};
     repository.afterRollback = [
       item(
@@ -225,11 +219,9 @@ void main() {
 
     expect(repository.rollbackCalls, hasLength(1));
     expect(repository.rollbackCalls.single.$1, 'batch-1');
-    expect(
-      repository.rollbackCalls.single.$2,
-      {'evt-a'},
-      reason: '历史页与提示条必须传同一套 force 集合',
-    );
+    expect(repository.rollbackCalls.single.$2, {
+      'evt-a',
+    }, reason: '历史页与提示条必须传同一套 force 集合');
     // 刷新之后那一行变成"已撤销"且没有撤销按钮（提示条上还有一句含"已撤销"的文案，
     // 因此这里是 findsWidgets）。
     expect(find.textContaining('已撤销'), findsWidgets);
@@ -271,11 +263,12 @@ final class _ImportRepository implements TimetableImportRepository {
   }
 
   @override
-  Future<RollbackPreview> inspectRollback(String batchId) async => RollbackPreview(
-    batchId: batchId,
-    eventIds: {for (final id in protectedEventIds) id},
-    protectedEventIds: protectedEventIds,
-  );
+  Future<RollbackPreview> inspectRollback(String batchId) async =>
+      RollbackPreview(
+        batchId: batchId,
+        eventIds: {for (final id in protectedEventIds) id},
+        protectedEventIds: protectedEventIds,
+      );
 
   @override
   Future<RollbackResult> rollback(

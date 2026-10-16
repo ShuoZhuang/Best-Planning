@@ -124,10 +124,7 @@ void main() {
       findsOneWidget,
       reason: '命中确定性判据时必须让用户看见，而不是把损坏数据当正常课程继续保存',
     );
-    expect(
-      find.textContaining('检测到这门课程可能受旧版时间修改问题影响'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('检测到这门课程可能受旧版时间修改问题影响'), findsOneWidget);
     expect(
       find.textContaining('无法自动还原'),
       findsOneWidget,
@@ -138,10 +135,7 @@ void main() {
       findsOneWidget,
       reason: '标题仍是旧占位文字时要点名到具体字段',
     );
-    expect(
-      find.byKey(const Key('course-integrity-repair')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('course-integrity-repair')), findsOneWidget);
     expect(
       find.byKey(const Key('course-integrity-restore')),
       findsNothing,
@@ -177,10 +171,7 @@ void main() {
       ],
     );
 
-    expect(
-      find.byKey(const Key('course-integrity-restore')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('course-integrity-restore')), findsOneWidget);
     await tester.tap(find.byKey(const Key('course-integrity-restore')));
     await tester.pumpAndSettle();
     expect(

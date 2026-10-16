@@ -752,7 +752,10 @@ final class DriftCalendarRepository
         _database.calendarEvents,
       )..where((row) => row.exceptionOfId.equals(anchorId))).get();
       for (final row in existing) {
-        final rowDate = _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId);
+        final rowDate = _zones.toLocal(
+          _instant(row.startAtUtc),
+          row.timeZoneId,
+        );
         if (rowDate.year == localDate.year &&
             rowDate.month == localDate.month &&
             rowDate.day == localDate.day) {
@@ -901,11 +904,9 @@ final class DriftCalendarRepository
       };
 
       // ② 例外先删。
-      final exceptions =
-          await (_database.select(_database.calendarEvents)..where(
-                (row) => row.exceptionOfId.isIn(realAnchorIds),
-              ))
-              .get();
+      final exceptions = await (_database.select(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.isIn(realAnchorIds))).get();
       final exceptionIds = {for (final row in exceptions) row.id};
       if (exceptionIds.isNotEmpty) {
         await (_database.delete(
@@ -954,9 +955,7 @@ final class DriftCalendarRepository
                 .write(
                   db.TimetableImportBatchesCompanion(
                     status: Value(
-                      TimetableImportBatchStatus
-                          .partiallyDeleted
-                          .storageValue,
+                      TimetableImportBatchStatus.partiallyDeleted.storageValue,
                     ),
                     updatedAtUtc: Value(deletedAtUtc.microsecondsSinceEpoch),
                   ),
@@ -967,9 +966,7 @@ final class DriftCalendarRepository
         deletedAnchorIds: realAnchorIds,
         deletedExceptionIds: exceptionIds,
         deletedRuleIds: deletedRuleIds,
-        affectedImportBatchIds: affectedBatches == 0
-            ? const {}
-            : batchIds,
+        affectedImportBatchIds: affectedBatches == 0 ? const {} : batchIds,
       );
     });
   }
@@ -1012,7 +1009,9 @@ final class DriftCalendarRepository
       // **指纹在事务开始之后重算**（计划 Task 8 Step 6）：服务层在提交前比过一次，
       // 但那一次与真正开始写之间隔着界面确认，中间完全可能有人增删了一条逐次调整。
       // 重算的判据与读模型共用 `courseSeriesRevisionFingerprint()`，因此两处不可能漂开。
-      final currentFingerprint = await _currentCourseFingerprint(courseLogicalId);
+      final currentFingerprint = await _currentCourseFingerprint(
+        courseLogicalId,
+      );
       if (currentFingerprint != expectedFingerprint) {
         // 写第一行之前抛出 ⇒ **零写入**。
         throw const CourseSeriesStaleException();
@@ -1172,11 +1171,9 @@ final class DriftCalendarRepository
       final anchorIds = {
         for (final row in anchors) row.readTable(_database.calendarEvents).id,
       };
-      final exceptions =
-          await (_database.select(_database.calendarEvents)..where(
-                (row) => row.exceptionOfId.isIn(anchorIds),
-              ))
-              .get();
+      final exceptions = await (_database.select(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.isIn(anchorIds))).get();
       for (final row in exceptions) {
         (exceptionLists[row.exceptionOfId!] ??= []).add((
           id: row.id,

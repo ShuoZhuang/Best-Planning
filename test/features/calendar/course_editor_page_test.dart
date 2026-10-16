@@ -511,11 +511,7 @@ void main() {
             '用户可以保留这个标题，但必须显式勾选"我确认这是正确课程名"——'
             '守卫要体现在"能不能按"上，而不是"按了之后什么都不做"',
       );
-      expect(
-        gateway.savedProfile,
-        isNull,
-        reason: '未核对时一次都不许写库',
-      );
+      expect(gateway.savedProfile, isNull, reason: '未核对时一次都不许写库');
     });
 
     testWidgets('勾选之后「确认保存」可用，保存出去的就是这个标题', (tester) async {
@@ -525,7 +521,9 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const Key('course-editor-confirm-legacy-title')),
       );
-      await tester.tap(find.byKey(const Key('course-editor-confirm-legacy-title')));
+      await tester.tap(
+        find.byKey(const Key('course-editor-confirm-legacy-title')),
+      );
       await tester.pumpAndSettle();
 
       await previewAndSave(tester);
