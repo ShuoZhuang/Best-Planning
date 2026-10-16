@@ -3,6 +3,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/gap_classifier.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/schedule_objective.dart';
 
 /// 把**还能回到原位**的块放回原位，从而最小化"被移动的块数"（1.8.0，规范 §11.4 第 3 条）。
 ///
@@ -150,48 +151,99 @@ final class LocalRepairPlan {
     List<TimeRange> protectedRanges = const [],
     int breakMinutes = 0,
   }) {
-    final byCount = a.movedBlockIds.length.compareTo(b.movedBlockIds.length);
-    if (byCount != 0) return byCount;
-
-    final byMinutes = localRepairDisplacementMinutes(
-      a,
-      reference,
-    ).compareTo(localRepairDisplacementMinutes(b, reference));
-    if (byMinutes != 0) return byMinutes;
-
-    final byTarget = _targetDistance(
-      a,
-      targetBlockId,
-      notBeforeUtc,
-    ).compareTo(_targetDistance(b, targetBlockId, notBeforeUtc));
-    if (byTarget != 0) return byTarget;
-
-    // ── 第 6、7 级：坏空档（规范 §11.4 第 6 条／设计 §5.5）─────────────────────
+    // ── 比较**只有一处实现**（算法 17，计划 Task 4 Step 5）───────────────────────
     //
-    // 这两级此前**不存在**：`compare` 从第 5 级直接落到稳定签名，
-    // 而候选级又实测不可行（任何负权重都吃掉休息），于是第 6 条两头都空。
+    // 修复前这里是六段 `if`，而跨日分配器与方案级改进又各自写一套"差不多"的排序。
+    // 现在统一走 `compareScheduleObjectives`（`schedule_objective.dart`），
+    // 因为 [ScheduleObjectiveProfile.explicitAdjustment] 的字段顺序**逐项等于**
+    // 本方法沿用至今的规范 §11.4 顺序：
     //
-    // **为什么放在这里而不是候选级**：候选级只能看到**紧邻**的两段缝，
-    // 于是引擎会把块往后推以"离开"一段短缝，却在更远处制造更大的缺口。
-    // 方案级能看到整天的排布，这才是"这一段空档到底能不能用"的正确层次。
-    final gapsA = _orphanGaps(
+    // | §11.4 | `explicitAdjustment` 的第几项 |
+    // | --- | --- |
+    // | 3. 移动的其他块数量 | 5. `changedConfirmedBlockCount` |
+    // | 4. 总位移分钟 | 6. `displacementMinutes` |
+    // | 5. 目标块距下界 | 7. `extraTargetDisplacementMinutes` |
+    // | 6. 坏空档数量 | 17. `orphanGapCount` |
+    // | 7. 坏空档总分钟 | 18. `orphanGapMinutes` |
+    // | 9. 稳定签名 | 末项 `stableSignature` |
+    //
+    // 第 1、2 级（硬约束与不变量违规）由生成阶段的可行性保证，因此这里恒为 0；
+    // 第 3、4 级（调整兑现与新缺口）同理（本方法只比较**已生成的合法方案**）。
+    // 其余字段也全部置 0：**它们不在 §11.4 的比较顺序里**，给它们非零值会引入
+    // 一个新的、规范没有要求的排序层级。
+    //
+    // `LocalRepairPlan.compare` 的对外签名与语义因此逐字不变，而"顺序"这件事
+    // 从此只有一个事实源（`scheduleObjectiveStageNames`）。
+    final objectiveA = _objectiveOf(
       a,
+      reference: reference,
+      targetBlockId: targetBlockId,
+      notBeforeUtc: notBeforeUtc,
       tasks: tasks,
       protectedRanges: protectedRanges,
       breakMinutes: breakMinutes,
     );
-    final gapsB = _orphanGaps(
+    final objectiveB = _objectiveOf(
       b,
+      reference: reference,
+      targetBlockId: targetBlockId,
+      notBeforeUtc: notBeforeUtc,
       tasks: tasks,
       protectedRanges: protectedRanges,
       breakMinutes: breakMinutes,
     );
-    final byGapCount = gapsA.count.compareTo(gapsB.count);
-    if (byGapCount != 0) return byGapCount;
-    final byGapMinutes = gapsA.minutes.compareTo(gapsB.minutes);
-    if (byGapMinutes != 0) return byGapMinutes;
+    final order = compareScheduleObjectives(
+      objectiveA,
+      objectiveB,
+      ScheduleObjectiveProfile.explicitAdjustment,
+    );
+    // §11.4 的第 6、7 级之后、稳定签名之前没有别的层级，因此直接返回。
+    // （`compareScheduleObjectives` 已经把稳定签名作为末项。）
+    return order;
+  }
 
-    return _signature(a).compareTo(_signature(b));
+  /// 把一份局部修复方案映射成统一目标向量（只填 §11.4 用到的那些层级）。
+  ///
+  /// **不给"§11.4 之外"的字段赋非零值**：那会改变既有排序。见 [compare] 的表格。
+  static ScheduleObjective _objectiveOf(
+    LocalRepairPlan plan, {
+    required Map<String, DateTime> reference,
+    required String targetBlockId,
+    required DateTime notBeforeUtc,
+    required Iterable<SchedulableTask> tasks,
+    required List<TimeRange> protectedRanges,
+    required int breakMinutes,
+  }) {
+    final gaps = _orphanGaps(
+      plan,
+      tasks: tasks,
+      protectedRanges: protectedRanges,
+      breakMinutes: breakMinutes,
+    );
+    return ScheduleObjective(
+      hardViolationCount: 0,
+      invariantViolationCount: 0,
+      unfulfilledAdjustmentCount: 0,
+      newShortageMinutesAgainstReference: 0,
+      shortageMinutesByPriority: const [0, 0, 0, 0],
+      maximumDailyUtilizationPermille: 0,
+      totalOverTargetPermille: 0,
+      pacingDeviationMinutes: 0,
+      movedConfirmedBlockCount: plan.movedBlockIds.length,
+      changedConfirmedBlockCount: plan.movedBlockIds.length,
+      displacementMinutes: localRepairDisplacementMinutes(plan, reference),
+      extraTargetDisplacementMinutes: _targetDistance(
+        plan,
+        targetBlockId,
+        notBeforeUtc,
+      ),
+      recreatedBlockCount: 0,
+      fragmentCount: 0,
+      softPreferencePenalty: 0,
+      orphanGapCount: gaps.count,
+      orphanGapMinutes: gaps.minutes,
+      stableSignature: _signature(plan),
+    );
   }
 
   /// 一份方案里的坏空档统计：**只数 `orphanGap`**。
