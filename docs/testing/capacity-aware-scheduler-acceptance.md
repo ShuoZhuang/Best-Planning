@@ -1,0 +1,201 @@
+# 容量感知分层排程修复：实施记录与验收
+
+**计划文档：** `2026-10-16-capacity-aware-hierarchical-scheduler-repair.md`
+（Task 12 要求的人工验收记录模板；本文件按计划 §14 的交接模板组织。）
+
+**基线：** `43d9ced0`（`feature/native-implementation`），产品基线 1.8.0，
+`DeterministicScheduleEngine.algorithmVersion == '16'`。
+
+**当前状态：** Task 1–2 已完成并提交；Task 3–13 未开始。
+算法版本在 Task 13 的全部门槛通过之前**保持 16**。
+
+---
+
+## 1. 环境（本机实测，必须记录）
+
+`%TEMP%`（`C:\Users\zs200\AppData\Local\Temp`）**不可写**，而 `flutter test` 会调用
+`Directory.systemTemp`（`TestGoldenComparator`），因此**裸跑 `flutter test` 必然失败**：
+
+```text
+null. The flutter tool cannot access the file or directory.
+#5  ErrorHandlingFileSystem.systemTempDirectory
+#6  new TestGoldenComparator
+```
+
+`flutter analyze` 在写入 `%LOCALAPPDATA%\.dartServer\.plugin_manager` 时也会
+`PathAccessException`（errno 5）。
+
+**因此本机所有验证命令都必须先重定向临时目录与 pub 缓存：**
+
+```powershell
+$t='G:\best-planing\.tooling\tmp'
+$env:TMP=$t; $env:TEMP=$t
+$env:PUB_CACHE='G:\best-planing\.tooling\pub-cache'
+$env:HOME="$t\home"; $env:USERPROFILE="$t\home"   # analyze 需要
+cd G:\best-planing\.worktrees\native-implementation
+& G:\best-planing\.tooling\flutter\bin\flutter.bat test
+& G:\best-planing\.tooling\flutter\bin\flutter.bat analyze
+```
+
+Flutter 3.47.5 / Dart 3.13.4（`G:\best-planing\.tooling\flutter`）。
+
+---
+
+## 2. 计划偏差（必须记录，不得静默）
+
+计划 §6 的接口清单与 §5.1 的文件表在实现时出现了三处**必须偏离**的地方。
+每一处都记在这里，并说明为什么偏离比照抄更安全。
+
+### 2.1 新模块放在 `lib/scheduling/`，不是 `lib/application/`
+
+计划 §5.1 把 `daily_scheduling_policy.dart`、`day_capacity_ledger.dart`、
+`schedule_objective.dart` 列在"新建文件"表里但**没有写目录**，§6 的代码块也没有包名。
+实现放在 `lib/scheduling/`，理由：
+
+- `lib/scheduling/` **不依赖** `lib/application/`（`repository_schedule_problem_source.dart`
+  的注释把这一条写成了硬约束，否则形成依赖环）；
+- 三个新类型只依赖 `PlanningRules`、`AvailabilityAnalysis`、`PlannedBlock`，
+  没有任何 `application/` 的输入。
+
+### 2.2 `AvailabilityInput` 没有新增 `sleepIntervals` 参数（§5.2）
+
+计划 §5.2 与 §6 要求"`AvailabilityBuilder` 不再从全局 `problem.rules` 私自展开第二份睡眠"。
+**关键词是"全局"**，而计划的措辞容易被读成"这一层不再展开睡眠"。
+
+实现按**逐日**展开：`AvailabilityBuilder.analyze` 对窗口内**每一天**取
+`input.dailyPolicies[date].resolvedRules.sleepRange` 各展开一次。
+这样做的三个后果，每一个都是我们要的：
+
+1. **口径只有一个**：那一天自己的规则。修复前是"用窗口首日的规则展开整个窗口"，
+   于是"周末睡眠不同"整周不生效（计划 §1.2 第 1 条）。
+2. **不需要调用方重复提供睡眠区间**，因此 `AvailabilityInput` 不新增参数，
+   约 30 个测试夹具无需为它改造。
+3. **装配层仍然把睡眠放进 `protectedIntervals`**（`PlanValidator` 要靠它判
+   "块压在睡眠上"是不是冲突）。两者是同一份展开结果，`_merge` 把重叠并掉，
+   因此"同一分钟只扣一次"依旧成立。
+
+**顺带修掉一个真实缺陷：** 修复前 `ProtectedTimeExpander.sleep` 是**整窗口一次调用**，
+而它的合并逻辑会对"跨午夜拆出的两段"排序后合并——多天一起展开时，相邻日期的睡眠
+被合成了**一整段跨天区间**，`AvailabilityBuilder` 再用它求补集就只能得到当天的空档。
+逐日展开之后每一天的睡眠都是独立的 `23:00–07:00`。这不是计划预见的改动，
+但它是"按当天规则"的必然结果，且方向正确。
+
+### 2.3 `test/support/daily_policies.dart` 是测试专用夹具
+
+计划 §5.4 要求"测试夹具必须显式构造覆盖窗口的 `dailyPolicies` 和周配额"，
+但 §5.1 的"新建文件"表里没有它。实现新增了这一个**测试专用**工具
+（`test/support/`，不在 `lib/` 内），包含：
+
+```dart
+Map<DateTime, DailySchedulingPolicy> dailyPoliciesForWindow({...});
+Map<DateTime, int> weeklyLifeQuotasForWindow({...});
+List<DateTime> enumerateLocalDates({...});
+```
+
+理由：51 个 `ScheduleProblem(` 调用点各自手写一张 Map 会带来两个失败模式——
+**少数一天**（缺日 ⇒ 引擎抛 `StateError`，但也诱使人加"缺日回退首日"的兜底）与
+**多算一天**（覆盖校验拒绝，而修法会被误认为"校验太严"）。一个函数消除两者。
+
+---
+
+## 3. Task 1：基线红灯（提交 `9524c20d`）
+
+**Step 1 证据（本机实测）：**
+
+- `git status --short`：干净（baseline dirty set 为空）；
+- `dart test test/scheduling/even_distribution_allocator_test.dart
+  test/application/recurring_even_distribution_test.dart
+  test/application/visible_free_time_shortage_regression_test.dart`：
+  **25 passed，exit 0**；
+- `algorithmVersion == '16'`。
+
+**Step 2–5 新增红灯（6 条，全部只因当前结构缺口失败）：**
+
+| 用例 | 文件 | 红灯证据 |
+| --- | --- | --- |
+| 150/30 不按日期选周一至周五 | `capacity_aware_week_planning_test.dart` | 实际只用了 2 天 `{5:120, 6:30, …}` |
+| 150/30 均匀目标同样不得固定前五日 | 同上 | `even` 路径实际只用了 4 天 |
+| 普通任务必须用上低负载周末 | 同上 | 周末 0 分钟 |
+| 周末账面容量按自己的上限 360 | 同上 | 周日只排到 180（= 窗口首日上限） |
+| 工作日负载高时块必须落到周末 | `schedule_engine_test.dart` | 周末 0 分钟 |
+| 参与日不得只是前五天（纯函数） | `even_distribution_allocator_test.dart` | 参与日恰好 5 天 |
+
+`schedule_engine_test` 的 Deadline 反例（计划 Step 4）在本基线**本来就是绿的**
+（候选生成已经按 `dueAtUtc` 过滤），因此它与 Step 2/3/5 合并进同一组夹具，
+不再单列一条"预期失败"——计划的 Step 4 是"反向测试"，绿即是它的正确结果。
+
+**红灯提交时全量：** 1047 passed / 6 failed（恰为新增的 6 条，既有版本 16 测试零回归）。
+
+---
+
+## 4. Task 2：逐日解析规划规则（提交 `d9d19662`）
+
+### 4.1 交付
+
+- 新增 `lib/scheduling/daily_scheduling_policy.dart`：`DailySchedulingPolicy`
+  （完整 `PlanningRules` 快照 + 归一本地日 + 软恢复余量）、`DailyPolicyLookup`、
+  `normalizeLocalDate`、`softReserveTargetFor`。
+- `PlanningRuleResolver.resolveByDateForWindow(start, end, {override})`：
+  两端包含、按本地日期升序、去时分秒、返回**不可修改** Map、覆盖只作用于命中日期。
+  `resolveForWindow` 的签名与返回类型**逐字未改**（日历读取路径仍在用）。
+- `ScheduleProblem.dailyPolicies`（**必填**）+ `weeklyLifeQuotaByWeekStart` +
+  `policyForLocalDate()` / `lifeQuotaForLocalWeek()`（缺键抛 `StateError`，
+  **不回退首日**）。构造时校验非空、键归一、按日连续、不重复。
+- 装配层：逐日解析 → 逐日策略 → 逐日展开保护时间与睡眠（课程过渡按**事件结束日**的规则）；
+  逐周生活配额向前补齐到首个本地周一；用 `TimeZoneDatabase` 枚举窗口本地日期并
+  **证明策略键集合逐值相等**（多一天与少一天都抛 `StateError`）。
+- `AvailabilityAnalysis` 新增 `hardFreeSlots` / `hardFreeMinutes`（日硬空闲，
+  不扣任何任务块），与既有 `slots`（视觉空白）出自**同一次扫线**；粒度按所属本地日取。
+- `InputSnapshotBuilder`：逐日规则、恢复余量与逐周配额进哈希，序列化与插入顺序无关。
+- **51 个 `ScheduleProblem(` 调用点 + 5 个 `AvailabilityInput(` 调用点全部显式迁移**，
+  未加任何静默默认值。
+
+### 4.2 验证
+
+```text
+flutter analyze                     -> No issues found!
+dart format --output=none --set-exit-if-changed lib test -> exit 0
+flutter test                        -> 2631 passed / 6 failed
+```
+
+**6 条失败全部是 Task 1 新增的红灯**（Task 3–7 负责让它们转绿），
+既有版本 16 测试**零回归**。
+
+### 4.3 Task 2 顺带修掉的两个真实缺陷（都不是计划直接预见的）
+
+**(a) 远期任务的节奏被算歪。** `_targetFor` 的 `capacityForRange` 此前只在**已经算好的**
+`analysis.slots` 里筛选，于是"窗口之外的那 23 天"被当成有容量的时间。
+实测：120 分钟、截止在 30 天后的任务得到
+`capacityAfterHorizonBeforeDue = 22080`、`pacedNow = 28` ⇒ 被抬到最小片段 **30**，
+**只排 30 分钟**。窗口之外没有任何可排时段，把它算进"截止前总容量"会让近期推进量
+被系统性低估。裁剪到窗口之后 `after = 0`，同一个任务按"这一周有多少容量"推进，
+一周内排满 120。
+
+**(b) 一次性规则覆盖泄漏到整周。** `resolveForWindow` 只解析窗口首日与一个周末日并取并集，
+而 `DayKind.any` 的覆盖于是命中每一天——**那不是"一次性覆盖只作用于命中日期"的语义**。
+它让 `adjustment_interception_test.dart` 与 `defer_unschedulable_test.dart` 的夹具
+"以为"自己堵住了整周（实测只堵住 1 天）。逐日之后这两处夹具改为用**真实日历占用**
+表达"整天堵死"，语义更贴近用户能做的事。
+
+**(c) 锁定的任务块不带来源标签。** `chargedMovableBlocks`（锁定块与"拖动了但没锁定"的块）
+占住视觉空白，却没有进 `blockedSegments` 的标签集合，于是预览说不清
+"这一分钟为什么不能用"。
+
+---
+
+## 5. 未执行项（据实记录，不粉饰）
+
+- **Task 3–13 未开始。** 算法版本**仍是 16**。
+- **集成测试未执行**（`flutter test integration_test`）：本机 `%TEMP%` 不可写，
+  尚未验证该命令在重定向后能否运行。
+- **六个人工场景全部未执行**（计划 Task 12 Step 4–9）。它们需要可交互的 Windows 构建。
+- **两份黄金夹具未更新**（`golden_week.json` 仍是算法 16 的结果）。
+
+## 6. 已知限制
+
+- 不承诺数学意义上的全局最优。
+- 任务依赖与通用通勤时间不在本次范围内。
+- 精力与期望时段**仍然只是软偏好**。
+- `softReserveTargetMinutes` 在本批次装配层传 **0**：它的输入是"当天的许可容量"，
+  而许可容量要等 `buildDayCapacityLedger`（Task 3）落地后才有唯一来源。
+  传 0 的含义是"软目标尚未赋值"，而不是"留 0 分钟"——它是软目标，不参与任何硬判定。
