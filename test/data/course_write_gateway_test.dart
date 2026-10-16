@@ -461,6 +461,114 @@ void main() {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Task 11／E1–E4（计划 §2.5／§3.3）：**课程快照保存也要清理失效例外**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('E1：课程快照保存缩短周次之后，保留锚点的失效例外被清理', () async {
+    await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+    // 两条逐次调整：第 4 周（2026-09-28）与第 10 周（2026-11-09）。
+    for (final (id, localDate) in [
+      ('exc-week4', DateTime(2026, 9, 28)),
+      ('exc-week10', DateTime(2026, 11, 9)),
+    ]) {
+      await repository.replaceOccurrence(
+        anchorId: 'evt-a',
+        occurrenceStartUtc: DateTime.utc(
+          localDate.year,
+          localDate.month,
+          localDate.day,
+          0,
+        ),
+        patch: CalendarEventPatch(
+          title: '高等数学(上)',
+          startAtUtc: DateTime.utc(
+            localDate.year,
+            localDate.month,
+            localDate.day,
+            6,
+          ),
+          endAtUtc: DateTime.utc(
+            localDate.year,
+            localDate.month,
+            localDate.day,
+            7,
+          ),
+        ),
+        exceptionId: id,
+        updatedAtUtc: utc(10, 1, 0, 0),
+      );
+    }
+    Future<int> exceptionCount() async {
+      final rows = await database
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM calendar_events "
+            "WHERE exception_of_id = 'evt-a'",
+          )
+          .get();
+      return rows.first.read<int>('c');
+    }
+
+    Future<int> previewCount() => repository.countExceptionsInvalidatedBy(
+      anchorEventId: 'evt-a',
+      replacement: CourseScheduleDraft(
+        startMinute: 8 * 60,
+        endMinute: 8 * 60 + 45,
+        weekdays: const {DateTime.monday},
+        validFromLocalDate: DateTime(2026, 9, 7),
+        validUntilLocalDate: DateTime(2026, 10, 26),
+      ),
+      zoneId: zoneId,
+    );
+
+    expect(await exceptionCount(), 2);
+    expect(await previewCount(), 1, reason: '预览要报出"另有 1 条调整已超出新周次"');
+
+    await repository.replaceCourseSeries(
+      rows: [
+        CourseWriteRow(
+          schedule: CourseScheduleDraft(
+            startMinute: 8 * 60,
+            endMinute: 8 * 60 + 45,
+            weekdays: const {DateTime.monday},
+            validFromLocalDate: DateTime(2026, 9, 7),
+            validUntilLocalDate: DateTime(2026, 10, 26),
+          ),
+          index: 0,
+          reuseAnchorId: 'evt-a',
+        ),
+      ],
+      profile: profile([
+        CourseScheduleDraft(
+          startMinute: 8 * 60,
+          endMinute: 8 * 60 + 45,
+          weekdays: const {DateTime.monday},
+          validFromLocalDate: DateTime(2026, 9, 7),
+          validUntilLocalDate: DateTime(2026, 10, 26),
+        ),
+      ]),
+      zoneId: zoneId,
+      updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
+    );
+
+    expect(
+      await exceptionCount(),
+      1,
+      reason:
+          '**预告删 1 条，保存就必须删 1 条**（计划 §2.5 最后一句）：'
+          '少了这一步，用户照着"将删除 1 条"按下确认，而那条调整会一直留着，'
+          '并在下次扩展规则时"复活"（C23）。',
+    );
+    final remaining = await database
+        .customSelect(
+          "SELECT id FROM calendar_events WHERE exception_of_id = 'evt-a'",
+        )
+        .get();
+    expect(remaining.single.read<String>('id'), 'exc-week4');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Task 11／CE3（计划 §3.0）：**整门课程只有一次事务提交**
   // ───────────────────────────────────────────────────────────────────────────
 

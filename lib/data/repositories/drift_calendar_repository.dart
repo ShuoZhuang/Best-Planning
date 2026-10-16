@@ -1095,6 +1095,16 @@ final class DriftCalendarRepository
           zoneId,
         );
 
+        final rule = domain.RecurrenceRule(
+          id: ruleId,
+          weekdays: draft.weekdays,
+          localStartMinute: draft.startMinute,
+          durationMinutes: draft.endMinute - draft.startMinute,
+          intervalWeeks: draft.intervalWeeks,
+          validFromLocalDate: draft.validFromLocalDate,
+          validUntilLocalDate: draft.validUntilLocalDate,
+          timeZoneId: zoneId,
+        );
         await _saveRecurringRows(
           domain.CalendarEvent(
             id: anchorId,
@@ -1117,16 +1127,21 @@ final class DriftCalendarRepository
             projectId: profile.projectId,
             updatedAtUtc: updatedAtUtc,
           ),
-          domain.RecurrenceRule(
-            id: ruleId,
-            weekdays: draft.weekdays,
-            localStartMinute: draft.startMinute,
-            durationMinutes: draft.endMinute - draft.startMinute,
-            intervalWeeks: draft.intervalWeeks,
-            validFromLocalDate: draft.validFromLocalDate,
-            validUntilLocalDate: draft.validUntilLocalDate,
-            timeZoneId: zoneId,
-          ),
+          rule,
+        );
+
+        // **写上新规则之后清理不再属于它的逐次例外**（计划 Task 8 Step 5／E1–E4）。
+        //
+        // 这一句是**预览与实际必须同源**的地方：`previewCourseEdit` 已经用
+        // `countExceptionsInvalidatedBy()` 把"有 1 条调整已超出新周次，将删除"写给了用户，
+        // 而这里是真正删掉它的唯一机会。少了它，"预览报 1 条、保存删 0 条"——
+        // 用户照着一个不成立的数字按下了确认，而那条调整会在下次扩展规则时"复活"。
+        //
+        // 新锚点没有旧例外，查询返回空，因此这一句对新片段是无操作。
+        await _pruneInvalidatedExceptions(
+          anchorId: anchorId,
+          rule: rule,
+          updatedAtUtc: updatedAtUtc,
         );
       }
     });

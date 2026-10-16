@@ -34,7 +34,6 @@ void main() {
   const zoneId = 'Asia/Shanghai';
   final zones = TimeZoneDatabase();
   final nowUtc = DateTime.utc(2026, 10, 12, 1, 30);
-
   late db.AppDatabase database;
   late DriftCalendarRepository repository;
   late DriftCourseSeriesRepository courses;
@@ -97,7 +96,7 @@ void main() {
         (id, term_id, source_image_hash, source_file_name, status,
          created_event_count, created_at_utc, updated_at_utc)
       VALUES ('batch-autumn', 'term-autumn', 'sha256:x', 'schedule.png',
-              'committed', 2, 1, 1)
+              'committed', 2, $_seedInstantUs, $_seedInstantUs)
     ''');
     for (final (id, ruleId, weekday, minute) in [
       ('evt-mon', 'rule-mon', DateTime.monday, 8 * 60),
@@ -370,13 +369,119 @@ void main() {
     expect(repaired.summary.title, '高等数学(上)');
   });
 
+  testWidgets('场景 D：编辑新增片段后，原学期仍只显示一门课且按批次撤销会连它一起删掉', (
+    tester,
+  ) async {
+    await seedImportedCourse();
+
+    final detail = await courses.findCourse('course-algo');
+    final save = await service.saveCourse(
+      CourseSaveRequest(
+        logicalCourseId: 'course-algo',
+        expectedRevisions: detail!.sourceRevisions,
+        expectedFingerprint: detail.revisionFingerprint,
+        profile: CourseProfileDraft(
+          logicalCourseId: 'course-algo',
+          title: '算法与数据结构',
+          teacher: '张老师',
+          location: '教一 302',
+          schedule: [
+            CourseScheduleDraft(
+              startMinute: 8 * 60,
+              endMinute: 8 * 60 + 45,
+              weekdays: const {DateTime.monday},
+              validFromLocalDate: DateTime(2026, 9, 7),
+              validUntilLocalDate: DateTime(2026, 12, 20),
+            ),
+            CourseScheduleDraft(
+              startMinute: 10 * 60,
+              endMinute: 10 * 60 + 45,
+              weekdays: const {DateTime.thursday},
+              validFromLocalDate: DateTime(2026, 9, 7),
+              validUntilLocalDate: DateTime(2026, 12, 20),
+            ),
+            // **新增的第三段**：周三。它没有既有锚点，因此走"新建锚点"那条路。
+            CourseScheduleDraft(
+              startMinute: 14 * 60,
+              endMinute: 14 * 60 + 45,
+              weekdays: const {DateTime.wednesday},
+              validFromLocalDate: DateTime(2026, 9, 7),
+              validUntilLocalDate: DateTime(2026, 12, 20),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(save.isSuccess, isTrue, reason: save.error ?? '');
+
+    // ① 当前学期仍然只显示**一门课**，且有两个以上片段。
+    final listed = await courses.listCourses(termId: 'term-autumn');
+    expect(
+      listed.map((course) => course.logicalCourseId).toList(),
+      ['course-algo'],
+      reason: '新增片段不得造出第二门课，也不得让整门课从原学期消失（C18）',
+    );
+    final after = await courses.findCourse('course-algo');
+    expect(after!.segments, hasLength(3));
+    expect(
+      {for (final segment in after.segments) segment.importBatchId},
+      {'batch-autumn'},
+      reason: '新增片段必须继承原批次（C16、C17）',
+    );
+
+    // ② 按原批次撤销：**三个片段全部被删掉**，包括新增的那一个。
+    //
+    // 这里必须先看清一件**设计上正确**的事：用户刚编辑过这门课，三个锚点的
+    // `updated_at_utc` 因此都不再等于批次的创建时间 ⇒ `inspectRollback` 把它们全部
+    // 判成"导入后被修改过"，`rollback()` 不带 force 会（正确）拒绝。
+    // 历史页那一步也就会先弹二次确认（§3.5：用户改过的锚点继续列入 protectedEventIds）。
+    // 因此这一段的正确流程是"先看清单，再带 force 确认"，而不是直接调用。
+    final preview = await imports.inspectRollback('batch-autumn');
+    expect(
+      preview.protectedEventIds,
+      hasLength(3),
+      reason: '编辑过的三门片段都该出现在"需要确认"的清单里，新增的那一段也不例外',
+    );
+    await expectLater(
+      imports.rollback('batch-autumn'),
+      throwsA(isA<ProtectedTimetableEventsException>()),
+      reason: '未确认 force 时必须零写入',
+    );
+
+    final rollback = await imports.rollback(
+      'batch-autumn',
+      forceEventIds: preview.protectedEventIds,
+    );
+    expect(rollback.deletedEventCount, 3);
+    expect(
+      await courses.findCourse('course-algo'),
+      isNull,
+      reason: '新增片段必须落在原批次的撤销范围里（P4）',
+    );
+    final leftovers = await database
+        .customSelect(
+          "SELECT COUNT(*) AS c FROM calendar_events "
+          "WHERE logical_course_id = 'course-algo'",
+        )
+        .get();
+    expect(leftovers.single.read<int>('c'), 0);
+    final ruleLeftovers = await database
+        .customSelect('SELECT COUNT(*) AS c FROM recurrence_rules')
+        .get();
+    expect(
+      ruleLeftovers.single.read<int>('c'),
+      0,
+      reason: '三条片段各自的规则都要回收，不留下无锚点引用的孤儿规则',
+    );
+  });
+
   testWidgets('场景 E：删掉一门课之后仍可用同一张图片恢复', (tester) async {
     await database.customInsert('''
       INSERT INTO timetable_import_batches
         (id, term_id, source_image_hash, source_file_name, status,
          created_event_count, created_at_utc, updated_at_utc)
       VALUES ('batch-1', 'term-autumn', 'sha256:same', 'schedule.png',
-              'committed', 2, 1, 1)
+              'committed', 2, $_seedInstantUs, $_seedInstantUs)
     ''');
     for (final (id, ruleId, logicalId, title) in [
       ('evt-a', 'rule-a', 'course-a', '课程 A'),
@@ -711,6 +816,14 @@ void main() {
     );
   });
 }
+
+/// 夹具里"导入发生的那一刻"。
+///
+/// **批次的 `created_at_utc` 必须与它导入出来的锚点 `updated_at_utc` 相同**：
+/// `inspectRollback` 正是用"锚点的修订号是否还等于批次的创建时间"判断
+/// "这条课程在导入之后被改过没有"。夹具里两者不一致会让每一门课都被判成"受保护"，
+/// 于是撤销必须先 force——那测的就不是被测行为，而是夹具自己造出来的假象。
+final int _seedInstantUs = DateTime.utc(2026, 10, 1).microsecondsSinceEpoch;
 
 final class _Clock implements Clock {
   const _Clock(this._now);
