@@ -84,6 +84,13 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
   /// 「换领域后旧项目被清空」的那句说明（计划 Task 5 Step 2）。
   String? _projectClearedNotice;
 
+  /// 用户是否**显式确认过**"这个占位标题就是正确的课程名"（计划 Task 4 Step 2）。
+  ///
+  /// 旧版把导入课程的标题写成了 `未命名事项`（计划 §1.1）。检测到之后不允许用户
+  /// 不看提示就再次确认保存——他**可以保留**这个标题，但必须显式勾选一次，
+  /// 让"我知道它叫这个"变成一条有据可查的动作，而不是一次静默放行。
+  bool _confirmedLegacyTitle = false;
+
   @override
   void initState() {
     super.initState();
@@ -150,21 +157,29 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
   /// 而那个数字正是他做决定的依据。
   void _invalidatePreview() {
     if (_preview == null && _conflicts.isEmpty && _status == null) return;
-    setState(() {
-      _preview = null;
-      _conflicts = const [];
-      _acknowledgedConflicts = false;
-      _status = null;
-      _errors = const {};
-    });
+    setState(_clearPreviewState);
+  }
+
+  /// 清掉"上一版的预览结论"。**不自己 `setState`**：调用方决定重建的时机。
+  void _clearPreviewState() {
+    _preview = null;
+    _conflicts = const [];
+    _acknowledgedConflicts = false;
+    _status = null;
+    _errors = const {};
   }
 
   /// 标题／教师／地点不属于任何一条安排，因此脏标记落在页面上。
   bool _profileDirty = false;
 
   void _onTextChanged() {
-    _profileDirty = true;
-    _invalidatePreview();
+    // **必须无条件重建**：标题文本决定"旧版占位标题"那条核对提示是否还该出现
+    // （用户把它改成真实课程名之后就不该再要求勾选），而那个判断读的是控制器的
+    // 当前文本。走 `_invalidatePreview` 的"没有预览就不重建"短路会让提示卡住不动。
+    setState(() {
+      _profileDirty = true;
+      _clearPreviewState();
+    });
   }
 
   void _chooseArea(String? areaId) {
@@ -336,8 +351,18 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
   bool get _canSaveFromPreview {
     if (_preview == null) return true;
     if (_conflicts.isNotEmpty && !_acknowledgedConflicts) return false;
+    // **还没核对旧版占位标题** ⇒ 不能按（计划 Task 4 Step 2）。
+    if (_needsLegacyTitleConfirmation) return false;
     return true;
   }
+
+  /// 这门课命中"疑似旧版占位标题"，而且用户**还没有把它改掉**。
+  ///
+  /// 改掉（写成真实课程名）就不再需要确认：那时用户已经主动核对过了。
+  bool get _needsLegacyTitleConfirmation =>
+      (_detail?.hasLegacyPlaceholderTitle ?? false) &&
+      _title.text.trim() == legacyPlaceholderCourseTitle &&
+      !_confirmedLegacyTitle;
 
   void _onPrimaryAction() {
     if (_preview == null) {
@@ -384,7 +409,14 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
         _status = result.error;
       }
     });
-    if (result.status == CourseSaveStatus.saved) widget.onSaved?.call();
+    if (result.status != CourseSaveStatus.saved) return;
+    // **保存成功后重新读取**（计划 Task 4 Step 3）：只有所有确定性问题真的消失了，
+    // 提示才该移除。不重读的话，用户把占位标题改成真名并保存之后，横幅会继续挂着，
+    // 而那条提示说的是"可能受损"——它必须跟着数据走，不能跟着页面生命周期走。
+    await _load();
+    if (!mounted) return;
+    setState(() => _status = '已保存');
+    widget.onSaved?.call();
   }
 
   Future<void> _cancel() async {
@@ -485,6 +517,12 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // **结构化完整性提示**（计划 §2.0.3／Task 4 Step 2）：编辑页是"手工修复"那条
+          // 路径的落点，因此提示必须出现在这里，而不只是详情页。
+          if (detail.hasIntegrityIssues) ...[
+            _integrityNotice(context, detail),
+            const SizedBox(height: 16),
+          ],
           _sectionTitle('课程资料'),
           _textField('course-title', '课程名称', _title),
           _textField('course-teacher', '教师', _teacher),
@@ -539,6 +577,78 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
         Text(message, style: const TextStyle(color: Colors.red)),
     ],
   );
+
+  /// 旧版损伤提示 ＋（命中占位标题时的）显式确认勾选。
+  ///
+  /// 文案与详情页一致，因为用户在两处看到的是**同一件事**；差别只在于编辑页多做一件事：
+  /// 把"我确认这是正确课程名"变成保存的前置条件（计划 Task 4 Step 2）。
+  Widget _integrityNotice(BuildContext context, CourseSeriesDetail detail) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('course-editor-integrity-banner'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '检测到这门课程可能受旧版时间修改问题影响。'
+            '保存前请核对课程名称、教师、地点、领域、项目和上课安排。',
+            key: const Key('course-editor-integrity-message'),
+            style: TextStyle(color: scheme.onErrorContainer),
+          ),
+          Text(
+            '系统没有保存课表的原始识别内容，无法自动还原原来的课程名称、教师、地点或领域。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (detail.hasLegacyPlaceholderTitle &&
+              _title.text.trim() == legacyPlaceholderCourseTitle) ...[
+            const SizedBox(height: 4),
+            // **`Row` 而不是 `CheckboxListTile`**：`CheckboxListTile` 内部是一个
+            // `ListTile`，而 `ListTile` 把背景与水波纹画在最近的 `Material` 上——
+            // 这里外面是一个带底色的 `Container`，Flutter 会因此直接抛
+            // "ListTile background color or ink splashes may be invisible"。
+            // 显式的 `Checkbox` ＋ 文案既避开那条断言，也不必为提示条引入 `Material`。
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Checkbox(
+                  key: const Key('course-editor-confirm-legacy-title'),
+                  value: _confirmedLegacyTitle,
+                  onChanged: _busy
+                      ? null
+                      : (value) => setState(() {
+                          _confirmedLegacyTitle = value ?? false;
+                          // 勾选状态本身不算"内容变了"，因此不动预览；
+                          // 但它决定"确认保存"能不能按，所以必须重建。
+                        }),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('我确认这是正确课程名'),
+                        Text(
+                          '标题仍是旧版的占位文字，保存前必须显式核对一次；'
+                          '如果它不是真实课程名，请在上面改成正确的名称。',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   Widget _sectionTitle(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),

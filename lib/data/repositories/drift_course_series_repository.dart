@@ -87,7 +87,67 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
     return CourseSeriesDetail(
       summary: summary,
       segments: [for (final row in ordered) _toSegment(row)],
+      integrityIssues: _integrityIssuesOf(ordered),
     );
+  }
+
+  /// **只读的确定性损伤检测**（计划 §2.0.3／Task 4 Step 1）。
+  ///
+  /// 三条判据都是**精确**的，不做模糊匹配：
+  ///
+  /// 1. 导入课程（`logicalCourseId != null`）的标题**精确等于** [legacyPlaceholderCourseTitle]；
+  /// 2. 锚点的 `time_zone_id` 与它自己规则的 `time_zone_id` 不同；
+  /// 3. 同一逻辑课程出现两个及以上**不同的非空** `import_batch_id`。
+  ///
+  /// **空教师、空地点、无领域一律不触发**：它们完全可能是合法数据（用户就是没填），
+  /// 把它们当损坏会让正常课程挂上一条永远消不掉的提示（LI2）。
+  ///
+  /// 它**不读时钟、不写库**：打开课程本身不得改变任何一行（§3.0）。
+  List<CourseIntegrityIssue> _integrityIssuesOf(List<_CourseRow> rows) {
+    final issues = <CourseIntegrityIssue>[];
+    if (rows.isEmpty) return issues;
+
+    final placeholderAnchors = [
+      for (final row in rows)
+        if (row.event.logicalCourseId != null &&
+            row.event.title == legacyPlaceholderCourseTitle)
+          row.event.id,
+    ];
+    if (placeholderAnchors.isNotEmpty) {
+      issues.add(
+        CourseIntegrityIssue(
+          kind: CourseIntegrityIssueKind.legacyPlaceholderTitle,
+          affectedAnchorIds: placeholderAnchors,
+        ),
+      );
+    }
+
+    final mismatched = [
+      for (final row in rows)
+        if (row.event.timeZoneId != row.rule.timeZoneId) row.event.id,
+    ];
+    if (mismatched.isNotEmpty) {
+      issues.add(
+        CourseIntegrityIssue(
+          kind: CourseIntegrityIssueKind.eventRuleTimeZoneMismatch,
+          affectedAnchorIds: mismatched,
+        ),
+      );
+    }
+
+    final batches = {
+      for (final row in rows)
+        if (row.event.importBatchId != null) row.event.importBatchId!,
+    };
+    if (batches.length > 1) {
+      issues.add(
+        CourseIntegrityIssue(
+          kind: CourseIntegrityIssueKind.conflictingImportLineage,
+          affectedAnchorIds: [for (final row in rows) row.event.id],
+        ),
+      );
+    }
+    return issues;
   }
 
   @override
@@ -215,6 +275,10 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
     return CourseSeriesSegment(
       eventId: row.event.id,
       title: row.event.title,
+      // **规则时区是解释这个片段的权威**（计划 Task 3 Step 2）：展开器、日期、星期
+      // 与分钟都按它算。锚点与它不一致时由 `_integrityIssuesOf` 报出来给用户核对，
+      // 而不是在这里二选一。
+      timeZoneId: row.rule.timeZoneId,
       weekdays: _weekdays(row.rule.weekdaysMask),
       startMinute: row.rule.localStartMinute,
       endMinute: row.rule.localStartMinute + row.rule.durationMinutes,

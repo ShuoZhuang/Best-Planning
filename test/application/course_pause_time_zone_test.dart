@@ -48,6 +48,7 @@ void main() {
     segments: [
       CourseSeriesSegment(
         eventId: 'evt-mon',
+        timeZoneId: 'Asia/Shanghai',
         title: '高等数学(上)',
         weekday: DateTime.monday,
         startMinute: 8 * 60,

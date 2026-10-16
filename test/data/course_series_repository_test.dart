@@ -17,6 +17,7 @@ import 'package:personal_planner/data/database/app_database.dart'
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
 
 void main() {
@@ -53,12 +54,15 @@ void main() {
   tearDown(() => database.close());
 
   /// 造一条课表导入的重复日程（＝一个系列片段）。
+  ///
+  /// [batchId] 可空：`null` 表示"这条锚点没有批次归属"，是 `recoverableMixed`
+  /// 与 `conflictingImportLineage` 两种判据都要用到的形状（计划 §2.1）。
   Future<void> addSeries({
     required String eventId,
     required String ruleId,
     required String title,
     required String logicalCourseId,
-    String batchId = 'batch-autumn',
+    String? batchId = 'batch-autumn',
     int weekday = DateTime.monday,
     int startMinute = 8 * 60,
     int durationMinutes = 45,
@@ -521,6 +525,256 @@ void main() {
           '没有学期基准就算不出单双周。**保守报"每周"**：误报成单双周会让用户'
           '以为这周没课（计划 Task 3 Step 2）',
     );
+    expect(
+      segment.timeZoneId,
+      'Asia/Shanghai',
+      reason: '片段携带规则自己的 IANA 时区，供编辑页按它解释日期、星期与分钟',
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 4（课程编辑完整性修复计划）：**只读的确定性损伤检测**（LI1、LI2）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('旧版损伤检测（计划 §2.0.3）', () {
+    test('LI1：导入课程标题精确等于「未命名事项」⇒ legacyPlaceholderTitle', () async {
+      await addSeries(
+        eventId: 'evt-damaged',
+        ruleId: 'rule-damaged',
+        title: legacyPlaceholderCourseTitle,
+        logicalCourseId: 'course-damaged',
+      );
+
+      final detail = await courses.findCourse('course-damaged');
+
+      expect(detail!.hasLegacyPlaceholderTitle, isTrue);
+      expect(
+        detail.integrityIssues
+            .firstWhere(
+              (issue) =>
+                  issue.kind == CourseIntegrityIssueKind.legacyPlaceholderTitle,
+            )
+            .affectedAnchorIds,
+        ['evt-damaged'],
+      );
+    });
+
+    test('LI1：锚点时区与规则时区不同 ⇒ eventRuleTimeZoneMismatch', () async {
+      await database.customInsert('''
+        INSERT INTO recurrence_rules
+          (id, weekdays_mask, local_start_minute, duration_minutes,
+           interval_weeks, valid_from_local_date, valid_until_local_date,
+           time_zone_id, created_at_utc, updated_at_utc)
+        VALUES ('rule-mismatch', 1, 480, 45, 1, '2026-09-07', '2026-12-20',
+                'Asia/Shanghai', 1, 1)
+      ''');
+      // 旧包装器在缓存里找不到时区时写 `UTC` 兜底——这正是那件事的形状。
+      await database.customInsert('''
+        INSERT INTO calendar_events
+          (id, title, start_at_utc, end_at_utc, time_zone_id,
+           recurrence_rule_id, locked, location, notes, kind, source_kind,
+           import_batch_id, logical_course_id, created_at_utc, updated_at_utc)
+        VALUES ('evt-mismatch', '算法与数据结构',
+                ${DateTime.utc(2026, 9, 7).microsecondsSinceEpoch},
+                ${DateTime.utc(2026, 9, 7, 0, 45).microsecondsSinceEpoch},
+                'UTC', 'rule-mismatch', 1, '教一 302', '张老师', 'fixed',
+                'timetableImport', 'batch-autumn', 'course-mismatch', 1, 1)
+      ''');
+
+      final detail = await courses.findCourse('course-mismatch');
+
+      expect(
+        detail!.integrityIssues.map((issue) => issue.kind),
+        contains(CourseIntegrityIssueKind.eventRuleTimeZoneMismatch),
+      );
+      expect(
+        detail.hasLegacyPlaceholderTitle,
+        isFalse,
+        reason: '标题是真实课程名，不该被误报成占位标题',
+      );
+    });
+
+    test('LI2：正常的空教师、空地点、无领域**不触发**任何提示', () async {
+      await calendar.saveRecurring(
+        CalendarEvent(
+          id: 'evt-plain',
+          title: '体育',
+          startAtUtc: DateTime.utc(2026, 10, 5, 0),
+          endAtUtc: DateTime.utc(2026, 10, 5, 0, 45),
+          timeZoneId: 'Asia/Shanghai',
+          recurrenceRuleId: 'rule-plain',
+          sourceKind: CalendarEventSourceKind.timetableImport,
+          importBatchId: 'batch-autumn',
+          logicalCourseId: 'course-plain',
+          // 教师与地点都留空、领域与项目都不给：**完全合法**。
+          updatedAtUtc: DateTime.utc(2026, 10, 1),
+        ),
+        RecurrenceRule(
+          id: 'rule-plain',
+          weekdays: const {DateTime.monday},
+          localStartMinute: 8 * 60,
+          durationMinutes: 45,
+          intervalWeeks: 1,
+          validFromLocalDate: DateTime(2026, 9, 7),
+          validUntilLocalDate: DateTime(2026, 12, 20),
+          timeZoneId: 'Asia/Shanghai',
+        ),
+      );
+
+      final detail = await courses.findCourse('course-plain');
+
+      expect(
+        detail!.integrityIssues,
+        isEmpty,
+        reason:
+            '空教师/空地点/无领域可能只是用户没填。把它们当损坏会让正常课程'
+            '挂上一条永远消不掉的提示（规范 §2.0.3 明确要求不误报）',
+      );
+    });
+
+    test('LI2：**手工**固定日程即使恰好叫「未命名事项」也不被当成导入课程损伤', () async {
+      // 手工事项没有 `logicalCourseId`，因此根本不属于课程管理；这里额外造一条
+      // 带 `logicalCourseId` 但非导入来源的锚点，证明判据是"标题精确相等 + 属于课程"，
+      // 而不是"看到这四个字就报"。
+      await calendar.saveRecurring(
+        CalendarEvent(
+          id: 'evt-manual',
+          title: legacyPlaceholderCourseTitle,
+          startAtUtc: DateTime.utc(2026, 10, 5, 0),
+          endAtUtc: DateTime.utc(2026, 10, 5, 0, 45),
+          timeZoneId: 'Asia/Shanghai',
+          recurrenceRuleId: 'rule-manual',
+          sourceKind: CalendarEventSourceKind.manual,
+          logicalCourseId: 'course-manual',
+          updatedAtUtc: DateTime.utc(2026, 10, 1),
+        ),
+        RecurrenceRule(
+          id: 'rule-manual',
+          weekdays: const {DateTime.monday},
+          localStartMinute: 8 * 60,
+          durationMinutes: 45,
+          intervalWeeks: 1,
+          validFromLocalDate: DateTime(2026, 9, 7),
+          validUntilLocalDate: DateTime(2026, 12, 20),
+          timeZoneId: 'Asia/Shanghai',
+        ),
+      );
+
+      final detail = await courses.findCourse('course-manual');
+      expect(
+        detail!.hasLegacyPlaceholderTitle,
+        isTrue,
+        reason: '判据是"属于某门课程且标题精确等于旧占位值"，与来源无关',
+      );
+
+      // **没有 `logicalCourseId` 的手工日程不出现在课程管理里**（既有口径），
+      // 因此它不可能触发任何课程级提示。
+      await calendar.saveRecurring(
+        CalendarEvent(
+          id: 'evt-fixed-manual',
+          title: legacyPlaceholderCourseTitle,
+          startAtUtc: DateTime.utc(2026, 10, 6, 0),
+          endAtUtc: DateTime.utc(2026, 10, 6, 0, 45),
+          timeZoneId: 'Asia/Shanghai',
+          recurrenceRuleId: 'rule-fixed-manual',
+          sourceKind: CalendarEventSourceKind.manual,
+          updatedAtUtc: DateTime.utc(2026, 10, 1),
+        ),
+        RecurrenceRule(
+          id: 'rule-fixed-manual',
+          weekdays: const {DateTime.monday},
+          localStartMinute: 8 * 60,
+          durationMinutes: 45,
+          intervalWeeks: 1,
+          validFromLocalDate: DateTime(2026, 9, 7),
+          validUntilLocalDate: DateTime(2026, 12, 20),
+          timeZoneId: 'Asia/Shanghai',
+        ),
+      );
+      expect(
+        (await courses.listCourses()).map((c) => c.logicalCourseId),
+        isNot(contains('evt-fixed-manual')),
+      );
+    });
+
+    test('检测是**只读**的：读详情前后逐表零变化', () async {
+      await addSeries(
+        eventId: 'evt-damaged',
+        ruleId: 'rule-damaged',
+        title: legacyPlaceholderCourseTitle,
+        logicalCourseId: 'course-damaged',
+      );
+
+      Future<List<Object?>> snapshot() async {
+        final events = await database.select(database.calendarEvents).get();
+        final rules = await database.select(database.recurrenceRules).get();
+        return [
+          for (final row in events)
+            '${row.id}|${row.title}|${row.startAtUtc}|${row.endAtUtc}|'
+                '${row.timeZoneId}|${row.updatedAtUtc}',
+          for (final row in rules)
+            '${row.id}|${row.weekdaysMask}|${row.updatedAtUtc}',
+        ];
+      }
+
+      final before = await snapshot();
+      final detail = await courses.findCourse('course-damaged');
+      expect(detail!.hasIntegrityIssues, isTrue);
+      expect(
+        await snapshot(),
+        before,
+        reason: '打开课程、跑检测都不得改写任何一行（计划 §3.0）',
+      );
+    });
+
+    test('P2／P3：同一课程一个非空批次 + 若干空批次 ≠ 冲突；两个不同批次 = 冲突', () async {
+      await addSeries(
+        eventId: 'evt-a',
+        ruleId: 'rule-a',
+        title: '高数',
+        logicalCourseId: 'course-mixed',
+      );
+      await addSeries(
+        eventId: 'evt-b',
+        ruleId: 'rule-b',
+        title: '高数',
+        logicalCourseId: 'course-mixed',
+        weekday: DateTime.wednesday,
+        batchId: null,
+      );
+
+      final mixed = await courses.findCourse('course-mixed');
+      expect(
+        mixed!.integrityIssues.map((issue) => issue.kind),
+        isNot(contains(CourseIntegrityIssueKind.conflictingImportLineage)),
+        reason: '一个非空 + 一个空 = recoverableMixed，应当允许保存并统一来源',
+      );
+
+      // 第二个批次必须有真实行：`import_batch_id` 是指向批次的**外键**，
+      // 用假 id 会被约束直接拒绝，那样测的就不是"冲突判定"而是"夹具坏了"。
+      await database.customInsert('''
+        INSERT INTO timetable_import_batches
+          (id, term_id, source_image_hash, source_file_name, status,
+           created_event_count, created_at_utc, updated_at_utc)
+        VALUES ('batch-other', 'term-autumn', 'sha256:y', 'other.png',
+                'committed', 1, 1, 1)
+      ''');
+      await addSeries(
+        eventId: 'evt-c',
+        ruleId: 'rule-c',
+        title: '高数',
+        logicalCourseId: 'course-mixed',
+        weekday: DateTime.friday,
+        batchId: 'batch-other',
+      );
+
+      final conflicting = await courses.findCourse('course-mixed');
+      expect(
+        conflicting!.integrityIssues.map((issue) => issue.kind),
+        contains(CourseIntegrityIssueKind.conflictingImportLineage),
+        reason: '两个不同的非空批次禁止猜测来源：保存必须被阻止（P3）',
+      );
+    });
   });
 }
 

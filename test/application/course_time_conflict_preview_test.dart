@@ -73,6 +73,7 @@ void main() {
           for (final id in eventIds)
             CourseSeriesSegment(
               eventId: id,
+              timeZoneId: 'Asia/Shanghai',
               title: '高等数学(上)',
               weekday: DateTime.monday,
               startMinute: 9 * 60,

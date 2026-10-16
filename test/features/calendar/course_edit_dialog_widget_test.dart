@@ -50,6 +50,7 @@ void main() {
     segments: [
       CourseSeriesSegment(
         eventId: 'evt-a',
+        timeZoneId: 'Asia/Shanghai',
         title: '高等数学(上)',
         // 周一 08:00–09:00（东八区）⇒ UTC 00:00–01:00
         weekday: DateTime.monday,

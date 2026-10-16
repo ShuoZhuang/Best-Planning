@@ -481,6 +481,89 @@ void main() {
     expect(cancelled, isTrue);
     expect(find.byKey(const Key('course-editor-discard')), findsNothing);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 4（课程编辑完整性修复计划）：**手工修复那条路径的守卫**（LI1、LI3）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('旧版占位标题的显式核对', () {
+    testWidgets('命中占位标题时显示提示与勾选框；未勾选不能「确认保存」', (tester) async {
+      courses.legacyPlaceholderTitle = true;
+      await pump(tester);
+
+      expect(
+        find.byKey(const Key('course-editor-integrity-banner')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('course-editor-confirm-legacy-title')),
+        findsOneWidget,
+      );
+
+      await previewOnly(tester);
+
+      final confirm = find.byKey(const Key('course-editor-confirm-save'));
+      expect(confirm, findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(confirm).onPressed,
+        isNull,
+        reason:
+            '用户可以保留这个标题，但必须显式勾选"我确认这是正确课程名"——'
+            '守卫要体现在"能不能按"上，而不是"按了之后什么都不做"',
+      );
+      expect(
+        gateway.savedProfile,
+        isNull,
+        reason: '未核对时一次都不许写库',
+      );
+    });
+
+    testWidgets('勾选之后「确认保存」可用，保存出去的就是这个标题', (tester) async {
+      courses.legacyPlaceholderTitle = true;
+      await pump(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('course-editor-confirm-legacy-title')),
+      );
+      await tester.tap(find.byKey(const Key('course-editor-confirm-legacy-title')));
+      await tester.pumpAndSettle();
+
+      await previewAndSave(tester);
+
+      expect(gateway.savedProfile, isNotNull);
+      expect(gateway.savedProfile!.title, legacyPlaceholderCourseTitle);
+    });
+
+    testWidgets('把标题改成真实课程名之后，勾选框消失且不再需要勾选', (tester) async {
+      courses.legacyPlaceholderTitle = true;
+      await pump(tester);
+
+      await editField(tester, 'course-title', '算法与数据结构');
+
+      expect(
+        find.byKey(const Key('course-editor-confirm-legacy-title')),
+        findsNothing,
+        reason: '主动写出真实课程名本身就是核对；再要求勾选就是多余的门槛',
+      );
+
+      await previewAndSave(tester);
+
+      expect(gateway.savedProfile!.title, '算法与数据结构');
+    });
+
+    testWidgets('正常课程不显示这条提示（不误报）', (tester) async {
+      await pump(tester);
+
+      expect(
+        find.byKey(const Key('course-editor-integrity-banner')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('course-editor-confirm-legacy-title')),
+        findsNothing,
+      );
+    });
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -491,12 +574,19 @@ final class _Courses implements CourseSeriesRepository {
   /// 读完之后让详情"变旧"：模拟别处改过这门课（`saveCourse` 会返回 stale）。
   bool staleAfterLoad = false;
 
+  /// 这门课命中"旧版占位标题"（计划 §2.0.3 的确定性判据之一）。
+  bool legacyPlaceholderTitle = false;
+
   CourseSeriesDetail? _detail;
+
+  String get _title =>
+      legacyPlaceholderTitle ? legacyPlaceholderCourseTitle : '高等数学(上)';
 
   CourseSeriesDetail _build() {
     final segment = CourseSeriesSegment(
       eventId: 'evt-a',
-      title: '高等数学(上)',
+      timeZoneId: 'Asia/Shanghai',
+      title: _title,
       weekdays: const {DateTime.monday},
       startMinute: 8 * 60,
       endMinute: 8 * 60 + 45,
@@ -512,7 +602,7 @@ final class _Courses implements CourseSeriesRepository {
     return CourseSeriesDetail(
       summary: CourseSeriesSummary(
         logicalCourseId: 'course-calc',
-        title: '高等数学(上)',
+        title: _title,
         termId: 'term-autumn',
         anchorEventIds: const ['evt-a'],
         weekday: DateTime.monday,
@@ -521,6 +611,18 @@ final class _Courses implements CourseSeriesRepository {
         weekSpans: const [WeekSpan(startWeek: 1, endWeek: 16)],
       ),
       segments: [segment],
+      integrityIssues: [
+        if (legacyPlaceholderTitle)
+          CourseIntegrityIssue(
+            kind: CourseIntegrityIssueKind.legacyPlaceholderTitle,
+            affectedAnchorIds: const ['evt-a'],
+          ),
+        if (legacyPlaceholderTitle)
+          CourseIntegrityIssue(
+            kind: CourseIntegrityIssueKind.eventRuleTimeZoneMismatch,
+            affectedAnchorIds: const ['evt-a'],
+          ),
+      ],
     );
   }
 
@@ -536,6 +638,7 @@ final class _Courses implements CourseSeriesRepository {
         segments: [
           CourseSeriesSegment(
             eventId: 'evt-a',
+            timeZoneId: 'Asia/Shanghai',
             title: '高等数学(上)',
             weekdays: const {DateTime.monday},
             startMinute: 8 * 60,

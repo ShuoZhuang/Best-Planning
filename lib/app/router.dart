@@ -1091,6 +1091,17 @@ GoRouter createPlannerRouter({
                   '/calendar/courses/'
                   '${state.pathParameters['logicalCourseId']}/edit',
                 ),
+                // 恢复路径二（计划 §2.0.3）：删除受损课程之后回到课表导入页，
+                // 让用户用**原来那张图片**重新导入。
+                onRestoreFromTimetable: () => context.go('/calendar/import'),
+                // **能力齐备前保持关闭**（计划 Task 4 Step 4 的 feature gate）。
+                //
+                // 这条路径依赖"删掉整门课之后同一张图片还能重新导入"——那需要
+                // Task 7 的批次 `partiallyDeleted` 状态与 Task 9 的重导入判定。
+                // 两者落地之前把它打开，就是把用户送到**仍会被同哈希拦住的死路**：
+                // 课程删掉了、图片却导不回来，而这门课的数据已经不在库里了。
+                // Task 9 完成、并有用例证明"同图可恢复"之后再打开这一项。
+                restoreFromTimetableAvailable: false,
               );
             },
           ),

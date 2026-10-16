@@ -29,6 +29,7 @@ void main() {
   CourseSeriesDetail detail({
     String teacher = '赵敏',
     String location = 'D206',
+    List<CourseIntegrityIssue> issues = const [],
   }) => CourseSeriesDetail(
     summary: CourseSeriesSummary(
       logicalCourseId: 'course-calc',
@@ -45,6 +46,7 @@ void main() {
     segments: [
       CourseSeriesSegment(
         eventId: 'evt-a',
+        timeZoneId: 'Asia/Shanghai',
         title: '高等数学(上)',
         weekday: DateTime.monday,
         startMinute: 8 * 60,
@@ -56,6 +58,7 @@ void main() {
         updatedAtUtc: DateTime.utc(2026, 10, 1),
       ),
     ],
+    integrityIssues: issues,
   );
 
   Future<void> pumpDetail(
@@ -63,6 +66,8 @@ void main() {
     String teacher = '赵敏',
     String location = 'D206',
     VoidCallback? onEditCourse,
+    List<CourseIntegrityIssue> issues = const [],
+    bool restoreAvailable = false,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -74,7 +79,9 @@ void main() {
         home: Scaffold(
           body: CourseDetailPage(
             service: CourseManagementService(
-              courses: _Courses(detail(teacher: teacher, location: location)),
+              courses: _Courses(
+                detail(teacher: teacher, location: location, issues: issues),
+              ),
               calendar: CalendarService(
                 repository: const _NoopCalendar(),
                 deletion: const _NoopCalendar(),
@@ -87,12 +94,102 @@ void main() {
             ),
             logicalCourseId: 'course-calc',
             onEditCourse: onEditCourse,
+            restoreFromTimetableAvailable: restoreAvailable,
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 4（课程编辑完整性修复计划）：**旧版损伤提示与两条恢复路径**（LI1、LI3、LI4）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  testWidgets('LI1：命中旧版损伤时显示结构化提示与两条真实恢复路径', (tester) async {
+    var repaired = 0;
+    await pumpDetail(
+      tester,
+      onEditCourse: () => repaired++,
+      issues: [
+        CourseIntegrityIssue(
+          kind: CourseIntegrityIssueKind.legacyPlaceholderTitle,
+          affectedAnchorIds: const ['evt-a'],
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const Key('course-integrity-banner')),
+      findsOneWidget,
+      reason: '命中确定性判据时必须让用户看见，而不是把损坏数据当正常课程继续保存',
+    );
+    expect(
+      find.textContaining('检测到这门课程可能受旧版时间修改问题影响'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('无法自动还原'),
+      findsOneWidget,
+      reason: '必须明确说清系统做不到什么，否则用户会去找一个不存在的按钮',
+    );
+    expect(
+      find.byKey(const Key('course-integrity-placeholder')),
+      findsOneWidget,
+      reason: '标题仍是旧占位文字时要点名到具体字段',
+    );
+    expect(
+      find.byKey(const Key('course-integrity-repair')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('course-integrity-restore')),
+      findsNothing,
+      reason:
+          '恢复路径二依赖 Task 7–10 的批次状态与同图重导入；'
+          '能力未齐备时放它出来会把用户送到"删了却导不回来"的死路（Task 4 Step 4）',
+    );
+
+    await tester.tap(find.byKey(const Key('course-integrity-repair')));
+    await tester.pumpAndSettle();
+    expect(repaired, 1);
+  });
+
+  testWidgets('LI2：正常课程（空教师、空地点、无领域）不显示任何提示', (tester) async {
+    await pumpDetail(tester, teacher: '', location: '');
+
+    expect(
+      find.byKey(const Key('course-integrity-banner')),
+      findsNothing,
+      reason: '空教师/空地点可能只是用户没填：误报会挂上一条永远消不掉的提示',
+    );
+  });
+
+  testWidgets('LI4：能力齐备（feature gate 打开）后出现「从原课表恢复」', (tester) async {
+    await pumpDetail(
+      tester,
+      restoreAvailable: true,
+      issues: [
+        CourseIntegrityIssue(
+          kind: CourseIntegrityIssueKind.eventRuleTimeZoneMismatch,
+          affectedAnchorIds: const ['evt-a'],
+        ),
+      ],
+    );
+
+    expect(
+      find.byKey(const Key('course-integrity-restore')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('course-integrity-restore')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('course-restore-dialog')),
+      findsOneWidget,
+      reason: '删掉这门课之前必须先让用户确认"我已经备份、并且还有那张课表图片"',
+    );
+    expect(find.textContaining('逐次调整'), findsOneWidget);
+  });
 
   testWidgets('详情页显示教师与地点（规范 §10.1 的字段清单）', (tester) async {
     await pumpDetail(tester);

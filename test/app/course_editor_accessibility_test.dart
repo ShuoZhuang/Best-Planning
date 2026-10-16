@@ -214,6 +214,7 @@ final class _Courses implements CourseSeriesRepository {
       segments: [
         CourseSeriesSegment(
           eventId: 'evt-a',
+          timeZoneId: 'Asia/Shanghai',
           title: '高等数学(上)',
           weekdays: const {DateTime.monday},
           startMinute: 8 * 60,

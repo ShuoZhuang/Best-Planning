@@ -28,6 +28,8 @@ final class CourseDetailPage extends StatefulWidget {
     this.onDeleted,
     this.onCancel,
     this.onEditCourse,
+    this.onRestoreFromTimetable,
+    this.restoreFromTimetableAvailable = false,
     super.key,
   });
 
@@ -38,8 +40,18 @@ final class CourseDetailPage extends StatefulWidget {
 
   /// 「编辑课程」的去处（计划 §2.0：整门课程资料的**唯一**入口）。
   ///
-  /// 与 [onCancel] 同一口径：为空时**不显示**按钮——不给点了没反应的入口。
+  /// 与 [onCancel] 同一口径：为空时**不显示**按钮——不给点了没反应的反馈。
   final VoidCallback? onEditCourse;
+
+  /// 「从原课表恢复」的去处：删除受损课程之后跳转课表导入页（计划 §2.0.3 路径二）。
+  final VoidCallback? onRestoreFromTimetable;
+
+  /// **该恢复路径是否可用**（计划 Task 4 Step 4 的 feature gate）。
+  ///
+  /// 它依赖"删掉整门课之后同一张图片还能重新导入"（Task 7–10 的批次状态与重导入）。
+  /// 那些还没落地时，把这个入口放出去就是把用户送到**仍会被同哈希拦住的死路**上：
+  /// 课程被删了、图片却导不回来。因此默认关闭，由组合根在能力齐备后打开。
+  final bool restoreFromTimetableAvailable;
 
   @override
   State<CourseDetailPage> createState() => _CourseDetailPageState();
@@ -86,7 +98,50 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
     if (result.isSuccess) await _load();
   }
 
-  Future<void> _delete() async {
+  /// 保存受损课程恢复路径二：**备份 → 删除整门课 → 回到课表导入**（计划 §2.0.3）。
+  ///
+  /// 两步确认是刻意的，而且两步说的不是同一件事：
+  ///
+  /// 1. 这一步说清"会失去什么"（片段数、课次数、逐次调整条数）并**要求用户确认已有备份**；
+  /// 2. 下一步才是既有的删除二次确认。
+  ///
+  /// **不能只留一步**：删除后原课程资料在库里就没了（导入批次不保存 OCR 原文），
+  /// 而重新导入需要用户手里还有那张课表图片。系统无法替他确认这件事。
+  Future<void> _restoreFromTimetable() async {
+    final preview = _preview;
+    if (preview == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('course-restore-dialog'),
+        title: Text('用原课表恢复「${preview.title}」？'),
+        content: Text(
+          '将删除本学期的 ${preview.affectedSeriesCount} 个系列片段、'
+          '共 ${preview.affectedOccurrenceCount} 次课，'
+          '以及这些片段名下**全部逐次调整**。\n\n'
+          '删除后请用**原来那张课表图片**重新导入；'
+          '系统没有保存课表的原始识别内容，无法自动还原课程名称、教师、地点与领域。\n\n'
+          '请确认你已经备份了这门课的数据，并且手里还有那张课表图片。',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('course-restore-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            key: const Key('course-restore-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('我已备份，继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _delete(proceedToReimport: true);
+  }
+
+  Future<void> _delete({bool proceedToReimport = false}) async {
     final preview = _preview;
     final detail = _detail;
     if (preview == null || detail == null) return;
@@ -123,7 +178,14 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
       _busy = false;
       _status = result.isSuccess ? '课程已删除' : result.error;
     });
-    if (result.isSuccess) widget.onDeleted?.call();
+    if (!result.isSuccess) return;
+    // **恢复路径二删完就回到课表导入**（§2.0.3）：留在详情页只会看到"找不到这门课程"，
+    // 而用户下一步必须做的是重新选那张原图。
+    if (proceedToReimport) {
+      widget.onRestoreFromTimetable?.call();
+      return;
+    }
+    widget.onDeleted?.call();
   }
 
   Future<void> _pause() async {
@@ -179,6 +241,18 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
               ),
             )
           else ...[
+            // **结构化完整性提示**（计划 §2.0.3／Task 4 Step 2）。它说的是确定的事实
+            // （"与旧版占位标题/时区不一致相符"），而不是猜测出来的原值。
+            if (detail.hasIntegrityIssues) ...[
+              _IntegrityBanner(
+                detail: detail,
+                onRepair: widget.onEditCourse,
+                onRestore: widget.restoreFromTimetableAvailable
+                    ? _restoreFromTimetable
+                    : null,
+              ),
+              const SizedBox(height: 12),
+            ],
             Text(
               '共 ${detail.segments.length} 个系列片段',
               style: Theme.of(context).textTheme.bodyMedium,
@@ -274,4 +348,85 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
   static String _hhmm(int minute) =>
       '${(minute ~/ 60).toString().padLeft(2, '0')}:'
       '${(minute % 60).toString().padLeft(2, '0')}';
+}
+
+/// 旧版时间修改损伤的**阻断级提示**（计划 §2.0.3／Task 4 Step 2）。
+///
+/// 它必须说清三件事，缺一件用户就会做错：
+///
+/// 1. **发生了什么**：这门课的资料可能被旧版的时间修改覆盖掉了；
+/// 2. **系统做不到什么**：库里有没保存课表的原始识别内容，因此**不能自动还原**名称、
+///    教师、地点或领域；
+/// 3. **用户能做什么**：两条真实路径——手工补全并预览保存，或备份后删除该课程、
+///    再用原课表重新导入。
+final class _IntegrityBanner extends StatelessWidget {
+  const _IntegrityBanner({
+    required this.detail,
+    required this.onRepair,
+    required this.onRestore,
+  });
+
+  final CourseSeriesDetail detail;
+  final VoidCallback? onRepair;
+
+  /// 为空时**不显示**这条恢复路径（计划 Task 4 Step 4 的 feature gate）。
+  final VoidCallback? onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('course-integrity-banner'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '检测到这门课程可能受旧版时间修改问题影响。'
+            '保存前请核对课程名称、教师、地点、领域、项目和上课安排。',
+            key: const Key('course-integrity-message'),
+            style: TextStyle(color: scheme.onErrorContainer),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            // **不提供"自动恢复原名称"**：数据库里没有可重放的原值。
+            '系统没有保存课表的原始识别内容，无法自动还原原来的课程名称、教师、地点或领域。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (detail.hasLegacyPlaceholderTitle) ...[
+            const SizedBox(height: 4),
+            Text(
+              '这门课的标题仍是旧版的占位文字「$legacyPlaceholderCourseTitle」，'
+              '需要在编辑页里显式确认后才算核对过。',
+              key: const Key('course-integrity-placeholder'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              if (onRepair != null)
+                FilledButton.tonal(
+                  key: const Key('course-integrity-repair'),
+                  onPressed: onRepair,
+                  child: const Text('手工修复'),
+                ),
+              if (onRestore != null)
+                OutlinedButton(
+                  key: const Key('course-integrity-restore'),
+                  onPressed: onRestore,
+                  child: const Text('从原课表恢复'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }

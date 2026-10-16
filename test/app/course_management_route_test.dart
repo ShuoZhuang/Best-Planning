@@ -272,6 +272,7 @@ final class _Courses implements CourseSeriesRepository {
         for (final eventId in found.anchorEventIds)
           CourseSeriesSegment(
             eventId: eventId,
+            timeZoneId: 'Asia/Shanghai',
             title: found.title,
             weekday: found.weekday,
             startMinute: found.startMinute,

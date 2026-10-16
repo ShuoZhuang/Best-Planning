@@ -65,6 +65,48 @@ final class CourseSeriesSummary {
   int get durationMinutes => endMinute - startMinute;
 }
 
+/// **旧版时间修改留下的可检测损伤**（计划 §2.0.3／Task 4）。
+///
+/// ## 为什么只检测、不猜测恢复
+///
+/// 导入批次只保存源文件名、图片哈希、计数与时间，**不保存 OCR 后的原课程资料**
+/// （计划 §1.5）。一旦旧接口把课程名、教师、地点或领域覆盖掉，数据库里可能已经不
+/// 存在原值。因此系统能可靠回答的只有"这条数据与旧缺陷的确定特征相符"，而不是
+/// "它本来叫什么"。猜测恢复会伪造一个用户从未输入过的答案。
+enum CourseIntegrityIssueKind {
+  /// 导入课程的标题**精确等于**旧版占位值 `未命名事项`。
+  legacyPlaceholderTitle,
+
+  /// 锚点的 `time_zone_id` 与它自己规则的 `time_zone_id` 不一致。
+  ///
+  /// 旧包装器在缓存里找不到这条事项时用 `UTC` 兜底，于是事件时区与规则时区分家——
+  /// 展开按规则时区、显示按事件时区，同一次课在两处落在不同的本地日。
+  eventRuleTimeZoneMismatch,
+
+  /// 同一逻辑课程出现**两个及以上不同的非空** `import_batch_id`（计划 §2.1）。
+  conflictingImportLineage,
+}
+
+/// 一条结构化完整性问题。**`affectedAnchorIds` 只供内部定位，界面不显示 id**
+/// （规范全局不变量第 7 条：用户不认识 uuid）。
+final class CourseIntegrityIssue {
+  CourseIntegrityIssue({
+    required this.kind,
+    required List<String> affectedAnchorIds,
+  }) : affectedAnchorIds = UnmodifiableListView(
+         List.of(affectedAnchorIds),
+       );
+
+  final CourseIntegrityIssueKind kind;
+  final List<String> affectedAnchorIds;
+}
+
+/// **旧版占位标题**的精确值（计划 §2.0.3 的确定性判据）。
+///
+/// 只有**精确等于**它才触发 [CourseIntegrityIssueKind.legacyPlaceholderTitle]：
+/// 用户手写的课程确实可能叫类似的名字，而"包含"式匹配会把正常课程误报成损坏。
+const String legacyPlaceholderCourseTitle = '未命名事项';
+
 /// 一门课的详情：聚合摘要 ＋ 逐个系列片段。
 ///
 /// 分成两层是因为两者的**用途不同**：列表页只需要摘要（一门课一行），
@@ -73,10 +115,24 @@ final class CourseSeriesDetail {
   CourseSeriesDetail({
     required this.summary,
     required List<CourseSeriesSegment> segments,
-  }) : segments = UnmodifiableListView(List.of(segments));
+    List<CourseIntegrityIssue> integrityIssues = const [],
+  }) : segments = UnmodifiableListView(List.of(segments)),
+       integrityIssues = UnmodifiableListView(List.of(integrityIssues));
 
   final CourseSeriesSummary summary;
   final List<CourseSeriesSegment> segments;
+
+  /// **只读检测**的结果（计划 §2.0.3）。打开课程、运行迁移或生成计划都不得改写数据，
+  /// 因此它只是一组"要显示给用户看的事实"。
+  final List<CourseIntegrityIssue> integrityIssues;
+
+  /// 有没有需要用户核对的确定性问题。
+  bool get hasIntegrityIssues => integrityIssues.isNotEmpty;
+
+  /// 是否命中"疑似旧版占位标题"。
+  bool get hasLegacyPlaceholderTitle => integrityIssues.any(
+    (issue) => issue.kind == CourseIntegrityIssueKind.legacyPlaceholderTitle,
+  );
 
   /// 每个锚点保存时读到的 `updated_at_utc`（计划 Task 3 Interfaces）。
   ///
@@ -118,6 +174,7 @@ final class CourseSeriesSegment {
   CourseSeriesSegment({
     required this.eventId,
     required this.title,
+    required this.timeZoneId,
     Set<int>? weekdays,
     int? weekday,
     required this.startMinute,
@@ -145,6 +202,17 @@ final class CourseSeriesSegment {
 
   final EntityId eventId;
   final String title;
+
+  /// **解释这个片段的权威时区**（计划 Task 3 Step 2）。
+  ///
+  /// 来源是**规则行的 `time_zone_id`**（正常重复课程里它与锚点一致）。日期、星期与
+  /// 分钟都以它解释：`validFromLocalDate` 是"这个时区里的本地日"，`startMinute` 是
+  /// "这个时区里的本地分钟"。
+  ///
+  /// **不一致时不在这里静默选一个**：锚点与规则的时区不同本身就是
+  /// [CourseIntegrityIssueKind.eventRuleTimeZoneMismatch]，由读仓储报出来给用户核对。
+  /// 这里的值只用于"按哪个时区解释这门课的时间"，而展开器的口径是规则时区。
+  final String timeZoneId;
 
   /// 这条规则**实际覆盖的星期集合**（计划 Task 3 Step 2）。
   ///

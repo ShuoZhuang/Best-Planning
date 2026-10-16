@@ -167,6 +167,7 @@ CourseSeriesDetail get _twoSegmentCourse => CourseSeriesDetail(
   segments: [
     CourseSeriesSegment(
       eventId: 'evt-odd',
+      timeZoneId: 'Asia/Shanghai',
       title: '高等数学(上)',
       weekday: DateTime.monday,
       startMinute: 8 * 60,
@@ -178,6 +179,7 @@ CourseSeriesDetail get _twoSegmentCourse => CourseSeriesDetail(
     ),
     CourseSeriesSegment(
       eventId: 'evt-even',
+      timeZoneId: 'Asia/Shanghai',
       title: '高等数学(上)',
       weekday: DateTime.thursday,
       startMinute: 8 * 60,
@@ -205,6 +207,7 @@ CourseSeriesDetail get _endedCourse => CourseSeriesDetail(
   segments: [
     CourseSeriesSegment(
       eventId: 'evt-ended',
+      timeZoneId: 'Asia/Shanghai',
       title: '已结束的课',
       weekday: DateTime.monday,
       startMinute: 8 * 60,

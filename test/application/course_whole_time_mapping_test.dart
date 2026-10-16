@@ -168,7 +168,7 @@ void main() {
           .getSingle();
 
   /// 把 `weekdays_mask` 还原成 `DateTime.monday`…`sunday`（周一是 bit 0）。
-  Set<int> _weekdaysOf(db.RecurrenceRule rule) => {
+  Set<int> weekdaysOf(db.RecurrenceRule rule) => {
     for (var day = DateTime.monday; day <= DateTime.sunday; day++)
       if (rule.weekdaysMask & (1 << (day - 1)) != 0) day,
   };
@@ -322,8 +322,8 @@ void main() {
     // **星期属于规则**（`weekdays_mask`），不是锚点行上的日期：锚点的起点是
     // 该片段的 `validFromLocalDate`（学期里的那一周），而"这一周上星期几"由规则表达。
     // 因此这里断言的是两条规则各自的星期集合与钟点都被逐值保留。
-    expect(_weekdaysOf(await ruleRow('rule-mon')), {DateTime.monday});
-    expect(_weekdaysOf(await ruleRow('rule-thu')), {DateTime.thursday});
+    expect(weekdaysOf(await ruleRow('rule-mon')), {DateTime.monday});
+    expect(weekdaysOf(await ruleRow('rule-thu')), {DateTime.thursday});
     expect((await ruleRow('rule-mon')).localStartMinute, 14 * 60);
     expect((await ruleRow('rule-thu')).localStartMinute, 10 * 60);
 
