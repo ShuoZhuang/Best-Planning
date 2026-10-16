@@ -86,12 +86,17 @@ final class CandidateEligibilityContext {
     required this.blocks,
     required this.movableMinutesByDate,
     required this.plannedMinutesForTaskByDate,
+    required this.policies,
     this.budgetPolicy,
     required this.allowUnschedulableLeftover,
     this.relaxedDailyTaskLimit = false,
   });
 
   final ScheduleProblem problem;
+
+  /// **逐日规则的缓存**（算法 17）：判定对每个候选都要读当天的休息间隔与每日上限，
+  /// 而候选规模是"起点 × 时长"展开的。见 [PolicyLookupCache]。
+  final PolicyLookupCache policies;
   final SchedulableTask task;
 
   /// 本次放置的剩余量。候选时长按它封顶，因此它同时是"排多了"的判据。
@@ -187,8 +192,19 @@ List<CandidateEligibilityRejection> evaluateCandidateEligibility(
     reject(CandidateRejectionCode.exceedsDailyTaskLimit);
   }
 
-  // ⑤ 全局每日可移动上限。
-  final movableLimit = context.problem.rules.dailyMovableTaskLimitMinutes;
+  // ⑤ 全局每日可移动上限——**按候选所属本地日取当天规则**（算法 17，计划 Task 3 Step 5）。
+  //
+  // 修复前这里读 `problem.rules.dailyMovableTaskLimitMinutes`，也就是**窗口首日**的那一份。
+  // 用户给周末配了更高的上限时，整周仍然套用周一的值——用户看到的是"周末明明空着，
+  // 却只排进和周中一样多的量"（计划 §1.2 第 1 条）。
+  //
+  // `candidate.localDate` 由 `AvailabilitySlot.localDate` 传来，已经是**本地**日期
+  // （`AvailabilityBuilder` 按本地日切片），因此这里不需要再做一次时区换算。
+  // **走缓存**：这个判定对每个候选都要跑，而候选数是"起点 × 时长"展开的。
+  final movableLimit = context.policies.dailyMovableLimitFor(
+    candidate.localDate,
+    context.problem,
+  );
   if (movableLimit < LocalTimeRange.minutesPerDay &&
       (context.movableMinutesByDate[candidate.localDate] ?? 0) +
               candidate.durationMinutes >
@@ -205,7 +221,7 @@ List<CandidateEligibilityRejection> evaluateCandidateEligibility(
   final leftover = context.remainingMinutes - candidate.durationMinutes;
   if (context.task.splitMode == TaskSplitMode.splittable &&
       leftover > 0 &&
-      _leftoverAllowance(context, leftover) <= 0) {
+      _leftoverAllowance(context, candidate, leftover) <= 0) {
     reject(CandidateRejectionCode.leavesUnschedulableLeftover);
   }
 
@@ -228,6 +244,76 @@ bool isCandidateAcceptable(
     return false;
   }
   return true;
+}
+
+/// **按本地日期缓存的逐日规则**（算法 17）。
+///
+/// ## 为什么必须有缓存
+///
+/// `evaluateCandidateEligibility` 对**每一个候选**都要读当天的休息间隔与每日上限，
+/// 而候选规模是"起点 × 时长"展开的（规模夹具里单次生成就有几十万次判定）。
+/// 每次都走 `problem.policyForLocalDate(date)` 会重复做三件事：归一化日期、
+/// 构造 `DateTime`、查表——单项都很便宜，乘上候选数就是量级差异
+/// （实测：`scale_smoke_test` 的时间预算因此从 ~60 秒涨到 85 秒）。
+///
+/// ## 为什么不把缓存放进 `ScheduleProblem`
+///
+/// 值对象保持"纯数据 + 显式校验"；缓存是**调用方**的优化，放在每次生成构造一次的
+/// 上下文里，生命周期与"这一次生成"完全一致，不会跨输入泄漏。
+///
+/// [PolicyLookupCache.forProblem] 只读取 [ScheduleProblem.dailyPolicies]，
+/// **缺日仍然抛 [StateError]**（由 `policyForLocalDate` 负责），因此缓存不会
+/// 把"缺日"变成"回退首日"。
+final class PolicyLookupCache {
+  PolicyLookupCache._({
+    required Map<DateTime, int> breakMinutesByDate,
+    required Map<DateTime, int> movableLimitByDate,
+    required Map<DateTime, int> granularityByDate,
+  }) : _breakMinutes = breakMinutesByDate,
+       _movableLimit = movableLimitByDate,
+       _granularity = granularityByDate;
+
+  /// 为一次生成预计算三条日期敏感规则，**每个日期只算一次**。
+  ///
+  /// 构造时对每个日期调用 `policyForLocalDate`：缺日与键不一致这两件事只在
+  /// 那一路里被校验，绕过它就等于绕过装配不变量。之后查询只剩一次哈希。
+  factory PolicyLookupCache.forProblem(ScheduleProblem problem) {
+    final breakMinutes = <DateTime, int>{};
+    final movableLimit = <DateTime, int>{};
+    final granularity = <DateTime, int>{};
+    for (final entry in problem.dailyPolicies.entries) {
+      final rules = problem.policyForLocalDate(entry.key).resolvedRules;
+      breakMinutes[entry.key] = rules.breakMinutes;
+      movableLimit[entry.key] = rules.dailyMovableTaskLimitMinutes;
+      granularity[entry.key] = rules.granularityMinutes;
+    }
+    return PolicyLookupCache._(
+      breakMinutesByDate: breakMinutes,
+      movableLimitByDate: movableLimit,
+      granularityByDate: granularity,
+    );
+  }
+
+  final Map<DateTime, int> _breakMinutes;
+  final Map<DateTime, int> _movableLimit;
+  final Map<DateTime, int> _granularity;
+
+  /// [localDate] 当天的粒度。
+  ///
+  /// **入参必须是已经归一的本地日期**（`AvailabilitySlot.localDate` 就是）。
+  /// 这里**刻意不做归一化**：规模夹具里单次生成有 249 万个候选判定，而
+  /// `normalizeLocalDate` 会为每一次查询新分配一个 `DateTime`——实测那一步把
+  /// 放置阶段从 **9.4 秒**推到 **79.6 秒**。
+  int granularityFor(DateTime localDate, ScheduleProblem problem) =>
+      _granularity[localDate] ?? problem.rules.granularityMinutes;
+
+  /// [localDate] 当天的休息间隔。
+  int breakMinutesFor(DateTime localDate, ScheduleProblem problem) =>
+      _breakMinutes[localDate] ?? problem.rules.breakMinutes;
+
+  /// [localDate] 当天的可移动任务上限。
+  int dailyMovableLimitFor(DateTime localDate, ScheduleProblem problem) =>
+      _movableLimit[localDate] ?? problem.rules.dailyMovableTaskLimitMinutes;
 }
 
 /// 一段区间**最少**要有多长才能产出一个候选（`0` 表示这段区间里什么也排不进）。
@@ -289,7 +375,13 @@ bool _violatesBreak(
   CandidateEligibilityContext context,
   SchedulingCandidate candidate,
 ) {
-  final breakMinutes = context.problem.rules.breakMinutes;
+  // **按候选所属本地日取休息规则**（算法 17，计划 Task 3 Step 5）。
+  // 修复前读窗口首日的 `problem.rules.breakMinutes`：用户给周末配了更长的休息时，
+  // 整周仍然按周一的间隔判定。走缓存，理由同每日上限。
+  final breakMinutes = context.policies.breakMinutesFor(
+    candidate.localDate,
+    context.problem,
+  );
   if (breakMinutes <= 0) return false;
   for (final block in context.blocks) {
     if (_gapMinutes(block.range, candidate.range) < breakMinutes) return true;
@@ -297,11 +389,18 @@ bool _violatesBreak(
   return false;
 }
 
-int _leftoverAllowance(CandidateEligibilityContext context, int leftover) =>
-    shortRemainderAllowance(
-      requiredMinutes: leftover,
-      granularityMinutes: context.problem.rules.granularityMinutes,
-    );
+int _leftoverAllowance(
+  CandidateEligibilityContext context,
+  SchedulingCandidate candidate,
+  int leftover,
+) => shortRemainderAllowance(
+  requiredMinutes: leftover,
+  // 同一条纪律：粒度也按候选所属本地日取。
+  granularityMinutes: context.policies.granularityFor(
+    candidate.localDate,
+    context.problem,
+  ),
+);
 
 /// 两个区间的间隔分钟数；重叠或首尾相接时为 0。
 int _gapMinutes(TimeRange a, TimeRange b) {

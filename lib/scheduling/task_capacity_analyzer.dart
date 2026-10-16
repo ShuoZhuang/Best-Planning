@@ -2,6 +2,8 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/candidate_eligibility.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -79,15 +81,18 @@ final class TaskCapacityEvidence {
 /// 契约：
 /// - 不查数据库、不读 UI、**不读系统时钟**（"现在"由 `planningWindow.startUtc` 表达）；
 /// - 所有分钟均 `>= 0`；
-/// - 输入顺序不影响输出（区间先排序再合并）。
+/// - 输入顺序不影响输出（区间先排序再合并）；
+/// - **每日上限与粒度一律从 [ledger] / 逐日策略取**，不在本函数内部另算一套口径
+///   （算法 17，计划 Task 3 Step 4：`analyzeTaskCapacity` 接同一账本，
+///   删除内部重复计算每日总上限的路径）。
 TaskCapacityEvidence analyzeTaskCapacity({
   required SchedulableTask task,
   required ScheduleProblem problem,
   required AvailabilityAnalysis availability,
+  required DayCapacityLedger ledger,
   required List<PlannedBlock> allBlocks,
   required TimeZoneDatabase zones,
 }) {
-  final granularity = problem.rules.granularityMinutes;
   final dueAtUtc = task.dueAtUtc;
 
   // ── 第一层：日历空闲（已经是并集，按本地日切过片）───────────────────────────
@@ -99,9 +104,17 @@ TaskCapacityEvidence analyzeTaskCapacity({
   // 裁剪后的区间**重新合并**：两段被同一段保护时间切开的空闲在裁掉保护时间之前
   // 并不相邻（空闲里本来就没有保护时间），但不同 slot 之间可能因为粒度对齐而
   // 首尾相接，合并它们才能让 `largestTaskWindowGapMinutes` 说的是真实的连续长度。
+  //
+  // **粒度按 slot 所属本地日取**：同一次分析里可能混着工作日与周末的片段
+  // （用户可以给周末配更细或更粗的网格），用一份粒度会给其中一类算错形状。
   final taskWindowRanges = <TimeRange>[];
+  final granularityByRange = <TimeRange, int>{};
   for (final slot in availability.slots) {
     if (!task.allowsWeekday(slot.localDate.weekday)) continue;
+    final dayGranularity = problem
+        .policyForLocalDate(slot.localDate)
+        .resolvedRules
+        .granularityMinutes;
     var range = slot.range;
     final availableFrom = task.availableFromUtc;
     if (availableFrom != null && availableFrom.isAfter(range.startUtc)) {
@@ -116,6 +129,7 @@ TaskCapacityEvidence analyzeTaskCapacity({
     }
     if (!range.endUtc.isAfter(range.startUtc)) continue;
     taskWindowRanges.add(range);
+    granularityByRange[range] = dayGranularity;
   }
   final mergedWindow = _mergeRanges(taskWindowRanges);
   final taskWindowMinutes = _sumMinutes(mergedWindow);
@@ -128,7 +142,7 @@ TaskCapacityEvidence analyzeTaskCapacity({
   final taskPlaceableMinutes = _placeableMinutes(
     ranges: mergedWindow,
     task: task,
-    granularity: granularity,
+    granularity: _granularityOf(problem, mergedWindow.firstOrNull),
   );
 
   // ── 第四层：扣除其它任务已经占用的部分 ──────────────────────────────────────
@@ -139,10 +153,20 @@ TaskCapacityEvidence analyzeTaskCapacity({
   //
   // 休息间隔：两段排得太近会违反 `breakMinutes`，因此占用区间向两侧各扩
   // `breakMinutes / 2`，等价于"两个块之间要留出 breakMinutes"。
-  final buffer = Duration(minutes: problem.rules.breakMinutes ~/ 2);
   final otherRanges = <TimeRange>[];
   for (final block in allBlocks) {
     if (block.taskId == task.id) continue;
+    // 缓冲分钟同样按**候选所属本地日**取（同一条逐日纪律）。
+    final buffer = Duration(
+      minutes:
+          problem
+              .policyForLocalDate(
+                localDateOf(block.startUtc, problem.timeZoneId, zones),
+              )
+              .resolvedRules
+              .breakMinutes ~/
+          2,
+    );
     final expanded = _expand(block.range, buffer);
     for (final range in mergedWindow) {
       final overlap = _intersection(expanded, range);
@@ -153,7 +177,7 @@ TaskCapacityEvidence analyzeTaskCapacity({
   final remainingPlaceableMinutes = _placeableMinutes(
     ranges: freeAfterOthers,
     task: task,
-    granularity: granularity,
+    granularity: _granularityOf(problem, freeAfterOthers.firstOrNull),
   );
   final largestRemainingGapMinutes = _largestMinutes(freeAfterOthers);
 
@@ -164,45 +188,50 @@ TaskCapacityEvidence analyzeTaskCapacity({
     remainingPlaceableMinutes: remainingPlaceableMinutes,
     largestTaskWindowGapMinutes: largestTaskWindowGapMinutes,
     largestRemainingGapMinutes: largestRemainingGapMinutes,
-    dailyLimitRemainingMinutes: dailyLimitRemainingFor(
+    dailyLimitRemainingMinutes: dailyLimitRemainingFrom(
       problem: problem,
-      zones: zones,
-      allBlocks: allBlocks,
+      ledger: ledger,
     ),
   );
 }
 
+/// 取 [range] 所属本地日的粒度；[range] 为空时退回窗口首日的粒度。
+///
+/// 单独一个函数是为了让"退回"这件事只有一处：粒度是**日期敏感**的，而
+/// "没有任何区间时用哪一份"必须有明确答案，不能靠调用点各自决定。
+int _granularityOf(ScheduleProblem problem, TimeRange? range) => problem
+    .policyForLocalDate(range?.startUtc ?? problem.planningWindow.startUtc)
+    .resolvedRules
+    .granularityMinutes;
+
 /// 每日可移动上限在本次规划里**还剩**多少分钟（逐日余量的最大值）。
 ///
-/// 口径与 `ScheduleEngine._exceedsMovableDailyLimit` 一致：按块起点所属**本地日期**
-/// 汇总**未锁定**块（含"拖动了但没锁定"的那些），上限不小于一天时整条规则不生效。
+/// ## 口径来自账本，不再自己算一遍（算法 17，计划 Task 3 Step 4）
 ///
-/// **本地日期必须由 `TimeZoneDatabase` 换算**，不能把 UTC 时刻直接截成日期：
-/// 东八区 2026-10-08T16:30Z 属于本地 10-09，截 UTC 会把它记到"前一天"，
-/// 于是"这天还剩多少上限"与引擎自己的判定分属两个日期。
-int dailyLimitRemainingFor({
+/// 修复前这里自己遍历 `allBlocks` 汇总未锁定块、再读窗口首日的上限——
+/// 那是**第三份**"每日上限用了多少"的实现（另外两份在引擎与 `PlanValidator`）。
+/// 现在它只读 [DayCapacityLedger]：账本的 `remainingMinutes` 已经同时表达了
+/// "视觉空白还剩多少"与"许可容量还剩多少"，而 `usedMovableMinutes` 就是这一天的已用量。
+///
+/// **上限不小于一天时整条规则不生效**（返回 0），与引擎的短路判据一致。
+int dailyLimitRemainingFrom({
   required ScheduleProblem problem,
-  required TimeZoneDatabase zones,
-  required List<PlannedBlock> allBlocks,
+  required DayCapacityLedger ledger,
 }) {
-  final limit = problem.rules.dailyMovableTaskLimitMinutes;
-  if (limit >= LocalTimeRange.minutesPerDay) return 0;
-  final used = <DateTime, int>{};
-  for (final block in allBlocks) {
-    final movable =
-        !block.locked || problem.pinnedUnlockedBlockIds.contains(block.id);
-    if (!movable) continue;
-    final local = zones.toLocal(block.startUtc, problem.timeZoneId);
-    final date = _dateOnly(local);
-    used[date] = (used[date] ?? 0) + block.durationMinutes;
-  }
-  // 一块都还没排 ⇒ 整条上限一分没动。
-  if (used.isEmpty) return limit;
   var maximum = 0;
-  for (final minutes in used.values) {
-    final remaining = limit - minutes;
+  var sawAny = false;
+  for (final snapshot in ledger.snapshots) {
+    final limit = problem
+        .policyForLocalDate(snapshot.localDate)
+        .resolvedRules
+        .dailyMovableTaskLimitMinutes;
+    if (limit >= LocalTimeRange.minutesPerDay) continue;
+    sawAny = true;
+    final remaining = limit - snapshot.usedMovableMinutes;
     if (remaining > maximum) maximum = remaining;
   }
+  // 整条规则在所有日期上都不生效 ⇒ 返回 0（"这条规则一点没用上"）。
+  if (!sawAny) return 0;
   return maximum < 0 ? 0 : maximum;
 }
 
@@ -325,6 +354,3 @@ int _largestMinutes(List<TimeRange> ranges) => ranges.isEmpty
 
 int _roundUp(int value, int step) => ((value + step - 1) ~/ step) * step;
 int _roundDown(int value, int step) => (value ~/ step) * step;
-
-DateTime _dateOnly(DateTime value) =>
-    DateTime(value.year, value.month, value.day);

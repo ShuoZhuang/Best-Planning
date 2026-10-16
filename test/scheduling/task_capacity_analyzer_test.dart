@@ -21,10 +21,39 @@ import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
 
 import '../support/daily_policies.dart';
+
+/// 每日上限还剩多少 —— 与 `TaskCapacityEvidence.dailyLimitRemainingMinutes` 同源。
+///
+/// 它必须走**账本**（算法 17，计划 Task 3 Step 4）：`dailyLimitRemainingFrom`
+/// 是那一条口径的唯一实现，本函数只负责把 [baselineBlocks] 装配成账本的基线。
+int dailyLimitRemainingOf({
+  required ScheduleProblem problem,
+  required TimeZoneDatabase zones,
+  required List<PlannedBlock> baselineBlocks,
+}) {
+  final availability = AvailabilityBuilder(zones).analyze(
+    AvailabilityInput(
+      planningWindow: problem.planningWindow,
+      timeZoneId: problem.timeZoneId,
+      rules: problem.rules,
+      dailyPolicies: problem.dailyPolicies,
+    ),
+  );
+  return dailyLimitRemainingFrom(
+    problem: problem,
+    ledger: buildDayCapacityLedger(
+      problem: problem,
+      availability: availability,
+      baselineBlocks: baselineBlocks,
+      zones: zones,
+    ),
+  );
+}
 
 void main() {
   final zones = TimeZoneDatabase();
@@ -144,6 +173,14 @@ void main() {
       task: forTask,
       problem: problem,
       availability: availability,
+      // **账本是每日上限的唯一口径**（算法 17，计划 Task 3 Step 4）：
+      // 分析器不再自己遍历 `allBlocks` 汇总"这天用了多少"。
+      ledger: buildDayCapacityLedger(
+        problem: problem,
+        availability: availability,
+        baselineBlocks: allBlocks,
+        zones: zones,
+      ),
       allBlocks: allBlocks,
       zones: zones,
     );
@@ -411,19 +448,19 @@ void main() {
 
     // 一块都没有 ⇒ 一分上限没动。
     expect(
-      dailyLimitRemainingFor(
+      dailyLimitRemainingOf(
         problem: problem,
         zones: zones,
-        allBlocks: const [],
+        baselineBlocks: const [],
       ),
       360,
     );
     // 周一用了 300、周二用了 100 ⇒ 余量分别是 60 与 260，最大值 260。
     expect(
-      dailyLimitRemainingFor(
+      dailyLimitRemainingOf(
         problem: problem,
         zones: zones,
-        allBlocks: [
+        baselineBlocks: [
           PlannedBlock(
             id: 'b1',
             taskId: 'other',
@@ -470,10 +507,10 @@ void main() {
       inputHash: 'daily-limit-off',
     );
     expect(
-      dailyLimitRemainingFor(
+      dailyLimitRemainingOf(
         problem: unlimited,
         zones: zones,
-        allBlocks: const [],
+        baselineBlocks: const [],
       ),
       0,
     );

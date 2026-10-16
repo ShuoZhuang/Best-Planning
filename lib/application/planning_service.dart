@@ -8,6 +8,7 @@ import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -165,60 +166,83 @@ final class PlanningService implements ProposalCreator {
 ScheduleProblem withCurrentInputHash(
   ScheduleProblem problem,
   InputSnapshotBuilder snapshots,
-) => _withInputHash(problem, snapshots.hash(InputSnapshot(problem: problem)));
+) => withInputHash(problem, snapshots.hash(InputSnapshot(problem: problem)));
 
-ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
-    ScheduleProblem(
-      planningWindow: problem.planningWindow,
-      timeZoneId: problem.timeZoneId,
-      tasks: problem.tasks,
-      fixedIntervals: problem.fixedIntervals,
-      protectedIntervals: problem.protectedIntervals,
-      lockedBlocks: problem.lockedBlocks,
-      existingBlocks: problem.existingBlocks,
-      rules: problem.rules,
-      // **逐日规则与逐周生活配额必须原样搬运**（算法 17，计划 Task 2）。
-      //
-      // 这是同一个陷阱的**第四处**（前三处是 `referenceBlocks`、`adjustment`、
-      // `admissionConflicts`）：新增 `ScheduleProblem` 字段时，这里永远必查。
-      // 丢掉它们的症状格外隐蔽——引擎会在缺键时抛 `StateError`，但如果将来有人
-      // 把缺键改成回退首日，就会变成"哈希变了但规则悄悄退回旧口径"，
-      // 而那正是本计划要根除的缺陷。
-      dailyPolicies: problem.dailyPolicies,
-      weeklyLifeQuotaByWeekStart: problem.weeklyLifeQuotaByWeekStart,
-      preferences: problem.preferences,
-      inputHash: inputHash,
-      // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让
-      // 手动拖动产生的提案被判为过期（C8 那次"重放不一致"是同型缺陷）。
-      pinnedUnlockedBlockIds: problem.pinnedUnlockedBlockIds,
-      // **同样必须原样搬运**（1.8.0，规范 §11.4 第 3、4 条）：它是"调整前的位置"，
-      // 丢失之后"少动块／少位移"就没有参照，两项比较会退化成恒等。
-      //
-      // 这一行是补上的：`referenceBlocks` 加进 `ScheduleProblem` 之后我忘了改这里，
-      // 于是装配层明明算出了参照，最终交到引擎手里的却是一个空 map——
-      // 症状是 `schedule_reference_blocks_test.dart` 全红而 `analyze` 干净。
-      // **新增 `ScheduleProblem` 字段时，这里是一处必须同步的复制点。**
-      referenceBlocks: problem.referenceBlocks,
-      // **同样必须原样搬运**（裁定第 3 点；设计 §5.3）：块级调整上下文是"这次生成的
-      // 目标"，丢掉它会让延后**静默失效**——引擎按普通全量生成排一遍，用户看到的是
-      // "点了延后但什么都没变"。
-      //
-      // 这一行是**又一处**补上的：`adjustment` 加进 `ScheduleProblem` 之后我同样忘了改
-      // 这里，于是 `block_level_defer_test.dart` 两条用例当场报 `Actual: <null>`。
-      // 与 `referenceBlocks` 那次是同一个陷阱——**新增字段时这里是必查的复制点**。
-      adjustment: problem.adjustment,
-      // **同样必须原样搬运**（裁定第 1、4 点）：来源关联要用它把新块与上一版配对。
-      // 丢掉它的症状是"预览又把移动报成删除＋新增"——**不报错，只是说法错了**，
-      // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
-      confirmedBlocks: problem.confirmedBlocks,
-      // **同样必须原样搬运**（1.8.0「可见空闲却报容量不足」专项 §1.7）：
-      // 准入期的阻断输入错误由装配层判定并挂在问题上，引擎只负责让它随提案走到预览。
-      // **丢掉它的症状极难发现**：任务被静默排除、预览里什么都不显示，
-      // 用户看到的是"我的一件任务不见了"。这是同一个陷阱的**第三处**
-      // （前两处是 `referenceBlocks` 与 `adjustment`）——新增 `ScheduleProblem`
-      // 字段时，这里永远是必查的复制点。
-      admissionConflicts: problem.admissionConflicts,
-    );
+/// [ScheduleProblem] 的**逐值复制点**，只替换显式给出的字段。
+///
+/// ## 为什么必须是唯一一处
+///
+/// `ScheduleProblem` 有十几个字段，而"新增字段时忘了在这里搬运"是本仓库反复
+/// 踩到的陷阱（`referenceBlocks`、`adjustment`、`admissionConflicts` 各一次，
+/// 算术账见下面的注释）。把它做成公开函数而不是各自私有复制一份，
+/// 是为了让**只有一处**需要同步。
+///
+/// 每次新增字段时必须在这里逐值搬运，并同步更新
+/// `capacity_aware_week_planning_test.dart` 之外的相应调用点。
+ScheduleProblem withInputHash(
+  ScheduleProblem problem,
+  String inputHash, {
+  Map<DateTime, DailySchedulingPolicy>? dailyPolicies,
+}) => _withInputHash(problem, inputHash, dailyPolicies: dailyPolicies);
+
+ScheduleProblem _withInputHash(
+  ScheduleProblem problem,
+  String inputHash, {
+  Map<DateTime, DailySchedulingPolicy>? dailyPolicies,
+}) => ScheduleProblem(
+  planningWindow: problem.planningWindow,
+  timeZoneId: problem.timeZoneId,
+  tasks: problem.tasks,
+  fixedIntervals: problem.fixedIntervals,
+  protectedIntervals: problem.protectedIntervals,
+  lockedBlocks: problem.lockedBlocks,
+  existingBlocks: problem.existingBlocks,
+  rules: problem.rules,
+  // **逐日规则与逐周生活配额必须原样搬运**（算法 17，计划 Task 2）。
+  //
+  // 这是同一个陷阱的**第四处**（前三处是 `referenceBlocks`、`adjustment`、
+  // `admissionConflicts`）：新增 `ScheduleProblem` 字段时，这里永远必查。
+  // 丢掉它们的症状格外隐蔽——引擎会在缺键时抛 `StateError`，但如果将来有人
+  // 把缺键改成回退首日，就会变成"哈希变了但规则悄悄退回旧口径"，
+  // 而那正是本计划要根除的缺陷。
+  //
+  // [dailyPolicies] 是**唯一允许被替换**的字段（装配层在算出容量账本之后
+  // 用它写入软恢复余量）；其余字段一律逐值搬运。
+  dailyPolicies: dailyPolicies ?? problem.dailyPolicies,
+  weeklyLifeQuotaByWeekStart: problem.weeklyLifeQuotaByWeekStart,
+  preferences: problem.preferences,
+  inputHash: inputHash,
+  // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让
+  // 手动拖动产生的提案被判为过期（C8 那次"重放不一致"是同型缺陷）。
+  pinnedUnlockedBlockIds: problem.pinnedUnlockedBlockIds,
+  // **同样必须原样搬运**（1.8.0，规范 §11.4 第 3、4 条）：它是"调整前的位置"，
+  // 丢失之后"少动块／少位移"就没有参照，两项比较会退化成恒等。
+  //
+  // 这一行是补上的：`referenceBlocks` 加进 `ScheduleProblem` 之后我忘了改这里，
+  // 于是装配层明明算出了参照，最终交到引擎手里的却是一个空 map——
+  // 症状是 `schedule_reference_blocks_test.dart` 全红而 `analyze` 干净。
+  // **新增 `ScheduleProblem` 字段时，这里是一处必须同步的复制点。**
+  referenceBlocks: problem.referenceBlocks,
+  // **同样必须原样搬运**（裁定第 3 点；设计 §5.3）：块级调整上下文是"这次生成的
+  // 目标"，丢掉它会让延后**静默失效**——引擎按普通全量生成排一遍，用户看到的是
+  // "点了延后但什么都没变"。
+  //
+  // 这一行是**又一处**补上的：`adjustment` 加进 `ScheduleProblem` 之后我同样忘了改
+  // 这里，于是 `block_level_defer_test.dart` 两条用例当场报 `Actual: <null>`。
+  // 与 `referenceBlocks` 那次是同一个陷阱——**新增字段时这里是必查的复制点**。
+  adjustment: problem.adjustment,
+  // **同样必须原样搬运**（裁定第 1、4 点）：来源关联要用它把新块与上一版配对。
+  // 丢掉它的症状是"预览又把移动报成删除＋新增"——**不报错，只是说法错了**，
+  // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
+  confirmedBlocks: problem.confirmedBlocks,
+  // **同样必须原样搬运**（1.8.0「可见空闲却报容量不足」专项 §1.7）：
+  // 准入期的阻断输入错误由装配层判定并挂在问题上，引擎只负责让它随提案走到预览。
+  // **丢掉它的症状极难发现**：任务被静默排除、预览里什么都不显示，
+  // 用户看到的是"我的一件任务不见了"。这是同一个陷阱的**第三处**
+  // （前两处是 `referenceBlocks` 与 `adjustment`）——新增 `ScheduleProblem`
+  // 字段时，这里永远是必查的复制点。
+  admissionConflicts: problem.admissionConflicts,
+);
 
 /// 从排程输入里取出**本次延后要求**（用户第 72 轮）。
 ///

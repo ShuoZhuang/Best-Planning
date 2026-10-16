@@ -34,6 +34,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
@@ -160,6 +161,14 @@ void main() {
       task: forTask,
       remainingMinutes: remainingMinutes,
       availability: availability,
+      // **账本与引擎同源**（算法 17，计划 Task 3）：诊断与放置读同一份逐日容量，
+      // 否则"引擎排得下、诊断说排不下"迟早发生。
+      ledger: buildDayCapacityLedger(
+        problem: forProblem,
+        availability: availability,
+        baselineBlocks: finalBlocks,
+        zones: zones,
+      ),
       finalBlocks: finalBlocks,
       zones: zones,
     );
@@ -181,6 +190,7 @@ void main() {
       task: task,
       remainingMinutes: candidate.durationMinutes,
       blocks: blocks,
+      policies: PolicyLookupCache.forProblem(problem),
       movableMinutesByDate: movableMinutesByLocalDate(
         problem: problem,
         zones: zones,

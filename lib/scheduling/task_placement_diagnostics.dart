@@ -4,6 +4,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
@@ -132,6 +133,7 @@ TaskPlacementDiagnostics diagnoseTaskPlacement({
   required SchedulableTask task,
   required int remainingMinutes,
   required AvailabilityAnalysis availability,
+  required DayCapacityLedger ledger,
   required List<PlannedBlock> finalBlocks,
   required TimeZoneDatabase zones,
 }) {
@@ -139,10 +141,14 @@ TaskPlacementDiagnostics diagnoseTaskPlacement({
     task: task,
     problem: problem,
     availability: availability,
+    ledger: ledger,
     allBlocks: finalBlocks,
     zones: zones,
   );
-  final granularity = problem.rules.granularityMinutes;
+  // **最小片段按哪一天的粒度**：见 [_granularityFor]。
+  final granularity = _granularityFor(problem, task);
+  // `_context` 每次诊断只调用一次（逐候选的判定在 `evaluateCandidateEligibility`
+  // 内部），因此缓存建在这里是合适的；引擎侧的逐候选循环不会重复建它。
   final ctx = _context(
     problem: problem,
     task: task,
@@ -392,6 +398,7 @@ CandidateEligibilityContext _context({
   task: task,
   remainingMinutes: remainingMinutes,
   blocks: finalBlocks,
+  policies: PolicyLookupCache.forProblem(problem),
   movableMinutesByDate: movableMinutesByLocalDate(
     problem: problem,
     zones: zones,
@@ -530,6 +537,40 @@ CandidateEligibilityRejection _dominantRejection(
 ///
 /// 顺序刻意与引擎既有语义一致：先"还没到开始时间"，再"截止装不下"，
 /// 再"连续任务找不到足够长的空档"，最后才是容量与逐条证据的优先级表。
+///
+/// ## 诊断粒度取哪一天
+///
+/// 与 [diagnoseTaskPlacement] 共用 [_granularityFor]：粒度决定"最小片段向上取整到
+/// 多少"，而任务只能落在窗口之内，因此用截止落在窗口内的那一天；截止在窗口之外
+/// （逾期或远期任务）时退回窗口起点**所在的那一天**。粒度是日期敏感的
+/// （用户可以给周末配不同网格），但退回时与 `problem.rules.granularityMinutes`
+/// 逐值相同，因此行为与修复前一致。
+int _granularityFor(ScheduleProblem problem, SchedulableTask task) {
+  final dueAt = task.dueAtUtc;
+  // **半开区间 `[start, end)`**（计划 Global Constraints）：截止恰好等于窗口终点时
+  // 它**不属于**窗口——那一天不在逐日策略里。用 `isAfter` 会把这种边界判成"窗口内"，
+  // 随后 `policyForLocalDate` 抛缺日（实测：`scale_smoke_test` 的 `task-114`，
+  // 截止恰好是 `windowEndUtc`）。
+  final day =
+      dueAt != null &&
+          !dueAt.isBefore(problem.planningWindow.startUtc) &&
+          dueAt.isBefore(problem.planningWindow.endUtc)
+      ? dueAt
+      : problem.planningWindow.startUtc;
+  return problem
+      .policyForLocalDate(
+        localDateOf(day, problem.timeZoneId, _diagnosticsZones),
+      )
+      .resolvedRules
+      .granularityMinutes;
+}
+
+/// 诊断路径上唯一的时区库实例。
+///
+/// `ScheduleProblem` 刻意不持有 `TimeZoneDatabase`（值对象不做时区校验），
+/// 而"哪个本地日"必须由它换算。`TimeZoneDatabase` 只是 IANA 数据的只读包装，
+/// 共享一个实例不引入状态。
+final TimeZoneDatabase _diagnosticsZones = TimeZoneDatabase();
 UnscheduledReason _primaryReason({
   required SchedulableTask task,
   required ScheduleProblem problem,
@@ -539,6 +580,9 @@ UnscheduledReason _primaryReason({
   required List<ExcludedGapEvidence> evidence,
   required List<UnscheduledReason> reasons,
 }) {
+  // **逐日粒度**（算法 17）：与 `diagnoseTaskPlacement` 用同一个判据——
+  // 见 [_granularityFor]（截止可能远在窗口之外，不能直接拿它去查策略）。
+  final granularity = _granularityFor(problem, task);
   UnscheduledReason build(
     UnscheduledReasonCode code, {
     int? requiredMinutes,
@@ -607,7 +651,7 @@ UnscheduledReason _primaryReason({
       requiredMinutes: minimumPlacementMinutes(
         task: task,
         remainingMinutes: remainingMinutes,
-        granularityMinutes: problem.rules.granularityMinutes,
+        granularityMinutes: granularity,
       ),
       availableMinutes: capacity.largestRemainingGapMinutes,
       label: '可用时段不足',

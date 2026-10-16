@@ -1,8 +1,8 @@
 import 'dart:collection';
 
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
-import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
@@ -226,6 +226,12 @@ final class DayCapacityLedger {
     if (delta == 0) return this;
     final key = normalizeLocalDate(localDate);
     final current = forDate(key);
+    // **分配只接受正分钟**（计划 Task 3 Step 2：负分钟必须抛错）。
+    // 用 `allocate(date, -30)` 表达"退回"会让守恒检查（"释放不能超过已分配量"）
+    // 完全失效：负增量走的是分配分支，而那一路只检查上界。
+    if (operation == 'allocate' && delta < 0) {
+      throw StateError('allocate 只接受正分钟（收到 $delta）；退回请用 release');
+    }
     final nextAllocated = current.allocatedMinutes + delta;
     if (nextAllocated < 0) {
       throw StateError(
@@ -314,7 +320,12 @@ DayCapacityLedger buildDayCapacityLedger({
   final anomalies = <String>[];
   final snapshots = <DateTime, DayCapacitySnapshot>{};
 
-  for (final date in _datesOf(availability, hardFreeByDate, gapByDate)) {
+  for (final date in _datesOf(
+    availability,
+    hardFreeByDate,
+    gapByDate,
+    problem,
+  )) {
     final policy = problem.policyForLocalDate(date);
     final hardFree = hardFreeByDate[date] ?? 0;
     final gap = gapByDate[date] ?? 0;
@@ -393,29 +404,93 @@ Map<DateTime, int> _minutesByLocalDate(List<AvailabilitySlot> slots) {
 
 /// 基线里**计入当日可移动上限**的任务块分钟（计划 §2 的 `usedMovableMinutes`）。
 ///
-/// 判据与 `PlanValidator`、放置循环**共用 `movableMinutesByLocalDate`**
-/// （`candidate_eligibility.dart`）：锁定块与"拖动了但没锁定"的块都算。
-/// 三处各写一遍就是三套口径，而它们必须给出同一个答案。
+/// ## 为什么不能直接用 `movableMinutesByLocalDate`
+///
+/// 那个函数（`candidate_eligibility.dart`）的口径是**"这次生成还能动多少"**：
+/// 它只算未锁定块，因为锁定块不可能被重新放置，所以不该占用新候选的预算。
+///
+/// 账本要回答的是**另一个问题**："这一天到底已经用了多少"。计划 §2 把它写得很死：
+///
+/// > **日已用量** `usedMovableMinutes`：当前基线里当日所有计入可移动上限的任务块分钟，
+/// > **包含锁定/钉住的任务块**，不含固定和保护日程。
+///
+/// 用"还能量"当"已用量"会让锁定块凭空消失——实测症状正是许可容量 180、
+/// 锁定 60、本该剩 120 却报 180，于是引擎把锁定块占着的时间又排了一遍。
+///
+/// ## 跨午夜的块必须**按本地日切开**
+///
+/// 这与视觉空白的口径必须是同一个：`AvailabilityBuilder` 求补集时按本地日切片，
+/// 于是一个 `23:00–01:00` 的块在两天各占 60 分钟。若这里把整块都记到**起点所属日**，
+/// 同一天的"视觉空白"与"已用量"就会互相矛盾——实测差值恰好是被切掉的那一半。
 Map<DateTime, int> _usedMovableMinutesByLocalDate({
   required ScheduleProblem problem,
   required List<PlannedBlock> baselineBlocks,
   required TimeZoneDatabase zones,
-}) => movableMinutesByLocalDate(
-  problem: problem,
-  zones: zones,
-  blocks: baselineBlocks,
-);
+}) {
+  final result = <DateTime, int>{};
+  final seen = <String>{};
+  for (final block in baselineBlocks) {
+    if (block.taskId.isEmpty) continue; // 固定日程与保护时间不算任务块
+    if (!seen.add(block.id)) continue;
+    _forEachLocalDateSegment(
+      block.range,
+      problem: problem,
+      zones: zones,
+      visit: (date, minutes) {
+        result[date] = (result[date] ?? 0) + minutes;
+      },
+    );
+  }
+  return result;
+}
 
-/// 账本需要覆盖的日期集合：**两组空闲出现过的日期之并**。
+/// 把 [range] 按**本地自然日**切开，逐段回调（日期, 分钟）。
 ///
-/// 不用"窗口起止各取本地日再逐日推进"：窗口可能是"周四 20:00 到下周一 00:00"
-/// 这种形状，首日只有半个晚上，而 `AvailabilitySlot.localDate` 已经按本地日切好片。
+/// 「本地日」由 [TimeZoneDatabase] 换算，因此跨午夜、跨 DST 切换都正确：
+/// 用绝对 24 小时切会在地拨日落到前一天的 23:00。
+void _forEachLocalDateSegment(
+  TimeRange range, {
+  required ScheduleProblem problem,
+  required TimeZoneDatabase zones,
+  required void Function(DateTime localDate, int minutes) visit,
+}) {
+  var cursor = range.startUtc;
+  while (cursor.isBefore(range.endUtc)) {
+    final local = zones.toLocal(cursor, problem.timeZoneId);
+    final date = DateTime(local.year, local.month, local.day);
+    final dayEnd = zones.localMidnightToUtc(
+      DateTime(local.year, local.month, local.day + 1),
+      problem.timeZoneId,
+    );
+    final segmentEnd = dayEnd.isBefore(range.endUtc) ? dayEnd : range.endUtc;
+    final minutes = segmentEnd.difference(cursor).inMinutes;
+    if (minutes > 0) visit(date, minutes);
+    if (!segmentEnd.isAfter(cursor)) break; // 防御：绝不空转
+    cursor = segmentEnd;
+  }
+}
+
+/// 账本需要覆盖的日期集合。
+///
+/// ## 为什么不能只从 `availability.slots` 取
+///
+/// 一组空闲切片只知道"哪里有空白"。**整天被占住的那一天一个切片都没有**，
+/// 于是它从账本里消失，`forDate` 随后抛"缺日"——而"这一天完全没有容量"恰恰是
+/// 最需要被账本如实记录的形状之一（许可容量 0、`canAllocate == false`）。
+///
+/// 因此日期集合取**规划窗口覆盖到的本地日**（与 `AvailabilityBuilder` 逐日循环
+/// 同一个口径），再并上两组切片出现过的日期以覆盖"窗口外切片"这种边界。
 Set<DateTime> _datesOf(
   AvailabilityAnalysis availability,
   Map<DateTime, int> hardFreeByDate,
   Map<DateTime, int> gapByDate,
+  ScheduleProblem problem,
 ) {
-  final dates = <DateTime>{...hardFreeByDate.keys, ...gapByDate.keys};
+  final dates = <DateTime>{
+    ...hardFreeByDate.keys,
+    ...gapByDate.keys,
+    ...problem.dailyPolicies.keys.map(normalizeLocalDate),
+  };
   for (final slot in availability.slots) {
     dates.add(normalizeLocalDate(slot.localDate));
   }

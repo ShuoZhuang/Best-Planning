@@ -8,6 +8,7 @@ import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/even_distribution_allocator.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
@@ -111,6 +112,24 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // "归因用的空闲"各算一遍，于是两者可以互相矛盾，而用户无从判断哪一个是真的。
     final availability = _availabilityBuilder.analyze(
       _availabilityInput(problem, problem.planningWindow),
+    );
+    // ── 逐日容量账本：**唯一**的容量事实源（算法 17，计划 Task 3）──────────────
+    //
+    // 它在放置**之前**从"唯一一份 `AvailabilityAnalysis` + 基线块"构造一次，
+    // 之后引擎、诊断器与容量分析器都只读它。修复前这三者各算一套"这天还剩多少"，
+    // 于是"界面说还有 90 分钟、引擎说只剩 20 分钟"这种自相矛盾完全可能。
+    //
+    // **基线是锁定块**：它们是"这一天已经用掉多少"的事实。本次生成新排进去的块
+    // 由放置循环自己维护的增量表负责（`movableMinutesByDate`），不混进账本——
+    // 账本一旦可变，同一份输入就会得到两个答案。
+    // **逐日规则只查一次表**（算法 17）：放置循环对每个候选都要读当天的休息间隔、
+    // 每日上限与粒度，而候选数是"起点 × 时长"展开的。见 `PolicyLookupCache`。
+    final policies = PolicyLookupCache.forProblem(problem);
+    final ledger = buildDayCapacityLedger(
+      problem: problem,
+      availability: availability,
+      baselineBlocks: problem.lockedBlocks,
+      zones: _zones,
     );
     final slots = availability.slots;
     final targets = {
@@ -317,6 +336,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             task: task,
             remainingMinutes: remaining,
             blocks: blocks,
+            policies: policies,
             movableMinutesByDate: movableMinutesByDate,
             plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
               problem,
@@ -484,6 +504,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         task: task,
         remainingMinutes: shortage,
         availability: availability,
+        ledger: ledger,
         finalBlocks: blocks,
         zones: _zones,
       );

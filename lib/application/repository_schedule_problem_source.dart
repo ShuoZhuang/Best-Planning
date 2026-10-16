@@ -19,8 +19,10 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
+import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
 import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
+import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
@@ -717,9 +719,108 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       zones: zones,
       timeZoneId: timeZoneId,
     );
+    // **软恢复余量按当天的许可容量赋值**（算法 17，计划 §3.7 / Task 3）。
+    //
+    // 这一步必须在 `problem` 构造**之后**：许可容量 = `min(日硬空闲, 当日上限)`，
+    // 而"日硬空闲"要由 `AvailabilityBuilder` 从**同一份**装配好的占用事实算出来。
+    // 因此这里先构造问题、再用问题自身的逐日策略跑一次可用时间分析，
+    // 由 `buildDayCapacityLedger` 给出许可容量。
+    //
+    // **它只影响软目标**：恢复余量不进任何硬判定，也不是可用容量的一部分
+    // （计划 §3.7 明确"不从可用容量中硬扣除"）。
+    final pricedProblem = withSoftReserveTargets(
+      problem: problem,
+      zones: zones,
+    );
 
-    return withCurrentInputHash(problem, snapshots);
+    return withCurrentInputHash(pricedProblem, snapshots);
   }
+
+  /// 为 [problem] 的每一天算出**软恢复余量目标**并返回一个新问题
+  /// （算法 17，计划 §3.7 / Task 3）。
+  ///
+  /// ## 为什么是"先构造问题、再定价"
+  ///
+  /// 恢复余量的目标是 `min(30, floor(许可容量 × 10% / 粒度) × 粒度)`，而**许可容量**
+  /// 是 `min(日硬空闲, 当日可移动上限)`——它需要 `AvailabilityBuilder` 从装配好的
+  /// 占用事实算出来，而那些事实正是 `problem` 自己携带的。因此顺序只能是：
+  /// 构造问题 → 用它算账本 → 把余量写回逐日策略。
+  ///
+  /// ## 为什么只改 `softReserveTargetMinutes`
+  ///
+  /// 计划 §3.7 明确恢复余量是**软目标**、不从可用容量里硬扣。因此这里只替换
+  /// `DailySchedulingPolicy.softReserveTargetMinutes`，**逐值保留** `resolvedRules`：
+  /// 任何一条"顺手也改一下规则"的写法都会让"装配层解析的规则"与"引擎看到的规则"
+  /// 变成两份。
+  ScheduleProblem withSoftReserveTargets({
+    required ScheduleProblem problem,
+    required TimeZoneDatabase zones,
+  }) {
+    final builder = AvailabilityBuilder(zones);
+    final availability = builder.analyze(
+      AvailabilityInput(
+        planningWindow: problem.planningWindow,
+        timeZoneId: problem.timeZoneId,
+        rules: problem.rules,
+        dailyPolicies: problem.dailyPolicies,
+        fixedIntervals: [
+          for (final interval in problem.fixedIntervals) interval.range,
+        ],
+        protectedIntervals: [
+          for (final interval in problem.protectedIntervals) interval.range,
+        ],
+        // 睡眠由分析层按**逐日策略**展开，因此这里不重复提供；
+        // 装配层把睡眠留在 `protectedIntervals` 里是为了 `PlanValidator`。
+        lockedBlocks: [for (final block in problem.lockedBlocks) block.range],
+        chargedMovableBlocks: [
+          for (final block in problem.lockedBlocks)
+            if (problem.pinnedUnlockedBlockIds.contains(block.id)) block.range,
+        ],
+      ),
+    );
+    final ledger = buildDayCapacityLedger(
+      problem: problem,
+      availability: availability,
+      baselineBlocks: problem.lockedBlocks,
+      zones: zones,
+    );
+
+    // **只替换逐日策略里的恢复余量**，其余字段由 `withInputHash` 这一处
+    // 逐值搬运（`planning_service.dart` 的说明记着"忘了搬运新字段"这个反复踩到的陷阱）。
+    return withInputHash(
+      problem,
+      problem.inputHash,
+      dailyPolicies: {
+        for (final entry in problem.dailyPolicies.entries)
+          entry.key: DailySchedulingPolicy(
+            localDate: entry.key,
+            resolvedRules: entry.value.resolvedRules,
+            softReserveTargetMinutes: softReserveTargetOf(
+              ledger: ledger,
+              localDate: entry.key,
+              // 粒度来自**这一天自己的**规则，而不是窗口首日。
+              granularityMinutes: entry.value.resolvedRules.granularityMinutes,
+            ),
+          ),
+      },
+    );
+  }
+
+  /// 该日应当先作为软目标保留的恢复余量分钟。
+  ///
+  /// 公式只有一处实现（`softReserveTargetFor`）；本函数只负责把"当天的许可容量"
+  /// 从账本里取出来，并按**当天自己的**粒度向下取整。
+  ///
+  /// **账本缺日时抛 [StateError]**——缺日意味着装配不变量已经破坏，
+  /// 静默返回 0 会把一个装配缺陷伪装成"这一天不需要余量"。
+  int softReserveTargetOf({
+    required DayCapacityLedger ledger,
+    required DateTime localDate,
+    required int granularityMinutes,
+  }) => softReserveTargetForSnapshot(
+    ledger.forDate(localDate),
+    granularityMinutes,
+  );
 
   /// 该事件结束时刻所属的**本地日期**（逐日策略的查阅键）。
   DateTime _localDateOf(DateTime instantUtc) {
@@ -774,10 +875,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     }
 
     // **恢复余量的输入是当天的许可容量**，而许可容量要等 `AvailabilityAnalysis`
-    // 与基线块放到一起才算得出来（`min(硬空闲, 每日上限)`，见
-    // `day_capacity_ledger.dart`）。装配阶段还没有那份分析，因此这里传 0：
-    // 它的含义是"软恢复余量目标在账本落定之后才赋值"，而不是"留 0 分钟"——
-    // 计划 §3.7 明确它是**软目标**，不参与任何硬判定。
+    // 与基线块放到一起才算得出来（`min(硬空闲, 每日上限)`，见 `day_capacity_ledger.dart`）。
+    // 装配阶段还没有那份分析，因此先在 [DailyRulesForWindow] 里带上窗口日期，
+    // 由 `load()` 用 [withSoftReserveTargets] 逐日填上——**公式只有一处实现**
+    // （`softReserveTargetFor`），装配层不自己推一遍（计划 §3.7）。
     final policies = <DateTime, DailySchedulingPolicy>{
       for (final date in windowDates)
         date: DailySchedulingPolicy(

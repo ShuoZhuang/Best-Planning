@@ -302,7 +302,6 @@ final class AvailabilityBuilder {
         ?_intersection(range, input.planningWindow),
       for (final range in sleepRaw) ?_intersection(range, input.planningWindow),
     ]);
-
     final output = <AvailabilitySlot>[];
     final hardFreeOutput = <AvailabilitySlot>[];
     var localDate = _dateOnly(
@@ -434,16 +433,24 @@ List<TimeRange> _merge(List<TimeRange> ranges) {
   var current = ranges.first;
   for (final next in ranges.skip(1)) {
     if (!next.startUtc.isAfter(current.endUtc)) {
-      current = TimeRange(
-        startUtc: current.startUtc,
-        endUtc: next.endUtc.isAfter(current.endUtc)
-            ? next.endUtc
-            : current.endUtc,
-      );
-    } else {
-      merged.add(current);
-      current = next;
+      // **取两者的最大范围**：`next` 可能完全落在 `current` 之内（终点更早），
+      // 也可能把 `current` 完全包住（起点相同或更早、终点更晚）；
+      // 还可能是"起点落在 `current` 内、终点超出 `current`"。
+      //
+      // 判据与 `_labeledSegments` 的相邻合并**必须逐字一致**（那边也用最大范围），
+      // 否则 `slots` 与 `blockedSegments` 会给出两套口径——那正是
+      // "容量分析器、诊断器和引擎各算一份空闲"的入口。
+      final start = next.startUtc.isBefore(current.startUtc)
+          ? next.startUtc
+          : current.startUtc;
+      final end = next.endUtc.isAfter(current.endUtc)
+          ? next.endUtc
+          : current.endUtc;
+      current = TimeRange(startUtc: start, endUtc: end);
+      continue;
     }
+    merged.add(current);
+    current = next;
   }
   merged.add(current);
   return merged;
