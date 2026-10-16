@@ -15,6 +15,10 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   const snapshots = InputSnapshotBuilder();
 
@@ -64,14 +68,29 @@ void main() {
 
   test('snapshot hash ignores UI state and normalizes input list order', () {
     final problem = _problem(requiredMinutes: 60);
+    final window = problem.planningWindow;
+    final zoneId = problem.timeZoneId;
+    final rules = problem.rules;
     final reversed = ScheduleProblem(
-      planningWindow: problem.planningWindow,
-      timeZoneId: problem.timeZoneId,
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: problem.tasks.reversed.toList(),
       fixedIntervals: problem.fixedIntervals.reversed.toList(),
       protectedIntervals: problem.protectedIntervals.reversed.toList(),
       lockedBlocks: problem.lockedBlocks.reversed.toList(),
-      rules: problem.rules,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: problem.preferences,
       inputHash: 'ignored-too',
     );
@@ -89,16 +108,31 @@ void main() {
 
   test('保护时间或默认片段变化会使已有提案过期', () {
     final original = _problem(requiredMinutes: 60);
+    final window = original.planningWindow;
+    final zoneId = original.timeZoneId;
+    final rules = original.rules.copyWith(
+      protectedTimes: const [],
+      minChunkMinutes: 35,
+    );
     final changed = ScheduleProblem(
-      planningWindow: original.planningWindow,
-      timeZoneId: original.timeZoneId,
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: original.tasks,
       fixedIntervals: original.fixedIntervals,
       protectedIntervals: original.protectedIntervals,
       lockedBlocks: original.lockedBlocks,
-      rules: original.rules.copyWith(
-        protectedTimes: const [],
-        minChunkMinutes: 35,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
       ),
       preferences: original.preferences,
       inputHash: original.inputHash,
@@ -198,12 +232,15 @@ ScheduleProblem _problem({
   DateTime? availableFromUtc,
 }) {
   final day = DateTime.utc(2026, 10, 5);
+  final window = TimeRange(
+    startUtc: day,
+    endUtc: day.add(const Duration(days: 1)),
+  );
+  final zoneId = 'UTC';
+  final rules = DefaultSettings.v1();
   return ScheduleProblem(
-    planningWindow: TimeRange(
-      startUtc: day,
-      endUtc: day.add(const Duration(days: 1)),
-    ),
-    timeZoneId: 'UTC',
+    planningWindow: window,
+    timeZoneId: zoneId,
     tasks: [
       SchedulableTask(
         id: 'task',
@@ -225,7 +262,19 @@ ScheduleProblem _problem({
     ],
     protectedIntervals: const [],
     lockedBlocks: const [],
-    rules: DefaultSettings.v1(),
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
     preferences: const PreferenceProfile(),
     inputHash: 'not-part-of-snapshot',
   );

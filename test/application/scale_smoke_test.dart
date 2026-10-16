@@ -35,6 +35,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 /// 压力规模（路线图 Task 13 Step 1 给的数字）。
 const int _taskCount = 500;
 const int _lockedBlockCount = 2000;
@@ -150,14 +152,10 @@ ScheduleProblem _pressureProblem({
   required List<SchedulableTask> tasks,
   required List<PlannedBlock> locked,
   required List<BusyInterval> fixed,
-}) => ScheduleProblem(
-  planningWindow: TimeRange(startUtc: _windowStartUtc, endUtc: _windowEndUtc),
-  timeZoneId: _zoneId,
-  tasks: tasks,
-  fixedIntervals: fixed,
-  protectedIntervals: const [],
-  lockedBlocks: locked,
-  rules: PlanningRules(
+}) {
+  final window = TimeRange(startUtc: _windowStartUtc, endUtc: _windowEndUtc);
+  final zoneId = _zoneId;
+  final rules = PlanningRules(
     energyWindows: const [],
     sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
     minimumSleepMinutes: 420,
@@ -165,10 +163,31 @@ ScheduleProblem _pressureProblem({
     breakMinutes: 10,
     dailyMovableTaskLimitMinutes: 600,
     weeklyLifeQuotaMinutes: 0,
-  ),
-  preferences: const PreferenceProfile(),
-  inputHash: 'scale-smoke',
-);
+  );
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: tasks,
+    fixedIntervals: fixed,
+    protectedIntervals: const [],
+    lockedBlocks: locked,
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'scale-smoke',
+  );
+}
 
 void main() {
   // **一次构造、一次排程，多组断言**：构造（2000 片段 + 180 课程）与排程都不便宜，

@@ -8,12 +8,17 @@
 // 引擎生成完之后，把**还能回到原位**的块放回原位。修复前完全没有这一步——
 // 一次延后可以让引擎顺手把一整天重排一遍，而用户只要求"这一块往后挪 30 分钟"。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
 
 void main() {
   final dayStart = DateTime.utc(2026, 10, 12, 0);
@@ -54,25 +59,44 @@ void main() {
     List<BusyInterval> protected = const [],
     List<PlannedBlock> locked = const [],
     List<String> extraTaskIds = const [],
-  }) => ScheduleProblem(
-    planningWindow: TimeRange(startUtc: dayStart, endUtc: dayEnd),
-    timeZoneId: 'UTC',
-    tasks: [
-      for (final block in reference) task(block.id),
-      // **新排进来的块也要有任务**：`PlanValidator` 对"任务不存在"的块直接报
-      // `invalidInput`，而那条检查在 overlap 检查**之前**——于是它根本不参与重叠判定。
-      // 第一版忘了给 `newcomer` 建任务，那条"原位被占"的用例便静默失去了意义
-      // （它仍然通过，但通过的原因是错的）。
-      for (final id in extraTaskIds) task(id),
-    ],
-    fixedIntervals: fixed,
-    protectedIntervals: protected,
-    lockedBlocks: locked,
-    rules: DefaultSettings.v1(),
-    preferences: const PreferenceProfile(),
-    inputHash: 'h',
-    referenceBlocks: {for (final block in reference) block.id: block.startUtc},
-  );
+  }) {
+    final window = TimeRange(startUtc: dayStart, endUtc: dayEnd);
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: [
+        for (final block in reference) task(block.id),
+        // **新排进来的块也要有任务**：`PlanValidator` 对"任务不存在"的块直接报
+        // `invalidInput`，而那条检查在 overlap 检查**之前**——于是它根本不参与重叠判定。
+        // 第一版忘了给 `newcomer` 建任务，那条"原位被占"的用例便静默失去了意义
+        // （它仍然通过，但通过的原因是错的）。
+        for (final id in extraTaskIds) task(id),
+      ],
+      fixedIntervals: fixed,
+      protectedIntervals: protected,
+      lockedBlocks: locked,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'h',
+      referenceBlocks: {
+        for (final block in reference) block.id: block.startUtc,
+      },
+    );
+  }
 
   test('还能回到原位的块被放回，改动块数从 2 降到 1', () {
     // 参照：a 在 09:00、b 在 11:00。引擎交出的结果把两块都挪了，

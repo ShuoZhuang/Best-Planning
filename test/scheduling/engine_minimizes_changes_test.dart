@@ -17,6 +17,8 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
@@ -59,15 +61,30 @@ void main() {
     // **原 id** 进入 `blocks` 作为起点，引擎只在需要时移动它们；那时"少动"才可能被真的优化。
     // 现在能诚实验收的只有：`minimizeChangedBlocks` **函数本身**正确
     //（`minimize_changed_blocks_test.dart`，9 条用例），以及"它被调用了"。
+    final window = TimeRange(startUtc: at(0), endUtc: at(24));
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(startUtc: at(0), endUtc: at(24)),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: [task('t-a')],
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
       existingBlocks: [block('a', 't-a', hour: 9)],
-      rules: DefaultSettings.v1(),
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'h',
       referenceBlocks: {'a': at(9)},
@@ -91,14 +108,29 @@ void main() {
   test('没有参照时这一步是空操作：普通生成的结果不受影响', () {
     // 参照为空 ⇒ 每个块都没有"调整前" ⇒ 最小化改动无事可做。
     // 这条守的是"新功能不改变首次排程"。
+    final window = TimeRange(startUtc: at(9), endUtc: at(18));
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(startUtc: at(9), endUtc: at(18)),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: [task('t-a')],
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: DefaultSettings.v1(),
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'h',
     );

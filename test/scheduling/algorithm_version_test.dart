@@ -23,6 +23,8 @@ import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   test('golden 基准记录的算法版本与引擎常量一致', () {
     final fixture = jsonDecode(
@@ -57,19 +59,35 @@ void main() {
     //
     // **第一版这里写的是 `expect(engine, isNotNull)`** —— 而 `engine` 是非空类型，
     // 那条断言恒真、什么也没验。改成果真跑一次生成、读提案上的版本。
-    final engine = DeterministicScheduleEngine(TimeZoneDatabase());
+    final zones = TimeZoneDatabase();
+    final engine = DeterministicScheduleEngine(zones);
+    final window = TimeRange(
+      startUtc: DateTime.utc(2026, 10, 12),
+      endUtc: DateTime.utc(2026, 10, 13),
+    );
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
     final proposal = engine.generate(
       ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: DateTime.utc(2026, 10, 12),
-          endUtc: DateTime.utc(2026, 10, 13),
-        ),
-        timeZoneId: 'UTC',
+        planningWindow: window,
+        timeZoneId: zoneId,
         tasks: const [],
         fixedIntervals: const [],
         protectedIntervals: const [],
         lockedBlocks: const [],
-        rules: DefaultSettings.v1(),
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
         preferences: const PreferenceProfile(),
         inputHash: 'version-guard',
       ),

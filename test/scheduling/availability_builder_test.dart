@@ -1,8 +1,38 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+
+import '../support/daily_policies.dart';
+
+/// 构造可用时间输入：**逐日策略必须显式提供**（算法 17，计划 Task 2 Step 5）。
+///
+/// 睡眠不再需要调用方单独传：`AvailabilityBuilder` 按**每一天自己的**
+/// `resolvedRules.sleepRange` 展开一次，因此这里只给规则。
+AvailabilityInput _input({
+  required TimeZoneDatabase zones,
+  required TimeRange window,
+  required String timeZoneId,
+  required PlanningRules rules,
+  List<TimeRange> fixed = const [],
+  List<TimeRange> protected = const [],
+  List<TimeRange> charged = const [],
+}) => AvailabilityInput(
+  planningWindow: window,
+  timeZoneId: timeZoneId,
+  rules: rules,
+  dailyPolicies: dailyPoliciesForWindow(
+    zones: zones,
+    window: window,
+    rules: rules,
+    timeZoneId: timeZoneId,
+  ),
+  fixedIntervals: fixed,
+  protectedIntervals: protected,
+  chargedMovableBlocks: charged,
+);
 
 void main() {
   // 用户实测修复（1.7.1，计划 §2.4 / Task 2）：
@@ -30,19 +60,22 @@ void main() {
     final protected = [TimeRange(startUtc: at(12), endUtc: at(13))];
     final locked = [TimeRange(startUtc: at(15), endUtc: at(16))];
     final slots = AvailabilityBuilder(zones).build(
-      AvailabilityInput(
-        planningWindow: TimeRange(
+      _input(
+        zones: zones,
+        timeZoneId: zoneId,
+        window: TimeRange(
           startUtc: zones.localMidnightToUtc(localDate, zoneId),
           endUtc: zones.localMidnightToUtc(
             localDate.add(const Duration(days: 1)),
             zoneId,
           ),
         ),
-        timeZoneId: zoneId,
         rules: DefaultSettings.v1(),
-        fixedIntervals: fixed,
-        protectedIntervals: protected,
-        lockedBlocks: locked,
+        fixed: fixed,
+        protected: protected,
+        // **锁定任务块走 `chargedMovableBlocks`**：它占住视觉空白，但按计划 §2
+        // 术语表不进"日硬空闲"的扣除项（那是"不扣任何任务块"）。
+        charged: locked,
       ),
     );
 
@@ -93,17 +126,18 @@ void main() {
     ];
 
     final slots = AvailabilityBuilder(zones).build(
-      AvailabilityInput(
-        planningWindow: TimeRange(
+      _input(
+        zones: zones,
+        timeZoneId: zoneId,
+        window: TimeRange(
           startUtc: zones.localMidnightToUtc(localDate, zoneId),
           endUtc: zones.localMidnightToUtc(
             localDate.add(const Duration(days: 1)),
             zoneId,
           ),
         ),
-        timeZoneId: zoneId,
         rules: rules,
-        fixedIntervals: busy,
+        fixed: busy,
       ),
     );
 
@@ -142,11 +176,12 @@ void main() {
     );
 
     final slots = AvailabilityBuilder(zones).build(
-      AvailabilityInput(
-        planningWindow: window,
+      _input(
+        zones: zones,
+        window: window,
         timeZoneId: 'UTC',
         rules: rules,
-        fixedIntervals: [
+        fixed: [
           TimeRange(
             startUtc: DateTime.utc(2026, 10, 2, 9),
             endUtc: DateTime.utc(2026, 10, 2, 10),
@@ -185,20 +220,21 @@ void main() {
     DateTime at(int hour, [int minute = 0]) =>
         zones.localDateTimeToUtc(localDate, hour * 60 + minute, zoneId);
 
-    final input = AvailabilityInput(
-      planningWindow: TimeRange(
-        startUtc: zones.localMidnightToUtc(localDate, zoneId),
-        endUtc: zones.localMidnightToUtc(
-          localDate.add(const Duration(days: 1)),
-          zoneId,
-        ),
+    final window = TimeRange(
+      startUtc: zones.localMidnightToUtc(localDate, zoneId),
+      endUtc: zones.localMidnightToUtc(
+        localDate.add(const Duration(days: 1)),
+        zoneId,
       ),
+    );
+    final input = _input(
+      zones: zones,
       timeZoneId: zoneId,
+      window: window,
       rules: DefaultSettings.v1(),
-      fixedIntervals: [TimeRange(startUtc: at(9), endUtc: at(11))],
-      protectedIntervals: [TimeRange(startUtc: at(12), endUtc: at(13))],
-      lockedBlocks: [TimeRange(startUtc: at(15), endUtc: at(16))],
-      chargedMovableBlocks: [TimeRange(startUtc: at(20), endUtc: at(21))],
+      fixed: [TimeRange(startUtc: at(9), endUtc: at(11))],
+      protected: [TimeRange(startUtc: at(12), endUtc: at(13))],
+      charged: [TimeRange(startUtc: at(15), endUtc: at(16))],
     );
 
     final builder = AvailabilityBuilder(zones);
@@ -212,14 +248,15 @@ void main() {
       endUtc: DateTime.utc(2026, 10, 2, 18),
     );
     final analysis = AvailabilityBuilder(zones).analyze(
-      AvailabilityInput(
-        planningWindow: window,
+      _input(
+        zones: zones,
+        window: window,
         timeZoneId: 'UTC',
         rules: DefaultSettings.v1().copyWith(
           sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
           breakMinutes: 10,
         ),
-        fixedIntervals: [
+        fixed: [
           TimeRange(
             startUtc: DateTime.utc(2026, 10, 2, 9),
             endUtc: DateTime.utc(2026, 10, 2, 10),
@@ -234,6 +271,14 @@ void main() {
       reason: '"空闲"不能是两个数字：两个来源迟早会对不上',
     );
     expect(analysis.calendarGapMinutes, greaterThan(0));
+    expect(
+      analysis.hardFreeMinutes,
+      analysis.hardFreeSlots.fold<int>(
+        0,
+        (sum, slot) => sum + slot.durationMinutes,
+      ),
+      reason: '"日硬空闲"同样是单一数字（计划 §2 术语表）',
+    );
   });
 
   test('**固定日程与保护时间重叠 30 分钟，总容量只扣一次，且两个标签都在**', () {
@@ -243,20 +288,21 @@ void main() {
       endUtc: DateTime.utc(2026, 10, 2, 12),
     );
     final analysis = AvailabilityBuilder(zones).analyze(
-      AvailabilityInput(
-        planningWindow: window,
+      _input(
+        zones: zones,
+        window: window,
         timeZoneId: 'UTC',
         rules: DefaultSettings.v1().copyWith(
           sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
         ),
         // 固定 09:00–10:30、保护 10:00–10:30 ⇒ 重叠 30 分钟。
-        fixedIntervals: [
+        fixed: [
           TimeRange(
             startUtc: DateTime.utc(2026, 10, 2, 9),
             endUtc: DateTime.utc(2026, 10, 2, 10, 30),
           ),
         ],
-        protectedIntervals: [
+        protected: [
           TimeRange(
             startUtc: DateTime.utc(2026, 10, 2, 10),
             endUtc: DateTime.utc(2026, 10, 2, 10, 30),
@@ -302,13 +348,15 @@ void main() {
       endUtc: DateTime.utc(2026, 10, 3, 10),
     );
     final analysis = AvailabilityBuilder(zones).analyze(
-      AvailabilityInput(
-        planningWindow: window,
+      _input(
+        zones: zones,
+        window: window,
         timeZoneId: 'UTC',
         rules: DefaultSettings.v1().copyWith(
           sleepRange: LocalTimeRange(startMinute: 22 * 60, endMinute: 6 * 60),
         ),
-        lockedBlocks: [
+        // 锁定任务块：占住视觉空白，但不进"日硬空闲"的扣除项。
+        charged: [
           TimeRange(
             startUtc: DateTime.utc(2026, 10, 2, 20, 30),
             endUtc: DateTime.utc(2026, 10, 2, 21, 30),

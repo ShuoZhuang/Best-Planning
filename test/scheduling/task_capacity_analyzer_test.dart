@@ -24,6 +24,8 @@ import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/task_capacity_analyzer.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   const zoneId = 'UTC';
@@ -97,6 +99,7 @@ void main() {
     required List<TimeRange> free,
     List<PlannedBlock> allBlocks = const [],
   }) {
+    final planningRules = rules();
     final problem = ScheduleProblem(
       planningWindow: window,
       timeZoneId: zoneId,
@@ -104,15 +107,36 @@ void main() {
       fixedIntervals: busyExcept(free, window),
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: rules(),
+      rules: planningRules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: planningRules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: planningRules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'capacity-evidence',
     );
+    final availabilityWindow = problem.planningWindow;
+    final availabilityZoneId = problem.timeZoneId;
+    final availabilityRules = problem.rules;
     final availability = AvailabilityBuilder(zones).analyze(
       AvailabilityInput(
-        planningWindow: problem.planningWindow,
-        timeZoneId: problem.timeZoneId,
-        rules: problem.rules,
+        planningWindow: availabilityWindow,
+        timeZoneId: availabilityZoneId,
+        rules: availabilityRules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: availabilityWindow,
+          rules: availabilityRules,
+          timeZoneId: availabilityZoneId,
+        ),
         fixedIntervals: problem.fixedIntervals.map((i) => i.range).toList(),
       ),
     );
@@ -369,6 +393,18 @@ void main() {
       protectedIntervals: const [],
       lockedBlocks: const [],
       rules: problemLimitRules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: problemLimitRules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: problemLimitRules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'daily-limit',
     );
@@ -409,6 +445,7 @@ void main() {
       260,
     );
     // 上限不小于一天 ⇒ 整条规则不生效，余量报 0（调用方据此不去归因"每日上限"）。
+    final unlimitedRules = rules().copyWith(dailyMovableTaskLimitMinutes: 1440);
     final unlimited = ScheduleProblem(
       planningWindow: window,
       timeZoneId: zoneId,
@@ -416,7 +453,19 @@ void main() {
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: rules().copyWith(dailyMovableTaskLimitMinutes: 1440),
+      rules: unlimitedRules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: unlimitedRules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: unlimitedRules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'daily-limit-off',
     );

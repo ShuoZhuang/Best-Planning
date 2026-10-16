@@ -50,6 +50,8 @@ import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   group('失效总线（§2.6）', () {
     test('revision 从 1 开始单调递增', () async {
@@ -1127,22 +1129,41 @@ ConfirmedPlan _confirmedPlan() => ConfirmedPlan(
   blocks: const [],
 );
 
+final TimeZoneDatabase _zones = TimeZoneDatabase();
+
 /// 一份**没有任务也没有块**的排程输入：判"发了几次信号"不需要真排程，
 /// 但校验器、哈希与窗口必须是真实的（否则测的是替身的行为）。
-ScheduleProblem _problem() => ScheduleProblem(
-  planningWindow: TimeRange(
+ScheduleProblem _problem() {
+  final window = TimeRange(
     startUtc: DateTime.utc(2026, 10, 12),
     endUtc: DateTime.utc(2026, 10, 13),
-  ),
-  timeZoneId: 'UTC',
-  tasks: const [],
-  fixedIntervals: const [],
-  protectedIntervals: const [],
-  lockedBlocks: const [],
-  rules: DefaultSettings.v1(),
-  preferences: const PreferenceProfile(),
-  inputHash: 'ignored',
-);
+  );
+  const zoneId = 'UTC';
+  final rules = DefaultSettings.v1();
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: const [],
+    fixedIntervals: const [],
+    protectedIntervals: const [],
+    lockedBlocks: const [],
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'ignored',
+  );
+}
 
 ScheduleProposal _proposal({
   required String inputHash,

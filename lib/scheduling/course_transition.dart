@@ -18,6 +18,47 @@
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 
+/// 与 [applyCourseTransition] 同形，但**逐事件**取缓冲分钟（算法 17，计划 Task 2 Step 3）。
+///
+/// 为什么需要它：缓冲分钟是**日期敏感**的规则值（用户可以给周末配不同的值），
+/// 而窗口跨工作日与周末时，用窗口首日的那一份会给周五的课套上周一的缓冲。
+/// [transitionMinutesFor] 由装配层按"事件结束日"的每日策略提供，
+/// 因此决定某个事件缓冲多少分钟这件事只有一个来源。
+///
+/// 其它契约与 [applyCourseTransition] 逐条相同：
+/// - 每个事件的返回值 <= 0 时该事件原样保留（等于对那一天关闭这条规则）；
+/// - **只改结束时间**，开始时间与其它所有字段逐值保留；
+/// - 非课表来源的事件原样保留；
+/// - 输入顺序不变。
+List<CalendarOccurrence> applyCourseTransitionByLocalDate(
+  List<CalendarOccurrence> occurrences, {
+  required int Function(CalendarOccurrence occurrence) transitionMinutesFor,
+}) => [
+  for (final occurrence in occurrences)
+    if (occurrence.sourceKind == CalendarEventSourceKind.timetableImport &&
+        transitionMinutesFor(occurrence) > 0)
+      CalendarOccurrence(
+        eventId: occurrence.eventId,
+        title: occurrence.title,
+        range: TimeRange(
+          startUtc: occurrence.range.startUtc,
+          endUtc: occurrence.range.endUtc.add(
+            Duration(minutes: transitionMinutesFor(occurrence)),
+          ),
+        ),
+        locked: occurrence.locked,
+        areaId: occurrence.areaId,
+        projectId: occurrence.projectId,
+        location: occurrence.location,
+        notes: occurrence.notes,
+        sourceKind: occurrence.sourceKind,
+        importBatchId: occurrence.importBatchId,
+        logicalCourseId: occurrence.logicalCourseId,
+      )
+    else
+      occurrence,
+];
+
 /// 把课表导入的课程**结束时间**往后推 [transitionMinutes] 分钟。
 ///
 /// 被占用的时段因此变长，排程器就不会把计划块紧贴在课程结束的那一刻。
@@ -26,32 +67,16 @@ import 'package:personal_planner/domain/models/time_range.dart';
 /// - **只改结束时间**，开始时间与其它所有字段逐值保留。
 /// - 非课表来源的事件（`CalendarEventSourceKind.manual`）原样保留。
 /// - 输入顺序不变。
+///
+/// **它只是 [applyCourseTransitionByLocalDate] 在"全部日期同一分钟数"下的特例**：
+/// 展开规则只有一份实现，因此"逐事件取分钟数"这条能力不会与单值版本漂移。
+/// 生产装配层用逐日版本（缓冲分钟是日期敏感的）；单值版本保留给纯函数级的调用点。
 List<CalendarOccurrence> applyCourseTransition(
   List<CalendarOccurrence> occurrences, {
   required int transitionMinutes,
-}) {
-  if (transitionMinutes <= 0) return occurrences;
-  final shift = Duration(minutes: transitionMinutes);
-  return [
-    for (final occurrence in occurrences)
-      if (occurrence.sourceKind == CalendarEventSourceKind.timetableImport)
-        CalendarOccurrence(
-          eventId: occurrence.eventId,
-          title: occurrence.title,
-          range: TimeRange(
-            startUtc: occurrence.range.startUtc,
-            endUtc: occurrence.range.endUtc.add(shift),
-          ),
-          locked: occurrence.locked,
-          areaId: occurrence.areaId,
-          projectId: occurrence.projectId,
-          location: occurrence.location,
-          notes: occurrence.notes,
-          sourceKind: occurrence.sourceKind,
-          importBatchId: occurrence.importBatchId,
-          logicalCourseId: occurrence.logicalCourseId,
-        )
-      else
-        occurrence,
-  ];
-}
+}) => transitionMinutes <= 0
+    ? occurrences
+    : applyCourseTransitionByLocalDate(
+        occurrences,
+        transitionMinutesFor: (_) => transitionMinutes,
+      );

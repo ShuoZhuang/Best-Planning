@@ -35,6 +35,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 const _timeZoneId = 'Asia/Shanghai';
 
 final _zones = TimeZoneDatabase();
@@ -128,18 +130,35 @@ ScheduleProblem _problem(
   SchedulableTask task,
   List<BusyInterval> busy, {
   List<PlannedBlock> lockedBlocks = const [],
-}) => ScheduleProblem(
-  planningWindow: TimeRange(startUtc: _planStartUtc, endUtc: _periodEndUtc),
-  timeZoneId: _timeZoneId,
-  tasks: [task],
-  fixedIntervals: busy,
-  protectedIntervals: const [],
-  lockedBlocks: lockedBlocks,
-  rules: _rules(),
-  preferences: const PreferenceProfile(),
-  inputHash: 'even-distribution-v1',
-  pinnedUnlockedBlockIds: const {},
-);
+}) {
+  final window = TimeRange(startUtc: _planStartUtc, endUtc: _periodEndUtc);
+  final zoneId = _timeZoneId;
+  final rules = _rules();
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: [task],
+    fixedIntervals: busy,
+    protectedIntervals: const [],
+    lockedBlocks: lockedBlocks,
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'even-distribution-v1',
+    pinnedUnlockedBlockIds: const {},
+  );
+}
 
 /// 每个本地日期的已安排分钟（只统计 [taskId]，且只统计落在本周内的块）。
 Map<int, int> _minutesByDay(

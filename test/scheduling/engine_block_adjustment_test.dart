@@ -20,6 +20,8 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
@@ -52,20 +54,37 @@ void main() {
     required List<PlannedBlock> existingBlocks,
     BlockAdjustmentContext? adjustment,
     Map<String, DateTime> referenceBlocks = const {},
-  }) => ScheduleProblem(
-    planningWindow: TimeRange(startUtc: at(0), endUtc: at(24)),
-    timeZoneId: 'UTC',
-    tasks: [task('t-a')],
-    fixedIntervals: const [],
-    protectedIntervals: const [],
-    lockedBlocks: lockedBlocks,
-    existingBlocks: existingBlocks,
-    rules: DefaultSettings.v1(),
-    preferences: const PreferenceProfile(),
-    inputHash: 'h',
-    referenceBlocks: referenceBlocks,
-    adjustment: adjustment,
-  );
+  }) {
+    final window = TimeRange(startUtc: at(0), endUtc: at(24));
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: [task('t-a')],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: lockedBlocks,
+      existingBlocks: existingBlocks,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'h',
+      referenceBlocks: referenceBlocks,
+      adjustment: adjustment,
+    );
+  }
 
   test('**目标块被放到下界之后**（下界是"不早于"，不是精确点）', () {
     // 目标块原在 09:00（已确认、未锁定）；下界 10:30。

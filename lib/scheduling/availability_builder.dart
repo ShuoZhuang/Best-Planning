@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 
 final class AvailabilityInput {
@@ -10,18 +11,40 @@ final class AvailabilityInput {
     required this.planningWindow,
     required this.timeZoneId,
     required this.rules,
+    required Map<DateTime, DailySchedulingPolicy> dailyPolicies,
     List<TimeRange> fixedIntervals = const [],
     List<TimeRange> protectedIntervals = const [],
     List<TimeRange> lockedBlocks = const [],
     List<TimeRange> chargedMovableBlocks = const [],
-  }) : fixedIntervals = UnmodifiableListView(fixedIntervals),
+  }) : dailyPolicies = UnmodifiableMapView({
+         for (final entry in dailyPolicies.entries)
+           normalizeLocalDate(entry.key): entry.value,
+       }),
+       fixedIntervals = UnmodifiableListView(fixedIntervals),
        protectedIntervals = UnmodifiableListView(protectedIntervals),
        lockedBlocks = UnmodifiableListView(lockedBlocks),
-       chargedMovableBlocks = UnmodifiableListView(chargedMovableBlocks);
+       chargedMovableBlocks = UnmodifiableListView(chargedMovableBlocks) {
+    if (dailyPolicies.isEmpty) {
+      throw ArgumentError.value(
+        dailyPolicies,
+        'dailyPolicies',
+        '可用时间分析必须按日取规则，不得回退到窗口首日',
+      );
+    }
+  }
 
   final TimeRange planningWindow;
   final String timeZoneId;
+
+  /// **兼容快照**：算法 17 里它只用于"任务默认值"一类的兜底读取。
+  ///
+  /// 任何**按日期变化**的量（睡眠、粒度、保护时间、每日上限）都必须改读
+  /// [dailyPolicies]，否则会再次出现"周末套用周一上限"这一整类缺陷。
   final PlanningRules rules;
+
+  /// 逐日完整解析后的规则。**这是本层唯一的事实源。**
+  final Map<DateTime, DailySchedulingPolicy> dailyPolicies;
+
   final List<TimeRange> fixedIntervals;
   final List<TimeRange> protectedIntervals;
   final List<TimeRange> lockedBlocks;
@@ -93,13 +116,31 @@ final class BlockedAvailabilitySegment {
 final class AvailabilityAnalysis {
   AvailabilityAnalysis({
     required List<AvailabilitySlot> slots,
+    required List<AvailabilitySlot> hardFreeSlots,
     required List<BlockedAvailabilitySegment> blockedSegments,
     required this.calendarGapMinutes,
+    required this.hardFreeMinutes,
   }) : slots = UnmodifiableListView(List.of(slots)),
+       hardFreeSlots = UnmodifiableListView(List.of(hardFreeSlots)),
        blockedSegments = UnmodifiableListView(List.of(blockedSegments));
 
   /// 与 `build(input)` **逐值相同**的空闲时段（见 `build` 的转发）。
+  ///
+  /// 算法 17 里它的准确名字是**视觉空白**：窗口扣除固定、保护、睡眠、课程过渡
+  /// **以及基线里占住时间的任务块**之后，按粒度对齐的区间并集（计划 §2 术语表）。
   final List<AvailabilitySlot> slots;
+
+  /// **日硬空闲**：只扣固定、保护、睡眠与课程过渡，**不扣任何任务块**（计划 §2 术语表）。
+  ///
+  /// 与 [slots] 出自**同一次扫线**，因此两者不可能各算一套口径——这正是计划
+  /// §1.2 第 1 条与 §11「不允许让容量分析器、诊断器和引擎各自重算一份空闲时间」
+  /// 所要求的形式。
+  ///
+  /// 锁定块与"拖动了但没锁定"的块只缩小 [slots]，不缩小 [hardFreeSlots]；
+  /// 它们同时进入当日**已用量**（`usedMovableMinutes`），于是"硬空闲 240、
+  /// 锁定任务 60、每日上限 180"会得到 `hardFree=240`、`calendarGap=180`、
+  /// `licensed=180`、`used=60`、`remaining=120`，而不是 60。
+  final List<AvailabilitySlot> hardFreeSlots;
 
   /// 规划窗口内被占用的分段，带来源标签，按起点升序、互不重叠。
   final List<BlockedAvailabilitySegment> blockedSegments;
@@ -110,6 +151,11 @@ final class AvailabilityAnalysis {
   /// `availability_builder_test.dart` 钉住：两个数字一旦不一致，就说明有人把
   /// "空闲"算成了两件事。
   final int calendarGapMinutes;
+
+  /// 规划窗口扣除**非任务**硬占用并按粒度对齐后的空闲分钟并集。
+  ///
+  /// **它恒等于 `hardFreeSlots.sum(durationMinutes)`**（同一条等式纪律）。
+  final int hardFreeMinutes;
 }
 
 final class AvailabilityBuilder {
@@ -146,6 +192,15 @@ final class AvailabilityBuilder {
   List<AvailabilitySlot> build(AvailabilityInput input) => analyze(input).slots;
 
   /// [build] 的详细形式：除空闲时段外，还返回带来源标签的占用分段与空闲分钟总数。
+  ///
+  /// 算法 17 的**两处结构变化**（计划 §3.1 / Task 2 Step 5）：
+  ///
+  /// 1. **同一次扫线产出两组切片**：[hardFreeSlots] 只扣非任务硬占用，[slots]
+  ///    再扣锁定/钉住的任务块。修复前只有一组，于是"日历可见空白"与"任务合规容量"
+  ///    无法分开，用户看到的是"明明空着却说容量不足"。
+  /// 2. **粒度按空闲段所属的本地日取**（`dailyPolicies[localDate]`），不再用窗口首日
+  ///    的 `rules.granularityMinutes`。周末粒度与工作日不同时（用户在设置里可以这样配），
+  ///    旧写法会把周末按工作日的网格对齐。
   AvailabilityAnalysis analyze(AvailabilityInput input) {
     // ── 带标签的占用合并（扫线）──────────────────────────────────────────────
     //
@@ -167,16 +222,58 @@ final class AvailabilityBuilder {
       }
     }
 
+    // ── 睡眠：**按每天自己的规则展开一次**（计划 Task 2 Step 5）─────────────────
+    //
+    // 计划要求"`AvailabilityBuilder` 不再从全局 `problem.rules` 私自展开第二份睡眠"。
+    // 关键的两个字是**全局**：修复前的写法是
+    //
+    //     ProtectedTimeExpander(_zones).sleep(rules: input.rules, ...)
+    //
+    // 它用**一份**规则（窗口首日）展开整个窗口，于是"周末睡眠不同"整周不生效——
+    // 这正是计划 §1.2 第 1 条说的结构缺口。
+    //
+    // 现在改为**逐日**：每一天用它自己那份 `resolvedRules.sleepRange` 展开。
+    // 口径因此只有一个（这一天自己的规则），而且**不再需要调用方重复提供睡眠区间**：
+    // 装配层仍然把睡眠放进 `protectedIntervals`（`PlanValidator` 要靠它判"块压在
+    // 睡眠上"是不是冲突），两者是**同一份展开结果**，`_merge` 会把重叠并掉，
+    // 因此"同一分钟只扣一次"依然成立。
+    final sleepRaw = <TimeRange>[];
+    for (final date in _localDatesOf(input.planningWindow, input.timeZoneId)) {
+      final rules = input.dailyPolicies[date]?.resolvedRules;
+      if (rules == null) continue;
+      sleepRaw.addAll(
+        ProtectedTimeExpander(_zones)
+            .sleep(
+              rules: rules,
+              startUtc: input.planningWindow.startUtc,
+              endUtc: input.planningWindow.endUtc,
+              timeZoneId: input.timeZoneId,
+            )
+            .map((interval) => interval.range),
+      );
+    }
+
     addLabeled(input.fixedIntervals, AvailabilityBlockerKind.fixed);
     addLabeled(input.protectedIntervals, AvailabilityBlockerKind.protected);
-    addLabeled(_sleepIntervals(input), AvailabilityBlockerKind.sleep);
+    addLabeled(sleepRaw, AvailabilityBlockerKind.sleep);
     addLabeled(input.lockedBlocks, AvailabilityBlockerKind.locked);
+    // **锁定任务块也要带标签**：`chargedMovableBlocks` 装的是"锁定块 + 拖动了但没锁定"
+    // 的那些，它们与固定日程、保护时间一样占住这段时间。少了这个标签，
+    // `blockedSegments` 就说不清"这一分钟为什么不能用"——而那是预览唯一的解释依据。
+    //
+    // 重复不会导致重复扣除：它们与 `lockedBlocks` 里的同一段区间合并，
+    // 而 `busy` 是**并集**（见下面 `_merge`）。
+    addLabeled(input.chargedMovableBlocks, AvailabilityBlockerKind.locked);
 
     // 带标签的两两合并：相邻或重叠且标签集合**相同**的区间先各自合并，
     // 再把"标签集合不同但区间重叠"的部分拆开——拆开是必要的，否则一段
     // "固定日程 + 保护时间"重叠 30 分钟的区间会丢掉其中一个标签。
     final blockedSegments = _labeledSegments(labeled);
 
+    // 归入 [AvailabilityBlockerKind.locked] 标签的区间里，**真正的任务块**是
+    // `chargedMovableBlocks`（锁定块与"拖动了但没锁定"的块）。装配层放进
+    // `lockedBlocks` 的固定日程与保护时间同样带 locked 标签，而"日硬空闲不扣任何
+    // 任务块"（计划 §2 术语表）只扣它们，因此下面直接用来源求并集而不是做集合减法。
     final charged = _merge([
       for (final range in input.chargedMovableBlocks)
         ?_intersection(range, input.planningWindow),
@@ -190,7 +287,24 @@ final class AvailabilityBuilder {
       ...charged,
     ]);
 
+    // ── 日硬空闲的占用集合：**非任务硬占用的并集**（计划 §2 术语表）─────────────
+    //
+    // 不用"把带标签分段减去 charged"这种集合减法：那样要处理部分重叠，容易在重叠
+    // 边界上多扣或漏扣。反过来直接从**来源**求并集更简单也更可核对：固定 + 保护 + 睡眠
+    // 就是"非任务硬占用"的全部来源，而它们本来就已按区间合并过（同一分钟只扣一次）。
+    //
+    // 装配层已经把逐日睡眠展开后传进来（计划 Task 2 Step 5），因此睡眠仍然被扣到——
+    // 只是不再由本层展开第二份。
+    final hardBusy = _merge([
+      for (final range in input.fixedIntervals)
+        ?_intersection(range, input.planningWindow),
+      for (final range in input.protectedIntervals)
+        ?_intersection(range, input.planningWindow),
+      for (final range in sleepRaw) ?_intersection(range, input.planningWindow),
+    ]);
+
     final output = <AvailabilitySlot>[];
+    final hardFreeOutput = <AvailabilitySlot>[];
     var localDate = _dateOnly(
       _zones.toLocal(input.planningWindow.startUtc, input.timeZoneId),
     );
@@ -200,17 +314,36 @@ final class AvailabilityBuilder {
         input.timeZoneId,
       ),
     );
-    final granularity = input.rules.granularityMinutes;
 
     while (!localDate.isAfter(lastLocalDate)) {
+      // **粒度按这一天自己的策略**（计划 Task 2 Step 5 末段）。
+      // 缺日即装配不变量破坏：这里抛错而不是回退窗口首日。
+      final granularity = input
+          .dailyPolicies[normalizeLocalDate(localDate)]
+          ?.resolvedRules
+          .granularityMinutes;
+      if (granularity == null) {
+        throw StateError(
+          '可用时间分析缺少本地日期 '
+          '${localDate.year}-${localDate.month}-${localDate.day} 的每日策略',
+        );
+      }
       final dayStart = _zones.localMidnightToUtc(localDate, input.timeZoneId);
-      final nextDate = localDate.add(const Duration(days: 1));
+      // **按本地自然日推进**，不用 `add(Duration(days: 1))`：后者加的是绝对 24 小时，
+      // DST 切换日会落在前一天的 23:00 或当天的 01:00，于是同一天被枚举两次、
+      // 另一天被跳过（计划 Task 2 Step 4 的 DST 用例钉的就是这件事）。
+      final nextDate = DateTime(
+        localDate.year,
+        localDate.month,
+        localDate.day + 1,
+      );
       final dayEnd = _zones.localMidnightToUtc(nextDate, input.timeZoneId);
       final dayWindow = _intersection(
         TimeRange(startUtc: dayStart, endUtc: dayEnd),
         input.planningWindow,
       );
       if (dayWindow != null) {
+        // 视觉空白：扣除全部占用（含任务块）。
         final dayBusy = busy
             .map((range) => _intersection(range, dayWindow))
             .nonNulls
@@ -231,36 +364,67 @@ final class AvailabilityBuilder {
             ),
           );
         }
+        // 日硬空闲：只扣非任务硬占用。
+        final dayHardBusy = hardBusy
+            .map((range) => _intersection(range, dayWindow))
+            .nonNulls
+            .toList();
+        for (final range in _complement(dayWindow, dayHardBusy)) {
+          final alignedMinutes =
+              (range.durationMinutes ~/ granularity) * granularity;
+          if (alignedMinutes <= 0) continue;
+          hardFreeOutput.add(
+            AvailabilitySlot(
+              localDate: localDate,
+              range: TimeRange(
+                startUtc: range.startUtc,
+                endUtc: range.startUtc.add(Duration(minutes: alignedMinutes)),
+              ),
+            ),
+          );
+        }
       }
       localDate = nextDate;
     }
 
     final slots = UnmodifiableListView(output);
+    final hardFreeSlots = UnmodifiableListView(hardFreeOutput);
     return AvailabilityAnalysis(
       slots: slots,
+      hardFreeSlots: hardFreeSlots,
       blockedSegments: blockedSegments,
       calendarGapMinutes: slots.fold<int>(
         0,
         (sum, slot) => sum + slot.durationMinutes,
       ),
+      hardFreeMinutes: hardFreeSlots.fold<int>(
+        0,
+        (sum, slot) => sum + slot.durationMinutes,
+      ),
     );
   }
+}
 
-  List<TimeRange> _sleepIntervals(AvailabilityInput input) =>
-      // **睡眠展开只有一处实现**（`ProtectedTimeExpander.sleep`）。
-      // 此前这里是自带的一份同样逻辑，而 `ScheduleProblem.protectedIntervals`
-      // 里**没有**睡眠 —— 于是"容量认为睡眠不可用、校验却认为压上去没关系"，
-      // 两处口径不一致（用户第 65 轮复核第 3 条）。
-      // 现在两边共用同一份展开，口径不可能再漂。
-      ProtectedTimeExpander(_zones)
-          .sleep(
-            rules: input.rules,
-            startUtc: input.planningWindow.startUtc,
-            endUtc: input.planningWindow.endUtc,
-            timeZoneId: input.timeZoneId,
-          )
-          .map((interval) => interval.range)
-          .toList();
+/// 本方法需要展开睡眠的**本地日期集合**：规划窗口覆盖到的那些天。
+///
+/// 用窗口端点换算、按日历日推进（不用 `add(Duration(days: 1))`：DST 切换日会
+/// 落在前一天的 23:00）。与 `ScheduleProblem.dailyPolicies` 的日期集合一致，
+/// 因此逐日策略一定命中。
+List<DateTime> _localDatesOf(TimeRange window, String timeZoneId) {
+  final zones = TimeZoneDatabase();
+  final first = _dateOnly(zones.toLocal(window.startUtc, timeZoneId));
+  final last = _dateOnly(
+    zones.toLocal(
+      window.endUtc.subtract(const Duration(microseconds: 1)),
+      timeZoneId,
+    ),
+  );
+  final dates = <DateTime>[];
+  for (var date = first; !date.isAfter(last);) {
+    dates.add(date);
+    date = DateTime(date.year, date.month, date.day + 1);
+  }
+  return dates;
 }
 
 List<TimeRange> _merge(List<TimeRange> ranges) {

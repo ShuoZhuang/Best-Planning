@@ -4,6 +4,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 
 final class SchedulableTask {
@@ -238,6 +239,8 @@ final class ScheduleProblem {
     required List<PlannedBlock> lockedBlocks,
     List<PlannedBlock> existingBlocks = const [],
     required this.rules,
+    required Map<DateTime, DailySchedulingPolicy> dailyPolicies,
+    Map<DateTime, int> weeklyLifeQuotaByWeekStart = const {},
     required this.preferences,
     required this.inputHash,
     Set<String> pinnedUnlockedBlockIds = const {},
@@ -255,7 +258,24 @@ final class ScheduleProblem {
        ),
        referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks)),
        confirmedBlocks = UnmodifiableListView(List.of(confirmedBlocks)),
-       admissionConflicts = UnmodifiableListView(List.of(admissionConflicts));
+       admissionConflicts = UnmodifiableListView(List.of(admissionConflicts)),
+       dailyPolicies = UnmodifiableMapView(
+         _validatedDailyPolicies(dailyPolicies),
+       ),
+       weeklyLifeQuotaByWeekStart = UnmodifiableMapView({
+         for (final entry in weeklyLifeQuotaByWeekStart.entries)
+           normalizeLocalDate(entry.key): entry.value,
+       }) {
+    for (final entry in this.weeklyLifeQuotaByWeekStart.entries) {
+      if (entry.value < 0) {
+        throw ArgumentError.value(
+          entry.value,
+          'weeklyLifeQuotaByWeekStart',
+          '周生活配额不能为负（${entry.key}）',
+        );
+      }
+    }
+  }
 
   final TimeRange planningWindow;
   final String timeZoneId;
@@ -270,6 +290,74 @@ final class ScheduleProblem {
   /// 因此不会被硬约束冻结；也不进可用时间，因此新计划仍可复用这些时段。
   final List<PlannedBlock> existingBlocks;
   final PlanningRules rules;
+
+  /// **逐日完整解析后的规则**（计划 §6）。键是归一后的本地日期，升序、连续、不重复。
+  ///
+  /// 这是算法 17 的核心输入之一：[rules] 从此只是**旧接口兼容快照与任务默认值来源**
+  /// （计划 §6 兼容规则第 3 条），任何**按日期变化**的排程判断都必须改读
+  /// [policyForLocalDate]，不得再从 [rules] 取窗口首日的值。
+  ///
+  /// 构造时校验（由 `ScheduleProblem` 自己的用例钉住）：
+  /// - 非空；
+  /// - 每个键都已归一（`DateTime(y, m, d)`）；
+  /// - 按日**连续**且不重复——中间缺一天就意味着有人在装配时跳过了某个日期，
+  ///   而那会让那一天悄悄回退到窗口首日规则，正是本计划要根除的缺陷。
+  ///
+  /// **覆盖规划窗口涉及的每一个本地日期**这一条由装配层用 `TimeZoneDatabase` 证明
+  /// （计划 §6：不能把时区校验伪装成不持有时区数据库的值对象校验）。
+  final Map<DateTime, DailySchedulingPolicy> dailyPolicies;
+
+  /// **逐本地周**的生活配额，键是该周**周一**的本地日期（计划 §6 兼容规则末条）。
+  ///
+  /// 为什么不能继续用单一的 `rules.weeklyLifeQuotaMinutes`：窗口跨周时（滚动七天
+  /// 几乎总是跨周），后半周的生活配额属于**下一周**的规则，用首周的值会算错目标。
+  final Map<DateTime, int> weeklyLifeQuotaByWeekStart;
+
+  /// 取 [localDate] 当天的规则。**缺键即装配不变量破坏**，抛 [StateError] 而不回退首日。
+  DailySchedulingPolicy policyForLocalDate(DateTime localDate) {
+    final key = normalizeLocalDate(localDate);
+    final policy = dailyPolicies[key];
+    if (policy == null) {
+      throw StateError(
+        '缺少本地日期 ${key.year}-${key.month}-${key.day} 的每日排程策略；'
+        '装配层必须为规划窗口涉及的每一个本地日期构造 DailySchedulingPolicy，'
+        '不得回退到窗口首日规则',
+      );
+    }
+    return policy;
+  }
+
+  /// 取 [localDate] 所在**本地周**的生活配额，回退到该周的周一。
+  ///
+  /// 缺键同样抛 [StateError]：周配额缺失意味着装配层没有解析那一周的规则，
+  /// 静默返回 0 会让生活类任务的缺口无法解释。
+  int lifeQuotaForLocalWeek(DateTime localDate) {
+    final monday = _localMondayOf(localDate);
+    final quota = weeklyLifeQuotaByWeekStart[monday];
+    if (quota == null) {
+      throw StateError(
+        '缺少本地周（周一 ${monday.year}-${monday.month}-${monday.day}）的生活配额；'
+        '装配层必须为窗口涉及的每一个本地周解析其周一规则',
+      );
+    }
+    return quota;
+  }
+
+  /// **睡眠区间**：按逐日策略展开、只与规划窗口相交的部分，按起点升序。
+  ///
+  /// 算法 17 之前，睡眠只存在于 `AvailabilityBuilder` 内部（容量扣它，而
+  /// `protectedIntervals` 里没有它，于是 `PlanValidator` 不认为"块压在睡眠上"是冲突）。
+  /// 现在睡眠由装配层**按当天规则**展开一次，同时进入 [protectedIntervals]（供校验）
+  /// 与 `AvailabilityInput.sleepIntervals`（供容量），因此两处口径只能是同一份。
+  ///
+  /// 标签为 [ProtectedTimeKind] 之外的一类：它由 `AvailabilityBuilder` 记成
+  /// `AvailabilityBlockerKind.sleep`，与"改保护时间"区分开。
+  List<BusyInterval> get sleepIntervals => UnmodifiableListView([
+    for (final interval in protectedIntervals)
+      if (interval.protectedKind == null && interval.id.startsWith('sleep:'))
+        interval,
+  ]);
+
   final PreferenceProfile preferences;
   final String inputHash;
 
@@ -335,4 +423,60 @@ final class ScheduleProblem {
   /// **不进 `inputHash`**：它与 `tasks` 是同一批输入的两种表达（`tasks` 已经排除了这些
   /// 任务），把它算进哈希只会让同一份输入得到两个哈希。
   final List<PlanningConflict> admissionConflicts;
+}
+
+/// 校验并复制每日策略表：非空、键已归一、按日连续且不重复。
+///
+/// 这个函数是 [ScheduleProblem] 构造器的一部分，独立出来只为一件事：
+/// 让"哪些形状是非法输入"在一处可读、可被单独讨论，而不是散在初始化列表里。
+Map<DateTime, DailySchedulingPolicy> _validatedDailyPolicies(
+  Map<DateTime, DailySchedulingPolicy> source,
+) {
+  if (source.isEmpty) {
+    throw ArgumentError.value(
+      source,
+      'dailyPolicies',
+      '每日排程策略不得为空：算法 17 的每一次日期敏感判断都要读它',
+    );
+  }
+  final normalized = <DateTime, DailySchedulingPolicy>{};
+  for (final entry in source.entries) {
+    final key = normalizeLocalDate(entry.key);
+    if (normalized.containsKey(key)) {
+      throw ArgumentError.value(
+        key,
+        'dailyPolicies',
+        '同一个本地日期出现了两条策略：${key.year}-${key.month}-${key.day}',
+      );
+    }
+    final policy = entry.value;
+    if (policy.localDate != key) {
+      throw ArgumentError.value(
+        key,
+        'dailyPolicies',
+        '策略自身的 localDate（${policy.localDate}）与它的键不一致',
+      );
+    }
+    normalized[key] = entry.value;
+  }
+  final dates = normalized.keys.toList()..sort();
+  for (var index = 1; index < dates.length; index++) {
+    final previous = dates[index - 1];
+    final expected = DateTime(previous.year, previous.month, previous.day + 1);
+    if (dates[index] != expected) {
+      throw ArgumentError.value(
+        dates[index],
+        'dailyPolicies',
+        '每日策略必须按日连续：$previous 之后应当是 $expected，'
+            '而不是 ${dates[index]}（缺日会让那一天悄悄回退到窗口首日规则）',
+      );
+    }
+  }
+  return normalized;
+}
+
+/// [localDate] 所在**本地周**的周一（归一为 `DateTime(y, m, d)`）。
+DateTime _localMondayOf(DateTime localDate) {
+  final date = normalizeLocalDate(localDate);
+  return DateTime(date.year, date.month, date.day - (date.weekday - 1));
 }

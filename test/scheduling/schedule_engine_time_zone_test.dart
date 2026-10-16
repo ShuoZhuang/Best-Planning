@@ -25,43 +25,22 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
 
-  ScheduleProblem problem(String timeZoneId) => ScheduleProblem(
-    planningWindow: TimeRange(
+  ScheduleProblem problem(String timeZoneId) {
+    final window = TimeRange(
       // 起点取 01:00Z：纽约 EST 下本地 20:00（睡眠开始）恰好是 01:00Z，因此窗口内除睡眠与
       // 固定日程外**没有**余量。首版我用了 00:00Z，结果 00:00Z–01:00Z（本地 19:00–20:00）
       // 仍是空闲，引擎把块排在那里——那说明引擎正确、我的场景不够紧，故收紧一小时。
       startUtc: DateTime.utc(2026, 11, 2, 1),
       endUtc: DateTime.utc(2026, 11, 3, 1),
-    ),
-    timeZoneId: timeZoneId,
-    tasks: const [
-      SchedulableTask(
-        id: 'task-1',
-        requiredMinutes: 60,
-        splitMode: TaskSplitMode.splittable,
-        minChunkMinutes: 30,
-        maxChunkMinutes: 90,
-        priority: TaskPriority.medium,
-        energyLevel: TaskEnergyLevel.medium,
-        isLifeTask: false,
-      ),
-    ],
-    fixedIntervals: [
-      BusyInterval(
-        id: 'blocked',
-        range: TimeRange(
-          startUtc: DateTime.utc(2026, 11, 2, 13),
-          endUtc: DateTime.utc(2026, 11, 3, 1),
-        ),
-      ),
-    ],
-    protectedIntervals: const [],
-    lockedBlocks: const [],
-    rules: PlanningRules(
+    );
+    final zoneId = timeZoneId;
+    final rules = PlanningRules(
       energyWindows: [
         EnergyWindow(
           range: LocalTimeRange(startMinute: 8 * 60, endMinute: 20 * 60),
@@ -74,10 +53,50 @@ void main() {
       breakMinutes: 10,
       dailyMovableTaskLimitMinutes: 360,
       weeklyLifeQuotaMinutes: 60,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'time-zone-discriminator-v1',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: const [
+        SchedulableTask(
+          id: 'task-1',
+          requiredMinutes: 60,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 30,
+          maxChunkMinutes: 90,
+          priority: TaskPriority.medium,
+          energyLevel: TaskEnergyLevel.medium,
+          isLifeTask: false,
+        ),
+      ],
+      fixedIntervals: [
+        BusyInterval(
+          id: 'blocked',
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 11, 2, 13),
+            endUtc: DateTime.utc(2026, 11, 3, 1),
+          ),
+        ),
+      ],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'time-zone-discriminator-v1',
+    );
+  }
 
   test('纽约时区下每天毫无空闲，任务必须报出缺口', () {
     final proposal = engine.generate(problem('America/New_York'));

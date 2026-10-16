@@ -30,6 +30,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   const zoneId = 'Asia/Shanghai';
   final zones = TimeZoneDatabase();
@@ -195,11 +197,13 @@ void main() {
       10 * 60,
       zoneId,
     );
+    final window = TimeRange(
+      startUtc: start,
+      endUtc: start.add(const Duration(hours: 8)),
+    );
+    final rules = _rules(granularityMinutes: 10);
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(
-        startUtc: start,
-        endUtc: start.add(const Duration(hours: 8)),
-      ),
+      planningWindow: window,
       timeZoneId: zoneId,
       tasks: const [
         SchedulableTask(
@@ -213,7 +217,19 @@ void main() {
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: _rules(granularityMinutes: 10),
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'grid',
     );

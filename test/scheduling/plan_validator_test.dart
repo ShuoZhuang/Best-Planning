@@ -7,6 +7,10 @@ import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   final validator = PlanValidator(TimeZoneDatabase());
   final day = DateTime.utc(2026, 10, 2);
@@ -21,32 +25,49 @@ void main() {
     List<BusyInterval> protected = const [],
     List<PlannedBlock> locked = const [],
     int? dailyLimit,
-  }) => ScheduleProblem(
-    planningWindow: TimeRange(
+  }) {
+    final window = TimeRange(
       startUtc: day,
       endUtc: day.add(const Duration(days: 1)),
-    ),
-    timeZoneId: 'UTC',
-    tasks:
-        tasks ??
-        [
-          const SchedulableTask(
-            id: 'task-1',
-            requiredMinutes: 60,
-            splitMode: TaskSplitMode.splittable,
-            minChunkMinutes: 25,
-            maxChunkMinutes: 90,
-          ),
-        ],
-    fixedIntervals: fixed,
-    protectedIntervals: protected,
-    lockedBlocks: locked,
-    rules: DefaultSettings.v1().copyWith(
+    );
+    final zoneId = 'UTC';
+    final rules = DefaultSettings.v1().copyWith(
       dailyMovableTaskLimitMinutes: dailyLimit ?? 360,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'hash-1',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks:
+          tasks ??
+          [
+            const SchedulableTask(
+              id: 'task-1',
+              requiredMinutes: 60,
+              splitMode: TaskSplitMode.splittable,
+              minChunkMinutes: 25,
+              maxChunkMinutes: 90,
+            ),
+          ],
+      fixedIntervals: fixed,
+      protectedIntervals: protected,
+      lockedBlocks: locked,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'hash-1',
+    );
+  }
 
   test('报告固定日程和保护时间重叠', () {
     final blocks = [

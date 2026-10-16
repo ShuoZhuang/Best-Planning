@@ -20,7 +20,6 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -96,37 +95,49 @@ void main() {
       ),
   );
 
-  /// **整天堵死**的保护时间覆盖：`00:00–24:00`、`DayKind.any`。
+  /// **整天堵死**：窗口内**每一天**一条 `00:00–24:00` 的保护日程。
   ///
-  /// 它由 `ProtectedTimeExpander` 逐日展开到窗口内的每一天，
-  /// 因此窗口里**没有任何**可放片段的位置。
-  final blockEverything = ScheduleRuleOverride(
-    localDate: DateTime(2026, 10, 12),
-    patch: PlanningRulesPatch(
-      protectedTimes: <ProtectedTimeRule>[
-        ProtectedTimeRule(
-          kind: ProtectedTimeKind.fixedRest,
-          range: LocalTimeRange(
-            startMinute: 0,
-            endMinute: LocalTimeRange.minutesPerDay,
+  /// ## 为什么不再用 `ScheduleRuleOverride`（算法 17 的语义修正）
+  ///
+  /// 修复前这里用的是"`localDate = 2026-10-12` 的一次性覆盖 + `DayKind.any`"，
+  /// 而它之所以能堵住整周，是因为 `PlanningRuleResolver.resolveForWindow` 只解析
+  /// **窗口首日**与一个周末日，把两份规则**并集**后交给引擎按 `DayKind` 筛选——
+  /// `DayKind.any` 于是命中每一天。**那不是"一次性覆盖只作用于命中日期"的语义**，
+  /// 而是一次把首日规则泄漏到整周的副作用（计划 §1.2 第 1 条要修掉的正是它）。
+  ///
+  /// 算法 17 之后，一次性覆盖**只作用于它命中的那一天**（计划 §6 兼容规则第 2 条），
+  /// 因此"堵住整个窗口"必须由**真实占用**表达：窗口内每天一条全天的保护日程。
+  /// 这也更贴近用户能做的事——用户确实可以在日历里建一条重复的保护时间。
+  List<CalendarOccurrence> blockEveryDayInWindow() => [
+    for (var offset = 0; offset < 7; offset++)
+      CalendarOccurrence(
+        eventId: 'protected-all-day-$offset',
+        title: 'protected-all-day',
+        range: TimeRange(
+          startUtc: zones.localMidnightToUtc(
+            DateTime(2026, 10, 12 + offset),
+            zoneId,
           ),
-          dayKind: DayKind.any,
-          enabled: true,
+          endUtc: zones.localMidnightToUtc(
+            DateTime(2026, 10, 13 + offset),
+            zoneId,
+          ),
         ),
-      ],
-    ),
-  );
+        kind: CalendarEventKind.protected,
+        locked: false,
+      ),
+  ];
 
   test('**整个窗口无处可放 ⇒ 明确报未安排、不得留原位、且不能应用**', () async {
-    final source = makeSource(calendar: const []);
+    final source = makeSource(calendar: blockEveryDayInWindow());
     final planning = PlanningService(
       source: source,
       engine: DeterministicScheduleEngine(zones),
     );
-    final proposal = await planning.createProposal(override: blockEverything);
+    final proposal = await planning.createProposal();
 
     // 先确认"堵死"确实生效（否则下面的断言会变成假阳性）。
-    final problem = await source.load(override: blockEverything);
+    final problem = await source.load();
     final covered = problem.protectedIntervals.fold<int>(
       0,
       (sum, interval) => sum + interval.range.durationMinutes,

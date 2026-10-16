@@ -59,6 +59,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 const String _zoneId = 'Asia/Shanghai';
 
 final TimeZoneDatabase _zones = TimeZoneDatabase();
@@ -230,13 +232,22 @@ void main() {
     final unscheduled = proposal.unscheduled
         .where((item) => item.taskId == taskId)
         .firstOrNull;
+    final window = problem.planningWindow;
+    final zoneId = problem.timeZoneId;
+    final rules = problem.rules;
     final builder = AvailabilityBuilder(_zones);
     final calendarGap = builder
         .build(
           AvailabilityInput(
-            planningWindow: problem.planningWindow,
-            timeZoneId: problem.timeZoneId,
-            rules: problem.rules,
+            planningWindow: window,
+            timeZoneId: zoneId,
+            rules: rules,
+            dailyPolicies: dailyPoliciesForWindow(
+              zones: _zones,
+              window: window,
+              rules: rules,
+              timeZoneId: zoneId,
+            ),
             fixedIntervals: problem.fixedIntervals
                 .map((item) => item.range)
                 .toList(),
@@ -285,11 +296,20 @@ void main() {
 
     final problem = await source.load();
     final proposal = DeterministicScheduleEngine(_zones).generate(problem);
+    final window = problem.planningWindow;
+    final zoneId = problem.timeZoneId;
+    final rules = problem.rules;
     final slots = AvailabilityBuilder(_zones).build(
       AvailabilityInput(
-        planningWindow: problem.planningWindow,
-        timeZoneId: problem.timeZoneId,
-        rules: problem.rules,
+        planningWindow: window,
+        timeZoneId: zoneId,
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
         fixedIntervals: problem.fixedIntervals
             .map((item) => item.range)
             .toList(),
@@ -445,11 +465,20 @@ void main() {
     final generator = CandidateGenerator(
       granularityMinutes: problem.rules.granularityMinutes,
     );
+    final window = problem.planningWindow;
+    final zoneId = problem.timeZoneId;
+    final rules = problem.rules;
     final slots = AvailabilityBuilder(_zones).build(
       AvailabilityInput(
-        planningWindow: problem.planningWindow,
-        timeZoneId: problem.timeZoneId,
-        rules: problem.rules,
+        planningWindow: window,
+        timeZoneId: zoneId,
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
         fixedIntervals: problem.fixedIntervals
             .map((item) => item.range)
             .toList(),

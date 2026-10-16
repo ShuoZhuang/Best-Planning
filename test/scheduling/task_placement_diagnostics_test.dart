@@ -38,6 +38,8 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   const zoneId = 'UTC';
@@ -68,20 +70,35 @@ void main() {
     List<PlannedBlock> locked = const [],
     int dailyMovableTaskLimitMinutes = 600,
     int granularityMinutes = 5,
-  }) => ScheduleProblem(
-    planningWindow: window,
-    timeZoneId: zoneId,
-    tasks: [task],
-    fixedIntervals: fixed,
-    protectedIntervals: protected,
-    lockedBlocks: locked,
-    rules: rules(
+  }) {
+    final planningRules = rules(
       dailyMovableTaskLimitMinutes: dailyMovableTaskLimitMinutes,
       granularityMinutes: granularityMinutes,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'gap-matrix',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: [task],
+      fixedIntervals: fixed,
+      protectedIntervals: protected,
+      lockedBlocks: locked,
+      rules: planningRules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: planningRules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: planningRules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'gap-matrix',
+    );
+  }
 
   SchedulableTask task({
     String id = 't1',
@@ -113,11 +130,20 @@ void main() {
     required int remainingMinutes,
     List<PlannedBlock> finalBlocks = const [],
   }) {
+    final window = forProblem.planningWindow;
+    final problemTimeZoneId = forProblem.timeZoneId;
+    final planningRules = forProblem.rules;
     final availability = AvailabilityBuilder(zones).analyze(
       AvailabilityInput(
-        planningWindow: forProblem.planningWindow,
-        timeZoneId: forProblem.timeZoneId,
-        rules: forProblem.rules,
+        planningWindow: window,
+        timeZoneId: problemTimeZoneId,
+        rules: planningRules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: planningRules,
+          timeZoneId: problemTimeZoneId,
+        ),
         fixedIntervals: forProblem.fixedIntervals
             .map((item) => item.range)
             .toList(),

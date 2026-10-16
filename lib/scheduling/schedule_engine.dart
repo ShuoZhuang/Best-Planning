@@ -110,23 +110,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // 容量证据与候选生成因此读的是**同一批空闲**。修复前"候选用的空闲"与
     // "归因用的空闲"各算一遍，于是两者可以互相矛盾，而用户无从判断哪一个是真的。
     final availability = _availabilityBuilder.analyze(
-      AvailabilityInput(
-        planningWindow: problem.planningWindow,
-        timeZoneId: problem.timeZoneId,
-        rules: problem.rules,
-        fixedIntervals: problem.fixedIntervals
-            .map((item) => item.range)
-            .toList(),
-        protectedIntervals: problem.protectedIntervals
-            .map((item) => item.range)
-            .toList(),
-        lockedBlocks: problem.lockedBlocks.map((item) => item.range).toList(),
-        // "拖动了但没锁定"的块占住时间、且计入当日可移动预算（见该字段的说明）。
-        chargedMovableBlocks: [
-          for (final block in problem.lockedBlocks)
-            if (problem.pinnedUnlockedBlockIds.contains(block.id)) block.range,
-        ],
-      ),
+      _availabilityInput(problem, problem.planningWindow),
     );
     final slots = availability.slots;
     final targets = {
@@ -593,24 +577,43 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       nowUtc: problem.planningWindow.startUtc,
       horizonEndUtc: problem.planningWindow.endUtc,
       dueAtUtc: dueAt,
-      capacityForRange: (start, end) => _availabilityBuilder
-          .build(
-            AvailabilityInput(
-              planningWindow: TimeRange(startUtc: start, endUtc: end),
-              timeZoneId: problem.timeZoneId,
-              rules: problem.rules,
-              fixedIntervals: problem.fixedIntervals
-                  .map((item) => item.range)
-                  .toList(),
-              protectedIntervals: problem.protectedIntervals
-                  .map((item) => item.range)
-                  .toList(),
-              lockedBlocks: problem.lockedBlocks
-                  .map((item) => item.range)
-                  .toList(),
-            ),
-          )
-          .fold<int>(0, (sum, slot) => sum + slot.durationMinutes),
+      // **必须裁剪到规划窗口之内**：`CapacityModel` 会请求
+      // `[now, effectiveHorizonEnd]` 与 `[effectiveHorizonEnd, evaluatedUntil]`
+      // 两个子区间，而 `evaluatedUntil` 是**截止时间**——它可能远在窗口之外
+      // （规模用例里有截止在 13 天后的任务）。
+      //
+      // 两件事同时被这个裁剪修好：
+      //
+      // 1. **缺日**：逐日策略只覆盖窗口涉及的日期，不裁剪的区间会在
+      //    `AvailabilityBuilder` 里碰上缺日的 `StateError`。
+      // 2. **远期任务的节奏被算歪**（算法 17 修掉的真实缺陷）：修复前
+      //    `capacityForRange` 只在**已经算好的** `analysis.slots` 里筛，
+      //    于是"窗口之外的 23 天"被当成有容量的时间（实测 `after=22080`）。
+      //    一个 120 分钟、截止在 30 天后的任务因此算出 `pacedNow = 28`，
+      //    被抬到最小片段 30 —— 只排 30 分钟。而**窗口之外根本没有可排时段**，
+      //    把那部分算进"截止前总容量"会让近期推进量被系统性低估。
+      //    裁剪之后 `after = 0`，同一个任务按"这一周有多少容量"推进，
+      //    一周内排满 120。
+      //
+      // **裁剪的是"分析范围"，不是"任务语义"**：目标分钟仍然由
+      // `PressureCalculator` 按截止距离算，变的只是"用哪一段时间估容量"。
+      capacityForRange: (start, end) {
+        final clippedStart = start.isBefore(problem.planningWindow.startUtc)
+            ? problem.planningWindow.startUtc
+            : start;
+        final clippedEnd = end.isAfter(problem.planningWindow.endUtc)
+            ? problem.planningWindow.endUtc
+            : end;
+        if (!clippedEnd.isAfter(clippedStart)) return 0;
+        return _availabilityBuilder
+            .build(
+              _availabilityInput(
+                problem,
+                TimeRange(startUtc: clippedStart, endUtc: clippedEnd),
+              ),
+            )
+            .fold<int>(0, (sum, slot) => sum + slot.durationMinutes);
+      },
     );
     return _ensurePlaceable(
       _pressureCalculator.calculate(task, capacity).targetMinutes,
@@ -618,6 +621,38 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       task,
     );
   }
+
+  /// **可用时间输入的唯一构造点**（算法 17，计划 §5.1「硬占用区间的唯一来源」）。
+  ///
+  /// 生成主路径与"按截止估算容量"这条路径都调它，因此两处的硬占用集合、
+  /// 逐日策略与粒度**不可能各算一套口径**。修复前它们各写一遍 `AvailabilityInput`，
+  /// 于是"目标算出来的容量"与"候选真正能用的容量"可以互相矛盾。
+  ///
+  /// [window] 必须是 [problem] 规划窗口的**子区间**：逐日策略只覆盖窗口涉及的日期，
+  /// 而子区间的本地日集合必然是窗口本地日集合的子集。反过来（传入超出窗口的区间）
+  /// 会在 `AvailabilityBuilder` 里因为缺日而抛 [StateError]——这是有意的，
+  /// 缺日必须响亮地失败，而不是悄悄回退到窗口首日。
+  AvailabilityInput _availabilityInput(
+    ScheduleProblem problem,
+    TimeRange window,
+  ) => AvailabilityInput(
+    planningWindow: window,
+    timeZoneId: problem.timeZoneId,
+    rules: problem.rules,
+    // **逐日策略是可用时间层的唯一规则来源**（计划 Task 2 Step 5）：
+    // 粒度与睡眠从此按空闲段所属的本地日取，而不是窗口首日。
+    dailyPolicies: problem.dailyPolicies,
+    fixedIntervals: problem.fixedIntervals.map((item) => item.range).toList(),
+    protectedIntervals: problem.protectedIntervals
+        .map((item) => item.range)
+        .toList(),
+    lockedBlocks: problem.lockedBlocks.map((item) => item.range).toList(),
+    // "拖动了但没锁定"的块占住视觉空白、且计入当日可移动预算（见该字段的说明）。
+    chargedMovableBlocks: [
+      for (final block in problem.lockedBlocks)
+        if (problem.pinnedUnlockedBlockIds.contains(block.id)) block.range,
+    ],
+  );
 
   /// 把"大于零但小于最小可排片段"的目标抬到真正可排的最小量（不超过任务剩余时长）。
   ///

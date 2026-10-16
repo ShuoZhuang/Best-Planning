@@ -17,6 +17,10 @@ import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   late AppDatabase database;
   late DriftPlanRepository repository;
@@ -389,12 +393,15 @@ final class _FixedClock implements Clock {
 
 ScheduleProblem _validationProblem() {
   final day = DateTime.utc(2026, 10, 5);
+  final window = TimeRange(
+    startUtc: day,
+    endUtc: day.add(const Duration(days: 1)),
+  );
+  final zoneId = 'UTC';
+  final rules = DefaultSettings.v1();
   return ScheduleProblem(
-    planningWindow: TimeRange(
-      startUtc: day,
-      endUtc: day.add(const Duration(days: 1)),
-    ),
-    timeZoneId: 'UTC',
+    planningWindow: window,
+    timeZoneId: zoneId,
     tasks: const [
       SchedulableTask(
         id: 'task',
@@ -407,7 +414,19 @@ ScheduleProblem _validationProblem() {
     fixedIntervals: const [],
     protectedIntervals: const [],
     lockedBlocks: const [],
-    rules: DefaultSettings.v1(),
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
     preferences: const PreferenceProfile(),
     inputHash: 'ignored',
   );
@@ -436,28 +455,47 @@ final class _OverrideAwareSource implements ScheduleProblemSource {
   }
 }
 
-ScheduleProblem _withRules(ScheduleProblem problem, PlanningRules rules) =>
-    ScheduleProblem(
-      planningWindow: problem.planningWindow,
-      timeZoneId: problem.timeZoneId,
-      tasks: problem.tasks,
-      fixedIntervals: problem.fixedIntervals,
-      protectedIntervals: problem.protectedIntervals,
-      lockedBlocks: problem.lockedBlocks,
-      existingBlocks: problem.existingBlocks,
-      rules: rules,
-      preferences: problem.preferences,
-      inputHash: problem.inputHash,
-    );
+ScheduleProblem _withRules(ScheduleProblem problem, PlanningRules rules) {
+  final window = problem.planningWindow;
+  final zoneId = problem.timeZoneId;
+  final resolvedRules = rules;
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: problem.tasks,
+    fixedIntervals: problem.fixedIntervals,
+    protectedIntervals: problem.protectedIntervals,
+    lockedBlocks: problem.lockedBlocks,
+    existingBlocks: problem.existingBlocks,
+    rules: resolvedRules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: resolvedRules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: resolvedRules,
+      timeZoneId: zoneId,
+    ),
+    preferences: problem.preferences,
+    inputHash: problem.inputHash,
+  );
+}
 
 ScheduleProblem _overrideProblem() {
   final day = DateTime.utc(2026, 10, 5);
+  final window = TimeRange(
+    startUtc: day,
+    endUtc: day.add(const Duration(days: 1)),
+  );
+  final zoneId = 'UTC';
+  final rules = DefaultSettings.v1();
   return ScheduleProblem(
-    planningWindow: TimeRange(
-      startUtc: day,
-      endUtc: day.add(const Duration(days: 1)),
-    ),
-    timeZoneId: 'UTC',
+    planningWindow: window,
+    timeZoneId: zoneId,
     tasks: const [
       SchedulableTask(
         id: 'task',
@@ -470,7 +508,19 @@ ScheduleProblem _overrideProblem() {
     fixedIntervals: const [],
     protectedIntervals: const [],
     lockedBlocks: const [],
-    rules: DefaultSettings.v1(),
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
     preferences: const PreferenceProfile(),
     inputHash: 'ignored',
   );

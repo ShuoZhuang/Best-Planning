@@ -32,9 +32,12 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+
+import '../support/daily_policies.dart';
 
 const String _timeZoneId = 'Asia/Shanghai';
 
@@ -149,23 +152,41 @@ ScheduleProblem _problem({
   required List<BusyInterval> busy,
   required int dailyMovableLimit,
   int granularityMinutes = _granularity,
-}) => ScheduleProblem(
-  planningWindow: TimeRange(
+}) {
+  final window = TimeRange(
     startUtc: _localMidnight(5),
     endUtc: _localMidnight(12),
-  ),
-  timeZoneId: _timeZoneId,
-  tasks: [task],
-  fixedIntervals: busy,
-  protectedIntervals: const [],
-  lockedBlocks: const [],
-  rules: _rules(
+  );
+  final rules = _rules(
     dailyMovableLimit: dailyMovableLimit,
     granularityMinutes: granularityMinutes,
-  ),
-  preferences: const PreferenceProfile(),
-  inputHash: 'capacity-aware-week-v1',
-);
+  );
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: _timeZoneId,
+    tasks: [task],
+    fixedIntervals: busy,
+    protectedIntervals: const [],
+    lockedBlocks: const [],
+    rules: rules,
+    // 本文件的多条用例正是要证明"每日上限、粒度按**当天**规则生效"，
+    // 因此逐日策略必须显式给出（计划 Task 2 Step 4）。
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: _timeZoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: _timeZoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'capacity-aware-week-v1',
+  );
+}
 
 /// 每个本地日的已排分钟（10-05..10-11），键是月内日号。
 Map<int, int> _minutesByDay(ScheduleProposal proposal) {
@@ -181,7 +202,7 @@ Map<int, int> _minutesByDay(ScheduleProposal proposal) {
 }
 
 /// 本地星期是否属于周末（周六、周日）。
-bool _isWeekend(DateTime localDate) =>
+bool _isWeekendLocal(DateTime localDate) =>
     localDate.weekday == DateTime.saturday ||
     localDate.weekday == DateTime.sunday;
 
@@ -293,18 +314,43 @@ void main() {
           range: TimeRange(startUtc: _localAt(10, 0), endUtc: _localAt(11, 0)),
         ),
       ];
+      final window = TimeRange(
+        startUtc: _localMidnight(5),
+        endUtc: _localMidnight(12),
+      );
+      // `rules` 是窗口首日（周一）的解析结果，上限 180。
+      final weekdayRules = _rules(dailyMovableLimit: _weekdayLimit);
+      final weekendRules = _rules(dailyMovableLimit: _weekendLimit);
       final problem = ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: _localMidnight(5),
-          endUtc: _localMidnight(12),
-        ),
+        planningWindow: window,
         timeZoneId: _timeZoneId,
         tasks: [_task(requiredMinutes: 400)],
         fixedIntervals: busy,
         protectedIntervals: const [],
         lockedBlocks: const [],
-        // `rules` 是窗口首日（周一）的解析结果，上限 180。
-        rules: _rules(dailyMovableLimit: _weekdayLimit),
+        rules: weekdayRules,
+        // **逐日策略给出真正的逐日上限**：周一至周五 180、周末 360。
+        // 这正是"周末账面容量按 360 算"这件事的数据来源。
+        dailyPolicies: {
+          for (final date in enumerateLocalDates(
+            zones: _zones,
+            window: window,
+            timeZoneId: _timeZoneId,
+          ))
+            date: DailySchedulingPolicy(
+              localDate: date,
+              resolvedRules: _isWeekendLocal(date)
+                  ? weekendRules
+                  : weekdayRules,
+              softReserveTargetMinutes: 0,
+            ),
+        },
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: window,
+          rules: weekdayRules,
+          timeZoneId: _timeZoneId,
+        ),
         preferences: const PreferenceProfile(),
         inputHash: 'capacity-aware-week-weekend-limit-v1',
       );

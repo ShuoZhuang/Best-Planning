@@ -21,6 +21,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/scheduling_weights.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final day = DateTime.utc(2026, 10, 12);
@@ -40,17 +42,34 @@ void main() {
     required List<BusyInterval> fixed,
     required List<BusyInterval> protected,
     List<PlannedBlock> locked = const [],
-  }) => ScheduleProblem(
-    planningWindow: TimeRange(startUtc: at(0), endUtc: at(24)),
-    timeZoneId: 'UTC',
-    tasks: [task('t1')],
-    fixedIntervals: fixed,
-    protectedIntervals: protected,
-    lockedBlocks: locked,
-    rules: DefaultSettings.v1(),
-    preferences: const PreferenceProfile(),
-    inputHash: 'h',
-  );
+  }) {
+    final window = TimeRange(startUtc: at(0), endUtc: at(24));
+    final zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: [task('t1')],
+      fixedIntervals: fixed,
+      protectedIntervals: protected,
+      lockedBlocks: locked,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'h',
+    );
+  }
 
   group('不变量 2：固定日程、保护时间、锁定块不可被自动移动或覆盖', () {
     test('任务块不与固定日程重叠', () {
@@ -81,18 +100,32 @@ void main() {
       // 那条**是空断言**：任务有 15 个小时可以放，引擎完全可以出于别的原因避开 9–12 点。
       // 它无法区分"尊重保护时间"与"碰巧没排到那里"。
       final wholeWindow = TimeRange(startUtc: at(9), endUtc: at(11));
+      final zoneId = 'UTC';
+      final rules = DefaultSettings.v1();
       final engine = DeterministicScheduleEngine(zones);
       final proposal = engine.generate(
         ScheduleProblem(
           planningWindow: wholeWindow,
-          timeZoneId: 'UTC',
+          timeZoneId: zoneId,
           tasks: [task('t1')],
           fixedIntervals: const [],
           protectedIntervals: [
             BusyInterval(id: 'protected', range: wholeWindow),
           ],
           lockedBlocks: const [],
-          rules: DefaultSettings.v1(),
+          rules: rules,
+          dailyPolicies: dailyPoliciesForWindow(
+            zones: zones,
+            window: wholeWindow,
+            rules: rules,
+            timeZoneId: zoneId,
+          ),
+          weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+            zones: zones,
+            window: wholeWindow,
+            rules: rules,
+            timeZoneId: zoneId,
+          ),
           preferences: const PreferenceProfile(),
           inputHash: 'h',
         ),

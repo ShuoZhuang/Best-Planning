@@ -19,6 +19,10 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   /// 从**同一份结构**重新算 metrics 的提案构造器。
   ///
@@ -147,18 +151,33 @@ void main() {
       List<BusyInterval> protectedIntervals = const [],
     }) {
       final day = DateTime.utc(2026, 10, 12);
+      final window = TimeRange(
+        startUtc: day,
+        endUtc: day.add(const Duration(days: 1)),
+      );
+      final zoneId = 'UTC';
+      final rules = DefaultSettings.v1().copyWith(
+        sleepRange: LocalTimeRange(startMinute: 23 * 60, endMinute: 7 * 60),
+      );
       return ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: day,
-          endUtc: day.add(const Duration(days: 1)),
-        ),
-        timeZoneId: 'UTC',
+        planningWindow: window,
+        timeZoneId: zoneId,
         tasks: tasks,
         fixedIntervals: const [],
         protectedIntervals: protectedIntervals,
         lockedBlocks: const [],
-        rules: DefaultSettings.v1().copyWith(
-          sleepRange: LocalTimeRange(startMinute: 23 * 60, endMinute: 7 * 60),
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
         ),
         preferences: const PreferenceProfile(),
         inputHash: 'disposition',

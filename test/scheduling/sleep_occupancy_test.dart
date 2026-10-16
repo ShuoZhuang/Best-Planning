@@ -19,6 +19,8 @@ import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   const zoneId = 'Asia/Shanghai';
   final zones = TimeZoneDatabase();
@@ -96,11 +98,18 @@ void main() {
     final rules = rulesWithSleep(
       LocalTimeRange(startMinute: 0, endMinute: 6 * 60),
     );
+    final window = TimeRange(startUtc: at(0), endUtc: at(24));
     final slots = AvailabilityBuilder(zones).build(
       AvailabilityInput(
-        planningWindow: TimeRange(startUtc: at(0), endUtc: at(24)),
+        planningWindow: window,
         timeZoneId: zoneId,
         rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
       ),
     );
 

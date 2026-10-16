@@ -12,6 +12,8 @@ import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 /// 与 `SchedulingWeights.v1` 一致的区间端点。
 const _minimum = -300;
 const _maximum = 500;
@@ -129,29 +131,46 @@ void main() {
   });
 
   group('引擎注入', () {
-    ScheduleProblem problemWith(LocalTimeRange? window) => ScheduleProblem(
-      planningWindow: TimeRange(
+    ScheduleProblem problemWith(LocalTimeRange? window) {
+      final planningWindowRange = TimeRange(
         startUtc: DateTime.utc(2026, 10, 5),
         endUtc: DateTime.utc(2026, 10, 6),
-      ),
-      timeZoneId: 'UTC',
-      tasks: [
-        SchedulableTask(
-          id: 'task-1',
-          requiredMinutes: 60,
-          splitMode: TaskSplitMode.splittable,
-          minChunkMinutes: 30,
-          maxChunkMinutes: 60,
-          preferredWindow: window,
+      );
+      final zoneId = 'UTC';
+      final rules = DefaultSettings.v1();
+      return ScheduleProblem(
+        planningWindow: planningWindowRange,
+        timeZoneId: zoneId,
+        tasks: [
+          SchedulableTask(
+            id: 'task-1',
+            requiredMinutes: 60,
+            splitMode: TaskSplitMode.splittable,
+            minChunkMinutes: 30,
+            maxChunkMinutes: 60,
+            preferredWindow: window,
+          ),
+        ],
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: planningWindowRange,
+          rules: rules,
+          timeZoneId: zoneId,
         ),
-      ],
-      fixedIntervals: const [],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      rules: DefaultSettings.v1(),
-      preferences: const PreferenceProfile(),
-      inputHash: 'preferred-time-v1',
-    );
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: planningWindowRange,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'preferred-time-v1',
+      );
+    }
 
     test('任务被安排在期望时段内', () {
       final engine = DeterministicScheduleEngine(_zones);

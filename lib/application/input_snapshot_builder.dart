@@ -77,6 +77,34 @@ final class InputSnapshotBuilder {
     // 同一个哈希，确认阶段就可能接受一份按另一种解释生成的提案。
     'pinnedUnlockedBlockIds': [...problem.pinnedUnlockedBlockIds]..sort(),
     'rules': _rules(problem.rules),
+    // ── 逐日规则进哈希（算法 17，计划 Task 2 Step 6）─────────────────────────────
+    //
+    // **为什么必须进**：算法 17 的排程结果按"每一天自己的规则"变化，而
+    // `problem.rules` 只是窗口首日的兼容快照。若只哈希首日规则，用户把**周末**的
+    // 每日上限或睡眠改掉之后，同一个哈希仍然命中，确认阶段就会接受一份按旧规则
+    // 生成的提案——症状是"我改了设置，预览却说没变化"。
+    //
+    // 序列化方式必须与插入顺序无关：先按日期升序，再逐日写出完整规则。
+    // 反转 `dailyPolicies` 的插入顺序必须得到同一个哈希（由
+    // `input_snapshot_builder_test.dart` 钉住）。
+    'dailyPolicies': [
+      for (final date in problem.dailyPolicies.keys.toList()..sort())
+        {
+          'localDate': _localDateKey(date),
+          'softReserveTargetMinutes':
+              problem.dailyPolicies[date]!.softReserveTargetMinutes,
+          'rules': _rules(problem.dailyPolicies[date]!.resolvedRules),
+        },
+    ],
+    // 逐周生活配额同理：窗口跨周时后半周属于下一周的规则。
+    'weeklyLifeQuotaByWeekStart': [
+      for (final monday
+          in problem.weeklyLifeQuotaByWeekStart.keys.toList()..sort())
+        {
+          'weekStart': _localDateKey(monday),
+          'quotaMinutes': problem.weeklyLifeQuotaByWeekStart[monday],
+        },
+    ],
     'preferences': {
       'enabled': problem.preferences.enabled,
       'preferredFocusMinutes': problem.preferences.preferredFocusMinutes,
@@ -86,6 +114,16 @@ final class InputSnapshotBuilder {
           : _energyWindows(problem.preferences.preferredEnergyWindows!),
     },
   };
+
+  /// 本地日期的稳定文本键（`2026-10-05`）。
+  ///
+  /// 不用 `DateTime.toIso8601String()`：它把 `DateTime(y, m, d)` 序列化成
+  /// `2026-10-05T00:00:00.000`，多出的时分秒对哈希没有坏处，但这个键同时是
+  /// 人类可读的诊断字段，短形式更容易在 diff 里核对。
+  String _localDateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
 
   List<Map<String, Object?>> _intervals(List<BusyInterval> intervals) => [
     for (final item in [...intervals]..sort((a, b) => a.id.compareTo(b.id)))

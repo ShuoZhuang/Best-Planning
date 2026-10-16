@@ -20,6 +20,7 @@ import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
@@ -129,6 +130,20 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       startLocalDate.add(Duration(days: days)),
       timeZoneId,
     );
+
+    // ── 逐日规则与逐周生活配额（算法 17，计划 Task 2 Step 3）─────────────────────
+    //
+    // **这一段必须排在"硬占用区间"之前**：保护时间与睡眠此后按**当天规则**展开，
+    // 而"当天规则"就是这里算出来的。修复前它们用 `resolvedRules`（窗口首日）展开，
+    // 于是"周末睡眠不同""周末上限更高"这类设置整周都不生效（计划 §1.2 第 1 条）。
+    final dailyPoliciesResult = await _dailyPoliciesFor(
+      startUtc: startUtc,
+      endUtc: endUtc,
+      override: override,
+    );
+    final windowDates = dailyPoliciesResult.windowDates;
+    final dailyPolicies = dailyPoliciesResult.policies;
+    final weeklyLifeQuotaByWeekStart = dailyPoliciesResult.weeklyLifeQuota;
 
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
@@ -383,20 +398,47 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 保护时间本来就是课表之外的来源，缓冲对它是空操作，但过滤要在前面做——
     // 顺序反了会把保护时间也做成带缓冲的固定占用。
     final fixedIntervalsWithTransition = [
-      for (final occurrence in applyCourseTransition(
+      // 课程过渡按**事件结束日的规则**展开（计划 Task 2 Step 3）：
+      // 一条课在周五 18:00 结束，它的缓冲应当用周五的 `courseTransitionMinutes`，
+      // 而不是窗口首日（可能是周一）的那一份。
+      //
+      // **用 `endUtc` 而不是 `startUtc` 取那一天**：缓冲是"下课之后"的占用，
+      // 约束它的是下课那一刻所在的那一天。跨午夜的课尤其明显——21:00 开始、次日
+      // 01:00 结束，能决定它要不要留缓冲的是**次日**的规则。
+      for (final occurrence in applyCourseTransitionByLocalDate(
         fixedOccurrences,
-        transitionMinutes: resolvedRules.courseTransitionMinutes,
+        transitionMinutesFor: (occurrence) =>
+            _policyRulesOn(
+              dailyPolicies,
+              _localDateOf(occurrence.range.endUtc),
+            )?.courseTransitionMinutes ??
+            resolvedRules.courseTransitionMinutes,
       ))
         BusyInterval(id: occurrence.eventId, range: occurrence.range),
     ];
+    // 规则型保护时间与睡眠都**按当天规则**展开（计划 Task 2 Step 3）：
+    // "周末保护时间不同""周末睡眠不同"从此各自生效。
+    final protectedFromRules = <BusyInterval>[
+      for (final date in windowDates)
+        ...protectedTimes.expand(
+          rules: dailyPolicies[date]!.resolvedRules,
+          startUtc: zones.localMidnightToUtc(date, timeZoneId),
+          endUtc: zones.localMidnightToUtc(_nextLocalDate(date), timeZoneId),
+          timeZoneId: timeZoneId,
+        ),
+    ];
+    final sleepIntervals = <BusyInterval>[
+      for (final date in windowDates)
+        ...protectedTimes.sleep(
+          rules: dailyPolicies[date]!.resolvedRules,
+          startUtc: zones.localMidnightToUtc(date, timeZoneId),
+          endUtc: zones.localMidnightToUtc(_nextLocalDate(date), timeZoneId),
+          timeZoneId: timeZoneId,
+        ),
+    ];
     final protectedIntervalsAll = [
       // 规则来源的保护时间（午餐／晚餐／固定休息）……
-      ...protectedTimes.expand(
-        rules: resolvedRules,
-        startUtc: startUtc,
-        endUtc: endUtc,
-        timeZoneId: timeZoneId,
-      ),
+      ...protectedFromRules,
       // ……加上用户在日历里自己建的一次性或按周重复的保护时间。
       //
       // **一次且仅一次**：`fixedOccurrences` 与 `protectedOccurrences` 是同一次
@@ -410,18 +452,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 但 `protectedIntervals` 里没有它，于是
       //   · `PlanValidator` 不会把"块压在睡眠上"报成冲突；
       //   · 调整路径的硬障碍集合里也没有睡眠。
-      // 把同一份展开（`ProtectedTimeExpander.sleep`）也放进这里，
-      // 容量与校验从此只有一个口径。
-      //
-      // **重复不会导致重复扣除**：`AvailabilityBuilder.build` 会把所有忙碌区间
-      // 交给 `_merge` 合并，重叠区间被吞掉（那边仍然独立调用 `_sleepIntervals`，
-      // 但两者现在展开的是同一份结果）。
-      ...protectedTimes.sleep(
-        rules: resolvedRules,
-        startUtc: startUtc,
-        endUtc: endUtc,
-        timeZoneId: timeZoneId,
-      ),
+      // 现在装配层按**逐日规则**展开一次，同一份结果同时进
+      // `ScheduleProblem.protectedIntervals`（供校验与诊断）与
+      // `AvailabilityInput.sleepIntervals`（供容量），容量与校验只有一个口径。
+      ...sleepIntervals,
     ];
 
     // ── 调整路径：级联到位（裁定第 4 点；设计 §5.4）────────────────────────────
@@ -658,6 +692,11 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 已确认但未锁定的块：引擎可以移动，但要付出移动代价（设计 §5.4）。
       existingBlocks: existingBlocksOut,
       rules: resolvedRules,
+      // **逐日规则是算法 17 的核心输入**（计划 Task 2 Step 3/4）：窗口涉及的每一天
+      // 带走自己那一份完整规则，因此睡眠、保护时间、精力、每日上限、粒度、休息与
+      // 课程过渡都不再取窗口首日。`resolvedRules` 只留作旧接口兼容快照与任务默认值来源。
+      dailyPolicies: dailyPolicies,
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotaByWeekStart,
       preferences: const PreferenceProfile(),
       inputHash: '',
       pinnedUnlockedBlockIds: pinnedUnlocked,
@@ -670,9 +709,101 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       // 准入期就判定为阻断的输入错误（§1.7）：它们不进 `tasks`，但必须走到预览。
       admissionConflicts: admissionConflicts,
     );
+    // **装配层用 `TimeZoneDatabase` 证明逐日策略精确覆盖窗口**（计划 Task 2 Step 4）：
+    // "覆盖窗口涉及的每一个本地日期"这件事需要时区换算，因此它不能伪装成
+    // `ScheduleProblem` 值对象自身的校验（那个类刻意不持有 `TimeZoneDatabase`）。
+    _assertDailyPoliciesCoverWindow(
+      problem: problem,
+      zones: zones,
+      timeZoneId: timeZoneId,
+    );
 
     return withCurrentInputHash(problem, snapshots);
   }
+
+  /// 该事件结束时刻所属的**本地日期**（逐日策略的查阅键）。
+  DateTime _localDateOf(DateTime instantUtc) {
+    final local = zones.toLocal(instantUtc, timeZoneId);
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  /// 为规划窗口涉及的每一个本地日期解析一份**完整**规则，并算出逐周生活配额
+  /// （计划 Task 2 Step 3/4）。
+  ///
+  /// ## 为什么范围要向前补齐到首个本地周一
+  ///
+  /// 周生活配额按"每个块所属本地周"计算，而窗口起点常常落在周中（用户下午三点
+  /// 生成计划，周一那半周已经在窗口之外）。若只解析窗口内的日期，那一周的周一就没有
+  /// 解析结果，`lifeQuotaForLocalWeek` 会抛 [StateError]——**这是有意的**：
+  /// 生活类任务的目标不该因为"这一周从周三才开始"而退回一个默认值。
+  ///
+  /// 补齐只影响 [DailyRulesForWindow.rulesByDate]；对外暴露的
+  /// [DailyRulesForWindow.policies] 仍然**只含窗口日期**（计划 §6 末条）。
+  Future<DailyRulesForWindow> _dailyPoliciesFor({
+    required DateTime startUtc,
+    required DateTime endUtc,
+    required ScheduleRuleOverride? override,
+  }) async {
+    final windowDates = _enumerateLocalDates(
+      zones,
+      startUtc,
+      endUtc,
+      timeZoneId,
+    );
+    if (windowDates.isEmpty) {
+      throw StateError('规划窗口没有覆盖任何本地日期，无法装配逐日规则');
+    }
+    final weeklyQuotaStart = _mondayOf(windowDates.first);
+    final rulesByDate = await rules.resolveByDateForWindow(
+      weeklyQuotaStart,
+      windowDates.last,
+      override: override,
+    );
+
+    final weeklyLifeQuota = <DateTime, int>{};
+    for (
+      var date = weeklyQuotaStart;
+      !date.isAfter(windowDates.last);
+      date = _nextLocalDate(date)
+    ) {
+      if (date.weekday != DateTime.monday) continue;
+      weeklyLifeQuota[date] = _requireRulesFor(
+        rulesByDate,
+        date,
+      ).weeklyLifeQuotaMinutes;
+    }
+
+    // **恢复余量的输入是当天的许可容量**，而许可容量要等 `AvailabilityAnalysis`
+    // 与基线块放到一起才算得出来（`min(硬空闲, 每日上限)`，见
+    // `day_capacity_ledger.dart`）。装配阶段还没有那份分析，因此这里传 0：
+    // 它的含义是"软恢复余量目标在账本落定之后才赋值"，而不是"留 0 分钟"——
+    // 计划 §3.7 明确它是**软目标**，不参与任何硬判定。
+    final policies = <DateTime, DailySchedulingPolicy>{
+      for (final date in windowDates)
+        date: DailySchedulingPolicy(
+          localDate: date,
+          resolvedRules: _requireRulesFor(rulesByDate, date),
+          softReserveTargetMinutes: 0,
+        ),
+    };
+    return DailyRulesForWindow(
+      windowDates: windowDates,
+      rulesByDate: rulesByDate,
+      policies: policies,
+      weeklyLifeQuota: weeklyLifeQuota,
+    );
+  }
+
+  /// [date] 当天的规则；该日不在窗口内时返回 `null`（调用方回退到窗口快照）。
+  ///
+  /// **只用于"事件落在窗口外"这种边界**：窗口内的日期一定在
+  /// `dailyPolicies` 里（由 `_assertDailyPoliciesCoverWindow` 证明）。
+  /// 事件本身不受窗口限制（`occurrencesBetween` 从当天本地午夜读起），
+  /// 因此它的结束日有可能落在窗口最后一天之后。
+  PlanningRules? _policyRulesOn(
+    Map<DateTime, DailySchedulingPolicy> policies,
+    DateTime date,
+  ) => policies[date]?.resolvedRules;
 
   /// 一次反查这批 open task 里哪些是**已生成的周期实例**，返回 `taskId → cycle`。
   ///
@@ -922,8 +1053,113 @@ TimeRange? _sameLocalClockOn(
   );
 }
 
+/// [RepositoryScheduleProblemSource._dailyPoliciesFor] 的结果。
+///
+/// 单独一个类型而不是一个 Record：四个字段里有三个是"同一次解析的不同切片"，
+/// 用一个有名字的类型能让"哪些是窗口内的、哪些是补齐出来的"在类型层面可读。
+///
+/// - [windowDates]：窗口覆盖的本地日期，升序；
+/// - [rulesByDate]：**补齐到首个周一**之后的逐日解析结果（范围大于 [windowDates]）；
+/// - [policies]：**只含窗口日期**的逐日策略；
+/// - [weeklyLifeQuota]：窗口涉及的每个本地周一的生活配额。
+final class DailyRulesForWindow {
+  DailyRulesForWindow({
+    required List<DateTime> windowDates,
+    required Map<DateTime, PlanningRules> rulesByDate,
+    required Map<DateTime, DailySchedulingPolicy> policies,
+    required Map<DateTime, int> weeklyLifeQuota,
+  }) : windowDates = List.unmodifiable(windowDates),
+       rulesByDate = Map.unmodifiable(rulesByDate),
+       policies = Map.unmodifiable(policies),
+       weeklyLifeQuota = Map.unmodifiable(weeklyLifeQuota);
+
+  final List<DateTime> windowDates;
+  final Map<DateTime, PlanningRules> rulesByDate;
+  final Map<DateTime, DailySchedulingPolicy> policies;
+  final Map<DateTime, int> weeklyLifeQuota;
+}
+
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
+
+/// 下一个**本地自然日**（按日历进位，不按绝对 24 小时）。
+DateTime _nextLocalDate(DateTime date) =>
+    DateTime(date.year, date.month, date.day + 1);
+
+/// [date] 所在本地周的周一。
+DateTime _mondayOf(DateTime date) =>
+    DateTime(date.year, date.month, date.day - (date.weekday - 1));
+
+/// 逐日解析结果里必须存在 [date] 这一天，否则装配不变量已经破坏。
+PlanningRules _requireRulesFor(
+  Map<DateTime, PlanningRules> rulesByDate,
+  DateTime date,
+) {
+  final rules = rulesByDate[date];
+  if (rules == null) {
+    throw StateError(
+      '逐日规则缺少本地日期 ${date.year}-${date.month}-${date.day} 的解析结果；'
+      '装配层必须为窗口涉及的每一个本地日期解析规则，不得回退到窗口首日',
+    );
+  }
+  return rules;
+}
+
+/// 枚举**规划窗口覆盖到的本地日期**，按升序。
+///
+/// **不能用"UTC 每 24 小时递增"**（计划 Task 2 Step 4）：窗口落在 DST 切换日时，
+/// UTC 推进 24 小时会得到重复的本地日或跳过一天。正确的做法是先取窗口起点与
+/// 终点（减一微秒，让"终点是本地午夜"这种半开区间的形状被正确归到最后一天）的
+/// 本地日期，再按日历日逐个推进。
+List<DateTime> _enumerateLocalDates(
+  TimeZoneDatabase zones,
+  DateTime startUtc,
+  DateTime endUtc,
+  String timeZoneId,
+) {
+  final first = _dateOnly(zones.toLocal(startUtc, timeZoneId));
+  final last = _dateOnly(
+    zones.toLocal(endUtc.subtract(const Duration(microseconds: 1)), timeZoneId),
+  );
+  final dates = <DateTime>[];
+  for (var date = first; !date.isAfter(last); date = _nextLocalDate(date)) {
+    dates.add(date);
+  }
+  return dates;
+}
+
+/// 证明逐日策略的键集合与"窗口涉及的本地日期"**逐值相等**（计划 Task 2 Step 4）。
+///
+/// 多一天与少一天都是装配缺陷：
+/// - 少一天 ⇒ 那一天会悄悄回退到窗口首日规则（本计划要根除的缺陷本身）；
+/// - 多一天 ⇒ 有人在装配时枚举出了窗口之外的日期，而它可能被候选生成拿去做判断。
+void _assertDailyPoliciesCoverWindow({
+  required ScheduleProblem problem,
+  required TimeZoneDatabase zones,
+  required String timeZoneId,
+}) {
+  final expected = _enumerateLocalDates(
+    zones,
+    problem.planningWindow.startUtc,
+    problem.planningWindow.endUtc,
+    timeZoneId,
+  );
+  final actual = problem.dailyPolicies.keys.toList()..sort();
+  if (expected.length != actual.length) {
+    throw StateError(
+      '逐日策略的日期数与规划窗口不一致：窗口 ${expected.length} 天'
+      '（${expected.first} … ${expected.last}），策略 ${actual.length} 天',
+    );
+  }
+  for (var index = 0; index < expected.length; index++) {
+    if (expected[index] != actual[index]) {
+      throw StateError(
+        '逐日策略的日期集合与规划窗口不一致：第 $index 天应当是 '
+        '${expected[index]}，实际是 ${actual[index]}',
+      );
+    }
+  }
+}
 
 /// 把 [instantUtc] 向上取整到排程粒度。
 ///

@@ -19,6 +19,8 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 /// 夹具里用到的时区 id。写成常量是为了让测试的 `expect` 与夹具不会各写一份字符串。
 abstract final class RepairZones {
   static const shanghai = 'Asia/Shanghai';
@@ -337,13 +339,17 @@ final class CoreWorkflowRepairScenarios {
     const windowStart = 9 * 60;
     const windowEnd = 18 * 60;
 
+    final planningWindow = TimeRange(
+      startUtc: at(windowStart),
+      endUtc: at(windowEnd),
+    );
+    final zoneId = RepairZones.shanghai;
+    final rules = repairRules();
+
     return DeferScenario(
       problem: ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: at(windowStart),
-          endUtc: at(windowEnd),
-        ),
-        timeZoneId: RepairZones.shanghai,
+        planningWindow: planningWindow,
+        timeZoneId: zoneId,
         tasks: [
           SchedulableTask(
             id: RepairIds.deferredTask,
@@ -383,7 +389,19 @@ final class CoreWorkflowRepairScenarios {
             range: TimeRange(startUtc: at(fillerStart), endUtc: at(fillerEnd)),
           ),
         ],
-        rules: repairRules(),
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: planningWindow,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: planningWindow,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
         preferences: const PreferenceProfile(),
         inputHash: 'core-workflow-repair.defer-occupied-target.v1',
       ),
@@ -412,9 +430,13 @@ final class CoreWorkflowRepairScenarios {
     DateTime at(int minute) =>
         _zones.localDateTimeToUtc(localDate, minute, RepairZones.shanghai);
 
+    final window = TimeRange(startUtc: at(9 * 60), endUtc: at(18 * 60));
+    final zoneId = RepairZones.shanghai;
+    final rules = repairRules();
+
     return ScheduleProblem(
-      planningWindow: TimeRange(startUtc: at(9 * 60), endUtc: at(18 * 60)),
-      timeZoneId: RepairZones.shanghai,
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: [
         SchedulableTask(
           id: RepairIds.fillerTask,
@@ -436,7 +458,19 @@ final class CoreWorkflowRepairScenarios {
       ],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: repairRules(),
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'core-workflow-repair.orphan-gap.v1',
     );

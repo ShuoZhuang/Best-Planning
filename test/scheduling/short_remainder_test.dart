@@ -24,6 +24,10 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   const generator = CandidateGenerator();
   final start = DateTime.utc(2026, 10, 2, 9);
@@ -234,17 +238,13 @@ void main() {
 
   group('端到端：引擎必须真的把它排进去', () {
     /// 一整周的窗口，无固定日程、无保护时间——容量充足，唯一的阻碍只可能是片段规则。
-    ScheduleProblem problem(SchedulableTask t) => ScheduleProblem(
-      planningWindow: TimeRange(
+    ScheduleProblem problem(SchedulableTask t) {
+      final window = TimeRange(
         startUtc: DateTime.utc(2026, 10, 5),
         endUtc: DateTime.utc(2026, 10, 12),
-      ),
-      timeZoneId: 'UTC',
-      tasks: [t],
-      fixedIntervals: const [],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      rules: PlanningRules(
+      );
+      final zoneId = 'UTC';
+      final rules = PlanningRules(
         energyWindows: const [],
         sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
         minimumSleepMinutes: 420,
@@ -252,10 +252,31 @@ void main() {
         breakMinutes: 10,
         dailyMovableTaskLimitMinutes: 600,
         weeklyLifeQuotaMinutes: 0,
-      ),
-      preferences: const PreferenceProfile(),
-      inputHash: 'short-remainder',
-    );
+      );
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: [t],
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'short-remainder',
+      );
+    }
 
     test('15 分钟任务在容量充足的一周里**排得进去**，且不同时出现在未安排里', () {
       final engine = DeterministicScheduleEngine(TimeZoneDatabase());

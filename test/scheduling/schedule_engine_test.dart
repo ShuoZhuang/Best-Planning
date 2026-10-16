@@ -8,13 +8,40 @@ import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/plan_differ.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
+
+  /// 本文件所有 `ScheduleProblem` 都只需要"一份规则铺满整个窗口"的逐日策略
+  /// （夹具钉的是排程行为，不是规则解析）。
+  Map<DateTime, DailySchedulingPolicy> policiesFor(
+    TimeRange window,
+    String zoneId,
+    PlanningRules rules,
+  ) => dailyPoliciesForWindow(
+    zones: zones,
+    window: window,
+    rules: rules,
+    timeZoneId: zoneId,
+  );
+
+  Map<DateTime, int> quotasFor(
+    TimeRange window,
+    String zoneId,
+    PlanningRules rules,
+  ) => weeklyLifeQuotasForWindow(
+    zones: zones,
+    window: window,
+    rules: rules,
+    timeZoneId: zoneId,
+  );
 
   test('golden week keeps breaks between chunks and reports the shortfall', () {
     final fixture = jsonDecode(
@@ -75,12 +102,28 @@ void main() {
 
   test('相同任务的两段专注之间保留 breakMinutes 休息', () {
     final day = DateTime.utc(2026, 10, 5);
+    final window = TimeRange(
+      startUtc: day.add(const Duration(hours: 9)),
+      endUtc: day.add(const Duration(hours: 18)),
+    );
+    const zoneId = 'UTC';
+    final rules = PlanningRules(
+      energyWindows: [
+        EnergyWindow(
+          range: LocalTimeRange(startMinute: 540, endMinute: 720),
+          level: EnergyLevel.high,
+        ),
+      ],
+      sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+      minimumSleepMinutes: 420,
+      defaultFocusMinutes: 50,
+      breakMinutes: 10,
+      dailyMovableTaskLimitMinutes: 600,
+      weeklyLifeQuotaMinutes: 0,
+    );
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(
-        startUtc: day.add(const Duration(hours: 9)),
-        endUtc: day.add(const Duration(hours: 18)),
-      ),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: const [
         SchedulableTask(
           id: 'deep-work',
@@ -93,20 +136,9 @@ void main() {
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: PlanningRules(
-        energyWindows: [
-          EnergyWindow(
-            range: LocalTimeRange(startMinute: 540, endMinute: 720),
-            level: EnergyLevel.high,
-          ),
-        ],
-        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
-        minimumSleepMinutes: 420,
-        defaultFocusMinutes: 50,
-        breakMinutes: 10,
-        dailyMovableTaskLimitMinutes: 600,
-        weeklyLifeQuotaMinutes: 0,
-      ),
+      rules: rules,
+      dailyPolicies: policiesFor(window, zoneId, rules),
+      weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
       preferences: const PreferenceProfile(),
       inputHash: 'rest-gap-v1',
     );
@@ -140,6 +172,16 @@ void main() {
       protectedIntervals: problem.protectedIntervals.reversed.toList(),
       lockedBlocks: problem.lockedBlocks.reversed.toList(),
       rules: problem.rules,
+      dailyPolicies: policiesFor(
+        problem.planningWindow,
+        problem.timeZoneId,
+        problem.rules,
+      ),
+      weeklyLifeQuotaByWeekStart: quotasFor(
+        problem.planningWindow,
+        problem.timeZoneId,
+        problem.rules,
+      ),
       preferences: problem.preferences,
       inputHash: problem.inputHash,
     );
@@ -149,17 +191,13 @@ void main() {
   test('任意两个任务块之间保留休息，不区分任务类型', () {
     final day = DateTime.utc(2026, 10, 5);
 
-    ScheduleProblem build(List<SchedulableTask> tasks) => ScheduleProblem(
-      planningWindow: TimeRange(
+    ScheduleProblem build(List<SchedulableTask> tasks) {
+      final window = TimeRange(
         startUtc: day.add(const Duration(hours: 9)),
         endUtc: day.add(const Duration(hours: 18)),
-      ),
-      timeZoneId: 'UTC',
-      tasks: tasks,
-      fixedIntervals: const [],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      rules: PlanningRules(
+      );
+      const zoneId = 'UTC';
+      final rules = PlanningRules(
         energyWindows: [
           EnergyWindow(
             range: LocalTimeRange(startMinute: 540, endMinute: 720),
@@ -172,10 +210,21 @@ void main() {
         breakMinutes: 10,
         dailyMovableTaskLimitMinutes: 600,
         weeklyLifeQuotaMinutes: 0,
-      ),
-      preferences: const PreferenceProfile(),
-      inputHash: 'rest-gap-cross-task',
-    );
+      );
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: tasks,
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: policiesFor(window, zoneId, rules),
+        weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
+        preferences: const PreferenceProfile(),
+        inputHash: 'rest-gap-cross-task',
+      );
+    }
 
     SchedulableTask single(String id, {bool life = false}) => SchedulableTask(
       id: id,
@@ -213,17 +262,13 @@ void main() {
   test('远期任务会排入可排的最小量，而不是整周 0 分钟', () {
     final day = DateTime.utc(2026, 10, 5);
 
-    ScheduleProblem build(SchedulableTask task) => ScheduleProblem(
-      planningWindow: TimeRange(
+    ScheduleProblem build(SchedulableTask task) {
+      final window = TimeRange(
         startUtc: day,
         endUtc: day.add(const Duration(days: 7)),
-      ),
-      timeZoneId: 'UTC',
-      tasks: [task],
-      fixedIntervals: const [],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      rules: PlanningRules(
+      );
+      const zoneId = 'UTC';
+      final rules = PlanningRules(
         energyWindows: [
           EnergyWindow(
             range: LocalTimeRange(startMinute: 540, endMinute: 720),
@@ -236,12 +281,30 @@ void main() {
         breakMinutes: 10,
         dailyMovableTaskLimitMinutes: 600,
         weeklyLifeQuotaMinutes: 0,
-      ),
-      preferences: const PreferenceProfile(),
-      inputHash: 'far-deadline-target',
-    );
+      );
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: [task],
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: policiesFor(window, zoneId, rules),
+        weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
+        preferences: const PreferenceProfile(),
+        inputHash: 'far-deadline-target',
+      );
+    }
 
-    // 均匀推进量（28 分钟）低于最小时长（30 分钟），原先因此一个片段也放不下。
+    // 均匀推进量低于最小时长时，目标会被抬到"确实可排的最小量"。
+    //
+    // **期望值是 120 而不是 30**（算法 17 修正）：修复前 `capacityForRange` 只在
+    // 已经算好的 `analysis.slots` 里筛，于是"窗口之外的那 23 天"被当成有容量
+    // （实测 `capacityAfterHorizonBeforeDue = 22080`），一个 120 分钟、截止在 30 天后的
+    // 任务因此算出 `pacedNow = 28` 并被抬到 30 —— **只排 30 分钟**。
+    // 窗口之外没有任何可排时段，把它算进"截止前总容量"会让近期推进量被系统性低估。
+    // 裁剪到窗口之后 `after = 0`，同一个任务按"这一周有多少容量"推进，一周内排满 120。
     final splittable = engine.generate(
       build(
         SchedulableTask(
@@ -254,7 +317,7 @@ void main() {
         ),
       ),
     );
-    expect(splittable.metrics.scheduledMinutes, 30);
+    expect(splittable.metrics.scheduledMinutes, 120);
     expect(splittable.unscheduled, isEmpty);
 
     // 不可拆分任务只有整块一种候选，因此要么整体排入要么排不进。
@@ -290,13 +353,25 @@ void main() {
 
   test('类别切换成本生效：避开与其它任务相邻的位置', () {
     final day = DateTime.utc(2026, 10, 5);
+    // 跨越两天：第二天存在"同一本地日内没有相邻任务"的位置。
+    final window = TimeRange(
+      startUtc: day.add(const Duration(hours: 9)),
+      endUtc: day.add(const Duration(days: 1, hours: 18)),
+    );
+    const zoneId = 'UTC';
+    final rules = PlanningRules(
+      // 精力区间为空，使两个候选的精力匹配没有差别。
+      energyWindows: const [],
+      sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+      minimumSleepMinutes: 420,
+      defaultFocusMinutes: 50,
+      breakMinutes: 10,
+      dailyMovableTaskLimitMinutes: 600,
+      weeklyLifeQuotaMinutes: 0,
+    );
     final problem = ScheduleProblem(
-      // 跨越两天：第二天存在"同一本地日内没有相邻任务"的位置。
-      planningWindow: TimeRange(
-        startUtc: day.add(const Duration(hours: 9)),
-        endUtc: day.add(const Duration(days: 1, hours: 18)),
-      ),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: const [
         SchedulableTask(
           id: 'work',
@@ -322,16 +397,9 @@ void main() {
           locked: true,
         ),
       ],
-      rules: PlanningRules(
-        // 精力区间为空，使两个候选的精力匹配没有差别。
-        energyWindows: const [],
-        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
-        minimumSleepMinutes: 420,
-        defaultFocusMinutes: 50,
-        breakMinutes: 10,
-        dailyMovableTaskLimitMinutes: 600,
-        weeklyLifeQuotaMinutes: 0,
-      ),
+      rules: rules,
+      dailyPolicies: policiesFor(window, zoneId, rules),
+      weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
       preferences: const PreferenceProfile(),
       inputHash: 'switch-cost-discriminator',
     );
@@ -364,28 +432,13 @@ void main() {
       ),
     );
 
-    ScheduleProblem build({required bool withExisting}) => ScheduleProblem(
-      planningWindow: TimeRange(
+    ScheduleProblem build({required bool withExisting}) {
+      final window = TimeRange(
         startUtc: day.add(const Duration(hours: 9)),
         endUtc: day.add(const Duration(hours: 12)),
-      ),
-      timeZoneId: 'UTC',
-      tasks: const [
-        SchedulableTask(
-          id: 'work',
-          requiredMinutes: 60,
-          splitMode: TaskSplitMode.splittable,
-          minChunkMinutes: 60,
-          maxChunkMinutes: 60,
-          priority: TaskPriority.high,
-          energyLevel: TaskEnergyLevel.high,
-        ),
-      ],
-      fixedIntervals: const [],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      existingBlocks: withExisting ? [existing] : const [],
-      rules: PlanningRules(
+      );
+      const zoneId = 'UTC';
+      final rules = PlanningRules(
         energyWindows: const [],
         sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
         minimumSleepMinutes: 420,
@@ -393,10 +446,32 @@ void main() {
         breakMinutes: 10,
         dailyMovableTaskLimitMinutes: 600,
         weeklyLifeQuotaMinutes: 0,
-      ),
-      preferences: const PreferenceProfile(),
-      inputHash: 'moving-cost-ab',
-    );
+      );
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: const [
+          SchedulableTask(
+            id: 'work',
+            requiredMinutes: 60,
+            splitMode: TaskSplitMode.splittable,
+            minChunkMinutes: 60,
+            maxChunkMinutes: 60,
+            priority: TaskPriority.high,
+            energyLevel: TaskEnergyLevel.high,
+          ),
+        ],
+        fixedIntervals: const [],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        existingBlocks: withExisting ? [existing] : const [],
+        rules: rules,
+        dailyPolicies: policiesFor(window, zoneId, rules),
+        weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
+        preferences: const PreferenceProfile(),
+        inputHash: 'moving-cost-ab',
+      );
+    }
 
     DateTime placement(ScheduleProblem problem) =>
         engine.generate(problem).blocks.single.startUtc;
@@ -576,34 +651,9 @@ void main() {
     DateTime localAt(int day, int minuteOfDay) =>
         zones.localDateTimeToUtc(DateTime(2026, 10, day), minuteOfDay, zoneId);
 
-    ScheduleProblem weekProblem() => ScheduleProblem(
-      planningWindow: TimeRange(startUtc: midnight(5), endUtc: midnight(12)),
-      timeZoneId: zoneId,
-      tasks: [
-        SchedulableTask(
-          id: 'ordinary-a',
-          requiredMinutes: 150,
-          splitMode: TaskSplitMode.splittable,
-          minChunkMinutes: 30,
-          maxChunkMinutes: 90,
-          dueAtUtc: midnight(12),
-        ),
-      ],
-      // 工作日：空档 08:00–09:10（70 分钟），其余被固定日程占住；
-      // 周末整天空着。用 10 分钟片段间休息，因此 70 分钟只放得下两个 30 分钟片段。
-      fixedIntervals: [
-        for (var day = 5; day <= 9; day++)
-          BusyInterval(
-            id: 'occupied-$day',
-            range: TimeRange(
-              startUtc: localAt(day, weekdayGapEndMinute),
-              endUtc: localAt(day, weekdayGapEndMinute + weekdayBusy),
-            ),
-          ),
-      ],
-      protectedIntervals: const [],
-      lockedBlocks: const [],
-      rules: PlanningRules(
+    ScheduleProblem weekProblem() {
+      final window = TimeRange(startUtc: midnight(5), endUtc: midnight(12));
+      final rules = PlanningRules(
         energyWindows: const [],
         sleepRange: LocalTimeRange(startMinute: 0, endMinute: 6 * 60),
         minimumSleepMinutes: 60,
@@ -614,10 +664,41 @@ void main() {
         minChunkMinutes: 30,
         maxChunkMinutes: 90,
         granularityMinutes: 5,
-      ),
-      preferences: const PreferenceProfile(),
-      inputHash: 'capacity-aware-week-engine-v1',
-    );
+      );
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: [
+          SchedulableTask(
+            id: 'ordinary-a',
+            requiredMinutes: 150,
+            splitMode: TaskSplitMode.splittable,
+            minChunkMinutes: 30,
+            maxChunkMinutes: 90,
+            dueAtUtc: midnight(12),
+          ),
+        ],
+        // 工作日：空档 08:00–09:10（70 分钟），其余被固定日程占住；
+        // 周末整天空着。用 10 分钟片段间休息，因此 70 分钟只放得下两个 30 分钟片段。
+        fixedIntervals: [
+          for (var day = 5; day <= 9; day++)
+            BusyInterval(
+              id: 'occupied-$day',
+              range: TimeRange(
+                startUtc: localAt(day, weekdayGapEndMinute),
+                endUtc: localAt(day, weekdayGapEndMinute + weekdayBusy),
+              ),
+            ),
+        ],
+        protectedIntervals: const [],
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: policiesFor(window, zoneId, rules),
+        weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
+        preferences: const PreferenceProfile(),
+        inputHash: 'capacity-aware-week-engine-v1',
+      );
+    }
 
     test('工作日负载高、周末空闲时，块必须落到周末', () {
       final problem = weekProblem();
@@ -671,12 +752,23 @@ void main() {
     /// 一件排不进任何片段的连续任务：窗口只有 30 分钟，它要求一次做完 60 分钟。
     ScheduleProblem shortWindowProblem() {
       final day = DateTime.utc(2026, 10, 5);
+      final window = TimeRange(
+        startUtc: day.add(const Duration(hours: 9)),
+        endUtc: day.add(const Duration(hours: 9, minutes: 30)),
+      );
+      const zoneId = 'UTC';
+      final rules = PlanningRules(
+        energyWindows: const [],
+        sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
+        minimumSleepMinutes: 420,
+        defaultFocusMinutes: 50,
+        breakMinutes: 0,
+        dailyMovableTaskLimitMinutes: 600,
+        weeklyLifeQuotaMinutes: 0,
+      );
       return ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: day.add(const Duration(hours: 9)),
-          endUtc: day.add(const Duration(hours: 9, minutes: 30)),
-        ),
-        timeZoneId: 'UTC',
+        planningWindow: window,
+        timeZoneId: zoneId,
         tasks: const [
           SchedulableTask(
             id: 'too-long',
@@ -689,15 +781,9 @@ void main() {
         fixedIntervals: const [],
         protectedIntervals: const [],
         lockedBlocks: const [],
-        rules: PlanningRules(
-          energyWindows: const [],
-          sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
-          minimumSleepMinutes: 420,
-          defaultFocusMinutes: 50,
-          breakMinutes: 0,
-          dailyMovableTaskLimitMinutes: 600,
-          weeklyLifeQuotaMinutes: 0,
-        ),
+        rules: rules,
+        dailyPolicies: policiesFor(window, zoneId, rules),
+        weeklyLifeQuotaByWeekStart: quotasFor(window, zoneId, rules),
         preferences: const PreferenceProfile(),
         inputHash: 'diagnostics-travel-with-proposal',
       );
@@ -833,12 +919,14 @@ ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {
       ),
   ];
 
+  final window = TimeRange(
+    startUtc: DateTime.parse(fixture['planningStartUtc']! as String),
+    endUtc: DateTime.parse(fixture['planningEndUtc']! as String),
+  );
+  final zoneId = fixture['timeZoneId']! as String;
   return ScheduleProblem(
-    planningWindow: TimeRange(
-      startUtc: DateTime.parse(fixture['planningStartUtc']! as String),
-      endUtc: DateTime.parse(fixture['planningEndUtc']! as String),
-    ),
-    timeZoneId: fixture['timeZoneId']! as String,
+    planningWindow: window,
+    timeZoneId: zoneId,
     tasks: [
       for (final item
           in (fixture['tasks']! as List<Object?>).cast<Map<String, Object?>>())
@@ -860,10 +948,25 @@ ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {
     protectedIntervals: intervals('protected'),
     lockedBlocks: const [],
     rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _fixtureZones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _fixtureZones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
     preferences: const PreferenceProfile(),
     inputHash: 'golden-week-v1',
   );
 }
+
+/// 夹具装载器用的时区库（顶层函数里没有 `main()` 的局部 `zones`）。
+final TimeZoneDatabase _fixtureZones = TimeZoneDatabase();
 
 String _signature(dynamic proposal) => jsonEncode({
   'id': proposal.proposalId,

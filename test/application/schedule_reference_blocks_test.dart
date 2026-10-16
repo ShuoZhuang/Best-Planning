@@ -26,6 +26,8 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   const zoneId = 'Asia/Shanghai';
@@ -148,20 +150,36 @@ void main() {
       ),
     );
 
-    ScheduleProblem withReference(Map<String, DateTime> reference) =>
-        ScheduleProblem(
-          planningWindow: fromSource.planningWindow,
-          timeZoneId: fromSource.timeZoneId,
-          tasks: fromSource.tasks,
-          fixedIntervals: fromSource.fixedIntervals,
-          protectedIntervals: fromSource.protectedIntervals,
-          lockedBlocks: fromSource.lockedBlocks,
-          existingBlocks: fromSource.existingBlocks,
-          rules: fromSource.rules,
-          preferences: fromSource.preferences,
-          inputHash: fromSource.inputHash,
-          referenceBlocks: reference,
-        );
+    ScheduleProblem withReference(Map<String, DateTime> reference) {
+      final window = fromSource.planningWindow;
+      final problemTimeZoneId = fromSource.timeZoneId;
+      final rules = fromSource.rules;
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: problemTimeZoneId,
+        tasks: fromSource.tasks,
+        fixedIntervals: fromSource.fixedIntervals,
+        protectedIntervals: fromSource.protectedIntervals,
+        lockedBlocks: fromSource.lockedBlocks,
+        existingBlocks: fromSource.existingBlocks,
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: problemTimeZoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: problemTimeZoneId,
+        ),
+        preferences: fromSource.preferences,
+        inputHash: fromSource.inputHash,
+        referenceBlocks: reference,
+      );
+    }
 
     // 两次装配的其它字段**逐值相同**，只有参照不同。
     final withEmpty = withReference(const {});

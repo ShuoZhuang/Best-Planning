@@ -21,6 +21,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
@@ -35,16 +37,11 @@ void main() {
     List<BusyInterval> protected = const [],
     List<PlannedBlock> locked = const [],
     LocalTimeRange? preferredStartWindow,
-  }) => ScheduleProblem(
-    planningWindow:
+  }) {
+    final planningWindow =
         window ??
-        TimeRange(startUtc: day, endUtc: day.add(const Duration(days: 7))),
-    timeZoneId: zoneId,
-    tasks: tasks,
-    fixedIntervals: fixed,
-    protectedIntervals: protected,
-    lockedBlocks: locked,
-    rules: PlanningRules(
+        TimeRange(startUtc: day, endUtc: day.add(const Duration(days: 7)));
+    final rules = PlanningRules(
       energyWindows: const [],
       sleepRange: LocalTimeRange(startMinute: 1380, endMinute: 420),
       minimumSleepMinutes: 420,
@@ -52,10 +49,31 @@ void main() {
       breakMinutes: 10,
       dailyMovableTaskLimitMinutes: 600,
       weeklyLifeQuotaMinutes: 0,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'unscheduled-reason',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: planningWindow,
+      timeZoneId: zoneId,
+      tasks: tasks,
+      fixedIntervals: fixed,
+      protectedIntervals: protected,
+      lockedBlocks: locked,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: planningWindow,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: planningWindow,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'unscheduled-reason',
+    );
+  }
 
   SchedulableTask task({
     String id = 't1',
@@ -473,6 +491,24 @@ void main() {
         endUtc: day.add(const Duration(days: 1)),
       );
       // 精力窗口：09:00–12:00 高、19:00–22:00 低。
+      final rules = PlanningRules(
+        energyWindows: [
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
+            level: EnergyLevel.high,
+          ),
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
+            level: EnergyLevel.low,
+          ),
+        ],
+        sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+        minimumSleepMinutes: 60,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 1440,
+        weeklyLifeQuotaMinutes: 0,
+      );
       final withEnergy = ScheduleProblem(
         planningWindow: window,
         timeZoneId: zoneId,
@@ -493,23 +529,18 @@ void main() {
         ),
         protectedIntervals: const [],
         lockedBlocks: const [],
-        rules: PlanningRules(
-          energyWindows: [
-            EnergyWindow(
-              range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
-              level: EnergyLevel.high,
-            ),
-            EnergyWindow(
-              range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
-              level: EnergyLevel.low,
-            ),
-          ],
-          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
-          minimumSleepMinutes: 60,
-          defaultFocusMinutes: 50,
-          breakMinutes: 10,
-          dailyMovableTaskLimitMinutes: 1440,
-          weeklyLifeQuotaMinutes: 0,
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
         ),
         preferences: const PreferenceProfile(),
         inputHash: 'energy-soft-preference',
@@ -543,6 +574,24 @@ void main() {
       final highEnd = day.add(const Duration(hours: 12));
       final lowStart = day.add(const Duration(hours: 19));
       final lowEnd = day.add(const Duration(hours: 22));
+      final rules = PlanningRules(
+        energyWindows: [
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
+            level: EnergyLevel.high,
+          ),
+          EnergyWindow(
+            range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
+            level: EnergyLevel.low,
+          ),
+        ],
+        sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
+        minimumSleepMinutes: 60,
+        defaultFocusMinutes: 50,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: 1440,
+        weeklyLifeQuotaMinutes: 0,
+      );
       final problem = ScheduleProblem(
         planningWindow: window,
         timeZoneId: zoneId,
@@ -566,23 +615,18 @@ void main() {
         ],
         protectedIntervals: const [],
         lockedBlocks: const [],
-        rules: PlanningRules(
-          energyWindows: [
-            EnergyWindow(
-              range: LocalTimeRange(startMinute: 9 * 60, endMinute: 12 * 60),
-              level: EnergyLevel.high,
-            ),
-            EnergyWindow(
-              range: LocalTimeRange(startMinute: 19 * 60, endMinute: 22 * 60),
-              level: EnergyLevel.low,
-            ),
-          ],
-          sleepRange: LocalTimeRange(startMinute: 0, endMinute: 60),
-          minimumSleepMinutes: 60,
-          defaultFocusMinutes: 50,
-          breakMinutes: 10,
-          dailyMovableTaskLimitMinutes: 1440,
-          weeklyLifeQuotaMinutes: 0,
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
         ),
         preferences: const PreferenceProfile(),
         inputHash: 'energy-both-available',

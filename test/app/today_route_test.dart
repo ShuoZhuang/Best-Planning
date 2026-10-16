@@ -39,8 +39,12 @@ import 'package:personal_planner/features/settings/planning_rules/planning_rules
 import 'package:personal_planner/features/today/today_page.dart';
 import 'package:personal_planner/platform/monotonic_clock.dart';
 
+import '../support/daily_policies.dart';
+
 /// 与路由的 `todayStartUtc` 同一个"今天"。
 final _today = DateTime.utc(2026, 10, 7);
+
+final _zones = TimeZoneDatabase();
 
 final class _Clock implements Clock {
   const _Clock();
@@ -579,27 +583,43 @@ void main() {
 /// 那条路径用的是**真实**的 `RepositoryScheduleProblemSource`。
 final class _EmptyProblemSource implements ScheduleProblemSource {
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      ScheduleProblem(
-        planningWindow: TimeRange(
-          startUtc: _today,
-          endUtc: _today.add(const Duration(days: 1)),
-        ),
-        timeZoneId: 'Asia/Shanghai',
-        tasks: const [],
-        fixedIntervals: const [],
-        protectedIntervals: const [],
-        lockedBlocks: const [],
-        rules: PlanningRules(
-          energyWindows: const [],
-          sleepRange: LocalTimeRange(startMinute: 1410, endMinute: 450),
-          minimumSleepMinutes: 420,
-          defaultFocusMinutes: 50,
-          breakMinutes: 10,
-          dailyMovableTaskLimitMinutes: 300,
-          weeklyLifeQuotaMinutes: 1200,
-        ),
-        preferences: const PreferenceProfile(),
-        inputHash: 'empty',
-      );
+  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+    final window = TimeRange(
+      startUtc: _today,
+      endUtc: _today.add(const Duration(days: 1)),
+    );
+    final zoneId = 'Asia/Shanghai';
+    final rules = PlanningRules(
+      energyWindows: const [],
+      sleepRange: LocalTimeRange(startMinute: 1410, endMinute: 450),
+      minimumSleepMinutes: 420,
+      defaultFocusMinutes: 50,
+      breakMinutes: 10,
+      dailyMovableTaskLimitMinutes: 300,
+      weeklyLifeQuotaMinutes: 1200,
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: const [],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: _zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'empty',
+    );
+  }
 }

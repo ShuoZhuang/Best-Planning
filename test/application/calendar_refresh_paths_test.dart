@@ -55,6 +55,10 @@ import 'package:personal_planner/features/calendar/week_view/schedule_view_sourc
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
+final _zones = TimeZoneDatabase();
+
 void main() {
   const timeZoneId = 'UTC';
   final zones = TimeZoneDatabase();
@@ -369,28 +373,45 @@ void main() {
 /// 而它的重放校验会真的跑一遍 `PlanValidator`——因此这里必须给出一件**合法**的任务，
 /// 否则块的 `taskId` 会被判 `unknownTask`，`apply` 会在 Task 5 新增的
 /// "冲突先于 validator"那条闸门处直接返回 invalid。
-ScheduleProblem _problem() => ScheduleProblem(
-  planningWindow: TimeRange(
+ScheduleProblem _problem() {
+  final window = TimeRange(
     startUtc: DateTime.utc(2026, 10, 5),
     endUtc: DateTime.utc(2026, 10, 12),
-  ),
-  timeZoneId: 'UTC',
-  tasks: const [
-    SchedulableTask(
-      id: 'task-1',
-      requiredMinutes: 60,
-      splitMode: TaskSplitMode.splittable,
-      minChunkMinutes: 30,
-      maxChunkMinutes: 90,
+  );
+  final zoneId = 'UTC';
+  final rules = DefaultSettings.v1();
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: const [
+      SchedulableTask(
+        id: 'task-1',
+        requiredMinutes: 60,
+        splitMode: TaskSplitMode.splittable,
+        minChunkMinutes: 30,
+        maxChunkMinutes: 90,
+      ),
+    ],
+    fixedIntervals: const [],
+    protectedIntervals: const [],
+    lockedBlocks: const [],
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
     ),
-  ],
-  fixedIntervals: const [],
-  protectedIntervals: const [],
-  lockedBlocks: const [],
-  rules: DefaultSettings.v1(),
-  preferences: const PreferenceProfile(),
-  inputHash: 'ignored',
-);
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'ignored',
+  );
+}
 
 final class _NoProblemSource implements ScheduleProblemSource {
   @override

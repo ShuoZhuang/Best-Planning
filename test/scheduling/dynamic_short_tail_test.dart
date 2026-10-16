@@ -38,6 +38,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final engine = DeterministicScheduleEngine(zones);
@@ -52,14 +54,9 @@ void main() {
     List<BusyInterval> fixed = const [],
     int dailyMovableTaskLimitMinutes = 600,
     List<EnergyWindow> energyWindows = const [],
-  }) => ScheduleProblem(
-    planningWindow: window,
-    timeZoneId: 'UTC',
-    tasks: tasks,
-    fixedIntervals: fixed,
-    protectedIntervals: const [],
-    lockedBlocks: const [],
-    rules: PlanningRules(
+  }) {
+    const zoneId = 'UTC';
+    final rules = PlanningRules(
       energyWindows: energyWindows,
       // 睡眠 23:00–07:00：与下表里的空档不重叠，因此它不参与本文件的结论。
       sleepRange: LocalTimeRange(startMinute: 23 * 60, endMinute: 7 * 60),
@@ -69,10 +66,31 @@ void main() {
       dailyMovableTaskLimitMinutes: dailyMovableTaskLimitMinutes,
       weeklyLifeQuotaMinutes: 0,
       granularityMinutes: 5,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'dynamic-short-tail',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: tasks,
+      fixedIntervals: fixed,
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'dynamic-short-tail',
+    );
+  }
 
   SchedulableTask task({
     required int requiredMinutes,

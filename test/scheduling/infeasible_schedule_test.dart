@@ -10,6 +10,8 @@ import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   test('reports the exact shortage without scheduling into sleep', () {
     final zones = TimeZoneDatabase();
@@ -19,12 +21,18 @@ void main() {
       startUtc: day.add(const Duration(hours: 20)),
       endUtc: day.add(const Duration(days: 1, hours: 8)),
     );
+    final window = TimeRange(
+      startUtc: day,
+      endUtc: day.add(const Duration(days: 1)),
+    );
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1().copyWith(
+      sleepRange: LocalTimeRange(startMinute: 20 * 60, endMinute: 8 * 60),
+      dailyMovableTaskLimitMinutes: 120,
+    );
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(
-        startUtc: day,
-        endUtc: day.add(const Duration(days: 1)),
-      ),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: [
         SchedulableTask(
           id: 'over-capacity',
@@ -46,9 +54,18 @@ void main() {
         ),
       ],
       lockedBlocks: const [],
-      rules: DefaultSettings.v1().copyWith(
-        sleepRange: LocalTimeRange(startMinute: 20 * 60, endMinute: 8 * 60),
-        dailyMovableTaskLimitMinutes: 120,
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
       ),
       preferences: const PreferenceProfile(),
       inputHash: 'over-capacity-v1',
@@ -96,12 +113,15 @@ void main() {
     final zones = TimeZoneDatabase();
     final engine = DeterministicScheduleEngine(zones);
     final day = DateTime.utc(2026, 10, 5);
+    final window = TimeRange(
+      startUtc: day,
+      endUtc: day.add(const Duration(days: 1)),
+    );
+    const zoneId = 'UTC';
+    final rules = DefaultSettings.v1();
     final problem = ScheduleProblem(
-      planningWindow: TimeRange(
-        startUtc: day,
-        endUtc: day.add(const Duration(days: 1)),
-      ),
-      timeZoneId: 'UTC',
+      planningWindow: window,
+      timeZoneId: zoneId,
       tasks: const [
         SchedulableTask(
           id: 'b',
@@ -121,7 +141,19 @@ void main() {
       fixedIntervals: const [],
       protectedIntervals: const [],
       lockedBlocks: const [],
-      rules: DefaultSettings.v1(),
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
       preferences: const PreferenceProfile(),
       inputHash: 'stable-v1',
     );

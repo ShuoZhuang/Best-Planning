@@ -16,6 +16,8 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 const _timeZoneId = 'Asia/Shanghai';
 
 /// 本地 2026-10-05（周一）00:00 对应的 UTC 瞬间。
@@ -242,17 +244,34 @@ void main() {
       required List<SchedulableTask> tasks,
       List<BusyInterval> protectedIntervals = const [],
       List<BusyInterval> fixedIntervals = const [],
-    }) => ScheduleProblem(
-      planningWindow: TimeRange(startUtc: _weekStartUtc, endUtc: _weekEndUtc),
-      timeZoneId: 'UTC',
-      tasks: tasks,
-      fixedIntervals: fixedIntervals,
-      protectedIntervals: protectedIntervals,
-      lockedBlocks: const [],
-      rules: _rules(),
-      preferences: const PreferenceProfile(),
-      inputHash: 'recurring-planning-v1',
-    );
+    }) {
+      final window = TimeRange(startUtc: _weekStartUtc, endUtc: _weekEndUtc);
+      final zoneId = 'UTC';
+      final rules = _rules();
+      return ScheduleProblem(
+        planningWindow: window,
+        timeZoneId: zoneId,
+        tasks: tasks,
+        fixedIntervals: fixedIntervals,
+        protectedIntervals: protectedIntervals,
+        lockedBlocks: const [],
+        rules: rules,
+        dailyPolicies: dailyPoliciesForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+          zones: _zones,
+          window: window,
+          rules: rules,
+          timeZoneId: zoneId,
+        ),
+        preferences: const PreferenceProfile(),
+        inputHash: 'recurring-planning-v1',
+      );
+    }
 
     test('均匀分布不会把 180 分钟全堆到周日（§11 Task 8 Step 1）', () {
       // 片段上限定成 30 分钟：180 分钟因此**必须**拆成多段，否则这条用例的

@@ -15,7 +15,6 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -33,6 +32,10 @@ void main() {
   final zones = TimeZoneDatabase();
   final dayStart = DateTime.utc(2026, 10, 12, 1);
   DateTime at(int hour) => dayStart.add(Duration(hours: hour));
+
+  /// 本地 2026-10-12 的第 [minute] 分钟（UTC）。
+  DateTime localAt(int minute) =>
+      zones.localDateTimeToUtc(DateTime(2026, 10, 12), minute, zoneId);
 
   PlannerTask task(String id, String title) => PlannerTask(
     id: id,
@@ -78,7 +81,7 @@ void main() {
   >
   runDefer({
     required List<PlannerTask> tasks,
-    required ScheduleRuleOverride? override,
+    required CalendarRepository calendar,
     required int amount,
     DateTime? targetStart,
     String targetTaskId = 't-a',
@@ -99,7 +102,7 @@ void main() {
     final source = RepositoryScheduleProblemSource(
       tasks: _Tasks(tasks),
       lifeAreas: _NoLifeAreas(),
-      calendar: _NoCalendar(),
+      calendar: calendar,
       settings: SettingsService(repository: MemorySettingsRepository()),
       plans: repository,
       clock: _Clock(dayStart),
@@ -120,7 +123,7 @@ void main() {
       source: source,
       engine: DeterministicScheduleEngine(zones),
     );
-    final proposal = await planning.createProposal(override: override);
+    final proposal = await planning.createProposal();
     // 让仓库里的"当前计划"带上正确的哈希，否则应用会先判过期。
     await repository.rebindHash(proposal.inputHash);
     final application = PlanApplicationService(
@@ -137,28 +140,46 @@ void main() {
     );
   }
 
-  /// 整天堵死（`00:00–24:00`、`DayKind.any`）—— 覆盖整个可规划窗口。
-  final blockEverything = ScheduleRuleOverride(
-    localDate: DateTime(2026, 10, 12),
-    patch: PlanningRulesPatch(
-      protectedTimes: <ProtectedTimeRule>[
-        ProtectedTimeRule(
-          kind: ProtectedTimeKind.fixedRest,
-          range: LocalTimeRange(
-            startMinute: 0,
-            endMinute: LocalTimeRange.minutesPerDay,
-          ),
-          dayKind: DayKind.any,
-          enabled: true,
+  /// 窗口起点（本地 2026-10-12 09:00）与七天窗口。
+  final windowStartLocalDate = DateTime(2026, 10, 12);
+
+  /// **整天堵死**：窗口内每一天一条全天的保护日程（见 [_BlockedCalendar]）。
+  ///
+  /// 算法 17 之后"一次性规则覆盖只作用于命中日期"（计划 §6），
+  /// 因此"整个窗口无处可放"必须由真实占用表达，不能再靠单日覆盖泄漏到整周。
+  _BlockedCalendar blockEverything() => _BlockedCalendar(
+    zones: zones,
+    timeZoneId: zoneId,
+    firstLocalDate: windowStartLocalDate,
+    days: 7,
+  );
+
+  /// **只把窗口首日的 09:30–24:00 堵死**（真实占用，而不是单日规则覆盖）。
+  ///
+  /// 同一天的级联因此失败，但后面几天仍然空着 —— 与
+  /// `_BlockedCalendar` 一样，这是"窗口内某一天被占住"的用户可达形状。
+  CalendarRepository blockSameDayAfter() => _FixedCalendar(
+    occurrences: [
+      CalendarOccurrence(
+        eventId: 'protected-same-day',
+        title: 'protected-same-day',
+        range: TimeRange(
+          startUtc: localAt(9 * 60 + 30),
+          // 本地 24:00 就是次日零点：`localDateTimeToUtc` 只接受 `[0, 1439]`，
+          // 因此终点必须用 `localMidnightToUtc` 表达（`ProtectedTimeExpander` 里
+          // 的 `_localMinuteToUtc` 是同一个特例）。
+          endUtc: zones.localMidnightToUtc(DateTime(2026, 10, 13), zoneId),
         ),
-      ],
-    ),
+        kind: CalendarEventKind.protected,
+        locked: false,
+      ),
+    ],
   );
 
   test('**局部与全局都失败 ⇒ 禁止应用，且旧计划完全不变**', () async {
     final result = await runDefer(
       tasks: [task('t-a', '写报告')],
-      override: blockEverything,
+      calendar: blockEverything(),
       amount: 30,
     );
 
@@ -213,7 +234,7 @@ void main() {
     // "排在界前"还是"根本没排"，都不允许被当成成功。
     final result = await runDefer(
       tasks: [task('t-a', '写报告')],
-      override: blockEverything,
+      calendar: blockEverything(),
       amount: 600,
     );
 
@@ -238,7 +259,7 @@ void main() {
     // 不能因为"方案里有未安排任务"就阻止（用户第 4 条）。
     final result = await runDefer(
       tasks: [task('t-a', '写报告')],
-      override: null,
+      calendar: _NoCalendar(),
       amount: 30,
     );
 
@@ -277,7 +298,7 @@ void main() {
       source: source,
       engine: DeterministicScheduleEngine(zones),
     );
-    final proposal = await planning.createProposal(override: blockEverything);
+    final proposal = await planning.createProposal();
     expect(proposal.adjustmentRequirement, isNull, reason: '不是调整 ⇒ 无要求');
     await repository.rebindHash(proposal.inputHash);
     final outcome = await PlanApplicationService(
@@ -309,32 +330,8 @@ void main() {
     // 但窗口后面几天空着 ⇒ 全局重排能放下。
     final result = await runDefer(
       tasks: [task('t-a', '写报告')],
-      override: ScheduleRuleOverride(
-        localDate: DateTime(2026, 10, 12),
-        patch: PlanningRulesPatch(
-          protectedTimes: <ProtectedTimeRule>[
-            // 每天本地 09:30 → 24:00（= `at(0.5)` → 当日 24:00）
-            ProtectedTimeRule(
-              kind: ProtectedTimeKind.fixedRest,
-              range: LocalTimeRange(
-                startMinute: 9 * 60 + 30,
-                endMinute: LocalTimeRange.minutesPerDay,
-              ),
-              dayKind: DayKind.any,
-              enabled: true,
-            ),
-          ],
-        ),
-      ),
+      calendar: blockSameDayAfter(),
       amount: 30,
-    );
-
-    // ignore: avoid_print
-    print(
-      'DIAG14 status=${result.outcome.status} '
-      'codes=${result.outcome.conflicts.map((c) => c.code).toList()} '
-      'blocks=${result.proposal.blocks.map((b) => '${b.id}@${b.startUtc.toIso8601String()}(+${b.durationMinutes})cf=${b.continuedFromId}').toList()} '
-      'req=${result.proposal.adjustmentRequirement?.targetBlockId}',
     );
 
     expect(
@@ -351,7 +348,7 @@ void main() {
     // 因此这里直接验证它对该提案也给 invalid —— 没有第二条放行路径。
     final result = await runDefer(
       tasks: [task('t-a', '写报告')],
-      override: blockEverything,
+      calendar: blockEverything(),
       amount: 30,
     );
 
@@ -404,6 +401,88 @@ final class _NoCalendar implements CalendarRepository {
     DateTime startUtc,
     DateTime endUtc,
   ) async => const [];
+
+  @override
+  Future<void> save(CalendarEvent event) async {}
+}
+
+/// 返回一组**固定**的日历占用（不随窗口变化）。
+///
+/// 用它而不是 `ScheduleRuleOverride` 表达"某段时间被占住"：算法 17 之后
+/// 一次性规则覆盖只作用于命中日期（计划 §6），而"被占住的一段时间"本来就是
+/// 日历事实，与规则覆盖是两件事。
+final class _FixedCalendar implements CalendarRepository {
+  const _FixedCalendar({required this.occurrences});
+
+  final List<CalendarOccurrence> occurrences;
+
+  @override
+  Future<List<CalendarOccurrence>> occurrencesBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async => occurrences;
+
+  @override
+  Future<void> save(CalendarEvent event) async {}
+}
+
+/// **整天堵死**：窗口内**每一天**一条 `00:00–24:00` 的保护日程。
+///
+/// ## 为什么不再用 `ScheduleRuleOverride`（算法 17 的语义修正）
+///
+/// 修复前这里用的是"`localDate = 2026-10-12` 的一次性覆盖 + `DayKind.any`"，
+/// 而它之所以能堵住整周，是因为 `PlanningRuleResolver.resolveForWindow` 只解析
+/// **窗口首日**与一个周末日，把两份规则**并集**后交给引擎按 `DayKind` 筛选——
+/// `DayKind.any` 于是命中每一天。**那不是"一次性覆盖只作用于命中日期"的语义**，
+/// 而是一次把首日规则泄漏到整周的副作用（计划 §1.2 第 1 条要修掉的正是它）。
+///
+/// 算法 17 之后，一次性覆盖**只作用于它命中的那一天**（计划 §6 兼容规则第 2 条），
+/// 因此"堵住整个窗口"必须由**真实占用**表达：窗口内每天一条全天的保护日程。
+/// 这也更贴近用户能做的事——用户确实可以在日历里建一条重复的保护时间。
+final class _BlockedCalendar implements CalendarRepository {
+  _BlockedCalendar({
+    required this.zones,
+    required this.timeZoneId,
+    required this.firstLocalDate,
+    required this.days,
+  });
+
+  final TimeZoneDatabase zones;
+  final String timeZoneId;
+  final DateTime firstLocalDate;
+  final int days;
+
+  @override
+  Future<List<CalendarOccurrence>> occurrencesBetween(
+    DateTime startUtc,
+    DateTime endUtc,
+  ) async => [
+    for (var offset = 0; offset < days; offset++)
+      CalendarOccurrence(
+        eventId: 'protected-all-day-$offset',
+        title: 'protected-all-day',
+        range: TimeRange(
+          startUtc: zones.localMidnightToUtc(
+            DateTime(
+              firstLocalDate.year,
+              firstLocalDate.month,
+              firstLocalDate.day + offset,
+            ),
+            timeZoneId,
+          ),
+          endUtc: zones.localMidnightToUtc(
+            DateTime(
+              firstLocalDate.year,
+              firstLocalDate.month,
+              firstLocalDate.day + offset + 1,
+            ),
+            timeZoneId,
+          ),
+        ),
+        kind: CalendarEventKind.protected,
+        locked: false,
+      ),
+  ];
 
   @override
   Future<void> save(CalendarEvent event) async {}

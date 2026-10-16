@@ -23,6 +23,8 @@ import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
+import '../support/daily_policies.dart';
+
 final _zones = TimeZoneDatabase();
 
 /// 一天 00:00–24:00（UTC 时区，便于按小时直接读写）。
@@ -45,22 +47,39 @@ ScheduleProblem _problem({
   required List<SchedulableTask> tasks,
   required int dailyLimit,
   List<PlannedBlock> lockedBlocks = const [],
-}) => ScheduleProblem(
-  planningWindow: _day,
-  timeZoneId: 'UTC',
-  tasks: tasks,
-  fixedIntervals: const [],
-  protectedIntervals: const [],
-  lockedBlocks: lockedBlocks,
-  rules: DefaultSettings.v1().copyWith(
+}) {
+  final window = _day;
+  final zoneId = 'UTC';
+  final rules = DefaultSettings.v1().copyWith(
     sleepRange: LocalTimeRange(startMinute: 0, endMinute: 7 * 60),
     dailyMovableTaskLimitMinutes: dailyLimit,
     // 精力窗口清空：本文件只测上限，不希望评分把块挪到别的时段而干扰结论。
     energyWindows: const [],
-  ),
-  preferences: const PreferenceProfile(),
-  inputHash: 'movable-daily-limit-v1',
-);
+  );
+  return ScheduleProblem(
+    planningWindow: window,
+    timeZoneId: zoneId,
+    tasks: tasks,
+    fixedIntervals: const [],
+    protectedIntervals: const [],
+    lockedBlocks: lockedBlocks,
+    rules: rules,
+    dailyPolicies: dailyPoliciesForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+      zones: _zones,
+      window: window,
+      rules: rules,
+      timeZoneId: zoneId,
+    ),
+    preferences: const PreferenceProfile(),
+    inputHash: 'movable-daily-limit-v1',
+  );
+}
 
 int _movableMinutesOnDay(List<PlannedBlock> blocks) => blocks
     .where((block) => !block.locked)

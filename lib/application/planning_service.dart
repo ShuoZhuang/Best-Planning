@@ -177,6 +177,15 @@ ScheduleProblem _withInputHash(ScheduleProblem problem, String inputHash) =>
       lockedBlocks: problem.lockedBlocks,
       existingBlocks: problem.existingBlocks,
       rules: problem.rules,
+      // **逐日规则与逐周生活配额必须原样搬运**（算法 17，计划 Task 2）。
+      //
+      // 这是同一个陷阱的**第四处**（前三处是 `referenceBlocks`、`adjustment`、
+      // `admissionConflicts`）：新增 `ScheduleProblem` 字段时，这里永远必查。
+      // 丢掉它们的症状格外隐蔽——引擎会在缺键时抛 `StateError`，但如果将来有人
+      // 把缺键改成回退首日，就会变成"哈希变了但规则悄悄退回旧口径"，
+      // 而那正是本计划要根除的缺陷。
+      dailyPolicies: problem.dailyPolicies,
+      weeklyLifeQuotaByWeekStart: problem.weeklyLifeQuotaByWeekStart,
       preferences: problem.preferences,
       inputHash: inputHash,
       // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让

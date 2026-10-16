@@ -30,6 +30,8 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
+import '../support/daily_policies.dart';
+
 void main() {
   final zones = TimeZoneDatabase();
   final day = DateTime.utc(2026, 10, 12);
@@ -38,17 +40,13 @@ void main() {
   ScheduleProblem problem({
     required SchedulableTask task,
     int granularityMinutes = 5,
-  }) => ScheduleProblem(
-    planningWindow: TimeRange(
+  }) {
+    final window = TimeRange(
       startUtc: day,
       endUtc: day.add(const Duration(days: 1)),
-    ),
-    timeZoneId: 'UTC',
-    tasks: [task],
-    fixedIntervals: const [],
-    protectedIntervals: const [],
-    lockedBlocks: const [],
-    rules: PlanningRules(
+    );
+    const zoneId = 'UTC';
+    final rules = PlanningRules(
       energyWindows: const [],
       sleepRange: LocalTimeRange(startMinute: 23 * 60, endMinute: 7 * 60),
       minimumSleepMinutes: 420,
@@ -57,10 +55,31 @@ void main() {
       dailyMovableTaskLimitMinutes: 600,
       weeklyLifeQuotaMinutes: 0,
       granularityMinutes: granularityMinutes,
-    ),
-    preferences: const PreferenceProfile(),
-    inputHash: 'short-matrix-$granularityMinutes',
-  );
+    );
+    return ScheduleProblem(
+      planningWindow: window,
+      timeZoneId: zoneId,
+      tasks: [task],
+      fixedIntervals: const [],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: rules,
+      dailyPolicies: dailyPoliciesForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      weeklyLifeQuotaByWeekStart: weeklyLifeQuotasForWindow(
+        zones: zones,
+        window: window,
+        rules: rules,
+        timeZoneId: zoneId,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'short-matrix-$granularityMinutes',
+    );
+  }
 
   SchedulableTask task({
     required int requiredMinutes,
