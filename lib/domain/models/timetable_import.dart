@@ -33,6 +33,16 @@ enum TimetableReviewReason {
   ambiguousPeriods,
   invalidRange,
   unparsedText,
+
+  /// **这门课在库里只剩一部分片段**（计划 Task 9 Step 4）。
+  ///
+  /// 正常的"删除课程"删掉的是**整门课**，所以它不该出现；一旦出现，说明数据处在
+  /// "一门多片段课程只留下了其中几段"的损坏状态（历史缺陷、外部改库、或某次写入中断）。
+  ///
+  /// 这时**不能默认按新课程整套创建**：新导入的片段会与剩下的那几段重复，
+  /// 而重复的片段会各自展开成一串课次——用户看到的是"周三那节课出现了两次"。
+  /// 因此导入页把它标成需要人工确认，默认**保留现有课程**。
+  partiallyDeletedCourse,
 }
 
 final class CourseDraft {

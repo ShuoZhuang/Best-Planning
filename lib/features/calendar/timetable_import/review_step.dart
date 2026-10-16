@@ -300,6 +300,8 @@ final class _CourseCard extends StatelessWidget {
     TimetableReviewReason.ambiguousPeriods => '节次不确定',
     TimetableReviewReason.invalidRange => '范围无效',
     TimetableReviewReason.unparsedText => '有文字未能解析',
+    // 计划 Task 9 Step 4：这门课在日历上只剩一部分片段，整套导入会与剩下的重复。
+    TimetableReviewReason.partiallyDeletedCourse => '日历上只剩一部分片段，需人工确认',
   };
 }
 

@@ -234,6 +234,185 @@ void main() {
       TimetableDuplicateKind.possibleUpdate,
     );
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 9 Step 4（计划 §3.4）：**"只剩一部分片段"必须被标为需要人工确认**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('库里只剩这门课的一部分片段 ⇒ partiallyPresent，且默认保留现有课程', () async {
+    final zones = TimeZoneDatabase();
+    // 幸存的那一段：周三 8:00（用户在日历上把周一那段删掉了，或历史缺陷留下的一半）。
+    final survivingStart = zones.localDateTimeToUtc(
+      DateTime(2026, 9, 9),
+      8 * 60,
+      'Asia/Shanghai',
+    );
+    final repository = _SpyCalendar(
+      existing: [
+        CalendarOccurrence(
+          eventId: 'surviving-anchor',
+          title: '高等数学(上)',
+          range: TimeRange(
+            startUtc: survivingStart,
+            endUtc: survivingStart.add(const Duration(minutes: 100)),
+          ),
+          locked: true,
+          sourceKind: CalendarEventSourceKind.timetableImport,
+          logicalCourseId: 'course-calc',
+        ),
+      ],
+    );
+
+    final preview =
+        await TimetableImportService(
+          calendarRepository: repository,
+          zones: zones,
+        ).preview(
+          TimetableDraft(
+            courses: [
+              _course(
+                id: 'course-calc',
+                name: '高等数学(上)',
+                weekday: DateTime.monday,
+                startPeriod: 1,
+                endPeriod: 2,
+                spans: const [WeekSpan(startWeek: 1, endWeek: 1)],
+              ),
+            ],
+          ),
+          term,
+          periods,
+        );
+
+    final duplicate = preview.duplicates.single;
+    expect(
+      duplicate.kind,
+      TimetableDuplicateKind.partiallyPresent,
+      reason:
+          '周一那一段在库里找不到对应的时间，但**这个名字的导入课程已经存在**——'
+          '说明它只剩一部分片段（或课表本身变了）。整套创建会与幸存的那几段重复',
+    );
+    expect(
+      duplicate.resolution,
+      TimetableDuplicateResolution.skip,
+      reason: '默认必须是"保留现有课程"，否则剩下的片段会被复制一份',
+    );
+    expect(duplicate.existingEventIds, {
+      'surviving-anchor',
+    }, reason: '要告诉调用方"现有的是哪几条"，回滚与保护判定都要用它');
+    expect(
+      preview.reviewReasons['course-calc'],
+      contains(TimetableReviewReason.partiallyDeletedCourse),
+      reason: '审阅步骤也要看到这条警告，而不是只在预览卡片上出现一次',
+    );
+  });
+
+  test('判据用**标题**而不是草稿里按顺序生成的 id —— 序号错位也能认出来', () async {
+    final zones = TimeZoneDatabase();
+    final survivingStart = zones.localDateTimeToUtc(
+      DateTime(2026, 9, 9),
+      8 * 60,
+      'Asia/Shanghai',
+    );
+    final repository = _SpyCalendar(
+      existing: [
+        CalendarOccurrence(
+          eventId: 'surviving-anchor',
+          title: '高等数学(上)',
+          range: TimeRange(
+            startUtc: survivingStart,
+            endUtc: survivingStart.add(const Duration(minutes: 100)),
+          ),
+          locked: true,
+          sourceKind: CalendarEventSourceKind.timetableImport,
+          // **库里的 id 与草稿的 id 不同**：解析器按出现顺序生成 `course-N`，
+          // 新图多一门课就会整体错位。按 id 匹配会静默失效，按标题才不会。
+          logicalCourseId: 'course-7',
+        ),
+      ],
+    );
+
+    final preview =
+        await TimetableImportService(
+          calendarRepository: repository,
+          zones: zones,
+        ).preview(
+          TimetableDraft(
+            courses: [
+              _course(
+                id: 'course-2',
+                name: '高等数学(上)',
+                weekday: DateTime.monday,
+                startPeriod: 1,
+                endPeriod: 2,
+                spans: const [WeekSpan(startWeek: 1, endWeek: 1)],
+              ),
+            ],
+          ),
+          term,
+          periods,
+        );
+
+    expect(
+      preview.duplicates.single.kind,
+      TimetableDuplicateKind.partiallyPresent,
+    );
+  });
+
+  test('库里完全没有这门课 ⇒ 不报重复（新课程正常整套创建）', () async {
+    final zones = TimeZoneDatabase();
+    final otherStart = zones.localDateTimeToUtc(
+      DateTime(2026, 9, 7),
+      8 * 60,
+      'Asia/Shanghai',
+    );
+    final repository = _SpyCalendar(
+      existing: [
+        CalendarOccurrence(
+          eventId: 'other-course',
+          title: '另一门课',
+          range: TimeRange(
+            startUtc: otherStart,
+            endUtc: otherStart.add(const Duration(minutes: 100)),
+          ),
+          locked: true,
+          sourceKind: CalendarEventSourceKind.timetableImport,
+          logicalCourseId: 'course-other',
+        ),
+      ],
+    );
+
+    final preview =
+        await TimetableImportService(
+          calendarRepository: repository,
+          zones: zones,
+        ).preview(
+          TimetableDraft(
+            courses: [
+              _course(
+                id: 'course-calc',
+                name: '高等数学(上)',
+                weekday: DateTime.monday,
+                startPeriod: 1,
+                endPeriod: 2,
+                spans: const [WeekSpan(startWeek: 1, endWeek: 2)],
+              ),
+            ],
+          ),
+          term,
+          periods,
+        );
+
+    expect(
+      preview.duplicates,
+      isEmpty,
+      reason: '这门课在库里一条锚点都没有 ⇒ 它是新课程，应当正常整套创建',
+    );
+    expect(
+      preview.reviewReasons['course-calc'],
+      isNot(contains(TimetableReviewReason.partiallyDeletedCourse)),
+    );
+  });
 }
 
 CourseDraft _course({

@@ -9,7 +9,18 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
 
-enum TimetableDuplicateKind { exact, possibleUpdate }
+enum TimetableDuplicateKind {
+  exact,
+
+  /// 时间完全相同但地点／教师不同（可能是同一门课换了教室）。
+  possibleUpdate,
+
+  /// **这门课在库里只剩一部分片段**（计划 Task 9 Step 4）。
+  ///
+  /// 与 [exact] 的区别是"只有一部分对得上"：整段创建会与幸存的那几段重复，
+  /// 而重复片段各自展开成一串课次。因此默认**保留现有课程**，并要求人工确认。
+  partiallyPresent,
+}
 
 enum TimetableDuplicateResolution { skip, update, create }
 
@@ -282,6 +293,15 @@ final class TimetableImportService {
       return a.range.startUtc.compareTo(b.range.startUtc);
     });
     final duplicates = _duplicates(draft, occurrences, existing);
+    // 「只剩一部分片段」也要出现在**审阅步骤**的"需要检查"里（计划 Task 9 Step 4）：
+    // 只把它放在预览步骤的一张卡片上，用户在审阅页就看不到这条警告了。
+    for (final duplicate in duplicates) {
+      if (duplicate.kind != TimetableDuplicateKind.partiallyPresent) continue;
+      review[duplicate.courseId] = Set.unmodifiable({
+        ...?review[duplicate.courseId],
+        TimetableReviewReason.partiallyDeletedCourse,
+      });
+    }
     return TimetableImportPreview(
       series: List.unmodifiable(series),
       occurrences: List.unmodifiable(occurrences),
@@ -343,7 +363,34 @@ final class TimetableImportService {
         }
         matched.add(match.first);
       }
-      if (matched.length != courseOccurrences.length) continue;
+      if (matched.length != courseOccurrences.length) {
+        // **这门课在日历上已经存在，但新图的每一次并不都对得上**（计划 Task 9 Step 4）。
+        //
+        // 两种情况都在这里：
+        // 1. 库里只剩这门课的一部分片段（损坏状态）；
+        // 2. 课表本身变了（换了时间或改了周次）。
+        //
+        // 两者的处置相同而且必须是同一个：**默认保留现有课程**。按新课程整套创建会与
+        // 幸存的那几段重复，而重复片段各自展开成一串课次——用户看到周三那节课出现两次，
+        // 却没有任何提示解释为什么。至于"用新图覆盖"（`update`）本任务并未实现，
+        // 所以这里也不冒充：文案说的是"保留现有课程"（计划 §17.1）。
+        //
+        // **判据用标题而不是 `logicalCourseId`**：草稿里的课程 id 由解析器按出现顺序生成
+        // （`course-1`、`course-2`…），而库里的 `logicalCourseId` 来自**上一次**解析。
+        // 新图多出一门课就会让序号整体错位，按 id 匹配会静默失效；
+        // 标题正是"这两条说的是不是同一门课"在用户眼里的判据。
+        if (candidates.isEmpty) continue;
+        duplicates.add(
+          TimetableDuplicate(
+            courseId: course.id,
+            kind: TimetableDuplicateKind.partiallyPresent,
+            // **默认不整套创建**：这是"不复制剩余片段"的唯一保证。
+            resolution: TimetableDuplicateResolution.skip,
+            existingEventIds: {for (final item in candidates) item.eventId},
+          ),
+        );
+        continue;
+      }
       final metadataSame = matched.every(
         (item) =>
             item.location.trim() == course.location.trim() &&

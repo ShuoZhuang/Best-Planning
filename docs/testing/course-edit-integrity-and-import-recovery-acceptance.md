@@ -62,6 +62,7 @@
 | B3 | rolledBack/draft 异常数据删除 | 状态不被覆盖 | data | `course_write_gateway_test.dart`（B3） | PASS |
 | R1 | committed 同图重导 | 拦截且零写入 | data + UI | `timetable_import_repository_test.dart`（既有"same image hash and term is surfaced as a duplicate batch"） | PASS |
 | R2 | partiallyDeleted 同图重导 | 允许恢复缺失课程 | data + integration | `timetable_import_repository_test.dart`（R2）、integration 场景 E（Windows PASS） | PASS |
+| R2′ | 只剩一部分片段的多片段课程 | 标为需要人工确认，**默认保留现有课程**，不整套创建 | application | `test/application/timetable_import_preview_test.dart`（`partiallyPresent` ＋ `partiallyDeletedCourse` 审阅原因 ＋ 默认 `skip`；另一条证明判据用**标题**而不是解析器按顺序生成的 `course-N`，序号错位也能认出来） | PASS |
 | R3 | rolledBack 同图重导 | 允许新批次 | data | `timetable_import_repository_test.dart`（R3、draft 用例） | PASS |
 | R4 | 两个并发 committed 提交 | 仅一个成功 | data | `timetable_import_repository_test.dart`（R4：并发提交只有一个成功） | PASS |
 | E1 | 缩短 validUntil | 范围外例外预览并删除 | unit + data + UI | `test/domain/recurrence_membership_test.dart`、`test/data/recurrence_exception_test.dart`（E1 两条）、`course_edit_save_test.dart`（预览计数） | PASS |
@@ -83,7 +84,7 @@
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
 | 静态分析 | `fx.ps1 analyze --no-pub` | `No issues found!`（2026-10-16，改动全部提交后重跑） |
-| 全量测试 | `fx.ps1 test --no-pub` | `All tests passed!` / **2600 项**（2026-10-16） |
+| 全量测试 | `fx.ps1 test --no-pub` | `All tests passed!` / **2603 项**（2026-10-16） |
 | 格式检查 | `dart format --output=none --set-exit-if-changed <本专项改动的 62 个 .dart 文件>` | `Formatted 62 files (0 changed)` —— 本专项改动的文件全部符合格式 |
 | Windows 集成测试 | `fx.ps1 test --no-pub integration_test/course_edit_integrity_and_import_recovery_test.dart -d windows` | **`All tests passed!` / 7 个场景（A–G）**（真实构建 `build\windows\x64\runner\Debug\personal_planner.exe`） |
 
@@ -141,19 +142,23 @@
 3. **A1 的人工部分**：导入记录页的 100/125/150/200% 缩放、1024/1280/1920 px 宽度、
    键盘路径与语义读取**已有自动化断言**（见 §3 的 A1 行），但真实 Narrator 与
    人工缩放复核仍在 `manual-windows-checklist.md` 的 K.3 里，**NOT RUN**。
-4. **Task 9 Step 4 的"逻辑课程内部半重复"检测 NOT VERIFIED**：计划要求导入页在检测到
-   "一门多片段课程只剩部分片段"这种损坏时标为需要人工确认。本次没有实现这一条检测
-   （需要跨批次比对同一 `logicalCourseId` 的片段完整性），因此**没有把它写成已完成**。
-   `TimetableDuplicateResolution.update` 仍然只做 skip（计划 §17.1 的既有缺陷），未曾冒充已实现。
-5. **H1 的"整个应用重启"形态**：`course_management_route_test` 用"重建 router ＋ 复用同一仓储"
+4. **H1 的"整个应用重启"形态**：`course_management_route_test` 用"重建 router ＋ 复用同一仓储"
    覆盖了"记录不活在提示条里"这一要点，但没有真的杀掉进程再打开。
    人工矩阵 K.2.11 就是为这一条准备的（**尚未执行**）。
 
 ### 已完成的原 NOT RUN 项
 
-- **Windows 集成测试**：场景 A–G 已在真实 Windows 上执行并全部通过（见 §4.1）。
-- **格式门禁**：本专项改动的 62 个 `.dart` 文件通过 `dart format --set-exit-if-changed`。
+- **Windows 集成测试**：场景 A–G 已在真实 Windows 上执行并全部通过（见 §4.1），并在补齐 Task 9 Step 4 之后重跑确认仍然全绿。
+- **格式门禁**：本专项改动的 `.dart` 文件通过 `dart format --set-exit-if-changed`。
 - **P4 的端到端覆盖**：由 integration 场景 D 补齐。
+- **A1 的键盘／语义／缩放自动化**：`timetable_import_history_page_test.dart` 补齐
+  100/125/150/200% × 1024 px、1024/1280/1920 px、纯键盘路径与语义读取
+  （自动化 PASS；真人用 Narrator 复核仍在 K.3，NOT RUN）。
+- **Task 9 Step 4 的"只剩一部分片段"检测**：已实现
+  （`TimetableDuplicateKind.partiallyPresent` ＋ `TimetableReviewReason.partiallyDeletedCourse`），
+  默认保留现有课程、不整套创建；判据用**标题**而不是解析器按出现顺序生成的 `course-N`
+  ——后者在新图多出一门课时会整体错位，按 id 匹配会静默失效。
+  `TimetableDuplicateResolution.update` 仍然只做 skip（计划 §17.1 的既有缺陷），未曾冒充已实现。
 
 ## 8. 剩余风险（与计划 §17 一致）
 
@@ -217,6 +222,5 @@
 ### Status
 - **NOT COMPLETE**
   剩余未完成项：§7.1 人工矩阵 NOT RUN、§7.2 覆盖安装验证 NOT RUN、
-  §7.3 导入记录页的缩放／键盘自动化矩阵未补、§7.4 Task 9 Step 4 的内部半重复检测未实现、
-  §7.5 "整个应用重启"形态未执行。
+  §7.3 A1 的人工 Narrator／缩放复核 NOT RUN、§7.4 "整个应用重启"形态未执行。
   其余全部为 PASS，证据见 §3、§4 与 §4.1。

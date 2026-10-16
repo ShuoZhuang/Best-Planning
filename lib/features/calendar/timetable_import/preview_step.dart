@@ -108,16 +108,22 @@ final class TimetablePreviewStep extends StatelessWidget {
             Card(
               color: Theme.of(context).colorScheme.surfaceContainerHigh,
               child: ListTile(
-                title: Text(
-                  duplicate.kind == TimetableDuplicateKind.exact
-                      ? '发现完全相同的课程'
-                      : '发现时间相同的已导入课程',
-                ),
-                subtitle: Text(
-                  duplicate.kind == TimetableDuplicateKind.exact
-                      ? '默认跳过，避免重复写入。'
-                      : '默认保留现有课程；也可作为新课程导入。',
-                ),
+                title: Text(switch (duplicate.kind) {
+                  TimetableDuplicateKind.exact => '发现完全相同的课程',
+                  TimetableDuplicateKind.possibleUpdate => '发现时间相同的已导入课程',
+                  // **这门课在库里只剩一部分片段**（计划 Task 9 Step 4）。
+                  TimetableDuplicateKind.partiallyPresent => '这门课在日历上只剩一部分',
+                }),
+                subtitle: Text(switch (duplicate.kind) {
+                  TimetableDuplicateKind.exact => '默认跳过，避免重复写入。',
+                  TimetableDuplicateKind.possibleUpdate =>
+                    '默认保留现有课程；也可作为新课程导入。',
+                  // 默认整套创建会让新片段与剩下的那几段**重复**，因此默认"保留现有"，
+                  // 并明确要求人工确认。
+                  TimetableDuplicateKind.partiallyPresent =>
+                    '这门课在日历上只剩一部分片段。默认保留现有课程，'
+                        '以免重复写入剩下的那几段；请先确认这份课表与现状的差异。',
+                }),
                 trailing: DropdownButton<TimetableDuplicateResolution>(
                   value:
                       controller.duplicateChoices[duplicate.courseId] ??
