@@ -183,19 +183,143 @@ flutter test                        -> 2631 passed / 6 failed
 
 ---
 
-## 5. 未执行项（据实记录，不粉饰）
+## 5. Task 3–5、10：交付与验证
 
-- **Task 3–13 未开始。** 算法版本**仍是 16**。
+### 5.1 提交记录（`43d9ced0` 之后，按时间顺序）
+
+| 提交 | 内容 | Task |
+| --- | --- | --- |
+| `9524c20d` | 暴露跨日偏置的基线红灯 | 1 |
+| `d9d19662` | 按本地日解析规划规则 | 2 |
+| `1c721271` | 格式化两处此前未格式化的测试源 | — |
+| `3aa61f28` | 记录实施状态 | — |
+| `d40a4287` | 单一每日容量账本 | 3 |
+| `3f72f2dd` | 方案级字典序比较 | 4 |
+| `33582f35` | 全局跨日分钟分配 | 5 |
+| `dbcf8786` | 拒绝算法版本过期的提案 | 10 |
+| `9d7b798f` | 拒绝调整前提已不成立的提案 | 10 |
+
+### 5.2 当前测试基线（实测）
+
+```text
+flutter analyze                  → No issues found!
+flutter test                     → 2699 passed / 5 failed
+```
+
+那 **5 条红灯全部在 Task 1 建立**，属于"任务 5–7 完成后才会转绿"的预期红灯：
+
+- `capacity_aware_week_planning_test.dart` ×4
+  （工作日繁忙／逐日上限／150-30 普通／150-30 均匀）
+- `schedule_engine_test.dart` ×1（普通任务跨日负载）
+
+**没有其它红灯。** 运行方式（本机 `%TEMP%` 不可写，必须重定向）：
+
+```powershell
+$t='G:\best-planing\.tooling\tmp'; $env:TMP=$t; $env:TEMP=$t
+$env:PUB_CACHE='G:\best-planing\.tooling\pub-cache'; $env:HOME="$t\home"
+cd G:\best-planing\.worktrees\native-implementation
+& G:\best-planing\.tooling\flutter\bin\flutter.bat test
+```
+
+### 5.3 Task 10：应用安全（已完成两个具体缺口）
+
+计划 Task 10 要求"应用前的闸门"。本轮审计发现并修掉**两个同类缺陷**——
+**校验了提案的内容，却没校验提案的前提**：
+
+1. **算法版本闸门**（`dbcf8786`）。输入哈希只能证明**输入**没变；算法升级后
+   同一份输入会算出不同的块集合，而旧提案的块在新算法下可能已经违反新的硬约束。
+   修复前 `apply()` 完全不看 `proposal.algorithmVersion`，一份旧算法的提案会被
+   直接写进确认计划。
+
+2. **调整要求闸门**（`9d7b798f`）。`problem.adjustment` **不进 `inputHash`**
+   （`schedule_problem.dart` 里写明：它是"比较与目标"的输入，不是"哪些时间可用"的输入）。
+   于是"用户改了调整意图"这件事哈希抓不到，而 `apply()` 只检查"提案兑现了**它自己**
+   那条要求"——它当然兑现了。修复前的结果是：**与用户当前意图无关的计划被写进确认计划，
+   而用户要的延后从未发生。**
+
+两处修复都按红灯→最小实现→绿灯→回归→提交走，并各带一条"闸门不能误伤合法提案"
+的反向用例。
+
+### 5.4 一个可复用的排查结论
+
+**把 `ScheduleProblem` 里"文档明确注明不进 `inputHash`"的字段列出来，逐个问
+"`apply()` 有没有重新验证这条前提仍然成立"——缺口就在那张表里。**
+
+已核对：
+
+| 字段 | 是否已设闸门 | 说明 |
+| --- | --- | --- |
+| `adjustment` | **是**（`9d7b798f`） | 修复前是真实缺口 |
+| `algorithmVersion` | **是**（`dbcf8786`） | 不在 problem 里，但同属"前提" |
+| `referenceBlocks` | 不需要 | 只影响 `PlanDiffer` 的"移动 vs 删除＋新增"分类，不影响应用判定 |
+| `confirmedBlocks` | 不需要 | 只参与生成期目标函数（`_referenceShortageByPriority`）；应用路径会重新 `load()` 并重算哈希，确认计划变了哈希就会变 |
+
+---
+
+## 6. **Task 6 未完成：阻塞分析与交接**（据实记录）
+
+Task 6"引擎日内接线与动态重分"**尝试了六轮，全部回退**。树始终停在上一个绿灯提交，
+没有留下半成品。这里如实记录机制，供后续接手。
+
+### 6.1 症状
+
+把 `allocateTaskDays` 接进引擎后：
+
+- Task 1 的 5 条红灯**一条都没转绿**；
+- 新增 4–9 条回归（`recurring_even_distribution` ×2、`movable_daily_limit` ×1、
+  `week_view` ×2、`schedule_engine_test` golden ×1）。
+
+### 6.2 已定位的两个真实机制
+
+1. **分配器与引擎对"这次要排多少"没有同一个答案。**
+   分配器内部用 `task.requiredMinutes` 推 `remaining`，而引擎的目标是
+   `_targetFor(problem, task)`（含截止压力、均匀推进量与 `_ensurePlaceable` 的最小可排量），
+   两者可以相差很大。实测：一个 `requiredMinutes: 150` 但已排 210 分钟的任务，
+   分配器算出 `remaining = 150 − 210 = 0`，**一分钟都不分配**。
+   → 处置：`DayAllocationInput` 增加 `targetMinutesByTask`，并要求调用方传引擎的目标；
+   同时增加 `alreadyScheduledMinutesByTask` 以避免同源扣减两次。
+
+2. **预算的单位必须是"这一天能承接的量"，不是"目标 ÷ 片段数"。**
+   实测 `{10-05: 60, 10-06: 30, 10-07: 30}`（合计 120）交给引擎后只排出 **90** 分钟：
+   碎片化的每日上限让引擎无法把余量补到任何一天上。
+   → 处置：普通任务在**全部**候选日之间轮转（填满一天再轮到下一天），
+   只有 `even` 任务才在排名前 K 天之间轮转。
+
+### 6.3 仍未解决的部分
+
+即使上述两点都修好，`远期任务会排入可排的最小量` 仍得到 **90 / 120**。
+最后一次实测（含两点修复）的分布是 `ranked=3`（本应 6 个可用日），
+说明 `_eligibleDates` 的**截止边界语义**仍有第二个错误：
+
+```dart
+// 现行（错误）：把"截止恰在某日零点"当天的**前一天**留成唯一可用日
+if (dueAt != null && !_localDayStart(date).isBefore(dueAt)) continue;
+```
+
+**交接建议**：不要继续在本文件里逐处打补丁。先写一份
+`DayAllocationInput` / `TaskDayBudget` 的接口契约（日键在 UTC 下的确切含义、
+预算对引擎的保证、任务目标如何跨边界传递），再让分配器的 23 条用例表达该契约，
+最后才接引擎。这条路径比第七次盲改更可能收敛。
+
+---
+
+## 7. 未执行项（据实记录，不粉饰）
+
+- **Task 6–9、11–13 未完成。** 算法版本**仍是 16**（Task 13 才升到 17）。
+- **两份黄金夹具未更新**（`golden_week.json` 仍是算法 16 的结果）。
+  注意：`schedule_engine_test.dart` 里有一条 golden 用例在当前 HEAD 是**绿灯**，
+  但接入 Task 6 之后会变红——那是预期的（Task 13 负责冻结新黄金结果）。
 - **集成测试未执行**（`flutter test integration_test`）：本机 `%TEMP%` 不可写，
   尚未验证该命令在重定向后能否运行。
 - **六个人工场景全部未执行**（计划 Task 12 Step 4–9）。它们需要可交互的 Windows 构建。
-- **两份黄金夹具未更新**（`golden_week.json` 仍是算法 16 的结果）。
 
-## 6. 已知限制
+## 8. 已知限制
 
 - 不承诺数学意义上的全局最优。
 - 任务依赖与通用通勤时间不在本次范围内。
 - 精力与期望时段**仍然只是软偏好**。
-- `softReserveTargetMinutes` 在本批次装配层传 **0**：它的输入是"当天的许可容量"，
-  而许可容量要等 `buildDayCapacityLedger`（Task 3）落地后才有唯一来源。
-  传 0 的含义是"软目标尚未赋值"，而不是"留 0 分钟"——它是软目标，不参与任何硬判定。
+- `test/application` 整目录运行时 `protected_time_edit_service_test` 会出现 2 条
+  偶发失败（共享内存数据库），**单文件运行通过**。这是既有现象，与本次改动无关；
+  判断回归时以逐文件或全量 `flutter test` 为准。
+- `softReserveTargetMinutes` 由装配层在容量账本建成后回填；它参与输入哈希。
+
