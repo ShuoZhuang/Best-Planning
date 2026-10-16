@@ -76,14 +76,14 @@
 | M1 | v9 → v10 | 旧业务数据逐值不变 | migration | `test/drift/app_database/schema_migration_test.dart`（M1：三批次＋规则＋事件＋例外＋任务逐值比对、`PRAGMA foreign_key_check` 为空、全部版本组合的空库迁移逐一校验） | PASS |
 | M2 | v10 非法 status | CHECK 拒绝 | migration/data | 同文件 M1 用例末段；`timetable_import_repository_test.dart`（未知值的受控错误） | PASS |
 | C1 | 无网络和隐私泄露 | 静态边界通过 | architecture | `test/architecture/no_network_test.dart`、`test/architecture/update_network_boundary_test.dart`、`no_legacy_calendar_wrappers_test.dart` | PASS |
-| A1 | 键盘、语义、缩放 | 无死入口、无溢出 | widget + manual | `timetable_import_history_page_test.dart` 覆盖按钮状态；**键盘／语义／缩放的自动化断言只在既有 J 节用例里，本专项的人工矩阵 NOT RUN** | 部分 PASS（人工 NOT RUN） |
+| A1 | 键盘、语义、缩放 | 无死入口、无溢出 | widget + manual | `timetable_import_history_page_test.dart`：100/125/150/200% 文字缩放 × 1024/1280/1920 px 宽度无溢出、只用键盘可走到「导入课表」与「撤销」并完成撤销、语义读得出文件名与状态而读不出批次 id 或哈希；**人工 Narrator 与真实缩放的复核仍 NOT RUN（K.3）** | 自动化 PASS；人工 NOT RUN |
 
 ## 4. 静态分析与全量测试
 
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
 | 静态分析 | `fx.ps1 analyze --no-pub` | `No issues found!`（2026-10-16，改动全部提交后重跑） |
-| 全量测试 | `fx.ps1 test --no-pub` | `All tests passed!` / **2591 项**（01:07 完成） |
+| 全量测试 | `fx.ps1 test --no-pub` | `All tests passed!` / **2600 项**（2026-10-16） |
 | 格式检查 | `dart format --output=none --set-exit-if-changed <本专项改动的 62 个 .dart 文件>` | `Formatted 62 files (0 changed)` —— 本专项改动的文件全部符合格式 |
 | Windows 集成测试 | `fx.ps1 test --no-pub integration_test/course_edit_integrity_and_import_recovery_test.dart -d windows` | **`All tests passed!` / 7 个场景（A–G）**（真实构建 `build\windows\x64\runner\Debug\personal_planner.exe`） |
 
@@ -138,8 +138,9 @@
    主路径、键盘与 Narrator）全部为空。
 2. **覆盖安装验证 NOT RUN**：用 v9 正式版数据副本覆盖安装修复候选属于 Task 11 Step 12，
    需要构建授权，本次未申请。
-3. **A1 的键盘／语义／缩放自动化**：本专项只补了按钮状态与错误态用例，
-   没有为导入记录页新增 100/125/150/200% 缩放与 1024/1280/1920 宽度的自动化矩阵。
+3. **A1 的人工部分**：导入记录页的 100/125/150/200% 缩放、1024/1280/1920 px 宽度、
+   键盘路径与语义读取**已有自动化断言**（见 §3 的 A1 行），但真实 Narrator 与
+   人工缩放复核仍在 `manual-windows-checklist.md` 的 K.3 里，**NOT RUN**。
 4. **Task 9 Step 4 的"逻辑课程内部半重复"检测 NOT VERIFIED**：计划要求导入页在检测到
    "一门多片段课程只剩部分片段"这种损坏时标为需要人工确认。本次没有实现这一条检测
    （需要跨批次比对同一 `logicalCourseId` 的片段完整性），因此**没有把它写成已完成**。

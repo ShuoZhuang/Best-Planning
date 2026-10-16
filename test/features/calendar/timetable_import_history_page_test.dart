@@ -8,6 +8,7 @@
 // 3. **按钮状态由仓储事实决定**：已撤销不可再撤销、一条不剩的 partial 只给"重新导入"；
 // 4. **受保护批次必须先二次确认**，取消时**零写入**（H2）。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -34,14 +35,21 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     VoidCallback? onImportTimetable,
+    Size surface = const Size(1280, 900),
+    double textScale = 1,
   }) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    await tester.binding.setSurfaceSize(surface);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
         locale: PlannerLocalization.locale,
         localizationsDelegates: PlannerLocalization.delegates,
         supportedLocales: PlannerLocalization.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: Scaffold(
           body: TimetableImportHistoryPage(
             service: service,
@@ -241,6 +249,107 @@ void main() {
     expect(find.byKey(const Key('import-rollback-confirm')), findsNothing);
     expect(repository.rollbackCalls, hasLength(1));
     expect(repository.rollbackCalls.single.$2, isEmpty);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // A1（计划 §15）：**文字缩放、窗口宽度、键盘与语义**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('A1：缩放／宽度／键盘', () {
+    for (final scale in [1.0, 1.25, 1.5, 2.0]) {
+      testWidgets('${(scale * 100).round()}% 文字缩放下无溢出，撤销按钮仍可点', (tester) async {
+        repository.items = [
+          item(batchId: 'batch-1', fileName: '很长很长的一张课表文件名.png'),
+          item(
+            batchId: 'batch-2',
+            status: TimetableImportBatchStatus.partiallyDeleted,
+            remaining: 0,
+            canRollback: false,
+          ),
+          item(
+            batchId: 'batch-3',
+            status: TimetableImportBatchStatus.rolledBack,
+            remaining: 0,
+            canRollback: false,
+          ),
+        ];
+        await pump(tester, surface: const Size(1024, 900), textScale: scale);
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '缩放导致 RenderFlex overflow 会在这里以异常形式暴露',
+        );
+        final rollback = find.byKey(
+          const Key('import-history-rollback-batch-1'),
+        );
+        await tester.ensureVisible(rollback);
+        await tester.tap(rollback);
+        await tester.pumpAndSettle();
+        expect(repository.rollbackCalls, hasLength(1));
+      });
+    }
+
+    for (final width in [1024.0, 1280.0, 1920.0]) {
+      testWidgets('${width.round()} px 宽度下操作仍可见', (tester) async {
+        repository.items = [item(batchId: 'batch-1')];
+        await pump(
+          tester,
+          surface: Size(width, 900),
+          // 入口只有在装配了去处时才渲染（"不给点了没反应的按钮"）。
+          onImportTimetable: () {},
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(const Key('import-history-rollback-batch-1')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('import-history-import')), findsOneWidget);
+      });
+    }
+
+    testWidgets('键盘：Tab 能走到「导入课表」与「撤销」，Enter 能撤销', (tester) async {
+      var importTapped = 0;
+      repository.items = [item(batchId: 'batch-1')];
+      await pump(tester, onImportTimetable: () => importTapped++);
+
+      // 只按键盘：先走到「导入课表」，再走到「撤销」。
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(importTapped, 1, reason: '第一个可聚焦控件应当是「导入课表」');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(repository.rollbackCalls, hasLength(1), reason: '只用键盘也必须能完成一次撤销');
+    });
+
+    testWidgets('语义：读得出文件名与状态，读不出批次 id 或图片哈希', (tester) async {
+      repository.items = [item(batchId: 'batch-visible-1')];
+      final handle = tester.ensureSemantics();
+      await pump(tester);
+
+      // **用 `bySemanticsLabel` 而不是自己收集 `Semantics` widget 的 label**：
+      // `ListTile` 的语义标签由它的子节点**合并**而来，直接读 widget 属性只会拿到空串
+      // ——那会让这条用例变成"断言空串里没有 id"的空转。
+      expect(
+        find.bySemanticsLabel(RegExp('schedule\\.png')),
+        findsWidgets,
+        reason: '屏幕阅读器必须读得出这是哪张课表',
+      );
+      expect(find.bySemanticsLabel(RegExp('已导入')), findsWidgets);
+      expect(
+        find.bySemanticsLabel(RegExp('batch-visible-1')),
+        findsNothing,
+        reason: '语义树同样不得暴露内部批次 id（规范全局不变量第 7 条）',
+      );
+      expect(find.bySemanticsLabel(RegExp('sha256')), findsNothing);
+      handle.dispose();
+    });
   });
 }
 
