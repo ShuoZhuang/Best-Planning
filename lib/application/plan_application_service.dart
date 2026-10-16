@@ -76,6 +76,29 @@ final class PlanApplicationService {
         DeterministicScheduleEngine.algorithmVersion) {
       return ApplyPlanResult.stale();
     }
+    // ── 调整要求闸门（计划 Task 10「应用安全」）────────────────────────────────
+    //
+    // `problem.adjustment` **不进 `inputHash`**（它是"比较与目标"的输入，不是
+    // "哪些时间可用"的输入），因此输入哈希抓不到"用户的调整意图变了"：
+    //
+    //   ① 用户对块 A 点"延后到 15:00" → 生成提案 P（P 携带这条要求）；
+    //   ② 用户改主意 → 对块 B 延后到 17:00（哈希不变）；
+    //   ③ 用户点"应用 P"。
+    //
+    // 没有这道闸门时，`_adjustmentFailure` 只会确认"P 兑现了 **P 自己**那条要求"
+    // ——它当然兑现了——于是这份与用户当前意图无关的计划被写进确认计划，
+    // 而用户要的延后从未发生。
+    //
+    // 判据只看**请求本身**（目标块 + 下界）：时长与原位置来自确认计划里那一块，
+    // 是"延后前的事实"，由 `evaluateAdjustmentFulfilment` 负责，不在这里重复。
+    if (proposal.adjustmentRequirement case final requirement?) {
+      final request = current.adjustment;
+      if (request == null ||
+          request.targetBlockId != requirement.targetBlockId ||
+          request.notBeforeUtc != requirement.notBeforeUtc) {
+        return ApplyPlanResult.stale();
+      }
+    }
     // **引擎已经报过的阻断冲突先落地**：`stale` 检查之后、validator 之前。
     // 非空立即返回 `invalid`，因此 `allowPartial` 无法绕过引擎已经报告的阻断冲突，
     // 更不许写库——提案自己带着"不得应用"的证据时，重新校验一遍块集合并不足以放行。
