@@ -87,7 +87,9 @@ void main() {
           hits.add('${file.path} 含 $symbol');
         }
       }
-      if (file.path.endsWith('application${Platform.pathSeparator}calendar_service.dart') ||
+      if (file.path.endsWith(
+            'application${Platform.pathSeparator}calendar_service.dart',
+          ) ||
           file.path.endsWith('application/calendar_service.dart')) {
         for (final pattern in _forbiddenInCalendarService) {
           final match = pattern.firstMatch(content);
@@ -125,9 +127,11 @@ void main() {
 
     expect(
       hits,
-      ['$_scannedDirectory${Platform.pathSeparator}domain'
-          '${Platform.pathSeparator}models'
-          '${Platform.pathSeparator}course_series.dart'],
+      [
+        '$_scannedDirectory${Platform.pathSeparator}domain'
+            '${Platform.pathSeparator}models'
+            '${Platform.pathSeparator}course_series.dart',
+      ],
       reason:
           '「未命名事项」只允许作为**检测旧数据的常量**'
           '（legacyPlaceholderCourseTitle）出现一次。'
@@ -165,7 +169,10 @@ void main() {
 /// 这里相反——**被删掉的方法名一定要能出现在注释里**，否则代码里就没法解释
 /// 为什么它被删了，而"为什么"正是防止它被加回来的东西。
 String _stripComments(String source) {
-  final withoutBlock = source.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+  final withoutBlock = source.replaceAll(
+    RegExp(r'/\*.*?\*/', dotAll: true),
+    '',
+  );
   return withoutBlock
       .split('\n')
       .map((line) {

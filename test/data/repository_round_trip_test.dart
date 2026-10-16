@@ -225,7 +225,8 @@ void main() {
   });
 
   // 1.8.0（规范 §9.1，计划 Task 7 Step 2）：`kind` 必须保存、读取、展开后都不丢。
-  test('固定日程与保护时间的 kind 在往返后不丢失', () async {    final calendarRepository = DriftCalendarRepository(database);
+  test('固定日程与保护时间的 kind 在往返后不丢失', () async {
+    final calendarRepository = DriftCalendarRepository(database);
     await calendarRepository.save(
       CalendarEvent(
         id: 'evt-fixed',
