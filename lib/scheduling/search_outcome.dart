@@ -1,3 +1,5 @@
+import 'package:personal_planner/scheduling/explanations.dart';
+
 /// 一次排程搜索的**结果种类**（算法 17，计划 §6 / §3.6）。
 ///
 /// ## 为什么必须分成五种
@@ -60,4 +62,32 @@ bool isApplicableOutcome(
   // 下面两类**任何模式**都禁止应用（ALG-42）。
   SearchOutcomeKind.budgetExhausted ||
   SearchOutcomeKind.invariantViolation => false,
+};
+
+/// **[SearchOutcomeKind] 的用户文案**（计划 Task 9；人工场景 F）。
+///
+/// ## 为什么必须单独有一份映射
+///
+/// 枚举把五种处境分开了，但"用户看到的那句话"此前没有对应条目：
+/// `budgetExhausted` 与 `invariantViolation` 在 `ConflictCode` 里根本不存在，
+/// 于是它们只能落回 `insufficientCapacity` →「可用时间不足」。
+///
+/// 那正是计划点名禁止的事（§1.2 第 9 条、ALG-47）：
+///
+/// > 达到预算但没有证明无解时返回 `budgetExhausted`，**不得**返回 `insufficientCapacity`。
+///
+/// 把两者说成同一句话的代价是**把用户引向错误的处置**：预算耗尽要重新生成
+/// （很可能就成功了），而"可用时间不足"要腾时间。文案必须区分它们。
+///
+/// **判据与 [isApplicableOutcome] 用同一个枚举**，因此"能不能应用"与
+/// "为什么不能"永远指向同一种处境，不会各自漂移。
+String searchOutcomeLabel(SearchOutcomeKind kind) => switch (kind) {
+  SearchOutcomeKind.solved => '已排定完整方案',
+  SearchOutcomeKind.solvedWithSoftRelaxation => '已排定完整方案，其中部分时段偏离了精力或期望时段偏好',
+  // 只有这一种处境允许说"可用时间不足"：它**已经证明**硬约束下无解。
+  SearchOutcomeKind.hardInfeasible => '可用时间不足，完整方案在硬约束下不可行',
+  // 计划指定措辞："未能确认完整方案"。**不得**说成"可用时间不足"。
+  SearchOutcomeKind.budgetExhausted => '未能确认完整方案：搜索已达到计算预算。请重新生成；本次结果未自动应用',
+  // 与 `unscheduledReasonLabel` 共用同一常量，两条展示链不可能出现两种说法。
+  SearchOutcomeKind.invariantViolation => schedulingInvariantViolationMessage,
 };
