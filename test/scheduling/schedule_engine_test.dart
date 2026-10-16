@@ -558,6 +558,105 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // 计划 `2026-10-16-capacity-aware-hierarchical-scheduler-repair.md` Task 1 Step 3：
+  // **普通任务（`unconstrained`）的日期选择必须考虑日负载**。
+  //
+  // 算法 16 的候选评分不含任何跨日负载项，"选哪一天"完全由最早开始时间打破平局，
+  // 于是天然向窗口前部聚集（计划 §1.2 第 4 条）。用户看到的是「工作日越来越挤、
+  // 周末整周空着」，而不是「容量不够」。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('普通任务的跨日负载（Task 1 Step 3）', () {
+    const zoneId = 'Asia/Shanghai';
+    const licensedPerDay = 120;
+    const weekdayBusy = 50;
+    const weekdayGapEndMinute = 8 * 60 + 70;
+
+    DateTime midnight(int day) =>
+        zones.localMidnightToUtc(DateTime(2026, 10, day), zoneId);
+    DateTime localAt(int day, int minuteOfDay) =>
+        zones.localDateTimeToUtc(DateTime(2026, 10, day), minuteOfDay, zoneId);
+
+    ScheduleProblem weekProblem() => ScheduleProblem(
+      planningWindow: TimeRange(startUtc: midnight(5), endUtc: midnight(12)),
+      timeZoneId: zoneId,
+      tasks: [
+        SchedulableTask(
+          id: 'ordinary-a',
+          requiredMinutes: 150,
+          splitMode: TaskSplitMode.splittable,
+          minChunkMinutes: 30,
+          maxChunkMinutes: 90,
+          dueAtUtc: midnight(12),
+        ),
+      ],
+      // 工作日：空档 08:00–09:10（70 分钟），其余被固定日程占住；
+      // 周末整天空着。用 10 分钟片段间休息，因此 70 分钟只放得下两个 30 分钟片段。
+      fixedIntervals: [
+        for (var day = 5; day <= 9; day++)
+          BusyInterval(
+            id: 'occupied-$day',
+            range: TimeRange(
+              startUtc: localAt(day, weekdayGapEndMinute),
+              endUtc: localAt(day, weekdayGapEndMinute + weekdayBusy),
+            ),
+          ),
+      ],
+      protectedIntervals: const [],
+      lockedBlocks: const [],
+      rules: PlanningRules(
+        energyWindows: const [],
+        sleepRange: LocalTimeRange(startMinute: 0, endMinute: 6 * 60),
+        minimumSleepMinutes: 60,
+        defaultFocusMinutes: 60,
+        breakMinutes: 10,
+        dailyMovableTaskLimitMinutes: licensedPerDay,
+        weeklyLifeQuotaMinutes: 0,
+        minChunkMinutes: 30,
+        maxChunkMinutes: 90,
+        granularityMinutes: 5,
+      ),
+      preferences: const PreferenceProfile(),
+      inputHash: 'capacity-aware-week-engine-v1',
+    );
+
+    test('工作日负载高、周末空闲时，块必须落到周末', () {
+      final problem = weekProblem();
+      final proposal = engine.generate(problem);
+
+      final byDay = <int, int>{for (var day = 5; day <= 11; day++) day: 0};
+      for (final block in proposal.blocks) {
+        final local = zones.toLocal(block.startUtc, zoneId);
+        if (local.month != 10) continue;
+        final current = byDay[local.day];
+        if (current == null) continue;
+        byDay[local.day] = current + block.durationMinutes;
+      }
+
+      expect(
+        byDay.values.fold<int>(0, (sum, value) => sum + value),
+        150,
+        reason: '周末每天 120 分钟合法容量，目标必须完整排下；实际 $byDay',
+      );
+      expect(
+        byDay[10]! + byDay[11]!,
+        greaterThan(0),
+        reason:
+            '周末负载 0%、工作日负载约 42%；至少一个块必须落到周末。'
+            '修复前工作日会被堆满而周末保持为 0（实际 $byDay）',
+      );
+      for (final day in [5, 6, 7, 8, 9]) {
+        expect(
+          byDay[day]!,
+          lessThanOrEqualTo(60),
+          reason:
+              '工作日空档 70 分钟只放得下两块，单日新增不得超过 60 分钟；'
+              '第 $day 日加到 ${byDay[day]}（实际 $byDay）',
+        );
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // 计划 §2.3 / Task 6：**诊断数据必须随提案走到预览**。
   //
   // Task 5 把"为什么排不下"重写成最终诊断，但引擎算完就把它丢掉了：预览层只能再次猜原因，

@@ -311,4 +311,58 @@ void main() {
       expect(zero.shortageMinutes, 0);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1 Step 2（计划 `2026-10-16-capacity-aware-hierarchical-scheduler-repair.md`）：
+  // **150 分钟、最小片段 30、七天等余量时不得固定选前五个日期**。
+  //
+  // 修复前 K 日选择的判据是"余量降序、日期升序"（本文件上方 `byHeadroomDesc`），
+  // 于是七天余量完全相同时**永远**选中周一至周五——周末在整周里被结构性排除。
+  // 用户可观察到的现象正是「工作日越来越挤、周末一直空着」（计划 §1.2 第 3 条）。
+  //
+  // 判据不能写成"必须包含周末"：那等于给周末加固定奖励，而计划 §3.4 第 8 条要求
+  // 周末只因**真实容量与负载**被选中。因此这里钉的是"不得固定取前 K 个日期"。
+  // ─────────────────────────────────────────────────────────────────────────────
+  group('150/30 七天等容量不固定选前五日（Task 1 Step 2）', () {
+    test('150 分钟、最小片段 30、七天各余 90 分钟 ⇒ 参与日不得只是前五天', () {
+      final plan = _allocate(
+        target: 150,
+        minChunk: 30,
+        granularity: 30,
+        capacity: {for (var day = 5; day <= 11; day++) _d(10, day): 120},
+        already: {for (var day = 5; day <= 11; day++) _d(10, day): 30},
+      );
+
+      expect(
+        plan.additionalMinutesByLocalDate.values.fold(0, (a, b) => a + b),
+        150,
+        reason: '七天各余 90 分钟，目标必须完整分配',
+      );
+      expect(
+        plan.additionalMinutesByLocalDate.length,
+        greaterThan(5),
+        reason: '参与日期不得固定是周一至周五；实际 ${plan.additionalMinutesByLocalDate}',
+      );
+    });
+
+    test('同一组日期重复运行结果逐值相同（轮换不得引入随机性）', () {
+      EvenDistributionPlan allocate() => _allocate(
+        target: 150,
+        minChunk: 30,
+        granularity: 30,
+        capacity: {for (var day = 5; day <= 11; day++) _d(10, day): 120},
+        already: {for (var day = 5; day <= 11; day++) _d(10, day): 30},
+      );
+
+      final first = allocate();
+      for (var run = 0; run < 20; run++) {
+        final again = allocate();
+        expect(
+          again.additionalMinutesByLocalDate,
+          first.additionalMinutesByLocalDate,
+          reason: '同一周期的结果必须逐值稳定（计划 §3.4 第 7 条）',
+        );
+      }
+    });
+  });
 }
