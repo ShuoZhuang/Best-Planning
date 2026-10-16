@@ -46,4 +46,23 @@ abstract interface class CourseWriteGateway {
   /// （`exception_of_id` 指向本锚点，且要排除零长度的"删除例外"或包含它，
   /// 取决于问的是什么）。把它放在端口上，判据就只有一个来源。
   Future<int> countExceptions(String anchorEventId);
+
+  /// **锚点保留、但已经不再属于新规则的例外条数**（计划 §2.5／Task 8 Step 3）。
+  ///
+  /// 与 [countExceptions] 是**两件事**，不能相加成一个数字糊过去：
+  ///
+  /// - `countExceptions`：整段被删除，它名下**全部**例外随之消失；
+  /// - 本方法：锚点还在，但缩短周次／改星期／改单双周之后，有些例外落在新规则之外。
+  ///
+  /// 用户要看到的是两句不同的话——"删除 1 个课程片段及其 2 次单独调整"与
+  /// "另有 1 次单独调整已超出新周次，将删除"（§2.5 的文案要求）。
+  ///
+  /// **它必须是只读的**：预览不得执行删除。判定必须与展开器共用同一个
+  /// `recurrenceIncludesLocalDate()`，否则预览报的数字与保存真正删的行数会不一致。
+  /// 锚点不存在时返回 0。
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  });
 }

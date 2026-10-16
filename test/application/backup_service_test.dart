@@ -275,13 +275,11 @@ Future<void> _seedCourseAndProtection(AppDatabase app) async {
   await calendar.replaceOccurrence(
     anchorId: 'protected-gym',
     occurrenceStartUtc: DateTime.utc(2026, 10, 20, 6),
-    event: CalendarEventEditDraft(
+    patch: CalendarEventPatch(
       title: '体检',
       notes: '带化验单',
       startAtUtc: DateTime.utc(2026, 10, 20, 8),
       endAtUtc: DateTime.utc(2026, 10, 20, 9),
-      timeZoneId: zoneId,
-      kind: CalendarEventKind.protected,
     ),
     exceptionId: 'exc-checkup',
     updatedAtUtc: DateTime.utc(2026, 10, 1),

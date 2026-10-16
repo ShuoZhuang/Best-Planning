@@ -120,10 +120,16 @@ void main() {
 
   test('改写整个系列：文案说的是保护时间', () async {
     final label = await reasonFor(
-      (svc, event) => svc.replaceSeries(
-        anchorId: event.id,
-        newStartUtc: DateTime.utc(2026, 10, 6, 5),
-        newEndUtc: DateTime.utc(2026, 10, 6, 6),
+      (svc, event) => svc.updateEvent(
+        target: CalendarEditTarget(
+          anchorId: event.id,
+          scope: EventEditScope.entireSeries,
+        ),
+        patch: CalendarEventPatch(
+          title: '保护时间',
+          startAtUtc: DateTime.utc(2026, 10, 6, 5),
+          endAtUtc: DateTime.utc(2026, 10, 6, 6),
+        ),
       ),
     );
 
@@ -133,11 +139,17 @@ void main() {
 
   test('改写此次及以后：文案说的是保护时间', () async {
     final label = await reasonFor(
-      (svc, event) => svc.replaceFollowingOccurrences(
-        anchorId: event.id,
-        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
-        newStartUtc: DateTime.utc(2026, 10, 6, 5),
-        newEndUtc: DateTime.utc(2026, 10, 6, 6),
+      (svc, event) => svc.updateEvent(
+        target: CalendarEditTarget(
+          anchorId: event.id,
+          scope: EventEditScope.followingOccurrences,
+          occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+        ),
+        patch: CalendarEventPatch(
+          title: '保护时间',
+          startAtUtc: DateTime.utc(2026, 10, 6, 5),
+          endAtUtc: DateTime.utc(2026, 10, 6, 6),
+        ),
       ),
     );
 
@@ -159,12 +171,17 @@ void main() {
 
   test('改写单次：文案说的是保护时间', () async {
     final label = await reasonFor(
-      (svc, event) => svc.replaceOccurrence(
-        anchorId: event.id,
-        occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
-        newStartUtc: DateTime.utc(2026, 10, 6, 5),
-        newEndUtc: DateTime.utc(2026, 10, 6, 6),
-        title: '保护时间',
+      (svc, event) => svc.updateEvent(
+        target: CalendarEditTarget(
+          anchorId: event.id,
+          scope: EventEditScope.singleOccurrence,
+          occurrenceStartUtc: DateTime.utc(2026, 10, 6, 4),
+        ),
+        patch: CalendarEventPatch(
+          title: '保护时间',
+          startAtUtc: DateTime.utc(2026, 10, 6, 5),
+          endAtUtc: DateTime.utc(2026, 10, 6, 6),
+        ),
       ),
     );
 
@@ -254,7 +271,8 @@ final class _MemoryCalendar
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -262,7 +280,8 @@ final class _MemoryCalendar
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -272,7 +291,8 @@ final class _MemoryCalendar
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,

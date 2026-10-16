@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
-import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/planner_theme.dart';
@@ -253,7 +252,7 @@ final class OccurrenceEditRequest {
     required this.anchorId,
     required this.scope,
     required this.occurrenceStartUtc,
-    required this.draft,
+    required this.patch,
     this.expectedUpdatedAtUtc,
   });
 
@@ -266,7 +265,10 @@ final class OccurrenceEditRequest {
   /// "整条系列"不指向某一次，硬塞一个时刻会让写入端以为要按它定位。
   final DateTime? occurrenceStartUtc;
 
-  final CalendarEventEditDraft draft;
+  /// **显式 patch**，不是"完整草稿"。它是 patch 而不是草稿这件事正是本页的安全属性：
+  /// 对话框只展示标题、备注与时间，因此**只有这三项**会进请求。地点、领域、项目、
+  /// 类别、来源、批次与逻辑课程 id 没有入口，写入端在事务内从锚点保留它们。
+  final CalendarEventPatch patch;
 
   /// 页面读到这一条时的修订号（空表示"无从判断"，跳过过期检测）。
   final DateTime? expectedUpdatedAtUtc;
@@ -319,21 +321,21 @@ Future<void> _editOccurrence(
       occurrenceStartUtc: result.scope == EventEditScope.entireSeries
           ? null
           : item.range.startUtc,
-      draft: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: result.title,
         // **备注也一起带出去**（计划 §1.2）：此前对话框收得到它、回调却没有位置放，
-        // 于是用户在这一次上填的备注点保存之后就消失了。
+        // 于是用户在这一次上填的备注点保存之后就消失了。备注在这一页上**是展示出来的**，
+        // 因此它可以是一个普通字符串——用户看到的就是他提交的完整值。
         notes: result.notes,
         startAtUtc: result.startUtc,
         endAtUtc: result.endUtc,
-        timeZoneId: timeZoneId,
-        // **类别必须从条目种类翻译过来，不能直接传**：`ScheduleItemKind` 是**视图**层的
-        // 枚举（还包含任务块、专注块等），而 `CalendarEventKind` 是**领域**层的两值枚举。
-        // 直接传在类型上就不成立；而"保护时间被改写成固定日程"会让它从此进入投入统计
-        // （规范 §9.1 明确保护时间不计入任何投入）。
-        kind: item.kind == ScheduleItemKind.protectedTime
-            ? CalendarEventKind.protected
-            : CalendarEventKind.fixed,
+        // **地点故意留空**（计划 §2.0.1）：日视图的对话框不展示地点，因此这一项
+        // 必须由仓储在事务内保留锚点原值。这里传 `null` 就是那个意思；
+        // 传 `SetField('')` 才是"用户明确清空地点"。
+        //
+        // **类别也不再从这里传**：`ScheduleItemKind` 是**视图**层的枚举（还包含任务块、
+        // 专注块等），而把保护时间改写成固定日程会让"排程硬禁区"凭空消失——用户以为
+        // 自己只是改了时间。类别由锚点决定，patch 里没有这个入口。
       ),
       expectedUpdatedAtUtc: item.updatedAtUtc,
     ),

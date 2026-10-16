@@ -454,18 +454,19 @@ final class _FixedSeries implements ProtectedTimeSeriesReader {
 /// 记录改写调用的删除端口（Task 8 Step 5 的判据都落在它身上）。
 final class _RecordingDeletion implements CalendarEventDeletion {
   final List<String> replacedSeries = [];
-  CalendarEventEditDraft? lastEdit;
+  CalendarEventPatch? lastEdit;
 
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
     DateTime? updateExceptionsFromUtc,
   }) async {
     replacedSeries.add(anchorId);
-    lastEdit = event;
+    lastEdit = patch;
   }
 
   @override
@@ -491,7 +492,8 @@ final class _RecordingDeletion implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -500,7 +502,8 @@ final class _RecordingDeletion implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,

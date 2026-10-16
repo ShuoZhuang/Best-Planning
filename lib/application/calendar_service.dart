@@ -14,12 +14,17 @@ import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 // 既有 `import '.../calendar_service.dart'` 的调用点因此一个字都不用改。
 export 'package:personal_planner/domain/models/calendar_event_edit.dart'
     show
+        CalendarEditMissingException,
+        CalendarEditStaleException,
         CalendarEditTarget,
-        CalendarEventEditDraft,
+        CalendarEventPatch,
         CalendarMutationResult,
         CalendarMutationStatus,
         EventEditScope,
-        RecurrenceEditDraft;
+        FieldPatch,
+        KeepField,
+        RecurrenceEditDraft,
+        SetField;
 
 final class EventDraft {
   const EventDraft({
@@ -142,82 +147,14 @@ final class CalendarService {
 
   /// 改写整个系列（FR-CAL-02 的"整个系列"编辑一半）。所有各次一起换到新时间。
   ///
-  /// 与 [replaceOccurrence] 同路：锚点与规则都在仓储侧读写（它才摸得到规则行），本服务只转发。
+  /// **已删除**（课程编辑完整性修复计划 Task 2 Step 6）：这个方法此前只收"新起止"，
+  /// 标题与时区只能从两张**进程内缓存**里猜，猜不到就写 `未命名事项` 与 `UTC`——
+  /// 用户只改一次钟点，课程名、教师、地点、领域、项目就都没了（计划 §1.1）。
   ///
-  /// **deprecated 包装器**（课程与保护时间管理修复计划 Task 2 Step 4）：内部构造完整草稿并转到
-  /// [updateEvent]。等 Task 8 把全部调用方迁到 `updateEvent` 之后再删——一次提交就让整个仓库
-  /// 编译不过，会把"有没有回归"和"还没改完"混在一起。
-  @Deprecated(
-    'Use updateEvent with CalendarEditTarget(scope: entireSeries) instead.',
-  )
-  Future<bool> replaceSeries({
-    required String anchorId,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-  }) async {
-    final result = await updateEvent(
-      target: CalendarEditTarget(
-        anchorId: anchorId,
-        scope: EventEditScope.entireSeries,
-      ),
-      event: CalendarEventEditDraft(
-        title: _titleCache[anchorId] ?? _fallbackTitle,
-        startAtUtc: newStartUtc,
-        endAtUtc: newEndUtc,
-        timeZoneId: _fallbackTimeZoneId,
-      ),
-    );
-    return result.isSuccess;
-  }
-
-  @Deprecated(
-    'Use updateEvent with CalendarEditTarget(scope: followingOccurrences).',
-  )
-  Future<bool> replaceFollowingOccurrences({
-    required String anchorId,
-    required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-  }) async {
-    final result = await updateEvent(
-      target: CalendarEditTarget(
-        anchorId: anchorId,
-        scope: EventEditScope.followingOccurrences,
-        occurrenceStartUtc: occurrenceStartUtc,
-      ),
-      event: CalendarEventEditDraft(
-        title: _titleCache[anchorId] ?? _fallbackTitle,
-        startAtUtc: newStartUtc,
-        endAtUtc: newEndUtc,
-        timeZoneId: _fallbackTimeZoneId,
-      ),
-    );
-    return result.isSuccess;
-  }
-
-  /// 兼容期用的兜底标题与时区。
+  /// 现在是**删除而不是继续 `@Deprecated`**：只要它还编译得过，同一个事故就能从另一个
+  /// 入口复发；删掉之后任何漏迁的调用点都会在编译期失败（§2.0.1）。
   ///
-  /// 旧接口只给"新起止"，**没有标题也没有时区**——而完整草稿两者都是必填。
-  /// 这里刻意选一个**明显不是真实值**的标题，而不是空串：空标题会让草稿判为非法，
-  /// 于是旧调用点在迁移期直接失效（那是"一次提交让仓库编译不过"的另一种形态）。
-  /// Task 8 迁完之后这些包装器会被删除。
-  static const String _fallbackTitle = '未命名事项';
-  static const String _fallbackTimeZoneId = 'UTC';
-
-  /// 旧接口把标题写在调用点，这里用一个进程内缓存把它捡回来。
-  ///
-  /// **为什么需要**：`replaceSeries` 的旧签名里根本没有标题，而"改系列"必须写出一个标题。
-  /// 与其猜一个（那会把用户起过的名字抹掉），不如让调用方在迁移期显式登记一次。
-  final Map<String, String> _titleCache = {};
-
-  /// 在调用 deprecated 包装器之前登记这条事项的标题。
-  ///
-  /// 迁移期专用：Task 8 之后调用方直接传 [CalendarEventEditDraft]，这个方法随之删除。
-  @Deprecated('Only for the deprecated replace* wrappers during migration.')
-  void rememberTitleForLegacyWrappers(String anchorId, String title) {
-    _titleCache[anchorId] = title;
-  }
-
+  /// 迁移目标是 [updateEvent] ＋ `CalendarEventPatch`。
   Future<bool> deleteFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
@@ -235,24 +172,33 @@ final class CalendarService {
 
   /// **统一的日历改写入口**（课程与保护时间管理修复计划 Task 2 Step 3）。
   ///
-  /// 按 [target] 的范围分派到对应端口，并把三类失败如实区分开：
+  /// 按 [target] 的范围分派到对应端口，并把失败如实区分开：
   ///
   /// | 情况 | 结果 | 数据 |
   /// | --- | --- | --- |
-  /// | 草稿非法 | `invalid` ＋ 字段错误 | 零写入 |
+  /// | patch 非法 | `invalid` ＋ 字段错误 | 零写入 |
   /// | 缺 `occurrenceStartUtc` 的"这一次／此次以后" | `invalid` | 零写入 |
   /// | 端口未装配 | `unsupported` | 零写入 |
+  /// | 别处已经改过（修订号不符） | `stale` | **零写入**（判定在仓储的写事务里） |
+  /// | 目标已不存在 | `missing` | 零写入 |
   /// | 写入成功但**重排原因回调抛错** | `savedWithWarning` | **已保存** |
   ///
   /// **为什么最后一行必须与"保存失败"分开**：把已经落库的改动报成失败，用户会再改一次，
   /// 而那会写第二遍。计划 §5 的失败表对此有明确要求。
+  ///
+  /// ## 乐观并发判定在**仓储的写事务内**
+  ///
+  /// 这里不再自己读一次修订号（此前用 `occurrencesBetween` 扫一年到十年，既慢又会在
+  /// 系列已结束时误判成"已删除"）。判定被移进 `replaceOccurrence`／
+  /// `replaceFollowingOccurrences`／`replaceSeries` 的同一个事务：中间不再有
+  /// "读到了旧版 → 一段时间过去 → 覆盖了别人的改动"的窗口（Task 2 Step 3）。
   Future<CalendarMutationResult> updateEvent({
     required CalendarEditTarget target,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     RecurrenceEditDraft? recurrence,
   }) async {
-    if (!event.isValid) {
-      return CalendarMutationResult.invalid(event.fieldErrors);
+    if (!patch.isValid) {
+      return CalendarMutationResult.invalid(patch.fieldErrors);
     }
     if (recurrence != null && !recurrence.isValid) {
       return CalendarMutationResult.invalid(recurrence.fieldErrors);
@@ -271,33 +217,12 @@ final class CalendarService {
     if (deletion == null) {
       return CalendarMutationResult.failed(
         CalendarMutationStatus.unsupported,
-        '日历写入服务未装配，暂无法修改「${event.title}」',
+        '日历写入服务未装配，暂无法修改「${patch.title}」',
       );
     }
 
     final updatedAtUtc = _clock.nowUtc();
-
-    // **乐观并发**（计划 Task 7 Step 4）：页面数据在别处被改过时返回 `stale`，
-    // **零写入**。判定放在写入之前——一旦开始写就无从"什么都没改"。
-    //
-    // 判定发生在服务层而不是仓储：仓储没有时钟，也没有"用户打开页面那一刻"的概念，
-    // 而这里收到的 `expectedUpdatedAtUtc` 正是那一刻读到的值（Task 3/6 的读模型带出来）。
     final expected = target.expectedUpdatedAtUtc;
-    if (expected != null) {
-      final current = await _currentUpdatedAtOf(target.anchorId);
-      if (current == null) {
-        return CalendarMutationResult.failed(
-          CalendarMutationStatus.missing,
-          '「${event.title}」已删除，请重新打开',
-        );
-      }
-      if (current.microsecondsSinceEpoch != expected.microsecondsSinceEpoch) {
-        return CalendarMutationResult.failed(
-          CalendarMutationStatus.stale,
-          '「${event.title}」在别处已被修改，请重新打开后再编辑',
-        );
-      }
-    }
 
     try {
       switch (target.scope) {
@@ -305,37 +230,50 @@ final class CalendarService {
           await deletion.replaceOccurrence(
             anchorId: target.anchorId,
             occurrenceStartUtc: target.occurrenceStartUtc!,
-            event: event,
+            patch: patch,
             exceptionId: _idGenerator.next(),
             updatedAtUtc: updatedAtUtc,
+            expectedUpdatedAtUtc: expected,
           );
         case EventEditScope.followingOccurrences:
           await deletion.replaceFollowingOccurrences(
             anchorId: target.anchorId,
             occurrenceStartUtc: target.occurrenceStartUtc!,
-            event: event,
+            patch: patch,
             recurrence: recurrence,
             newRuleId: _idGenerator.next(),
             newEventId: _idGenerator.next(),
             updatedAtUtc: updatedAtUtc,
+            expectedUpdatedAtUtc: expected,
           );
         case EventEditScope.entireSeries:
           await deletion.replaceSeries(
             anchorId: target.anchorId,
-            event: event,
+            patch: patch,
             recurrence: recurrence,
             updatedAtUtc: updatedAtUtc,
             // **未来的正常例外跟着改名**（Task 7 Step 3）：不传这个界线，
             // 用户会看到"周一叫新名字、周三那一次还叫旧名字"——而两处是同一条规则。
             updateExceptionsFromUtc: updatedAtUtc,
+            expectedUpdatedAtUtc: expected,
           );
       }
+    } on CalendarEditStaleException {
+      return CalendarMutationResult.failed(
+        CalendarMutationStatus.stale,
+        '「${patch.title}」在别处已被修改，请重新打开后再编辑',
+      );
+    } on CalendarEditMissingException {
+      return CalendarMutationResult.failed(
+        CalendarMutationStatus.missing,
+        '「${patch.title}」已删除，请重新打开',
+      );
     } on Object catch (error) {
       // **事务失败要如实说**：计划 §5 的文案是"保存失败，原内容未改变"，
       // 而不是把异常 toString 摊给用户。
       return CalendarMutationResult.failed(
         CalendarMutationStatus.failed,
-        '保存「${event.title}」失败，原内容未改变：$error',
+        '保存「${patch.title}」失败，原内容未改变：$error',
       );
     }
 
@@ -352,25 +290,6 @@ final class CalendarService {
       return CalendarMutationResult.savedWithWarning('内容已保存，但变更记录失败：$error');
     }
     return CalendarMutationResult.saved();
-  }
-
-  /// 读某个锚点当前的 `updated_at_utc`；不存在返回 `null`。
-  ///
-  /// **用 `occurrencesBetween` 而不是往端口加一个"按 id 读锚点"**：把锚点行取出来的
-  /// 既有路径就是展开查询，而它顺带保证"页面看到的"与"这里判定的"是**同一份数据**。
-  ///
-  /// 窗口往前取一年、往后取十年：系列常常已经开始了，而展开查询按窗口裁剪——
-  /// 只从"现在"往后读会让**已经开始过的**系列找不到锚点，于是合法编辑被判成"已删除"。
-  Future<DateTime?> _currentUpdatedAtOf(String anchorId) async {
-    final now = _clock.nowUtc();
-    final occurrences = await _repository.occurrencesBetween(
-      now.subtract(const Duration(days: 365)),
-      now.add(const Duration(days: 3650)),
-    );
-    for (final occurrence in occurrences) {
-      if (occurrence.eventId == anchorId) return occurrence.updatedAtUtc;
-    }
-    return null;
   }
 
   /// 读某个时间窗内的日程占用（1.8.0）。
@@ -409,50 +328,6 @@ final class CalendarService {
       ),
     );
     return true;
-  }
-
-  /// 改写重复日程里的某一次（FR-CAL-02 的"修改单次实例"）。
-  ///
-  /// 与 [deleteOccurrence] 同路：判定"是不是重复日程"与例外的时区都在仓储侧（它才摸得到规则
-  /// 行）。未装配该端口时返回 `false`，而不是假装改掉了。
-  ///
-  /// **deprecated 包装器**：见 [replaceSeries] 的说明。
-  @Deprecated(
-    'Use updateEvent with CalendarEditTarget(scope: singleOccurrence) instead.',
-  )
-  Future<bool> replaceOccurrence({
-    required String anchorId,
-    required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    required String title,
-  }) async {
-    final result = await updateEvent(
-      target: CalendarEditTarget(
-        anchorId: anchorId,
-        scope: EventEditScope.singleOccurrence,
-        occurrenceStartUtc: occurrenceStartUtc,
-      ),
-      event: CalendarEventEditDraft(
-        title: title,
-        startAtUtc: newStartUtc,
-        endAtUtc: newEndUtc,
-        timeZoneId: _timeZoneOf(anchorId),
-      ),
-    );
-    return result.isSuccess;
-  }
-
-  /// 兼容期用的时区兜底：按锚点登记过的时区，没有则用 [timeZoneId] 的默认值。
-  String _timeZoneOf(String anchorId) =>
-      _timeZoneCache[anchorId] ?? _fallbackTimeZoneId;
-
-  final Map<String, String> _timeZoneCache = {};
-
-  /// 迁移期专用：登记某个锚点事项自己的时区。
-  @Deprecated('Only for the deprecated replace* wrappers during migration.')
-  void rememberTimeZoneForLegacyWrappers(String anchorId, String timeZoneId) {
-    _timeZoneCache[anchorId] = timeZoneId;
   }
 
   /// 只删除重复日程里的**某一次**（FR-CAL-02 的"修改单次实例"的删除一半）。

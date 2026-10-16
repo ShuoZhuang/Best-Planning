@@ -331,7 +331,7 @@ void main() {
         scope: EventEditScope.entireSeries,
         expectedUpdatedAtUtc: series.single.updatedAtUtc,
       ),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '游泳',
         startAtUtc: zones.localDateTimeToUtc(
           DateTime.utc(2026, 10, 6),
@@ -343,8 +343,6 @@ void main() {
           17 * 60,
           timeZoneId,
         ),
-        timeZoneId: timeZoneId,
-        kind: CalendarEventKind.protected,
       ),
     );
     expect(renamed.status, CalendarMutationStatus.saved);
@@ -373,13 +371,11 @@ void main() {
         scope: EventEditScope.singleOccurrence,
         occurrenceStartUtc: occurrenceStart,
       ),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '体检',
         notes: '带化验单',
         startAtUtc: occurrenceStart,
         endAtUtc: occurrenceStart.add(const Duration(hours: 1)),
-        timeZoneId: timeZoneId,
-        kind: CalendarEventKind.protected,
       ),
     );
     expect(exception.status, CalendarMutationStatus.saved);

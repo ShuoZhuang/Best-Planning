@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
-import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/protected_time_series.dart';
 import 'package:personal_planner/domain/repositories/protected_time_series_repository.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
@@ -92,13 +91,15 @@ final class _ProtectedTimeSeriesEditorPageState
         // **乐观并发**：页面读到的是 `series.updatedAtUtc`，别处改过就返回 stale。
         expectedUpdatedAtUtc: series.updatedAtUtc,
       ),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: title,
         notes: notes,
         startAtUtc: startAtUtc,
         endAtUtc: endAtUtc,
-        timeZoneId: widget.timeZoneId,
-        kind: CalendarEventKind.protected,
+        // **时区与类别不在这里传**（计划 §2.0.1）：这条保护时间的时区来自它自己的规则行，
+        // 类别来自锚点。此前的草稿把 `kind: protected` 写下来，看起来"更明确"，实际是在
+        // 用页面数据决定"这条事项算不算排程硬禁区"——而那本该是锚点上的事实。
+        // 地点同理：这一页不展示它，因此传 `null`（保持原值），不传空串。
       ),
       recurrence: weekly
           ? RecurrenceEditDraft(

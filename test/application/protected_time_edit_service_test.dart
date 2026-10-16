@@ -106,13 +106,11 @@ void main() {
           scope: EventEditScope.singleOccurrence,
           occurrenceStartUtc: occurrenceStart,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '看医生',
           notes: '带医保卡',
           startAtUtc: localUtc(10, 13, 16),
           endAtUtc: localUtc(10, 13, 17),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -173,12 +171,10 @@ void main() {
           scope: EventEditScope.singleOccurrence,
           occurrenceStartUtc: localUtc(10, 13, 10),
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '看医生',
           startAtUtc: localUtc(10, 13, 10),
           endAtUtc: localUtc(10, 13, 11),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -213,12 +209,10 @@ void main() {
         await repository.replaceOccurrence(
           anchorId: 'anchor-1',
           occurrenceStartUtc: localUtc(10, day, 14),
-          event: CalendarEventEditDraft(
+          patch: CalendarEventPatch(
             title: '午休（调整过）',
             startAtUtc: localUtc(10, day, 15),
             endAtUtc: localUtc(10, day, 16),
-            timeZoneId: zoneId,
-            kind: CalendarEventKind.protected,
           ),
           exceptionId: 'exc-10-$day',
           updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -230,13 +224,11 @@ void main() {
           anchorId: 'anchor-1',
           scope: EventEditScope.entireSeries,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           notes: '新备注',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -282,12 +274,10 @@ void main() {
           anchorId: 'anchor-1',
           scope: EventEditScope.entireSeries,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -323,13 +313,11 @@ void main() {
           anchorId: 'anchor-1',
           scope: EventEditScope.entireSeries,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           notes: '新备注',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -355,12 +343,10 @@ void main() {
           scope: EventEditScope.followingOccurrences,
           occurrenceStartUtc: splitStart,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           startAtUtc: splitStart,
           endAtUtc: splitStart.add(const Duration(hours: 1)),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -434,12 +420,10 @@ void main() {
           scope: EventEditScope.followingOccurrences,
           occurrenceStartUtc: splitStart,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '健身（新）',
           startAtUtc: splitStart,
           endAtUtc: splitStart.add(const Duration(hours: 1)),
-          timeZoneId: dstZone,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -470,12 +454,10 @@ void main() {
           // 页面读到的是"另一个版本"。
           expectedUpdatedAtUtc: DateTime.utc(2020, 1, 1),
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '不该写进去',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -499,12 +481,10 @@ void main() {
           scope: EventEditScope.entireSeries,
           expectedUpdatedAtUtc: DateTime.utc(2026, 10, 1),
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -518,12 +498,10 @@ void main() {
           scope: EventEditScope.entireSeries,
           expectedUpdatedAtUtc: null,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: 'x',
           startAtUtc: DateTime.utc(2026, 10, 6, 6),
           endAtUtc: DateTime.utc(2026, 10, 6, 7),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -561,12 +539,10 @@ void main() {
           scope: EventEditScope.singleOccurrence,
           occurrenceStartUtc: occurrenceStart,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '看医生',
           startAtUtc: occurrenceStart,
           endAtUtc: occurrenceStart.add(const Duration(hours: 1)),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -590,12 +566,10 @@ void main() {
           anchorId: 'anchor-1',
           scope: EventEditScope.entireSeries,
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '午休时间',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 
@@ -612,12 +586,10 @@ void main() {
           scope: EventEditScope.entireSeries,
           expectedUpdatedAtUtc: DateTime.utc(2020, 1, 1),
         ),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '不该写进去',
           startAtUtc: localUtc(10, 6, 14),
           endAtUtc: localUtc(10, 6, 15),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.protected,
         ),
       );
 

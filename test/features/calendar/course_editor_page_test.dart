@@ -572,6 +572,13 @@ final class _Gateway implements CourseWriteGateway {
   Future<int> countExceptions(String anchorEventId) async => 0;
 
   @override
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  }) async => 0;
+
+  @override
   Future<void> replaceCourseSeries({
     required List<CourseWriteRow> rows,
     required CourseProfileDraft profile,
@@ -618,7 +625,8 @@ final class _Calendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -626,7 +634,8 @@ final class _Calendar implements CalendarRepository, CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
     DateTime? updateExceptionsFromUtc,
@@ -636,7 +645,8 @@ final class _Calendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,

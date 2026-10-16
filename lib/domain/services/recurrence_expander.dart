@@ -1,6 +1,7 @@
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/services/recurrence_membership.dart';
 
 final class RecurrenceException {
   RecurrenceException.deleted({required this.localDate})
@@ -90,8 +91,11 @@ final class RecurrenceExpander {
     final occurrences = <RecurrenceOccurrence>[];
 
     while (!cursor.isAfter(effectiveEnd)) {
-      if (rule.weekdays.contains(cursor.weekday) &&
-          _matchesIntervalWeek(rule, cursor)) {
+      // **成员判定只有一个实现**（计划 §2.4）：星期、有效期与单双周全部由
+      // `recurrenceIncludesLocalDate()` 回答。这里此前内联着一份等价的
+      // `_matchesIntervalWeek`，而课程编辑的例外清理又写了第三份——两份公式一旦漂开，
+      // 用户就会看到"预览说保留、保存却删了"（E1–E4）。
+      if (recurrenceIncludesLocalDate(rule, cursor)) {
         final exception = exceptionsByDate[_dateKey(cursor)];
         if (exception?.deleted == true) {
           cursor = cursor.add(const Duration(days: 1));
@@ -131,22 +135,10 @@ final class RecurrenceExpander {
       endUtc: startUtc.add(Duration(minutes: rule.durationMinutes)),
     );
   }
-
-  bool _matchesIntervalWeek(RecurrenceRule rule, DateTime candidateDate) {
-    final anchorMonday = _weekMonday(rule.validFromLocalDate);
-    final candidateMonday = _weekMonday(candidateDate);
-    final weekOffset = candidateMonday.difference(anchorMonday).inDays ~/ 7;
-    return weekOffset >= 0 && weekOffset % rule.intervalWeeks == 0;
-  }
 }
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
-
-DateTime _weekMonday(DateTime value) {
-  final date = _dateOnly(value);
-  return date.subtract(Duration(days: date.weekday - DateTime.monday));
-}
 
 String _dateKey(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-'

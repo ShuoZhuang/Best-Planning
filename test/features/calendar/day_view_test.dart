@@ -16,7 +16,6 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/design/planner_localization.dart';
-import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/features/calendar/day_view/day_view_page.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
@@ -91,11 +90,17 @@ final class EditRecord {
 
   String get anchorId => request.anchorId;
   EventEditScope get scope => request.scope;
-  CalendarEventEditDraft get draft => request.draft;
-  String get title => request.draft.title;
-  String get notes => request.draft.notes;
-  DateTime get startUtc => request.draft.startAtUtc;
-  DateTime get endUtc => request.draft.endAtUtc;
+
+  /// **patch 而不是草稿**（计划 §2.0.1）：请求里只有用户真的改过的字段，
+  /// 因此"这一次改写会不会顺手清掉地点／领域／项目／类别"这件事在这里就已经答完了。
+  CalendarEventPatch get patch => request.patch;
+  String get title => request.patch.title;
+  String get notes => request.patch.notes;
+  DateTime get startUtc => request.patch.startAtUtc;
+  DateTime get endUtc => request.patch.endAtUtc;
+
+  /// 地点这一项**根本没有进请求**（保留语义），因此它应当是 `null`／`KeepField`。
+  bool get keepsLocation => request.patch.location == null;
 }
 
 final _dayStartUtc = DateTime.utc(2026, 10, 5);
@@ -1611,7 +1616,7 @@ void main() {
             timeZoneId: 'UTC',
             onDeleteEvent: (id) async => true,
             onEditEvent: (request) async {
-              titles.add(request.draft.title);
+              titles.add(request.patch.title);
               return OccurrenceEditOutcome.saved;
             },
           ),
@@ -1701,12 +1706,15 @@ void main() {
       '带医保卡',
       reason: '修复前 `OccurrenceEditResult.notes` 收到了却没人用，保存后备注消失',
     );
+    // **类别与地点不在请求里**（计划 §2.0.1／CE2）：保护时间被改写成固定日程之后会进入
+    // 投入统计（规范 §9.1 明确保护时间不计入任何投入）。这条安全属性现在由
+    // **写入端**保证——patch 里没有 `kind`／`areaId`／`projectId` 的入口，
+    // 仓储只能从锚点保留它们。因此这里断言的是"请求没有越权携带这些字段"，
+    // 而"落库后类别仍是 protected"由 `recurrence_exception_test.dart` 的真实仓储用例守着。
     expect(
-      records.single.draft.kind,
-      CalendarEventKind.protected,
-      reason:
-          '**类别不能丢**：保护时间被改写成固定日程之后会进入投入统计'
-          '（规范 §9.1 明确保护时间不计入任何投入）',
+      records.single.keepsLocation,
+      isTrue,
+      reason: '日视图不展示地点：它必须以"保持原值"表达，而不是被写成空串',
     );
   });
 

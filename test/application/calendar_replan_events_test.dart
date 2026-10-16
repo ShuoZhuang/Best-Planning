@@ -81,7 +81,8 @@ final class _Deletion implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async => calls.add('replaceOccurrence:$anchorId');
@@ -89,7 +90,8 @@ final class _Deletion implements CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -99,7 +101,8 @@ final class _Deletion implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
@@ -149,6 +152,19 @@ void main() {
     recurrenceWeekdays: weekdays,
     recurrenceIntervalWeeks: intervalWeeks,
     recurrenceValidUntilLocalDate: validUntil,
+  );
+
+  /// 一次改写的**显式 patch**（计划 §2.0.1）：只带用户真的改过的字段。
+  CalendarEventPatch patch({
+    String title = '每周课程',
+    String notes = '',
+    DateTime? start,
+    DateTime? end,
+  }) => CalendarEventPatch(
+    title: title,
+    notes: notes,
+    startAtUtc: start ?? DateTime.utc(2026, 10, 12, 6),
+    endAtUtc: end ?? DateTime.utc(2026, 10, 12, 8),
   );
 
   setUp(() {
@@ -240,37 +256,42 @@ void main() {
   });
 
   test('改写某一次记一条"固定日程单次改写"', () async {
-    final changed = await build().replaceOccurrence(
-      anchorId: 'anchor-1',
-      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
-      newStartUtc: DateTime.utc(2026, 10, 12, 6),
-      newEndUtc: DateTime.utc(2026, 10, 12, 8),
-      title: '每周课程',
+    final result = await build().updateEvent(
+      target: CalendarEditTarget(
+        anchorId: 'anchor-1',
+        scope: EventEditScope.singleOccurrence,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
+      ),
+      patch: patch(),
     );
 
-    expect(changed, isTrue);
+    expect(result.isSuccess, isTrue);
     expect(reasons, <String>['固定日程单次改写']);
   });
 
   test('改写整个系列记一条"固定日程系列改写"', () async {
-    final changed = await build().replaceSeries(
-      anchorId: 'anchor-1',
-      newStartUtc: DateTime.utc(2026, 10, 12, 6),
-      newEndUtc: DateTime.utc(2026, 10, 12, 8),
+    final result = await build().updateEvent(
+      target: const CalendarEditTarget(
+        anchorId: 'anchor-1',
+        scope: EventEditScope.entireSeries,
+      ),
+      patch: patch(),
     );
 
-    expect(changed, isTrue);
+    expect(result.isSuccess, isTrue);
     expect(reasons, <String>['固定日程系列改写']);
   });
 
   test('本次及以后的改写和删除各走一次系列拆分入口', () async {
     final service = build();
 
-    await service.replaceFollowingOccurrences(
-      anchorId: 'anchor-1',
-      occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
-      newStartUtc: DateTime.utc(2026, 10, 12, 6),
-      newEndUtc: DateTime.utc(2026, 10, 12, 8),
+    await service.updateEvent(
+      target: CalendarEditTarget(
+        anchorId: 'anchor-1',
+        scope: EventEditScope.followingOccurrences,
+        occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
+      ),
+      patch: patch(),
     );
     await service.deleteFollowingOccurrences(
       anchorId: 'anchor-2',
@@ -293,19 +314,20 @@ void main() {
   });
 
   test('已装配的写入端口失败时返回值是 false，因此也不记原因', () async {
-    // 未装配删除／改写端口时服务返回 `false` 而不是抛错——界面据此区分"已删除／未装配"。
-    // 那种 `false` **不是**一次真实的日程变化，因此不能留下重排原因。
+    // 未装配删除／改写端口时服务返回 `unsupported`／`false` 而不是抛错——
+    // 界面据此区分"已删除／未装配"。那不是一次真实的日程变化，因此不能留下重排原因。
     final service = build(withDeletion: false);
 
     expect(await service.deleteEvent('event-1'), isFalse);
-    expect(
-      await service.replaceSeries(
+    final result = await service.updateEvent(
+      target: const CalendarEditTarget(
         anchorId: 'anchor-1',
-        newStartUtc: DateTime.utc(2026, 10, 12, 6),
-        newEndUtc: DateTime.utc(2026, 10, 12, 8),
+        scope: EventEditScope.entireSeries,
       ),
-      isFalse,
+      patch: patch(),
     );
+    expect(result.isSuccess, isFalse);
+    expect(result.status, CalendarMutationStatus.unsupported);
 
     expect(reasons, isEmpty);
   });
@@ -320,10 +342,12 @@ void main() {
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 1),
       title: '每周课程',
     );
-    await service.replaceSeries(
-      anchorId: 'anchor-1',
-      newStartUtc: DateTime.utc(2026, 10, 12, 6),
-      newEndUtc: DateTime.utc(2026, 10, 12, 8),
+    await service.updateEvent(
+      target: const CalendarEditTarget(
+        anchorId: 'anchor-1',
+        scope: EventEditScope.entireSeries,
+      ),
+      patch: patch(),
     );
 
     expect(

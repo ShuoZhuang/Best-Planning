@@ -117,12 +117,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'evt-a',
       occurrenceStartUtc: utc(9, 7, 0, 0),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '高等数学(上)',
         startAtUtc: utc(9, 7, 2, 0),
         endAtUtc: utc(9, 7, 2, 45),
-        timeZoneId: zoneId,
-        kind: CalendarEventKind.fixed,
       ),
       exceptionId: 'exc-a',
       updatedAtUtc: utc(10, 1, 0, 0),
@@ -300,12 +298,10 @@ void main() {
       await repository.replaceOccurrence(
         anchorId: anchor,
         occurrenceStartUtc: utc(9, day, 0, 0),
-        event: CalendarEventEditDraft(
+        patch: CalendarEventPatch(
           title: '高等数学(上)',
           startAtUtc: utc(9, day, 2, 0),
           endAtUtc: utc(9, day, 2, 45),
-          timeZoneId: zoneId,
-          kind: CalendarEventKind.fixed,
         ),
         exceptionId: id,
         updatedAtUtc: utc(10, 1, 0, 0),

@@ -227,11 +227,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 16),
         endAtUtc: DateTime.utc(2026, 10, 12, 17),
-        timeZoneId: 'UTC',
       ),
       exceptionId: 'exception-replace-1',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -251,11 +250,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 16),
         endAtUtc: DateTime.utc(2026, 10, 12, 17),
-        timeZoneId: 'UTC',
       ),
       exceptionId: 'exception-replace-1',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -263,11 +261,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 18),
         endAtUtc: DateTime.utc(2026, 10, 12, 19),
-        timeZoneId: 'UTC',
       ),
       exceptionId: 'exception-replace-2',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -297,11 +294,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'single-2',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 14),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 16),
         endAtUtc: DateTime.utc(2026, 10, 12, 17),
-        timeZoneId: 'UTC',
       ),
       exceptionId: 'exception-replace-3',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -320,11 +316,10 @@ void main() {
 
     await repository.replaceSeries(
       anchorId: 'anchor-1',
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 5, 14),
         endAtUtc: DateTime.utc(2026, 10, 5, 15),
-        timeZoneId: 'UTC',
       ),
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );
@@ -362,11 +357,10 @@ void main() {
 
     await repository.replaceSeries(
       anchorId: 'single-3',
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 18),
         endAtUtc: DateTime.utc(2026, 10, 12, 19),
-        timeZoneId: 'UTC',
       ),
       updatedAtUtc: DateTime.utc(2026, 10, 1),
     );

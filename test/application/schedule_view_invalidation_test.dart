@@ -258,7 +258,7 @@ void main() {
             anchorId: 'a1',
             scope: EventEditScope.entireSeries,
           ),
-          event: _calendarDraft(),
+          patch: _calendarDraft(),
         ),
       );
 
@@ -284,7 +284,7 @@ void main() {
             anchorId: 'a1',
             scope: EventEditScope.entireSeries,
           ),
-          event: _calendarDraft(),
+          patch: _calendarDraft(),
         );
       });
 
@@ -312,7 +312,7 @@ void main() {
             scope: EventEditScope.entireSeries,
             expectedUpdatedAtUtc: DateTime.utc(2026, 10, 12, 8),
           ),
-          event: _calendarDraft(),
+          patch: _calendarDraft(),
         );
       });
 
@@ -836,15 +836,21 @@ void main() {
       final reasons = <String>[];
       final service = serviceWith(calendarReasons: reasons);
 
+      // 单次／"此次及以后"／整条系列三种范围改写**统一走 `updateEvent` ＋ patch**
+      // （计划 §2.0.1）：`CourseManagementService.editOccurrence` 那三个只收时间的
+      // 包装器已随 Task 3 删除，因此这里直接驱动日历服务——那正是日视图的真实路径。
       final signals = await _signalsOf(
         bus,
-        () async => service.editOccurrence(
-          logicalCourseId: 'course-calc',
-          anchorEventId: 'evt-a',
-          occurrenceStartUtc: DateTime.utc(2026, 10, 12, 0),
-          newStartUtc: DateTime.utc(2026, 10, 12, 4),
-          newEndUtc: DateTime.utc(2026, 10, 12, 4, 45),
-          title: '高等数学(上)',
+        () async => service.calendar.updateEvent(
+          target: const CalendarEditTarget(
+            anchorId: 'evt-a',
+            scope: EventEditScope.entireSeries,
+          ),
+          patch: CalendarEventPatch(
+            title: '高等数学(上)',
+            startAtUtc: DateTime.utc(2026, 10, 12, 4),
+            endAtUtc: DateTime.utc(2026, 10, 12, 4, 45),
+          ),
         ),
       );
 
@@ -950,7 +956,23 @@ final class _Deletion implements CalendarEventDeletion {
   int writes = 0;
   bool throwOnReplace = false;
 
+  /// 库里的"当前修订号"。**乐观并发判定现在发生在写端口的事务里**
+  /// （计划 Task 2 Step 3），因此这个值必须由替身持有——服务层不再自己读一遍。
+  DateTime? currentUpdatedAt;
+
   void _count() => writes++;
+
+  /// 替身版的"事务内核对修订号"：不一致时抛 [CalendarEditStaleException]，
+  /// 锚点不在且调用方给过期望值时抛 [CalendarEditMissingException]，**两者都零写入**。
+  void _assertRevision(DateTime? expectedUpdatedAtUtc) {
+    if (expectedUpdatedAtUtc == null) return;
+    final current = currentUpdatedAt;
+    if (current == null) throw const CalendarEditMissingException();
+    if (current.microsecondsSinceEpoch !=
+        expectedUpdatedAtUtc.microsecondsSinceEpoch) {
+      throw const CalendarEditStaleException();
+    }
+  }
 
   @override
   Future<void> deleteEvent(String eventId) async => _count();
@@ -975,19 +997,26 @@ final class _Deletion implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
-  }) async => _count();
+  }) async {
+    _assertRevision(expectedUpdatedAtUtc);
+    if (throwOnReplace) throw StateError('数据库炸了');
+    _count();
+  }
 
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
     DateTime? updateExceptionsFromUtc,
   }) async {
+    _assertRevision(expectedUpdatedAtUtc);
     if (throwOnReplace) throw StateError('写入失败（夹具）');
     _count();
   }
@@ -996,12 +1025,17 @@ final class _Deletion implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
-  }) async => _count();
+  }) async {
+    _assertRevision(expectedUpdatedAtUtc);
+    if (throwOnReplace) throw StateError('写入失败（夹具）');
+    _count();
+  }
 
   @override
   Future<void> setEventArea({
@@ -1015,32 +1049,36 @@ CalendarService _calendarService({
   required CalendarEventDeletion deletion,
   required void Function(ScheduleInputChange change) onScheduleInputChanged,
   DateTime? currentUpdatedAt,
-}) => CalendarService(
-  repository: _CalendarRepo([
-    if (currentUpdatedAt != null)
-      CalendarOccurrence(
-        eventId: 'a1',
-        title: '固定日程',
-        range: TimeRange(
-          startUtc: DateTime.utc(2026, 10, 12, 1),
-          endUtc: DateTime.utc(2026, 10, 12, 2),
+}) {
+  // **乐观并发判定搬进了写端口**（计划 Task 2 Step 3）：因此这里把"库里的当前修订号"
+  // 交给替身，而不是塞进读仓储——服务层已经不再读那一次了。
+  if (deletion is _Deletion) deletion.currentUpdatedAt = currentUpdatedAt;
+  return CalendarService(
+    repository: _CalendarRepo([
+      if (currentUpdatedAt != null)
+        CalendarOccurrence(
+          eventId: 'a1',
+          title: '固定日程',
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 10, 12, 1),
+            endUtc: DateTime.utc(2026, 10, 12, 2),
+          ),
+          locked: true,
+          updatedAtUtc: currentUpdatedAt,
         ),
-        locked: true,
-        updatedAtUtc: currentUpdatedAt,
-      ),
-  ]),
-  deletion: deletion,
-  clock: _Clock(DateTime.utc(2026, 10, 12, 9)),
-  idGenerator: _Ids(),
-  zones: TimeZoneDatabase(),
-  onScheduleInputChanged: onScheduleInputChanged,
-);
+    ]),
+    deletion: deletion,
+    clock: _Clock(DateTime.utc(2026, 10, 12, 9)),
+    idGenerator: _Ids(),
+    zones: TimeZoneDatabase(),
+    onScheduleInputChanged: onScheduleInputChanged,
+  );
+}
 
-CalendarEventEditDraft _calendarDraft() => CalendarEventEditDraft(
+CalendarEventPatch _calendarDraft() => CalendarEventPatch(
   title: '看医生',
   startAtUtc: DateTime.utc(2026, 10, 12, 1),
   endAtUtc: DateTime.utc(2026, 10, 12, 2),
-  timeZoneId: 'Asia/Shanghai',
 );
 
 /// 计划仓储替身：应用与撤销都要能观察"到底有没有写"。

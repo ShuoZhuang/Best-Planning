@@ -1,6 +1,5 @@
 import 'dart:collection';
 
-import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 
 /// 一次改写的作用范围（计划 §2.2 的三选一）。
@@ -13,54 +12,86 @@ import 'package:personal_planner/domain/models/time_range.dart';
 /// 也不会出现两个同名枚举各管一半。
 enum EventEditScope { singleOccurrence, followingOccurrences, entireSeries }
 
-/// 一次日历改写的**完整草稿**（课程与保护时间管理修复计划 Task 2）。
+/// 一个字段的**改写意图**（计划 §2.0.1）。
 ///
-/// **为什么需要它**：改写路径此前只接受"新起止 ＋ 一个标题字符串"
-/// （见 `CalendarEventDeletion.replaceOccurrence`），于是
+/// **为什么不能是裸的 `String`**：日视图的改写对话框只能看到标题、备注与时间——
+/// 地点是它**根本没有展示**的字段。用裸字符串表示时，"我没编辑这一项"只能被写成
+/// `''`，而 `''` 同时又是"用户明确清空地点"的意思。两者在写入端无法区分，于是
+/// 用户只改一次钟点，`教一 302` 就被写成空串（计划 §1.1／C04 的实际事故）。
 ///
-/// - 备注**没法改**：`CalendarEvent.notes` 能读不能写（课表导入正用它存教师名）；
-/// - 保护时间的标题只能在"单次改写"这一条路上改，系列改写根本传不进去；
-/// - 每次加一个字段，三条改写方法的签名就要一起改，而它们在**多个测试替身**里被实现。
+/// 这个类型把两种意图在**类型层面**分开：
 ///
-/// 因此这里把"要写成什么"收成一个不可变对象：新增字段只改这一处，
-/// 三条改写方法收同一个类型。
+/// - `null` 或 [KeepField]：当前界面没有编辑这一项，仓储必须在事务内保留锚点原值；
+/// - [SetField]：用户明确提交了这个值；`SetField('')` 就是"清空"。
+sealed class FieldPatch<T> {
+  const FieldPatch();
+}
+
+/// "保持锚点原值"。[FieldPatch] 为 `null` 时语义完全相同。
+final class KeepField<T> extends FieldPatch<T> {
+  const KeepField();
+}
+
+/// "写这个值"。
+final class SetField<T> extends FieldPatch<T> {
+  const SetField(this.value);
+
+  final T value;
+}
+
+/// 把"保持／设置"解析成要落库的最终值。
 ///
-/// **不可变**：构造后集合字段被包成不可修改视图，调用方拿到的草稿不会被别人改掉
-/// （那会让"校验通过"与"实际写入"看到两份不同的数据）。
-final class CalendarEventEditDraft {
-  CalendarEventEditDraft({
+/// [current] 是**同一事务内**重新读到的权威值。把它作为必填参数是刻意的：
+/// 调用点必须回答"原值从哪来"，而不是用一个局部默认值糊过去。
+extension FieldPatchResolution<T extends Object> on FieldPatch<T>? {
+  T resolve(T current) => switch (this) {
+    null => current,
+    KeepField<T>() => current,
+    SetField<T>(:final value) => value,
+  };
+}
+
+/// 一次日历改写的**显式 patch**（计划 §2.0.1，取代此前的"完整草稿"）。
+///
+/// **它是 patch 而不是草稿**：只装"用户这一次真的改了什么"。没有出现在这个对象里的
+/// 字段——`areaId`、`projectId`、`kind`、`sourceKind`、`importBatchId`、
+/// `logicalCourseId`、事项时区与规则时区——一律由仓储在事务内从锚点读取后保留。
+///
+/// **因此这里没有 `timeZoneId`**：此前草稿带时区，而旧包装器在缓存里找不到这条事项时
+/// 只能写 `UTC` 兜底，于是"事件时区与重复规则时区不一致"（计划 §1.1／C03）。
+/// 时区的权威来源只有一个：规则行（有规则时）或锚点行自身。
+///
+/// **也没有 `kind`**：把一条保护时间改写成固定日程会让"排程硬禁区"凭空消失，
+/// 而用户以为自己只是改了时间。类别只能由锚点决定。
+///
+/// **不可变**：构造后字段不可再改，因此"校验通过"与"实际写入"看到的是同一份数据。
+final class CalendarEventPatch {
+  CalendarEventPatch({
     required String title,
+    this.notes = '',
     required this.startAtUtc,
     required this.endAtUtc,
-    required this.timeZoneId,
-    this.notes = '',
-    this.location = '',
-    this.areaId,
-    this.projectId,
-    this.kind = CalendarEventKind.fixed,
+    this.location,
   }) : title = title.trim(),
        _errors = _validate(
          title: title.trim(),
          startAtUtc: startAtUtc,
          endAtUtc: endAtUtc,
-         timeZoneId: timeZoneId,
        );
 
   final String title;
   final DateTime startAtUtc;
   final DateTime endAtUtc;
-  final String timeZoneId;
 
   /// 备注。课表导入把**教师名**写在这一列里，因此它常常不是空的。
+  ///
+  /// 日视图与保护时间编辑器都展示并提交它，因此这里用普通字符串：
+  /// 能看到它就意味着"用户提交的就是完整值"。
   final String notes;
 
-  final String location;
-  final String? areaId;
-  final String? projectId;
-
-  /// 固定日程还是保护时间。**改写不得跨类别**：把一条保护时间改成固定日程
-  /// 会让"排程硬禁区"凭空消失，而用户以为自己只是改了时间。
-  final CalendarEventKind kind;
+  /// 地点。`null`／[KeepField] 表示当前界面没有展示这一项，必须保留锚点原值；
+  /// [SetField] `''` 才是"用户明确清空地点"。
+  final FieldPatch<String>? location;
 
   final Map<String, String> _errors;
 
@@ -75,7 +106,6 @@ final class CalendarEventEditDraft {
     required String title,
     required DateTime startAtUtc,
     required DateTime endAtUtc,
-    required String timeZoneId,
   }) {
     final errors = <String, String>{};
     if (title.isEmpty) errors['title'] = '标题不能为空';
@@ -86,13 +116,23 @@ final class CalendarEventEditDraft {
     if (startAtUtc.isUtc && endAtUtc.isUtc && !endAtUtc.isAfter(startAtUtc)) {
       errors['endAtUtc'] = '结束时间必须晚于开始时间';
     }
-    if (timeZoneId.trim().isEmpty) {
-      // 时区是"本地钟点 ↔ UTC"的唯一依据。空时区会让这条事项在展开时
-      // 落错本地日，而错误只在换时区时才显形。
-      errors['timeZoneId'] = '必须指定事项的时区';
-    }
     return errors;
   }
+}
+
+/// 锚点在写事务里**已不存在**（计划 Task 2 Step 3）。
+///
+/// 只在调用方给了 [CalendarEditTarget.expectedUpdatedAtUtc]（＝它在页面上确实读到过
+/// 这一条）时抛出：没有期望值时的"删不到"仍按下述幂等约定处理。
+final class CalendarEditMissingException implements Exception {
+  const CalendarEditMissingException();
+}
+
+/// 锚点在同一事务内被读出来时，修订号与页面读到的**不一致**（乐观并发）。
+///
+/// **零写入**：这个异常在写任何一行之前抛出，因此"别处已经改过"不会被覆盖。
+final class CalendarEditStaleException implements Exception {
+  const CalendarEditStaleException();
 }
 
 /// 重复规则的草稿（与 [CalendarEventEditDraft] 配套）。

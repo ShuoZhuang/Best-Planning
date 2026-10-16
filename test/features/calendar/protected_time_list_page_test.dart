@@ -439,7 +439,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -447,7 +448,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -457,7 +459,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
@@ -503,7 +506,8 @@ final class _RecordingDeletion implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -511,7 +515,8 @@ final class _RecordingDeletion implements CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -521,7 +526,8 @@ final class _RecordingDeletion implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,

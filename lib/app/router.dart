@@ -1091,10 +1091,6 @@ GoRouter createPlannerRouter({
                   '/calendar/courses/'
                   '${state.pathParameters['logicalCourseId']}/edit',
                 ),
-                // 「改时间」入口需要它们把本地钟点换算成 UTC 提议时段，
-                // 才能做到 §10.2 末条的"保存前先看冲突"。
-                zones: zones,
-                timeZoneId: timeZoneId,
               );
             },
           ),
@@ -1294,34 +1290,16 @@ GoRouter createPlannerRouter({
                 // **为什么不再用 `replaceOccurrence` 那三个包装器**：它们只收时间与标题，
                 // 因此备注没有位置放、修订号也没有；而它们靠一张**进程内标题缓存**猜
                 // "这条事项叫什么"，冷启动猜不到时就写占位文字「未命名事项」。
-                // `updateEvent` 收的是一份完整草稿，那两件事都不再需要猜。
+                // `updateEvent` 收的是一份**显式 patch**，那两件事都不再需要猜。
                 //
-                // UTC 换算在这里做（路由持有 `zones` 与时区标识），与截止时间、
-                // 事件编辑器两处的分工一致。
+                // **本地时刻 → UTC 的换算发生在对话框里**（它持有 `zones` 与时区标识，
+                // 也正是它把 UTC 时刻还原成本地钟点给用户看的）。路由这里**原样转发**：
+                // 此前它把已经是 UTC 的时刻当成"本地日期 ＋ 本地分钟"又换算了一次，
+                // 于是在 Asia/Shanghai 下每次编辑都整体偏移 8 小时——一次纯粹的二次换算，
+                // 只在非 UTC 时区显形（规范 §4.1 点名过的同一类缺陷）。
                 onEditEvent: calendarService == null
                     ? null
                     : (request) async {
-                        final draft = request.draft;
-                        // **页面交回的是本地时刻**，UTC 换算在这一层做——与截止时间、
-                        // 事件编辑器两处同一条分工（路由持有 `zones` 与时区标识）。
-                        final startAtUtc = zones.localDateTimeToUtc(
-                          DateTime(
-                            draft.startAtUtc.year,
-                            draft.startAtUtc.month,
-                            draft.startAtUtc.day,
-                          ),
-                          draft.startAtUtc.hour * 60 + draft.startAtUtc.minute,
-                          timeZoneId,
-                        );
-                        final endAtUtc = zones.localDateTimeToUtc(
-                          DateTime(
-                            draft.endAtUtc.year,
-                            draft.endAtUtc.month,
-                            draft.endAtUtc.day,
-                          ),
-                          draft.endAtUtc.hour * 60 + draft.endAtUtc.minute,
-                          timeZoneId,
-                        );
                         final result = await calendarService.updateEvent(
                           target: CalendarEditTarget(
                             anchorId: request.anchorId,
@@ -1329,21 +1307,7 @@ GoRouter createPlannerRouter({
                             occurrenceStartUtc: request.occurrenceStartUtc,
                             expectedUpdatedAtUtc: request.expectedUpdatedAtUtc,
                           ),
-                          // **逐字段重建而不是 `copyWith`**：草稿的时间字段在
-                          // "本地时刻"与"UTC 时刻"之间有歧义，而这个转换恰恰是危险的
-                          // 那一步——省略任何一个字段都会让那一项被静默重置。
-                          // 显式列出全部字段，遗漏会在类型层面暴露。
-                          event: CalendarEventEditDraft(
-                            title: draft.title,
-                            startAtUtc: startAtUtc,
-                            endAtUtc: endAtUtc,
-                            timeZoneId: draft.timeZoneId,
-                            notes: draft.notes,
-                            location: draft.location,
-                            areaId: draft.areaId,
-                            projectId: draft.projectId,
-                            kind: draft.kind,
-                          ),
+                          patch: request.patch,
                         );
                         // **三态如实回传**：界面按它决定说"没成功"还是
                         // "别处改过了，请重新打开"——后者重试永远不会成功。

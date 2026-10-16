@@ -26,12 +26,11 @@ void main() {
     onScheduleInputChanged: onChanged,
   );
 
-  CalendarEventEditDraft draft({String title = '数据结构课'}) =>
-      CalendarEventEditDraft(
+  CalendarEventPatch draft({String title = '数据结构课'}) =>
+      CalendarEventPatch(
         title: title,
         startAtUtc: DateTime.utc(2026, 10, 5, 1),
         endAtUtc: DateTime.utc(2026, 10, 5, 2),
-        timeZoneId: 'Asia/Shanghai',
       );
 
   test('草稿非法 ⇒ invalid，**不碰端口**', () async {
@@ -41,7 +40,7 @@ void main() {
         anchorId: 'a1',
         scope: EventEditScope.entireSeries,
       ),
-      event: draft(title: '   '),
+      patch: draft(title: '   '),
     );
 
     expect(result.status, CalendarMutationStatus.invalid);
@@ -57,7 +56,7 @@ void main() {
     ]) {
       final result = await service(deletion: spy).updateEvent(
         target: CalendarEditTarget(anchorId: 'a1', scope: scope),
-        event: draft(),
+        patch: draft(),
       );
       expect(
         result.status,
@@ -77,7 +76,7 @@ void main() {
         anchorId: 'a1',
         scope: EventEditScope.entireSeries,
       ),
-      event: draft(),
+      patch: draft(),
     );
 
     expect(result.status, CalendarMutationStatus.unsupported);
@@ -95,7 +94,7 @@ void main() {
         scope: EventEditScope.singleOccurrence,
         occurrenceStartUtc: occurrence,
       ),
-      event: draft(title: '看医生'),
+      patch: draft(title: '看医生'),
     );
     expect(spy.calls, ['replaceOccurrence:a1:看医生']);
 
@@ -106,7 +105,7 @@ void main() {
         scope: EventEditScope.followingOccurrences,
         occurrenceStartUtc: occurrence,
       ),
-      event: draft(title: '看医生'),
+      patch: draft(title: '看医生'),
     );
     expect(spy.calls, ['replaceFollowingOccurrences:a1:看医生']);
 
@@ -116,7 +115,7 @@ void main() {
         anchorId: 'a1',
         scope: EventEditScope.entireSeries,
       ),
-      event: draft(title: '看医生'),
+      patch: draft(title: '看医生'),
       recurrence: RecurrenceEditDraft(
         weekdays: const {DateTime.tuesday},
         validFromLocalDate: DateTime(2026, 10, 6),
@@ -137,7 +136,7 @@ void main() {
             anchorId: 'a1',
             scope: EventEditScope.entireSeries,
           ),
-          event: draft(),
+          patch: draft(),
         );
 
     expect(result.status, CalendarMutationStatus.saved);
@@ -163,7 +162,7 @@ void main() {
             anchorId: 'a1',
             scope: EventEditScope.entireSeries,
           ),
-          event: draft(),
+          patch: draft(),
         );
 
     expect(result.status, CalendarMutationStatus.failed);
@@ -183,7 +182,7 @@ void main() {
             anchorId: 'a1',
             scope: EventEditScope.entireSeries,
           ),
-          event: draft(),
+          patch: draft(),
         );
 
     expect(
@@ -205,7 +204,7 @@ void main() {
         anchorId: 'a1',
         scope: EventEditScope.entireSeries,
       ),
-      event: draft(),
+      patch: draft(),
       recurrence: RecurrenceEditDraft(
         weekdays: const {},
         validFromLocalDate: DateTime(2026, 10, 6),
@@ -271,38 +270,41 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {
     if (throwOnReplace) throw StateError('数据库炸了');
-    calls.add('replaceOccurrence:$anchorId:${event.title}');
+    calls.add('replaceOccurrence:$anchorId:${patch.title}');
   }
 
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
   }) async {
     if (throwOnReplace) throw StateError('数据库炸了');
-    calls.add('replaceSeries:$anchorId:${event.title}');
+    calls.add('replaceSeries:$anchorId:${patch.title}');
   }
 
   @override
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
   }) async {
     if (throwOnReplace) throw StateError('数据库炸了');
-    calls.add('replaceFollowingOccurrences:$anchorId:${event.title}');
+    calls.add('replaceFollowingOccurrences:$anchorId:${patch.title}');
   }
 
   @override

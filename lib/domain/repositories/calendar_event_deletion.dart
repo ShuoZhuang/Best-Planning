@@ -16,13 +16,29 @@ import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 /// 文件名是历史遗留（最初只有删除），这里保留它而不是重命名——重命名要牵动实现、服务与组合根，
 /// 对行为没有影响。端口本身很小，因此不值得为名字发动一次改名。
 ///
-/// ## 本轮（课程与保护时间管理修复计划 Task 2）的形状变化
+/// ## 本轮（课程编辑完整性／血缘／删除与导入恢复修复计划 Task 2）的形状变化
 ///
-/// 三条改写方法从"新起止 ＋ 一个标题字符串"改为收 **`CalendarEventEditDraft`**：
-/// 备注（`notes`）、地点、领域、项目、类别因此都能一起写下去，而此前它们**没有写入路径**
-/// （`notes` 能读不能写，课表导入正用它存教师名）。
+/// 三条改写方法从收 **`CalendarEventEditDraft`（完整草稿）** 改为收
+/// **[CalendarEventPatch]（显式 patch）**。这是一次**语义收紧**，不只是改名：
 ///
-/// 删除方法**原样保留**：删除只需要 id，给它塞一个草稿只会让调用方多造一个没人看的对象。
+/// - 草稿时代每个字段都必须给值，于是"页面没有展示的字段"只能被写成一个默认值
+///   （空串、`null`、`fixed`），而写入端分不清"用户清空了它"与"用户从未看到它"。
+///   实测后果是"只改一次钟点 → 地点、领域、项目、类别一起被清空"（计划 §1.1／C02–C06）。
+/// - patch 时代**只有用户真的改过的字段**进来；`areaId`、`projectId`、`kind`、
+///   `sourceKind`、`importBatchId`、`logicalCourseId`、事项时区与规则时区
+///   **根本没有入口**，一律由实现方在事务内从锚点读取后保留（计划 §2.0.1／§5 Step 4）。
+///
+/// ## 实现方必须遵守的三条约定
+///
+/// 1. **读与写在同一个事务里**：先按 `anchorId` 读锚点，再核对
+///    [expectedUpdatedAtUtc]，再合并、再写。先读后写（中间隔着一次 await）会留下
+///    "读到的是旧版、写下去覆盖了别人的改动"的竞态窗口。
+/// 2. **修订号不一致时零写入**，抛 [CalendarEditStaleException]；锚点不存在且调用方
+///    给了期望值时抛 [CalendarEditMissingException]。两者都必须发生在写第一行之前。
+/// 3. **时区取权威值**：有规则时取规则的 `timeZoneId`，否则取锚点自身的。
+///    实现方**不得**从 patch 取时区——那正是 C03 的来源。
+///
+/// 删除方法**原样保留**：删除只需要 id，给它塞一个 patch 只会让调用方多造一个没人看的对象。
 abstract interface class CalendarEventDeletion {
   /// 删除一条固定日程。
   ///
@@ -65,12 +81,17 @@ abstract interface class CalendarEventDeletion {
   /// 不确定——那是一种"有时生效有时不生效"的缺陷。
   ///
   /// **不允许改规则**：例外的语义就是"只这一次"，带上规则草稿会让"仅本次"变成"改系列"。
+  ///
+  /// **地点、领域、项目、类别、来源一律继承锚点**：例外行只能覆盖"这一次"的标题、备注、
+  /// 时间与地点（当 patch 里明确给了地点时）。隐藏字段被写成默认值会让"改一次课"
+  /// 顺手把整门课的领域与项目清掉（计划 §1.2／CE2）。
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     required String exceptionId,
     required DateTime updatedAtUtc,
+    DateTime? expectedUpdatedAtUtc,
   });
 
   /// **改写整个系列**（FR-CAL-02 的"整个系列"编辑一半）：所有各次一起换到新时间。
@@ -82,12 +103,17 @@ abstract interface class CalendarEventDeletion {
   ///
   /// [recurrence] 非空时**连规则一起改**（星期、间隔、有效期），为空时只改锚点。
   /// 锚点不带规则时**退化为改那一行**：单次日程没有"系列"可言。
+  ///
+  /// **写成新规则之后必须复核保留下来的例外**（计划 §2.4／§3.3）：缩短周次、改星期或改
+  /// 单双周后，仍然挂在同一个锚点名下的例外可能已经**不再是新规则的成员**。它们必须在
+  /// 同一个事务里删除，否则以后再扩展规则时它们会"复活"成用户没有预期的课次（C22／C23）。
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
     DateTime? updateExceptionsFromUtc,
+    DateTime? expectedUpdatedAtUtc,
   });
 
   /// Replaces the selected occurrence and every later occurrence by splitting
@@ -100,11 +126,12 @@ abstract interface class CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
+    DateTime? expectedUpdatedAtUtc,
   });
 
   /// Deletes the selected occurrence and everything after it by truncating the

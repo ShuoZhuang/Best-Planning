@@ -9,6 +9,7 @@ import 'package:personal_planner/domain/repositories/calendar_event_deletion.dar
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
+import 'package:personal_planner/domain/services/recurrence_membership.dart';
 
 final class DriftCalendarRepository
     implements
@@ -190,74 +191,75 @@ final class DriftCalendarRepository
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     RecurrenceEditDraft? recurrence,
     required DateTime updatedAtUtc,
     DateTime? updateExceptionsFromUtc,
+    DateTime? expectedUpdatedAtUtc,
   }) async {
-    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
+    if (!patch.endAtUtc.isAfter(patch.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
-    final anchor =
-        await (_database.select(_database.calendarEvents)
-              ..where((row) => row.id.equals(anchorId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (anchor == null) return;
-
-    final ruleId = anchor.recurrenceRuleId;
-    final updatedEvent = _appliedTo(
-      anchor: anchor,
-      event: event,
-      updatedAtUtc: updatedAtUtc,
-      recurrenceRuleId: ruleId,
-    );
-
-    if (ruleId == null) {
-      // 单次日程没有"系列"可言：改那一行即可。
-      await save(updatedEvent);
-      return;
-    }
-
-    final stored =
-        await (_database.select(_database.recurrenceRules)
-              ..where((row) => row.id.equals(ruleId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (stored == null) {
-      // 规则行缺失（正常路径由 `saveRecurring` 的事务保证）：只改锚点，不凭空造规则。
-      await save(updatedEvent);
-      return;
-    }
-
-    // **规则里的本地钟点必须跟着一起改**：否则锚点换了时间，展开器仍按旧钟点生成各次，
-    // 结果是"第一次是新的、后面还是旧的"。
-    //
-    // 传了 [recurrence] 时连星期、间隔、有效期一起换（管理页改的就是整个系列）；
-    // 没传时只换钟点，其余规则字段原样保留。
-    final localStart = _zones.toLocal(event.startAtUtc, stored.timeZoneId);
-    final rule = domain.RecurrenceRule(
-      id: stored.id,
-      weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
-      localStartMinute: localStart.hour * 60 + localStart.minute,
-      durationMinutes: event.endAtUtc.difference(event.startAtUtc).inMinutes,
-      intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
-      validFromLocalDate:
-          recurrence?.validFromLocalDate ??
-          DateTime.parse(stored.validFromLocalDate),
-      validUntilLocalDate:
-          recurrence?.validUntilLocalDate ??
-          (stored.validUntilLocalDate == null
-              ? null
-              : DateTime.parse(stored.validUntilLocalDate!)),
-      timeZoneId: stored.timeZoneId,
-    );
-
-    // **例外行的级联改名**（Task 7 Step 3）：未来的正常例外跟着改名，
-    // 过去的与"删除例外"都不动。整块与规则写入共用 `saveRecurring` 的那一个事务：
-    // 规则更新失败时锚点与例外全部不变（Task 7 Step 4 的回滚要求）。
+    // **读、核对、合并、写全在同一个事务里**（计划 Task 2 Step 3）：先读后写之间
+    // 隔着一次 await，那段时间里别处完全可能改过这一条，而写入端会静默覆盖它。
     await _database.transaction(() async {
+      final anchor = await _anchorRow(anchorId);
+      _assertExpectedRevision(anchor, expectedUpdatedAtUtc);
+      if (anchor == null) return;
+
+      final ruleId = anchor.recurrenceRuleId;
+      final stored = ruleId == null ? null : await _ruleRow(ruleId);
+
+      final updatedEvent = _appliedTo(
+        anchor: anchor,
+        patch: patch,
+        updatedAtUtc: updatedAtUtc,
+        recurrenceRuleId: ruleId,
+        // **事件时区与规则时区必须一致**（§3.0）。有规则时以规则为准：它才是展开器
+        // 解释"本地钟点"的依据。
+        timeZoneIdOverride: stored?.timeZoneId,
+      );
+
+      if (stored == null) {
+        // 单次日程没有"系列"可言：改那一行即可；规则行缺失（正常路径由
+        // `saveRecurring` 的事务保证）时同样只改锚点，不凭空造规则。
+        await save(updatedEvent);
+        return;
+      }
+
+      // **规则里的本地钟点必须跟着一起改**：否则锚点换了时间，展开器仍按旧钟点生成各次，
+      // 结果是"第一次是新的、后面还是旧的"。
+      //
+      // 传了 [recurrence] 时连星期、间隔、有效期一起换（管理页改的就是整个系列）；
+      // 没传时只换钟点，其余规则字段原样保留。
+      final localStart = _zones.toLocal(patch.startAtUtc, stored.timeZoneId);
+      final rule = domain.RecurrenceRule(
+        id: stored.id,
+        weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
+        localStartMinute: localStart.hour * 60 + localStart.minute,
+        durationMinutes: patch.endAtUtc.difference(patch.startAtUtc).inMinutes,
+        intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
+        validFromLocalDate:
+            recurrence?.validFromLocalDate ??
+            DateTime.parse(stored.validFromLocalDate),
+        validUntilLocalDate:
+            recurrence?.validUntilLocalDate ??
+            (stored.validUntilLocalDate == null
+                ? null
+                : DateTime.parse(stored.validUntilLocalDate!)),
+        timeZoneId: stored.timeZoneId,
+      );
+
       await _saveRecurringRows(updatedEvent, rule);
+
+      // **先清理不再属于新规则的例外**（§3.3），再给仍有效的未来例外级联改名。
+      // 顺序不能反：先改名会把一条即将失效的例外也改名，然后才删掉它——多一次无谓写入。
+      await _pruneInvalidatedExceptions(
+        anchorId: anchorId,
+        rule: rule,
+        updatedAtUtc: updatedAtUtc,
+      );
+
       final cutoff = updateExceptionsFromUtc;
       if (cutoff == null) return;
       final exceptions = await (_database.select(
@@ -274,8 +276,8 @@ final class DriftCalendarRepository
           _database.calendarEvents,
         )..where((r) => r.id.equals(row.id))).write(
           db.CalendarEventsCompanion(
-            title: Value(event.title),
-            notes: Value(event.notes),
+            title: Value(patch.title),
+            notes: Value(patch.notes),
             updatedAtUtc: Value(updatedAtUtc.microsecondsSinceEpoch),
           ),
         );
@@ -283,14 +285,22 @@ final class DriftCalendarRepository
     });
   }
 
-  /// 把一份**完整草稿**套到既有锚点行上，得到要写下去的事件。
+  /// 把一份**显式 patch** 套到既有锚点行上，得到要写下去的事件。
   ///
-  /// **保留锚点上的"身份"字段**（`sourceKind`、`importBatchId`、`logicalCourseId`、
-  /// 来源关联），只用草稿覆盖**用户可改的资料**：标题、备注、地点、领域、项目、
-  /// 时间、类别与例外归属。
+  /// ## 只有 patch 里出现的字段会被改写
   ///
-  /// **为什么身份字段不跟着草稿走**：课表导入的批次与逻辑课程 id 是"这条事项从哪来"的
-  /// 事实，用户改一次名字不该让它变成手工建的。计划 Task 4 Step 5 对课程替换有同样的要求。
+  /// | 字段 | 来源 |
+  /// | --- | --- |
+  /// | `title`／`notes`／起止 | patch（用户明确提交的值） |
+  /// | `location` | [FieldPatch.resolve]：patch 没给就保留锚点原值，`SetField('')` 才是清空 |
+  /// | `areaId`／`projectId`／`kind`／`locked` | **锚点原值** |
+  /// | `sourceKind`／`importBatchId`／`logicalCourseId` | **锚点原值**（课程身份） |
+  /// | `timeZoneId` | 规则时区（有规则时）／锚点原值 |
+  ///
+  /// **它此前是一份"完整草稿"的套用**：草稿的每个字段都必须给值，于是日视图没有展示
+  /// 的地点被写成空串、领域与项目被写成 `null`、类别被写成 `fixed`，而时区在缓存里
+  /// 找不到时被写成 `UTC`。用户只改了一次钟点，课程就变成"未命名事项／无领域固定日程"
+  /// 并且事件时区与规则时区不一致（计划 §1.1／C02–C06）。
   ///
   /// **[exceptionOfId] 传空串表示"清掉例外归属"**：`exception_of_id` 是指向
   /// `calendar_events.id` 的**外键**，写空串会直接违反约束（实测
@@ -299,7 +309,7 @@ final class DriftCalendarRepository
   /// 读取端两个方向都会把它算进去。因此空串在这里被翻译成 `null`。
   domain.CalendarEvent _appliedTo({
     required db.CalendarEvent anchor,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     required DateTime updatedAtUtc,
     required String? recurrenceRuleId,
     String? id,
@@ -307,105 +317,206 @@ final class DriftCalendarRepository
     String? timeZoneIdOverride,
   }) => domain.CalendarEvent(
     id: id ?? anchor.id,
-    title: event.title,
-    startAtUtc: event.startAtUtc,
-    endAtUtc: event.endAtUtc,
-    // 时区优先用覆盖值（例外必须取**规则自己的**时区），否则用草稿的。
-    timeZoneId: timeZoneIdOverride ?? event.timeZoneId,
+    title: patch.title,
+    startAtUtc: patch.startAtUtc,
+    endAtUtc: patch.endAtUtc,
+    // 时区取**权威值**：例外与系列改写用规则自己的时区（下方三条路径都传了覆盖值），
+    // 单次日程用锚点自身的。patch 里没有时区字段，因此 C03 那条"UTC 兜底"在
+    // 类型层面就不可能再发生。
+    timeZoneId: timeZoneIdOverride ?? anchor.timeZoneId,
     recurrenceRuleId: recurrenceRuleId,
     exceptionOfId: (exceptionOfId == null || exceptionOfId.isEmpty)
         ? (exceptionOfId == null ? anchor.exceptionOfId : null)
         : exceptionOfId,
     locked: anchor.locked,
-    areaId: event.areaId,
-    projectId: event.projectId,
-    location: event.location,
-    notes: event.notes,
+    // 以下四项**一律保留锚点原值**：日视图既没有展示也没有提交它们。
+    areaId: anchor.areaId,
+    projectId: anchor.projectId,
+    location: patch.location.resolve(anchor.location),
+    notes: patch.notes,
     sourceKind: domain.CalendarEventSourceKind.fromStorage(anchor.sourceKind),
-    kind: event.kind,
+    kind: domain.CalendarEventKind.fromStorage(anchor.kind),
     importBatchId: anchor.importBatchId,
     logicalCourseId: anchor.logicalCourseId,
     updatedAtUtc: updatedAtUtc,
   );
 
+  /// 按 id 读锚点行（事务内用）。
+  Future<db.CalendarEvent?> _anchorRow(String anchorId) =>
+      (_database.select(_database.calendarEvents)
+            ..where((row) => row.id.equals(anchorId))
+            ..limit(1))
+          .getSingleOrNull();
+
+  Future<db.RecurrenceRule?> _ruleRow(String ruleId) =>
+      (_database.select(_database.recurrenceRules)
+            ..where((row) => row.id.equals(ruleId))
+            ..limit(1))
+          .getSingleOrNull();
+
+  /// **事务内的乐观并发核对**（计划 Task 2 Step 3）。
+  ///
+  /// [expectedUpdatedAtUtc] 为空表示调用方没有读到过这一条（例如"撤销导入"这类
+  /// 内部动作），此时保留既有的幂等语义：锚点不在了就当已经处理。
+  void _assertExpectedRevision(
+    db.CalendarEvent? anchor,
+    DateTime? expectedUpdatedAtUtc,
+  ) {
+    if (expectedUpdatedAtUtc == null) return;
+    if (anchor == null) throw const CalendarEditMissingException();
+    if (anchor.updatedAtUtc != expectedUpdatedAtUtc.microsecondsSinceEpoch) {
+      // **在任何写入之前抛出**：因此"别处已经改过"不会被这一次覆盖。
+      throw const CalendarEditStaleException();
+    }
+  }
+
+  /// 删除锚点名下**已经不再属于 [rule] 的逐次例外**（计划 §3.3／Task 8 Step 5）。
+  ///
+  /// **为什么必须在这里而不是保存之后**：缩短周次或改星期时，锚点往往会被
+  /// `_matchSegment` 复用（它按星期集合与频率匹配）。旧规则下的例外留在库里，
+  /// 而它们**不会**随着某一段的删除被清掉——下一次把周次扩回去，它们就“复活”成
+  /// 用户没有预期的课次（C22／C23）。
+  ///
+  /// 判定用**目标规则自己的时区**把例外 `startAtUtc` 换算成本地日期，再交给
+  /// [recurrenceIncludesLocalDate]。这与展开器读例外时用的是同一个函数、同一条换算，
+  /// 因此"预览报的数字"与"这里删的行数"必然一致（§2.5）。
+  Future<int> _pruneInvalidatedExceptions({
+    required String anchorId,
+    required domain.RecurrenceRule rule,
+    required DateTime updatedAtUtc,
+  }) async {
+    final rows = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+    final doomed = <String>[
+      for (final row in rows)
+        if (!recurrenceIncludesLocalDate(
+          rule,
+          _zones.toLocal(_instant(row.startAtUtc), rule.timeZoneId),
+        ))
+          row.id,
+    ];
+    if (doomed.isEmpty) return 0;
+    await (_database.delete(
+      _database.calendarEvents,
+    )..where((row) => row.id.isIn(doomed))).go();
+    return doomed.length;
+  }
+
+  /// [countExceptionsInvalidatedBy] 的仓储实现（计划 Task 8 Step 3）。
+  ///
+  /// 只读：预览**不得**执行删除。锚点不存在时返回 0（与端口其它方法的幂等口径一致）。
+  @override
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  }) async {
+    final anchor = await _anchorRow(anchorEventId);
+    if (anchor == null) return 0;
+    final rule = domain.RecurrenceRule(
+      id: anchor.recurrenceRuleId ?? '$anchorEventId-rule',
+      weekdays: replacement.weekdays,
+      localStartMinute: replacement.startMinute,
+      durationMinutes: replacement.endMinute - replacement.startMinute,
+      intervalWeeks: replacement.intervalWeeks,
+      validFromLocalDate: replacement.validFromLocalDate,
+      validUntilLocalDate: replacement.validUntilLocalDate,
+      timeZoneId: zoneId,
+    );
+    final rows = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.equals(anchorEventId))).get();
+    var count = 0;
+    for (final row in rows) {
+      if (!recurrenceIncludesLocalDate(
+        rule,
+        _zones.toLocal(_instant(row.startAtUtc), zoneId),
+      )) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   @override
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
+    DateTime? expectedUpdatedAtUtc,
   }) async {
-    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
+    if (!patch.endAtUtc.isAfter(patch.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
-    final anchor =
-        await (_database.select(_database.calendarEvents)
-              ..where((row) => row.id.equals(anchorId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (anchor == null) return;
-    final ruleId = anchor.recurrenceRuleId;
-    if (ruleId == null) {
-      await replaceSeries(
-        anchorId: anchorId,
-        event: event,
-        recurrence: recurrence,
-        updatedAtUtc: updatedAtUtc,
-      );
-      return;
-    }
-    final stored =
-        await (_database.select(_database.recurrenceRules)
-              ..where((row) => row.id.equals(ruleId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (stored == null) return;
-    final splitDate = _validatedSplitDate(stored, occurrenceStartUtc);
-    final originalFrom = DateTime.parse(stored.validFromLocalDate);
-    final originalUntil = stored.validUntilLocalDate == null
-        ? null
-        : DateTime.parse(stored.validUntilLocalDate!);
-    final newLocalStart = _zones.toLocal(event.startAtUtc, stored.timeZoneId);
-    final newRule = domain.RecurrenceRule(
-      id: newRuleId,
-      weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
-      localStartMinute: newLocalStart.hour * 60 + newLocalStart.minute,
-      durationMinutes: event.endAtUtc.difference(event.startAtUtc).inMinutes,
-      intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
-      // **从所选的本地日期开始**，而不是沿用原规则的起点——否则新系列会把
-      // 拆分日之前的各次再生成一遍。
-      validFromLocalDate: splitDate,
-      // 有效期沿用原规则的结束日（没传 recurrence 时）；传了就按新的，
-      // 但**不得早于拆分日**（草稿校验已经挡过，这里再夹一次会因为静默夹紧而违规，
-      // 因此直接采用草稿值，让上层报错）。
-      validUntilLocalDate: recurrence?.validUntilLocalDate ?? originalUntil,
-      timeZoneId: stored.timeZoneId,
-    );
-    final newEvent = _appliedTo(
-      anchor: anchor,
-      event: event,
-      updatedAtUtc: updatedAtUtc,
-      recurrenceRuleId: newRuleId,
-      id: newEventId,
-      exceptionOfId: null,
-      // 新系列的锚点用**规则自己的时区**：展开器按它把起点换算成本地日期。
-      timeZoneIdOverride: stored.timeZoneId,
-    );
-    final exceptions = await (_database.select(
-      _database.calendarEvents,
-    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
-    final followingExceptionIds = <String>[
-      for (final row in exceptions)
-        if (!_dateOnly(
-          _zones.toLocal(_instant(row.startAtUtc), stored.timeZoneId),
-        ).isBefore(splitDate))
-          row.id,
-    ];
-
+    // **拆分也必须整体在一个事务里**（§3.0）：新系列写进去了、旧规则没截断，
+    // 或者例外改归属失败，都会留下两段互相重叠的课。
     await _database.transaction(() async {
+      final anchor = await _anchorRow(anchorId);
+      _assertExpectedRevision(anchor, expectedUpdatedAtUtc);
+      if (anchor == null) return;
+      final ruleId = anchor.recurrenceRuleId;
+      if (ruleId == null) {
+        // 单次日程没有"从这一次起拆分"可言：等价于改整条。
+        await _replaceSeriesInCurrentTransaction(
+          anchorId: anchorId,
+          anchor: anchor,
+          patch: patch,
+          recurrence: recurrence,
+          updatedAtUtc: updatedAtUtc,
+        );
+        return;
+      }
+      final stored = await _ruleRow(ruleId);
+      if (stored == null) return;
+      final splitDate = _validatedSplitDate(stored, occurrenceStartUtc);
+      final originalFrom = DateTime.parse(stored.validFromLocalDate);
+      final originalUntil = stored.validUntilLocalDate == null
+          ? null
+          : DateTime.parse(stored.validUntilLocalDate!);
+      final newLocalStart = _zones.toLocal(patch.startAtUtc, stored.timeZoneId);
+      final newRule = domain.RecurrenceRule(
+        id: newRuleId,
+        weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
+        localStartMinute: newLocalStart.hour * 60 + newLocalStart.minute,
+        durationMinutes: patch.endAtUtc.difference(patch.startAtUtc).inMinutes,
+        intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
+        // **从所选的本地日期开始**，而不是沿用原规则的起点——否则新系列会把
+        // 拆分日之前的各次再生成一遍。
+        validFromLocalDate: splitDate,
+        // 有效期沿用原规则的结束日（没传 recurrence 时）；传了就按新的，
+        // 但**不得早于拆分日**（草稿校验已经挡过，这里再夹一次会因为静默夹紧而违规，
+        // 因此直接采用草稿值，让上层报错）。
+        validUntilLocalDate: recurrence?.validUntilLocalDate ?? originalUntil,
+        timeZoneId: stored.timeZoneId,
+      );
+      final newEvent = _appliedTo(
+        anchor: anchor,
+        patch: patch,
+        updatedAtUtc: updatedAtUtc,
+        recurrenceRuleId: newRuleId,
+        id: newEventId,
+        exceptionOfId: null,
+        // 新系列的锚点用**规则自己的时区**：展开器按它把起点换算成本地日期。
+        timeZoneIdOverride: stored.timeZoneId,
+      );
+      final exceptions = await (_database.select(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+      // **例外按规则自己的时区换算本地日期**，且必须在同一个事务里读：
+      // 这次拆分之后，落在拆分日及以后的例外改挂到新锚点名下。
+      final followingExceptionIds = <String>[
+        for (final row in exceptions)
+          if (!_dateOnly(
+            _zones.toLocal(_instant(row.startAtUtc), stored.timeZoneId),
+          ).isBefore(splitDate))
+            row.id,
+      ];
+
       await _saveRecurringRows(newEvent, newRule);
       for (final id in followingExceptionIds) {
         await (_database.update(
@@ -439,7 +550,55 @@ final class DriftCalendarRepository
     });
   }
 
-  @override
+  /// [replaceSeries] 的主体，供已经处在事务里的调用方复用。
+  ///
+  /// **不能直接调 `replaceSeries`**：Drift 的 `transaction()` 可以嵌套，但嵌套会让
+  /// "锚点是从哪一层读到的"变得含糊，而这里要的恰恰是"在**同一个**事务里读、核对、写"。
+  Future<void> _replaceSeriesInCurrentTransaction({
+    required String anchorId,
+    required db.CalendarEvent anchor,
+    required CalendarEventPatch patch,
+    RecurrenceEditDraft? recurrence,
+    required DateTime updatedAtUtc,
+  }) async {
+    final ruleId = anchor.recurrenceRuleId;
+    final stored = ruleId == null ? null : await _ruleRow(ruleId);
+    final updatedEvent = _appliedTo(
+      anchor: anchor,
+      patch: patch,
+      updatedAtUtc: updatedAtUtc,
+      recurrenceRuleId: ruleId,
+      timeZoneIdOverride: stored?.timeZoneId,
+    );
+    if (stored == null) {
+      await save(updatedEvent);
+      return;
+    }
+    final localStart = _zones.toLocal(patch.startAtUtc, stored.timeZoneId);
+    final rule = domain.RecurrenceRule(
+      id: stored.id,
+      weekdays: recurrence?.weekdays ?? _weekdays(stored.weekdaysMask),
+      localStartMinute: localStart.hour * 60 + localStart.minute,
+      durationMinutes: patch.endAtUtc.difference(patch.startAtUtc).inMinutes,
+      intervalWeeks: recurrence?.intervalWeeks ?? stored.intervalWeeks,
+      validFromLocalDate:
+          recurrence?.validFromLocalDate ??
+          DateTime.parse(stored.validFromLocalDate),
+      validUntilLocalDate:
+          recurrence?.validUntilLocalDate ??
+          (stored.validUntilLocalDate == null
+              ? null
+              : DateTime.parse(stored.validUntilLocalDate!)),
+      timeZoneId: stored.timeZoneId,
+    );
+    await _saveRecurringRows(updatedEvent, rule);
+    await _pruneInvalidatedExceptions(
+      anchorId: anchorId,
+      rule: rule,
+      updatedAtUtc: updatedAtUtc,
+    );
+  }
+
   @override
   Future<void> setEventArea({
     required String eventId,
@@ -548,76 +707,72 @@ final class DriftCalendarRepository
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
     required String exceptionId,
     required DateTime updatedAtUtc,
+    DateTime? expectedUpdatedAtUtc,
   }) async {
-    if (!event.endAtUtc.isAfter(event.startAtUtc)) {
+    if (!patch.endAtUtc.isAfter(patch.startAtUtc)) {
       throw ArgumentError('替换后的结束时刻必须晚于开始时刻');
     }
-    final anchor =
-        await (_database.select(_database.calendarEvents)
-              ..where((row) => row.id.equals(anchorId))
-              ..limit(1))
-            .getSingleOrNull();
-    // 锚点已经不在了：与删除同样按幂等处理。
-    if (anchor == null) return;
+    await _database.transaction(() async {
+      final anchor = await _anchorRow(anchorId);
+      _assertExpectedRevision(anchor, expectedUpdatedAtUtc);
+      // 锚点已经不在了：与删除同样按幂等处理（没有期望值时）。
+      if (anchor == null) return;
 
-    final ruleId = anchor.recurrenceRuleId;
-    if (ruleId == null) {
-      // 单次日程：直接改它自己那一行。"只改这一次"与"改整条"在单次日程上是同一件事，
-      // 因此不必（也不该）留下一条替换例外——那会让这条日程变成"系列的一次"。
-      //
-      // **例外归属也要清掉**：这一行本身就是锚点，留着 `exceptionOfId` 会让它
-      // "既是锚点又是别人的例外"，读取端两个方向都会把它算进去。
+      final ruleId = anchor.recurrenceRuleId;
+      if (ruleId == null) {
+        // 单次日程：直接改它自己那一行。"只改这一次"与"改整条"在单次日程上是同一件事，
+        // 因此不必（也不该）留下一条替换例外——那会让这条日程变成"系列的一次"。
+        //
+        // **例外归属也要清掉**：这一行本身就是锚点，留着 `exceptionOfId` 会让它
+        // "既是锚点又是别人的例外"，读取端两个方向都会把它算进去。
+        await save(
+          _appliedTo(
+            anchor: anchor,
+            patch: patch,
+            updatedAtUtc: updatedAtUtc,
+            recurrenceRuleId: null,
+            exceptionOfId: '',
+          ),
+        );
+        return;
+      }
+
+      final rule = await _ruleRow(ruleId);
+      if (rule == null) return;
+
+      // 同一天已有例外就**复用那一行的 id**：再写一条会让展开器按遍历顺序二选一，结果不确定。
+      final localDate = _zones.toLocal(occurrenceStartUtc, rule.timeZoneId);
+      var targetId = exceptionId;
+      final existing = await (_database.select(
+        _database.calendarEvents,
+      )..where((row) => row.exceptionOfId.equals(anchorId))).get();
+      for (final row in existing) {
+        final rowDate = _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId);
+        if (rowDate.year == localDate.year &&
+            rowDate.month == localDate.month &&
+            rowDate.day == localDate.day) {
+          targetId = row.id;
+          break;
+        }
+      }
+
       await save(
         _appliedTo(
           anchor: anchor,
-          event: event,
+          patch: patch,
           updatedAtUtc: updatedAtUtc,
+          // 例外**不带规则**：它的语义就是"只这一次"。
           recurrenceRuleId: null,
-          exceptionOfId: '',
+          id: targetId,
+          exceptionOfId: anchorId,
+          // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
+          timeZoneIdOverride: rule.timeZoneId,
         ),
       );
-      return;
-    }
-
-    final rule =
-        await (_database.select(_database.recurrenceRules)
-              ..where((row) => row.id.equals(ruleId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (rule == null) return;
-
-    // 同一天已有例外就**复用那一行的 id**：再写一条会让展开器按遍历顺序二选一，结果不确定。
-    final localDate = _zones.toLocal(occurrenceStartUtc, rule.timeZoneId);
-    var targetId = exceptionId;
-    final existing = await (_database.select(
-      _database.calendarEvents,
-    )..where((row) => row.exceptionOfId.equals(anchorId))).get();
-    for (final row in existing) {
-      final rowDate = _zones.toLocal(_instant(row.startAtUtc), row.timeZoneId);
-      if (rowDate.year == localDate.year &&
-          rowDate.month == localDate.month &&
-          rowDate.day == localDate.day) {
-        targetId = row.id;
-        break;
-      }
-    }
-
-    await save(
-      _appliedTo(
-        anchor: anchor,
-        event: event,
-        updatedAtUtc: updatedAtUtc,
-        // 例外**不带规则**：它的语义就是"只这一次"。
-        recurrenceRuleId: null,
-        id: targetId,
-        exceptionOfId: anchorId,
-        // 用**规则自己的时区**：读取端按该时区把起点换算成本地日期来对齐例外。
-        timeZoneIdOverride: rule.timeZoneId,
-      ),
-    );
+    });
   }
 
   /// 只删除重复日程里的某一次（FR-CAL-02），见端口的文档说明。

@@ -224,14 +224,16 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -240,7 +242,8 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
@@ -261,6 +264,13 @@ final class _NoopGateway implements CourseWriteGateway {
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;
+
+  @override
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  }) async => 0;
 
   @override
   Future<void> replaceCourseSeries({

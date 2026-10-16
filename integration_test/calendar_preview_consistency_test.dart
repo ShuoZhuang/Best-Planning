@@ -256,11 +256,10 @@ void main() {
         anchorId: eventId,
         scope: EventEditScope.entireSeries,
       ),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '数据结构课（改）',
         startAtUtc: todayStartUtc.add(const Duration(hours: 14)),
         endAtUtc: todayStartUtc.add(const Duration(hours: 15)),
-        timeZoneId: timeZoneId,
       ),
     );
     expect(

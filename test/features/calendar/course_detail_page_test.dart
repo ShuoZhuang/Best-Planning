@@ -62,7 +62,6 @@ void main() {
     WidgetTester tester, {
     String teacher = '赵敏',
     String location = 'D206',
-    bool withZones = false,
     VoidCallback? onEditCourse,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
@@ -87,8 +86,6 @@ void main() {
               gateway: const _NoopGateway(),
             ),
             logicalCourseId: 'course-calc',
-            zones: withZones ? TimeZoneDatabase() : null,
-            timeZoneId: withZones ? 'Asia/Shanghai' : null,
             onEditCourse: onEditCourse,
           ),
         ),
@@ -137,27 +134,27 @@ void main() {
     );
   });
 
-  testWidgets('**未装配时区时不给「改时间」入口**（不给点了没反应的按钮）', (tester) async {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Task 1（课程编辑完整性修复计划 §2.0）：**整门课程只有一个入口**
+  //
+  // 这一页此前有**两个**指向整门课程的按钮：「编辑课程」与「改时间」。后者只提交时间，
+  // 标题与时区靠两张进程内缓存补齐，缓存里没有就写 `未命名事项` 与 `UTC`——
+  // 用户只改一次钟点，课程名、教师、地点、领域、项目就都没了（计划 §1.1）。
+  //
+  // 处置：删掉「改时间」及其固定日期载体 `DateTime(2026, 1, 5)`，钟点编辑并入
+  // 「编辑课程」——那里保存走 `previewCourseEdit()` → `saveCourse()` 的**单事务**链路。
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  testWidgets('**「改时间」入口已删除**（两个同义入口合并成一个安全事务入口）', (tester) async {
     await pumpDetail(tester);
 
     expect(
       find.byKey(const Key('course-edit-time')),
       findsNothing,
       reason:
-          '对话框需要时区才能把本地钟点换算成 UTC 提议时段；'
-          '没有它就只能"检测不到冲突"，那比没有按钮更糟',
-    );
-  });
-
-  testWidgets('装配时区后出现「改时间」入口（§10.2 末条的界面入口）', (tester) async {
-    await pumpDetail(tester, withZones: true);
-
-    expect(
-      find.byKey(const Key('course-edit-time')),
-      findsOneWidget,
-      reason:
-          '规范 §10.2："修改课程时间…后必须重新检测冲突并预览。"'
-          '这个入口此前**不存在**——`course_edit_dialog.dart` 是计划 Task 10 声明的交付物',
+          '它走的是只提交时间的 `CalendarService.replaceSeries` 循环：'
+          '标题、教师、地点、领域、项目会在一次"只改钟点"的保存里全部丢失。'
+          '移除它不等于删除功能——钟点编辑已并入「编辑课程」的单事务保存',
     );
   });
 
@@ -201,7 +198,7 @@ void main() {
   });
 
   testWidgets('**详情页不再有全局范围选择器**（它说了但没做）', (tester) async {
-    await pumpDetail(tester, withZones: true);
+    await pumpDetail(tester);
 
     expect(
       find.byKey(const Key('course-edit-scope')),
@@ -278,7 +275,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
   }) async {}
@@ -286,7 +284,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
@@ -296,7 +295,8 @@ final class _NoopCalendar implements CalendarRepository, CalendarEventDeletion {
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
@@ -318,6 +318,13 @@ final class _NoopGateway implements CourseWriteGateway {
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;
+
+  @override
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  }) async => 0;
 
   @override
   Future<void> replaceCourseSeries({

@@ -133,48 +133,6 @@ List<CourseTimeConflict> detectCourseTimeConflicts({
   });
 }
 
-/// 把"新的本地钟点"套到某一个片段**自己那一周的那一天**上。
-///
-/// 规范 §10.2 第三条要的是"改这门课的时间"，而不是"把所有片段压到同一时刻"：
-/// 单双周课程的每一段各有自己的星期，改完之后必须**仍然是那一天**。
-///
-/// 实现方式刻意选"锚点日 `+ (目标星期 - 锚点星期)` 天"：
-/// - `newStartUtc` 的**本地钟点**由调用方给定，这里只搬日期；
-/// - 用**日历日加法**（`DateTime(y, m, d + n)`）而不是 `add(Duration(days: n))`——
-///   后者在夏令时切换日会漂一小时（与 `deferNotBeforeUtc` 同一条理由）；
-/// - `Duration` 在这里**只用于"加多少天"**，不会被加到时刻上。
-///
-/// 单片段课程因此逐值不变：目标星期等于锚点星期时偏移为 0。
-(DateTime, DateTime) _mapToSegmentDay({
-  required CourseSeriesSegment segment,
-  required DateTime newStartUtc,
-  required DateTime newEndUtc,
-}) {
-  final anchorWeekday = newStartUtc.weekday;
-  final offsetDays = segment.weekday - anchorWeekday;
-  final duration = newEndUtc.difference(newStartUtc);
-  final targetStart = _addLocalDays(newStartUtc, offsetDays);
-  return (targetStart, targetStart.add(duration));
-}
-
-/// 在一个 UTC 时刻上**加减日历日**（不改变钟点，不受夏令时影响）。
-///
-/// **为什么不用 `add(Duration(days: n))`**：那加的是**绝对时长**。对 UTC 时刻本身而言
-/// 24 小时就是 24 小时，但这里的语义是"换到另一天"，而下游的
-/// `replaceSeries` 会按**规则自己的时区**重新解释这个时刻的本地日期——
-/// 因此必须保证"本地日期确实前进/后退了 n 天"，而不是"绝对时刻前进了 n×24 小时"。
-/// 用日历加法表达这个意图，读代码的人也不会误以为它在算时长。
-DateTime _addLocalDays(DateTime instantUtc, int days) =>
-    DateTime.utc(instantUtc.year, instantUtc.month, instantUtc.day + days).add(
-      Duration(
-        hours: instantUtc.hour,
-        minutes: instantUtc.minute,
-        seconds: instantUtc.second,
-        milliseconds: instantUtc.millisecond,
-        microseconds: instantUtc.microsecond,
-      ),
-    );
-
 /// 判断一条既有占用属于哪一类。///
 /// **判据有意避开"读课表元数据"**：
 /// - 是保护时间 ⇒ `protectedTime`；
@@ -279,120 +237,19 @@ final class CourseManagementService {
   Future<CourseSeriesDetail?> findCourse(String logicalCourseId) =>
       courses.findCourse(logicalCourseId);
 
-  /// 编辑**单次**：写一条例外，不动系列（规范 §10.2 第一条）。
-  Future<CourseCommandResult> editOccurrence({
-    required String logicalCourseId,
-    required String anchorEventId,
-    required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    required String title,
-  }) async {
-    final detail = await courses.findCourse(logicalCourseId);
-    if (detail == null) {
-      return const CourseCommandResult.failure('找不到这门课程');
-    }
-    if (!detail.summary.anchorEventIds.contains(anchorEventId)) {
-      // **防串台**：锚点必须属于这门课。同名但不同 `logicalCourseId` 的课
-      // 如果只按标题匹配，这一次改写会落到另一门课上（规范 §10 Review Focus）。
-      return const CourseCommandResult.failure('这次改动不属于该课程');
-    }
-    final ok = await calendar.replaceOccurrence(
-      anchorId: anchorEventId,
-      occurrenceStartUtc: occurrenceStartUtc,
-      newStartUtc: newStartUtc,
-      newEndUtc: newEndUtc,
-      title: title,
-    );
-    return ok
-        ? const CourseCommandResult.success()
-        : const CourseCommandResult.failure('日历写入服务未装配，改动未生效');
-  }
-
-  /// 编辑**此次及以后**：截断旧规则并创建新系列（规范 §10.2 第二条）。
-  Future<CourseCommandResult> editFollowing({
-    required String logicalCourseId,
-    required String anchorEventId,
-    required DateTime occurrenceStartUtc,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-  }) async {
-    final detail = await courses.findCourse(logicalCourseId);
-    if (detail == null) {
-      return const CourseCommandResult.failure('找不到这门课程');
-    }
-    if (!detail.summary.anchorEventIds.contains(anchorEventId)) {
-      return const CourseCommandResult.failure('这次改动不属于该课程');
-    }
-    // **新系列的 id 由 `CalendarService` 生成**，不从外面传进来：
-    // 服务自己持有 `IdGenerator`，而"调用方随手造两个 id"是让两次拆分撞车的捷径。
-    final ok = await calendar.replaceFollowingOccurrences(
-      anchorId: anchorEventId,
-      occurrenceStartUtc: occurrenceStartUtc,
-      newStartUtc: newStartUtc,
-      newEndUtc: newEndUtc,
-    );
-    return ok
-        ? const CourseCommandResult.success()
-        : const CourseCommandResult.failure('日历写入服务未装配，改动未生效');
-  }
-
-  /// 编辑**整个课程**：修改该逻辑课程在**当前学期内**的全部系列片段
-  /// （规范 §10.2 第三条）。
+  /// ## 单次与"此次及以后"为什么不在这里（计划 §2.0）
   ///
-  /// **限定 `logicalCourseId` 就够，不需要再限定 `termId` 的理由**：一个
-  /// `logicalCourseId` 只属于一门课，而这门课的全部片段本来就在同一个学期里
-  /// （学期是导入批次上的属性，同一门课来自同一次导入）。`termId` 的校验仍然做，
-  /// 是为了挡住"同一门课在两个学期各导了一次"这种数据——那时只该改当前学期那一批。
-  Future<CourseCommandResult> editWholeCourse({
-    required String logicalCourseId,
-    required DateTime newStartUtc,
-    required DateTime newEndUtc,
-    String? termId,
-  }) async {
-    final detail = await courses.findCourse(logicalCourseId);
-    if (detail == null) {
-      return const CourseCommandResult.failure('找不到这门课程');
-    }
-    final effectiveTerm = termId ?? detail.summary.termId;
-    // **同一份清单既用于"有没有可改的"判断，也用于循环**（第一版分开算，
-    // 两处的过滤条件还写得不一致：一处是 `effectiveTerm == null || 相等`，
-    // 另一处是 `effectiveTerm != null && 不等`——在 `termId: null` 且课程有学期时，
-    // 前者认为"全部可改"而后者把每一段都跳过，于是**报告成功却什么都没改**）。
-    final targets = [
-      for (final segment in detail.segments)
-        if (effectiveTerm == null || detail.summary.termId == effectiveTerm)
-          segment,
-    ];
-    if (targets.isEmpty) {
-      return const CourseCommandResult.failure('这门课在当前学期没有可改动的系列');
-    }
-
-    final failures = <String>[];
-    for (final segment in targets) {
-      // **每一段保留自己的星期与日期，只换钟点**（规范 §10.2 第三条）。
-      //
-      // 修复前的写法把 `newStartUtc` 原样传给**每一段**，于是一门
-      // "周一 08:00 ＋ 周四 10:00" 的课改完之后**两段都落在周一**——每周少上一次课。
-      // 这条路径当时没有用例：旧用例只断言"调用了两次 `replaceSeries`"，
-      // **不断言两者落在哪里**，因此缺陷一直没被发现。
-      final mapped = _mapToSegmentDay(
-        segment: segment,
-        newStartUtc: newStartUtc,
-        newEndUtc: newEndUtc,
-      );
-      final ok = await calendar.replaceSeries(
-        anchorId: segment.eventId,
-        newStartUtc: mapped.$1,
-        newEndUtc: mapped.$2,
-      );
-      if (!ok) failures.add(segment.eventId);
-    }
-    if (failures.isEmpty) return const CourseCommandResult.success();
-    return CourseCommandResult.failure(
-      '有 ${failures.length} 个系列片段没有改成功（共 ${targets.length} 个）',
-    );
-  }
+  /// 这两个范围**必须有真实发生时间**才能表达"从哪一次开始"，而那个时间只存在于
+  /// 日历上的具体课次（日视图）。它们已经统一走
+  /// `CalendarService.updateEvent()` ＋ `CalendarEventPatch`："
+  /// `singleOccurrence` 只写所选发生的一条例外，`followingOccurrences` 从真实发生日期
+  /// 拆分当前锚点"。
+  ///
+  /// 此处的 `editOccurrence`／`editFollowing`／`editWholeCourse` 三个方法**已被删除**：
+  /// 它们只接受"新起止"（整门课程那条还用一个固定日期载体 `2026-01-05` 承载钟点），
+  /// 逐个片段调用 `replaceSeries`，第一段提交后第二段失败就留下半完成的课程。
+  /// 留着它们等于留一个"以后可能会用"的后门——而那个后门正是本计划要封住的事故入口
+  /// （Task 3 Step 6：若应用层已无合法调用就删除，不做兼容保留）。
 
   /// 从某个本地日期起**停止生成**，但保留历史（规范 §10.2 第四条）。
   ///

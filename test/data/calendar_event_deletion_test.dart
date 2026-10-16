@@ -227,11 +227,10 @@ void main() {
     await repository.replaceFollowingOccurrences(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 14),
         endAtUtc: DateTime.utc(2026, 10, 12, 15),
-        timeZoneId: 'UTC',
       ),
       newRuleId: 'rule-following',
       newEventId: 'anchor-following',
@@ -284,11 +283,10 @@ void main() {
     await repository.replaceOccurrence(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 5, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 5, 11),
         endAtUtc: DateTime.utc(2026, 10, 5, 12),
-        timeZoneId: 'UTC',
       ),
       exceptionId: 'exception-before',
       updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -297,11 +295,10 @@ void main() {
     await repository.replaceFollowingOccurrences(
       anchorId: 'anchor-1',
       occurrenceStartUtc: DateTime.utc(2026, 10, 12, 9),
-      event: CalendarEventEditDraft(
+      patch: CalendarEventPatch(
         title: '迁移夹具',
         startAtUtc: DateTime.utc(2026, 10, 12, 14),
         endAtUtc: DateTime.utc(2026, 10, 12, 15),
-        timeZoneId: 'UTC',
       ),
       newRuleId: 'rule-following',
       newEventId: 'anchor-following',

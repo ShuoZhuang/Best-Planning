@@ -40,68 +40,6 @@ void main() {
     );
   });
 
-  test('editOccurrence 只写一条例外，不动系列', () async {
-    final result = await service.editOccurrence(
-      logicalCourseId: 'course-calc',
-      anchorEventId: 'evt-odd',
-      occurrenceStartUtc: DateTime.utc(2026, 10, 5),
-      newStartUtc: DateTime.utc(2026, 10, 5, 3),
-      newEndUtc: DateTime.utc(2026, 10, 5, 4),
-      title: '高数',
-    );
-
-    expect(result.isSuccess, isTrue);
-    expect(deletion.replacedOccurrences, hasLength(1));
-    expect(deletion.replacedOccurrences.single.$1, 'evt-odd');
-    expect(deletion.replacedSeries, isEmpty, reason: '"仅本次"绝不动规则本身');
-    expect(deletion.replaceFollowingCalls, isEmpty);
-  });
-
-  test('editFollowing 走系列拆分，且不改其它片段', () async {
-    final result = await service.editFollowing(
-      logicalCourseId: 'course-calc',
-      anchorEventId: 'evt-odd',
-      occurrenceStartUtc: DateTime.utc(2026, 10, 5),
-      newStartUtc: DateTime.utc(2026, 10, 5, 3),
-      newEndUtc: DateTime.utc(2026, 10, 5, 4),
-    );
-
-    expect(result.isSuccess, isTrue);
-    expect(deletion.replaceFollowingCalls, ['evt-odd']);
-    expect(deletion.replacedOccurrences, isEmpty, reason: '"此次及以后"不写单次例外');
-    expect(deletion.replacedSeries, isEmpty, reason: '不该顺手把另一个片段（双周那条）也改掉');
-  });
-
-  test('editWholeCourse 改**全部**片段，不只代表那一条', () async {
-    final result = await service.editWholeCourse(
-      logicalCourseId: 'course-calc',
-      newStartUtc: DateTime.utc(2026, 10, 5, 1),
-      newEndUtc: DateTime.utc(2026, 10, 5, 2),
-    );
-
-    expect(result.isSuccess, isTrue);
-    expect(deletion.replacedSeries..sort(), [
-      'evt-even',
-      'evt-odd',
-    ], reason: '单双周是两条规则，"整个课程"必须两条都改；只改一条会得到半周新半周旧');
-  });
-
-  test('锚点不属于这门课时拒绝，不误伤同名的另一门课', () async {
-    final result = await service.editOccurrence(
-      logicalCourseId: 'course-calc',
-      // 这个锚点属于 course-calc-b（同名的另一个班）。
-      anchorEventId: 'evt-other-course',
-      occurrenceStartUtc: DateTime.utc(2026, 10, 5),
-      newStartUtc: DateTime.utc(2026, 10, 5, 3),
-      newEndUtc: DateTime.utc(2026, 10, 5, 4),
-      title: '高数',
-    );
-
-    expect(result.isSuccess, isFalse);
-    expect(result.error, contains('不属于'));
-    expect(deletion.replacedOccurrences, isEmpty);
-  });
-
   test('previewDelete 报出片段数与**具体次数**', () async {
     final preview = await service.previewDelete('course-calc');
 
@@ -187,12 +125,26 @@ void main() {
     expect((await missing.previewDelete('nope')), isNull);
     expect((await missing.deleteCourse('nope')).error, contains('找不到'));
     expect(
-      (await missing.editWholeCourse(
-        logicalCourseId: 'nope',
-        newStartUtc: DateTime.utc(2026, 10, 5),
-        newEndUtc: DateTime.utc(2026, 10, 5, 1),
+      (await missing.saveCourse(
+        CourseSaveRequest(
+          logicalCourseId: 'nope',
+          expectedRevisions: const {},
+          expectedFingerprint: '',
+          profile: CourseProfileDraft(
+            logicalCourseId: 'nope',
+            title: '不存在的课',
+            schedule: [
+              CourseScheduleDraft(
+                startMinute: 8 * 60,
+                endMinute: 9 * 60,
+                weekdays: const {DateTime.monday},
+                validFromLocalDate: DateTime(2026, 9, 7),
+              ),
+            ],
+          ),
+        ),
       )).error,
-      contains('找不到'),
+      contains('已删除或链接过期'),
     );
   });
 }
@@ -292,10 +244,9 @@ final class _NoopCalendar implements CalendarRepository {
 }
 
 final class _DeletionSpy implements CalendarEventDeletion {
-  final List<(String, DateTime, DateTime, DateTime, String)>
-  replacedOccurrences = [];
-  final List<String> replacedSeries = [];
-  final List<String> replaceFollowingCalls = [];
+  /// 只保留 `deleteFollowingOccurrences` 的记录：`editOccurrence`／`editFollowing`／
+  /// `editWholeCourse` 已被删除（计划 §2.0／Task 3 Step 6），只为它们存在的记录字段
+  /// 随之去掉——留着"以后可能会用"的替身正是计划要求清理的东西。
   final List<(String, DateTime)> deleteFollowingCalls = [];
 
   @override
@@ -323,42 +274,33 @@ final class _DeletionSpy implements CalendarEventDeletion {
   Future<void> replaceOccurrence({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     required String exceptionId,
     required DateTime updatedAtUtc,
-  }) async {
-    replacedOccurrences.add((
-      anchorId,
-      occurrenceStartUtc,
-      event.startAtUtc,
-      event.endAtUtc,
-      event.title,
-    ));
-  }
+  }) async {}
 
   @override
   Future<void> replaceSeries({
     required String anchorId,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     DateTime? updateExceptionsFromUtc,
     required DateTime updatedAtUtc,
-  }) async {
-    replacedSeries.add(anchorId);
-  }
+  }) async {}
 
   @override
   Future<void> replaceFollowingOccurrences({
     required String anchorId,
     required DateTime occurrenceStartUtc,
-    required CalendarEventEditDraft event,
+    required CalendarEventPatch patch,
+    DateTime? expectedUpdatedAtUtc,
     RecurrenceEditDraft? recurrence,
     required String newRuleId,
     required String newEventId,
     required DateTime updatedAtUtc,
-  }) async {
-    replaceFollowingCalls.add(anchorId);
-  }
+  }) async {}
 
   @override
   Future<void> setEventArea({
@@ -378,6 +320,13 @@ final class _GatewaySpy implements CourseWriteGateway {
 
   @override
   Future<int> countExceptions(String anchorEventId) async => 0;
+
+  @override
+  Future<int> countExceptionsInvalidatedBy({
+    required String anchorEventId,
+    required CourseScheduleDraft replacement,
+    required String zoneId,
+  }) async => 0;
 
   @override
   Future<void> replaceCourseSeries({

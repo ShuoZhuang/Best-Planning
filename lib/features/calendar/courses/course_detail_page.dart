@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:personal_planner/application/course_management_service.dart';
-import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
-import 'package:personal_planner/features/calendar/courses/course_edit_dialog.dart';
 
 /// 一门课的详情与改写入口（1.8.0，设计规范 §10.1／§10.2）。
 ///
@@ -12,6 +10,17 @@ import 'package:personal_planner/features/calendar/courses/course_edit_dialog.da
 ///
 /// **删除必须二次确认，且确认框里要有课程名与次数**（规范 §10.2 第六条）：
 /// "确定要删除吗"没有告诉用户他将失去什么，而删除不可逆。
+///
+/// ## 本轮（计划 §2.0）只保留一个整门课程入口
+///
+/// 这一页此前有**两个**指向整门课程的按钮：「编辑课程」（走课程快照事务）与「改时间」
+/// （走 `CalendarService.replaceSeries` 的逐片段循环）。后者只提交时间，标题与时区由
+/// 两张进程内缓存补齐，缓存里没有就写 `未命名事项` 与 `UTC`——用户只改一次钟点，
+/// 课程名、教师、地点、领域、项目就都没了。
+///
+/// 现在「改时间」已被删除，钟点编辑并入「编辑课程」：那里保存走
+/// `previewCourseEdit()` → `saveCourse()` → `CourseWriteGateway.replaceCourseSeries()`
+/// 的**单事务**链路，整门课的资料与安排一次提交。
 final class CourseDetailPage extends StatefulWidget {
   const CourseDetailPage({
     required this.service,
@@ -19,8 +28,6 @@ final class CourseDetailPage extends StatefulWidget {
     this.onDeleted,
     this.onCancel,
     this.onEditCourse,
-    this.zones,
-    this.timeZoneId,
     super.key,
   });
 
@@ -29,20 +36,10 @@ final class CourseDetailPage extends StatefulWidget {
   final VoidCallback? onDeleted;
   final VoidCallback? onCancel;
 
-  /// 「编辑课程」的去处（计划 §2.1：整门课程资料的唯一入口）。
+  /// 「编辑课程」的去处（计划 §2.0：整门课程资料的**唯一**入口）。
   ///
   /// 与 [onCancel] 同一口径：为空时**不显示**按钮——不给点了没反应的入口。
-  ///
-  /// **为什么资料编辑与钟点编辑分成两个入口**：范围选择器（仅本次／此次及以后／
-  /// 整个课程）说的是"改多少次"，而名称、教师、地点、星期、周次这些东西是
-  /// **整门课的属性**，"只改这一次的名称"在数据上根本没有对应物。把两者塞进同一页，
-  /// 就会出现"选了『仅本次』却改了整门课"这种说了但没做的状态（§1.1 的实际偏差）。
   final VoidCallback? onEditCourse;
-
-  /// 改时间对话框要用它把"本地钟点"换算成 UTC 提议时段（规范 §10.2 末条）。
-  /// 为空时不显示「改时间」入口——**不给点了没反应的按钮**。
-  final TimeZoneDatabase? zones;
-  final String? timeZoneId;
 
   @override
   State<CourseDetailPage> createState() => _CourseDetailPageState();
@@ -140,48 +137,6 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
     );
   }
 
-  /// 改整个课程的时间：**先弹冲突预览，确认后才写**（规范 §10.2 末条）。
-  ///
-  /// 顺序是刻意的：对话框内部就是"预览冲突 → 出现保存"，因此这里拿到
-  /// [CourseTimeChange] 时用户**已经看过冲突**；硬冲突时对话框不会返回结果。
-  Future<void> _editTime() async {
-    final detail = _detail;
-    final zones = widget.zones;
-    final timeZoneId = widget.timeZoneId;
-    if (detail == null || zones == null || timeZoneId == null) return;
-
-    final choice = await showCourseEditDialog(
-      context,
-      service: widget.service,
-      summary: detail.summary,
-      zones: zones,
-      timeZoneId: timeZoneId,
-    );
-    if (choice == null || !mounted) return;
-
-    // 把钟点换算成 UTC：**用第一段自己的星期**作为日期载体。服务层会按
-    // 每一段自己的星期重新映射（`_mapToSegmentDay`），因此这里给的日期只决定钟点。
-    final first = detail.segments.first;
-    final baseLocalDate = DateTime(2026, 1, 5);
-    final date = DateTime(
-      baseLocalDate.year,
-      baseLocalDate.month,
-      baseLocalDate.day + (first.weekday - DateTime.monday),
-    );
-
-    await _run(
-      () => widget.service.editWholeCourse(
-        logicalCourseId: widget.logicalCourseId,
-        newStartUtc: zones.localDateTimeToUtc(
-          date,
-          choice.startMinute,
-          timeZoneId,
-        ),
-        newEndUtc: zones.localDateTimeToUtc(date, choice.endMinute, timeZoneId),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
@@ -274,23 +229,14 @@ final class _CourseDetailPageState extends State<CourseDetailPage> {
               runSpacing: 12,
               children: [
                 // 「编辑课程」：整门课程资料（名称、教师、地点、领域、项目、星期、周次）
-                // 的**唯一**入口。范围编辑不在这里——见 [onEditCourse] 的说明。
+                // 与上课安排的**唯一**入口。范围编辑不在这里——单次与"此次及以后"在
+                // 日历的具体课次上（那里才有真实发生时间），见 [onEditCourse] 的说明。
                 if (widget.onEditCourse != null)
                   FilledButton.icon(
                     key: const Key('course-edit-course'),
                     onPressed: _busy ? null : widget.onEditCourse,
                     icon: const Icon(Icons.edit_outlined),
                     label: const Text('编辑课程'),
-                  ),
-                // 「改时间」（1.8.0，规范 §10.2 末条）：**保存前先看冲突**。
-                // 未装配时区时不给这个入口——对话框无法把本地钟点换算成提议时段，
-                // 而"检测不到冲突"比"没有这个按钮"更糟。
-                if (widget.zones != null && widget.timeZoneId != null)
-                  OutlinedButton.icon(
-                    key: const Key('course-edit-time'),
-                    onPressed: _busy ? null : _editTime,
-                    icon: const Icon(Icons.schedule_outlined),
-                    label: const Text('改时间'),
                   ),
                 OutlinedButton.icon(
                   key: const Key('course-pause'),
