@@ -4,6 +4,7 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
+import 'package:personal_planner/scheduling/search_outcome.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
@@ -224,6 +225,7 @@ final class ScheduleProposal {
     Map<String, TaskPlacementDiagnostics> placementDiagnostics = const {},
     this.ruleOverride,
     this.adjustmentRequirement,
+    this.outcome = SearchOutcomeKind.solved,
   }) : blocks = UnmodifiableListView(List.of(blocks)),
        unscheduled = UnmodifiableListView(List.of(unscheduled)),
        conflicts = UnmodifiableListView(List.of(conflicts)),
@@ -280,6 +282,20 @@ final class ScheduleProposal {
   /// 引擎自身从不设置该字段，它由组合输入的应用层（`PlanningService`）附加。
   final AdjustmentRequirement? adjustmentRequirement;
 
+  /// **本次搜索的结果种类**（计划 Task 9；`SearchOutcomeKind`）。
+  ///
+  /// 引擎按"分配阶段有没有撞到状态预算""有没有已证明的硬无解""是否只用到软偏好
+  /// 之外的时段"填它；界面据 [searchOutcomeLabel] 给出一句话，据
+  /// [isApplicableOutcome] 决定应用按钮是否可点。
+  ///
+  /// **为什么必须随提案走**：它是"预算耗尽"与"真的无解"唯一的区分依据，
+  /// 而这两件事要求用户做**完全不同**的事（重新生成 vs 腾时间）。
+  /// 不随提案走的话，确认阶段只能从"有缺口"反推，而那正是
+  /// "搜索超时伪装成无解"的成因（计划 §1.2 第 9 条、ALG-47）。
+  ///
+  /// 默认值 [SearchOutcomeKind.solved] 只服务手写夹具；引擎**总是显式设置**它。
+  final SearchOutcomeKind outcome;
+
   ScheduleProposal withRuleOverride(ScheduleRuleOverride? override) =>
       ScheduleProposal(
         proposalId: proposalId,
@@ -294,6 +310,7 @@ final class ScheduleProposal {
         placementDiagnostics: placementDiagnostics,
         ruleOverride: override,
         adjustmentRequirement: adjustmentRequirement,
+        outcome: outcome,
       );
 
   /// 附加本次延后要求（用户第 72 轮）。
@@ -311,6 +328,7 @@ final class ScheduleProposal {
         placementDiagnostics: placementDiagnostics,
         ruleOverride: ruleOverride,
         adjustmentRequirement: value,
+        outcome: outcome,
       );
 
   /// 换一份块集合，其余原样（1.8.0，裁定第 1、4 点；设计 §5.2）。
@@ -340,5 +358,6 @@ final class ScheduleProposal {
         placementDiagnostics: placementDiagnostics,
         ruleOverride: ruleOverride,
         adjustmentRequirement: adjustmentRequirement,
+        outcome: outcome,
       );
 }
