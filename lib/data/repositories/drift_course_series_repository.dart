@@ -209,6 +209,9 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
           in await _database.select(_database.timetableImportBatches).get())
         row.id: row.termId,
     };
+    // **一次批量读出全部例外**，按锚点分组（计划 Task 8 Step 6）。
+    // 每个锚点查一次会变成 N+1，而这段代码在列表页与详情页都会跑。
+    final exceptionFingerprints = await _exceptionFingerprintsByAnchor();
 
     final query =
         _database.select(_database.calendarEvents).join([
@@ -230,8 +233,49 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
           rule: row.readTable(_database.recurrenceRules),
           termId:
               batches[row.readTable(_database.calendarEvents).importBatchId],
+          exceptionFingerprint:
+              exceptionFingerprints[row.readTable(_database.calendarEvents).id] ??
+              '',
         ),
     ];
+  }
+
+  /// 锚点 id → 它名下全部例外的修订指纹。
+  ///
+  /// **判据只有一份**：拼接公式在 `exceptionRevisionFingerprint()` 里，
+  /// 读模型与写事务的重算都用它，因此"预览时判过期"与"保存时判过期"不可能给出不同答案。
+  Future<Map<String, String>> _exceptionFingerprintsByAnchor() async {
+    final rows = await (_database.select(
+      _database.calendarEvents,
+    )..where((row) => row.exceptionOfId.isNotNull())).get();
+    final grouped =
+        <
+          String,
+          List<
+            ({
+              String id,
+              int startAtUtc,
+              int endAtUtc,
+              String timeZoneId,
+              int updatedAtUtc,
+            })
+          >
+        >{};
+    for (final row in rows) {
+      final anchorId = row.exceptionOfId;
+      if (anchorId == null) continue;
+      (grouped[anchorId] ??= []).add((
+        id: row.id,
+        startAtUtc: row.startAtUtc,
+        endAtUtc: row.endAtUtc,
+        timeZoneId: row.timeZoneId,
+        updatedAtUtc: row.updatedAtUtc,
+      ));
+    }
+    return {
+      for (final entry in grouped.entries)
+        entry.key: exceptionRevisionFingerprint(entry.value),
+    };
   }
 
   /// 把一组系列片段聚合成一门课。
@@ -333,6 +377,7 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
       // **逐片段带出批次**（计划 §2.1／Task 6 Step 1）：来源解析要看到每一段各自
       // 属于哪个批次，否则"混合来源"与"多批次冲突"都不可见。
       importBatchId: row.event.importBatchId,
+      exceptionRevisionFingerprint: row.exceptionFingerprint,
     );
   }
 
@@ -446,10 +491,12 @@ final class _CourseRow {
     required this.event,
     required this.rule,
     required this.termId,
+    required this.exceptionFingerprint,
   });
   final CalendarEvent event;
   final RecurrenceRule rule;
   final String? termId;
+  final String exceptionFingerprint;
 }
 
 /// 把 `recurrence_rules.weekdays_mask` 还原成 `DateTime.monday`…`sunday` 的集合。

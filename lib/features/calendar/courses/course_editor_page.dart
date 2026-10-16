@@ -892,10 +892,20 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
               '课次变化：${preview.affectedOccurrenceDelta >= 0 ? '+' : ''}'
               '${preview.affectedOccurrenceDelta} 次',
             ),
-            if (preview.removedExceptionCount > 0)
+            // **两类例外删除分开写**（计划 §2.5）：合成一句"会删除 3 条例外"
+            // 无法解释其中哪几条是"整段被删"、哪几条是"超出新周次"——
+            // 而后者正是用户缩短周次时最该被提醒的一件事。
+            if (preview.removedSegmentExceptionCount > 0)
               Text(
-                '会一并删除 ${preview.removedExceptionCount} 条你单独调整过的课次',
-                key: const Key('course-editor-removed-exceptions'),
+                '删除片段会一并带走 '
+                '${preview.removedSegmentExceptionCount} 条你单独调整过的课次',
+                key: const Key('course-editor-removed-segment-exceptions'),
+              ),
+            if (preview.invalidatedRetainedExceptionCount > 0)
+              Text(
+                '另有 ${preview.invalidatedRetainedExceptionCount} 条单独调整'
+                '已超出新的周次或星期，将一并删除',
+                key: const Key('course-editor-invalidated-exceptions'),
               ),
             if (blocking.isNotEmpty) ...[
               const SizedBox(height: 12),

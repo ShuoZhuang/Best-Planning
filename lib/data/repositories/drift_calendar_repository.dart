@@ -993,6 +993,7 @@ final class DriftCalendarRepository
     required String zoneId,
     required DateTime updatedAtUtc,
     required CourseSeriesProvenance provenance,
+    required String expectedFingerprint,
   }) async {
     // **非法组合在进入事务之前就拒绝**（Task 6 Step 4）：`timetableImport` 必须带批次，
     // `manual` 必须不带。放宽任何一条都会让 §3.1 的来源不变量在库里悄悄失效。
@@ -1008,6 +1009,15 @@ final class DriftCalendarRepository
     // 拆成多次调用会留下"旧的删了、新的没建起来"的中间态——而排程按 drift 的 watch
     // 重算，用户会在他"只点了一下保存"的时候看到计划里少了几次课。
     await _database.transaction(() async {
+      // **指纹在事务开始之后重算**（计划 Task 8 Step 6）：服务层在提交前比过一次，
+      // 但那一次与真正开始写之间隔着界面确认，中间完全可能有人增删了一条逐次调整。
+      // 重算的判据与读模型共用 `courseSeriesRevisionFingerprint()`，因此两处不可能漂开。
+      final currentFingerprint = await _currentCourseFingerprint(courseLogicalId);
+      if (currentFingerprint != expectedFingerprint) {
+        // 写第一行之前抛出 ⇒ **零写入**。
+        throw const CourseSeriesStaleException();
+      }
+
       // 既有锚点（本课程名下的全部片段）。要删的是**没有出现在最终形态里**的那些。
       final existing =
           await (_database.select(_database.calendarEvents)..where(
@@ -1121,6 +1131,98 @@ final class DriftCalendarRepository
         );
       }
     });
+  }
+
+  /// 当前库里这门课的**规范化指纹**（计划 Task 8 Step 6）。
+  ///
+  /// 它与 `DriftCourseSeriesRepository` 读出来的 `CourseSeriesDetail.revisionFingerprint`
+  /// 必须是逐字节相同的字符串：两处都调用
+  /// `courseSeriesRevisionFingerprint()` ＋ `exceptionRevisionFingerprint()`，
+  /// 因此"预览时报的数字"与"保存时判的过期"用的是同一条判据。
+  ///
+  /// 只读、无副作用；在写事务里调用，因此它看到的就是即将被改写的那一版。
+  Future<String> _currentCourseFingerprint(String logicalCourseId) async {
+    final anchors =
+        await (_database.select(_database.calendarEvents).join([
+              innerJoin(
+                _database.recurrenceRules,
+                _database.recurrenceRules.id.equalsExp(
+                  _database.calendarEvents.recurrenceRuleId,
+                ),
+              ),
+            ])..where(
+              _database.calendarEvents.logicalCourseId.equals(logicalCourseId) &
+                  _database.calendarEvents.exceptionOfId.isNull(),
+            ))
+            .get();
+    final exceptionLists =
+        <
+          String,
+          List<
+            ({
+              String id,
+              int startAtUtc,
+              int endAtUtc,
+              String timeZoneId,
+              int updatedAtUtc,
+            })
+          >
+        >{};
+    if (anchors.isNotEmpty) {
+      final anchorIds = {
+        for (final row in anchors) row.readTable(_database.calendarEvents).id,
+      };
+      final exceptions =
+          await (_database.select(_database.calendarEvents)..where(
+                (row) => row.exceptionOfId.isIn(anchorIds),
+              ))
+              .get();
+      for (final row in exceptions) {
+        (exceptionLists[row.exceptionOfId!] ??= []).add((
+          id: row.id,
+          startAtUtc: row.startAtUtc,
+          endAtUtc: row.endAtUtc,
+          timeZoneId: row.timeZoneId,
+          updatedAtUtc: row.updatedAtUtc,
+        ));
+      }
+    }
+    return courseSeriesRevisionFingerprint([
+      for (final joined in anchors)
+        CourseSeriesSegment(
+          eventId: joined.readTable(_database.calendarEvents).id,
+          title: joined.readTable(_database.calendarEvents).title,
+          timeZoneId: joined.readTable(_database.recurrenceRules).timeZoneId,
+          weekdays: _weekdays(
+            joined.readTable(_database.recurrenceRules).weekdaysMask,
+          ),
+          startMinute: joined
+              .readTable(_database.recurrenceRules)
+              .localStartMinute,
+          endMinute:
+              joined.readTable(_database.recurrenceRules).localStartMinute +
+              joined.readTable(_database.recurrenceRules).durationMinutes,
+          intervalWeeks: joined
+              .readTable(_database.recurrenceRules)
+              .intervalWeeks,
+          validFromLocalDate: DateTime.parse(
+            joined.readTable(_database.recurrenceRules).validFromLocalDate,
+          ),
+          validUntilLocalDate: switch (joined
+              .readTable(_database.recurrenceRules)
+              .validUntilLocalDate) {
+            null => null,
+            final value => DateTime.parse(value),
+          },
+          updatedAtUtc: _instant(
+            joined.readTable(_database.calendarEvents).updatedAtUtc,
+          ),
+          exceptionRevisionFingerprint: exceptionRevisionFingerprint(
+            exceptionLists[joined.readTable(_database.calendarEvents).id] ??
+                const [],
+          ),
+        ),
+    ]);
   }
 
   @override

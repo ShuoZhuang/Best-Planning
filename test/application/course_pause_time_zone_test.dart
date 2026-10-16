@@ -283,6 +283,7 @@ final class _NoopGateway implements CourseWriteGateway {
     required String zoneId,
     required DateTime updatedAtUtc,
     required CourseSeriesProvenance provenance,
+    required String expectedFingerprint,
   }) async {}
 }
 

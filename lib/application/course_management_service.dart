@@ -443,6 +443,8 @@ final class CourseManagementService {
 
     final claimed = <String>{};
     final addedRows = <CourseScheduleDraft>[];
+    /// 被保留的锚点 → 它的**新规则草稿**。保留锚点的例外清理要用新规则来判定。
+    final replacementOf = <String, CourseScheduleDraft>{};
     var updated = 0;
     for (final row in request.profile.schedule) {
       final segment = _matchSegment(row, targets, claimed);
@@ -451,6 +453,7 @@ final class CourseManagementService {
         continue;
       }
       claimed.add(segment.eventId);
+      replacementOf[segment.eventId] = row;
       updated++;
     }
 
@@ -460,11 +463,28 @@ final class CourseManagementService {
     }
 
     var removedOccurrences = 0;
-    var removedExceptions = 0;
+    var removedSegmentExceptions = 0;
     for (final segment in targets) {
       if (claimed.contains(segment.eventId)) continue;
       removedOccurrences += _occurrenceCount(segment);
-      removedExceptions += await gateway.countExceptions(segment.eventId);
+      removedSegmentExceptions += await gateway.countExceptions(segment.eventId);
+    }
+
+    // **保留锚点的失效例外**（计划 §2.5／Task 8 Step 4）：用与展开器相同的成员判定
+    // 逐个锚点数出来。预览**只读**，不执行任何删除。
+    var invalidatedRetainedExceptions = 0;
+    for (final entry in replacementOf.entries) {
+      final segment = targets.firstWhere(
+        (candidate) => candidate.eventId == entry.key,
+      );
+      invalidatedRetainedExceptions += await gateway
+          .countExceptionsInvalidatedBy(
+            anchorEventId: entry.key,
+            replacement: entry.value,
+            // **新规则的时区就是保存时写下去的时区**；未装配时退回该片段自己的规则时区，
+            // 因为两者在正常数据里本来就是同一个值，而"预览用 A、保存用 B"正是要避免的事。
+            zoneId: timeZoneId ?? segment.timeZoneId,
+          );
     }
 
     return CourseEditPreview(
@@ -472,7 +492,8 @@ final class CourseManagementService {
       removedSegments: targets.length - claimed.length,
       updatedSegments: updated,
       affectedOccurrenceDelta: addedOccurrences - removedOccurrences,
-      removedExceptionCount: removedExceptions,
+      removedSegmentExceptionCount: removedSegmentExceptions,
+      invalidatedRetainedExceptionCount: invalidatedRetainedExceptions,
     );
   }
 
@@ -586,6 +607,14 @@ final class CourseManagementService {
         // 片段因此遵守同一条规则。`recoverableMixed` 的成功保存会把它统一成
         // `imported`；事务中任一行失败则混合来源原样保留。
         provenance: lineage.provenance,
+        // 页面手上的指纹。仓储在**同一写事务开始后**重算并比对，
+        // 不一致就零写入（E5）。
+        expectedFingerprint: request.expectedFingerprint,
+      );
+    } on CourseSeriesStaleException {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.stale,
+        '这门课在别处已被修改，请重新打开后再编辑',
       );
     } on Object catch (error) {
       // **事务已回滚，原内容未改变**——文案必须说这一句，否则用户会以为改了一半。

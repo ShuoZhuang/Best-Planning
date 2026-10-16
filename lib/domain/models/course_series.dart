@@ -266,30 +266,72 @@ final class CourseSeriesDetail {
     for (final segment in segments) segment.eventId: segment.updatedAtUtc,
   };
 
-  /// 这门课当前形态的**指纹**（计划 Task 4 Interfaces）。
+  /// 这门课当前形态的**指纹**（计划 Task 4 Interfaces／Task 8 Step 6）。
   ///
   /// **为什么不能只比 `updated_at_utc`**：改一门课会**新增与删除锚点**，
   /// 而"新增的那个锚点"在用户打开编辑页时还不存在，因此逐 id 比对会漏掉
   /// "别处删了一段、又加了一段"这种改动。指纹把"有几个锚点、每个锚点是哪一天哪一刻、
-  /// 修订号是多少"一次算进来。
+  /// 修订号是多少、**它名下有哪些例外**"一次算进来。
   ///
   /// **排序后拼接**：仓储的返回顺序虽然有定义，但把"顺序"也算进指纹会让一次纯排序变化
   /// （例如改了排序键）把用户的编辑判成过期。
-  String get revisionFingerprint {
-    final rows = [
-      for (final segment in segments)
-        '${segment.eventId}|'
-            '${(segment.weekdays.toList()..sort()).join(',')}|'
-            '${segment.startMinute}|'
-            '${segment.endMinute - segment.startMinute}|'
-            '${segment.validFromLocalDate.year}-'
-            '${segment.validFromLocalDate.month}-'
-            '${segment.validFromLocalDate.day}|'
-            '${segment.validUntilLocalDate?.toIso8601String() ?? ''}|'
-            '${segment.updatedAtUtc.microsecondsSinceEpoch}',
-    ]..sort();
-    return rows.join(';');
-  }
+  String get revisionFingerprint => courseSeriesRevisionFingerprint(segments);
+}
+
+/// 一组片段的**规范化指纹**（计划 Task 8 Step 6）。
+///
+/// **它是唯一实现**：读模型（`CourseSeriesDetail.revisionFingerprint`）与写事务
+/// （`DriftCalendarRepository.replaceCourseSeries` 在事务开始后重算并比对）
+/// 必须给出逐字节相同的结果——两份公式一旦漂开，"过期"就会变成随机判定。
+///
+/// 每一段的输入：
+///
+/// ```text
+/// eventId | 排序后的星期集合 | 开始分钟 | 时长分钟 | validFrom | validUntil |
+/// updatedAtUtc | 例外指纹
+/// ```
+///
+/// 最后拼接后**整体排序**：顺序不参与指纹，因此一次纯排序变化不会把用户的编辑判成过期。
+String courseSeriesRevisionFingerprint(
+  Iterable<CourseSeriesSegment> segments,
+) {
+  final rows = [
+    for (final segment in segments)
+      '${segment.eventId}|'
+          '${(segment.weekdays.toList()..sort()).join(',')}|'
+          '${segment.startMinute}|'
+          '${segment.endMinute - segment.startMinute}|'
+          '${segment.validFromLocalDate.year}-'
+          '${segment.validFromLocalDate.month}-'
+          '${segment.validFromLocalDate.day}|'
+          '${segment.validUntilLocalDate?.toIso8601String() ?? ''}|'
+          '${segment.updatedAtUtc.microsecondsSinceEpoch}|'
+          '${segment.exceptionRevisionFingerprint}',
+  ]..sort();
+  return rows.join(';');
+}
+
+/// 一个锚点名下全部例外的**修订指纹**（计划 Task 8 Step 6）。
+///
+/// 每条例外按 id 排序后拼接 `id | startAtUtc | endAtUtc | timeZoneId | updatedAtUtc`。
+///
+/// **为什么不能只比"例外条数"或"最大更新时间"**：
+/// - 删一条再加一条会让**条数相同**，而用户逐次调整的内容已经换了一批；
+/// - 同一微秒写入多条会让**最大更新时间相同**，而集合整体变了。
+/// 逐行拼接把这两种情况都变成可见的差异，代价只是一次内存拼接。
+String exceptionRevisionFingerprint(
+  Iterable<
+    ({String id, int startAtUtc, int endAtUtc, String timeZoneId, int updatedAtUtc})
+  >
+  exceptions,
+) {
+  final rows =
+      [
+        for (final row in exceptions)
+          '${row.id}|${row.startAtUtc}|${row.endAtUtc}|${row.timeZoneId}|'
+              '${row.updatedAtUtc}',
+      ]..sort();
+  return rows.join(';');
 }
 
 /// 一个系列片段：一条锚点事件 ＋ 它的重复规则。
@@ -316,6 +358,7 @@ final class CourseSeriesSegment {
     this.outsideTerm = false,
     required this.updatedAtUtc,
     this.importBatchId,
+    this.exceptionRevisionFingerprint = '',
   }) : weekdays = UnmodifiableSetView(
          Set.of(weekdays ?? {weekday ?? DateTime.monday}),
        ) {
@@ -389,6 +432,12 @@ final class CourseSeriesSegment {
   /// 批次"，而只把摘要上那一个批次带出来会让"混合来源"永远不可见——
   /// 而那正是 C18 与 `recoverableMixed` 要处理的数据。
   final EntityId? importBatchId;
+
+  /// 这个锚点名下**全部例外**的修订指纹（计划 Task 8 Step 6）。
+  ///
+  /// 它进入 [courseSeriesRevisionFingerprint]，于是"用户在预览之后到确认之前
+  /// 删掉/新增了一条逐次调整"会让保存判为过期（E5）——而不是把那份调整悄悄丢掉。
+  final String exceptionRevisionFingerprint;
 }
 
 /// **一次课程删除的真实结果**（计划 §2.3／Task 7 Step 1）。

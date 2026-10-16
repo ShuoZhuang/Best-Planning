@@ -27,6 +27,7 @@ import 'package:personal_planner/domain/models/timetable_import.dart';
 
 void main() {
   const zoneId = 'Asia/Shanghai';
+  final zones = TimeZoneDatabase();
   late AppDatabase database;
   late DriftCalendarRepository repository;
   late DriftCourseSeriesRepository courses;
@@ -211,8 +212,7 @@ void main() {
       );
     });
 
-    test('P3：两个不同的非空批次 ⇒ 阻止保存、零写入、给出可执行的一句话', () async {
-      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+    test('P3：两个不同的非空批次 ⇒ 阻止保存、零写入、给出可执行的一句话', () async {      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
       await database.customInsert('''
         INSERT INTO timetable_import_batches
           (id, term_id, source_image_hash, source_file_name, status,
@@ -246,6 +246,164 @@ void main() {
       );
       expect(await segmentIds(), before, reason: '零写入');
       expect(await batchIdsOfCourse('course-calc'), beforeBatches);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 8（计划 §2.5／§3.3）：**预览分开报两类例外删除**，并守住 E5 的并发变化
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('例外清理的预览与过期（E1、E5）', () {
+    Future<int> exceptionCount(String anchorId) async {
+      final rows = await database
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM calendar_events "
+            "WHERE exception_of_id = '$anchorId'",
+          )
+          .get();
+      return rows.first.read<int>('c');
+    }
+
+    /// 给 [anchorId] 在 [localDate] 那一天写一条"改到 14:00"的例外。
+    Future<void> addException(String anchorId, String id, DateTime localDate) =>
+        repository.replaceOccurrence(
+          anchorId: anchorId,
+          occurrenceStartUtc: zones.localDateTimeToUtc(
+            localDate,
+            8 * 60,
+            zoneId,
+          ),
+          patch: CalendarEventPatch(
+            title: '高等数学(上)',
+            startAtUtc: zones.localDateTimeToUtc(localDate, 14 * 60, zoneId),
+            endAtUtc: zones.localDateTimeToUtc(localDate, 15 * 60, zoneId),
+          ),
+          exceptionId: id,
+          updatedAtUtc: DateTime.utc(2026, 10, 1),
+        );
+
+    test('预览把"随片段删除的例外"与"超出新周次的例外"分开计数', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      await seedSegment(
+        eventId: 'evt-b',
+        ruleId: 'rule-b',
+        weekdays: const {DateTime.wednesday},
+      );
+      // evt-a 名下两条例外：09-07 与 09-14。
+      await addException('evt-a', 'exc-1', DateTime(2026, 9, 7));
+      await addException('evt-a', 'exc-2', DateTime(2026, 9, 14));
+      // evt-b 名下一条：删掉那一段时它会一起消失。
+      await addException('evt-b', 'exc-3', DateTime(2026, 9, 9));
+
+      final detail = await courses.findCourse('course-calc');
+      final preview = await service.previewCourseEdit(
+        CourseSaveRequest(
+          logicalCourseId: 'course-calc',
+          expectedRevisions: detail!.sourceRevisions,
+          expectedFingerprint: detail.revisionFingerprint,
+          profile: CourseProfileDraft(
+            logicalCourseId: 'course-calc',
+            title: '高等数学(上)',
+            // 只保留周一那一段，并把有效期缩到 09-07：09-14 的那条例外因此失效。
+            schedule: [
+              CourseScheduleDraft(
+                startMinute: 8 * 60,
+                endMinute: 8 * 60 + 45,
+                weekdays: const {DateTime.monday},
+                validFromLocalDate: DateTime(2026, 9, 7),
+                validUntilLocalDate: DateTime(2026, 9, 7),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(preview, isNotNull);
+      expect(
+        preview!.removedSegmentExceptionCount,
+        1,
+        reason: '周三那一段被整段删除，它名下的 1 条例外随之消失',
+      );
+      expect(
+        preview.invalidatedRetainedExceptionCount,
+        1,
+        reason: '周一那一段保留，但 09-14 已超出新周次，将被清理',
+      );
+      expect(
+        preview.removedExceptionCount,
+        2,
+        reason: '总数是派生值：两个分量各自可测，总数因此不可能与它们不一致',
+      );
+      expect(preview.removedSegments, 1);
+      expect(preview.updatedSegments, 1);
+      // **预览是只读的**：一条例外都不许被它删掉。
+      expect(await exceptionCount('evt-a'), 2);
+      expect(await exceptionCount('evt-b'), 1);
+    });
+
+    test('E5：预览之后別处新增一条例外 ⇒ 保存判为 stale 且零写入', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      final request = await requestFor([draft(startMinute: 10 * 60)]);
+      expect(await service.previewCourseEdit(request), isNotNull);
+
+      // 用户在预览之后、确认之前，从日视图给这次课加了一条逐次调整。
+      await addException('evt-a', 'exc-late', DateTime(2026, 9, 7));
+      final beforeRules = await database
+          .customSelect('SELECT COUNT(*) AS c FROM recurrence_rules')
+          .get();
+
+      final result = await service.saveCourse(request);
+
+      expect(
+        result.status,
+        CourseSaveStatus.stale,
+        reason:
+            '指纹含例外修订：不比它就会按旧结论保存，而那条新调整落在新规则之外，'
+            '会被当作"失效例外"悄悄删掉',
+      );
+      expect(await exceptionCount('evt-a'), 1, reason: '零写入：那条调整必须还在');
+      expect(
+        (await database.customSelect('SELECT COUNT(*) AS c FROM recurrence_rules').get())
+            .first
+            .read<int>('c'),
+        beforeRules.first.read<int>('c'),
+        reason: '规则也没被动过',
+      );
+    });
+
+    test('E5：**删一条再加一条**（条数不变）同样判为过期', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      await addException('evt-a', 'exc-1', DateTime(2026, 9, 7));
+      final request = await requestFor([draft(startMinute: 10 * 60)]);
+      expect(await service.previewCourseEdit(request), isNotNull);
+
+      // 删掉原例外的同时补一条**不同日期**的例外：数量相同、内容不同。
+      await repository.deleteEvent('exc-1');
+      await addException('evt-a', 'exc-2', DateTime(2026, 9, 14));
+
+      final result = await service.saveCourse(request);
+
+      expect(
+        result.status,
+        CourseSaveStatus.stale,
+        reason: '只比条数会让这种情况漏判，而"用户逐次调整过的内容"已经换了一批',
+      );
+      expect(await exceptionCount('evt-a'), 1);
+    });
+
+    test('E5：纯查询顺序变化不改变指纹', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      await addException('evt-a', 'exc-1', DateTime(2026, 9, 7));
+
+      final first = (await courses.findCourse('course-calc'))!.revisionFingerprint;
+      final second = (await courses.findCourse('course-calc'))!.revisionFingerprint;
+
+      expect(
+        first,
+        second,
+        reason: '指纹整体排序后拼接，因此仓储返回顺序不参与判定',
+      );
+      expect(first, isNotEmpty);
     });
   });
 

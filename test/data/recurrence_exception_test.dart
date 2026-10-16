@@ -370,4 +370,142 @@ void main() {
       DateTime.utc(2026, 10, 12, 18),
     ]);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 8（课程编辑完整性修复计划 §3.3）：**清理不再属于新规则的逐次例外**
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('保留锚点改写规则后清理失效例外（E1–E4）', () {
+    /// 锚点名下的例外条数（含"删除标记"那种零长度行）。
+    Future<int> exceptionCount() async {
+      final rows = await database
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM calendar_events "
+            "WHERE exception_of_id = 'anchor-1'",
+          )
+          .get();
+      return rows.first.read<int>('c');
+    }
+
+    /// 造一条 10-12 的替换例外，再按 [recurrence] 改写整个系列。
+    Future<void> seedAndRewrite(RecurrenceEditDraft recurrence) async {
+      await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+      await repository.save(_replacement());
+      expect(await exceptionCount(), 1, reason: '前置条件：例外必须真的写进去了');
+      await repository.replaceSeries(
+        anchorId: 'anchor-1',
+        patch: CalendarEventPatch(
+          title: '数据结构课',
+          startAtUtc: DateTime.utc(2026, 10, 5, 9),
+          endAtUtc: DateTime.utc(2026, 10, 5, 10),
+        ),
+        recurrence: recurrence,
+        updatedAtUtc: DateTime.utc(2026, 10, 2),
+      );
+    }
+
+    test('E1：缩短 validUntil 到例外之前 ⇒ 那条例外被删除', () async {
+      await seedAndRewrite(
+        RecurrenceEditDraft(
+          weekdays: const {DateTime.monday},
+          intervalWeeks: 1,
+          // 只保留 10-05 那一天；10-12 的例外落在新规则之外。
+          validFromLocalDate: DateTime(2026, 10, 5),
+          validUntilLocalDate: DateTime(2026, 10, 5),
+        ),
+      );
+
+      expect(
+        await exceptionCount(),
+        0,
+        reason: '留着它，下次把周次扩回去就会"复活"成用户没有预期的一次课（C23）',
+      );
+    });
+
+    test('E1：缩短之后**仍在范围内**的例外保留', () async {
+      // 例外在 10-05（周一）；把结束日放在 10-05..10-12 之间，它仍然属于新规则。
+      await repository.saveRecurring(_anchorEvent(), _weeklyRule());
+      await repository.save(
+        CalendarEvent(
+          id: 'exception-early',
+          title: '数据结构课',
+          startAtUtc: DateTime.utc(2026, 10, 5, 14),
+          endAtUtc: DateTime.utc(2026, 10, 5, 15),
+          timeZoneId: 'UTC',
+          exceptionOfId: 'anchor-1',
+          updatedAtUtc: DateTime.utc(2026, 10, 1),
+        ),
+      );
+
+      await repository.replaceSeries(
+        anchorId: 'anchor-1',
+        patch: CalendarEventPatch(
+          title: '数据结构课',
+          startAtUtc: DateTime.utc(2026, 10, 5, 9),
+          endAtUtc: DateTime.utc(2026, 10, 5, 10),
+        ),
+        recurrence: RecurrenceEditDraft(
+          weekdays: const {DateTime.monday},
+          intervalWeeks: 1,
+          validFromLocalDate: DateTime(2026, 10, 5),
+          validUntilLocalDate: DateTime(2026, 10, 19),
+        ),
+        updatedAtUtc: DateTime.utc(2026, 10, 2),
+      );
+
+      expect(
+        await exceptionCount(),
+        1,
+        reason: 'E4：仍在规则内的逐次调整必须原样保留——它是用户手工做过的内容',
+      );
+    });
+
+    test('E2：改星期 ⇒ 旧星期的例外被删除', () async {
+      await seedAndRewrite(
+        RecurrenceEditDraft(
+          // 从周一改成周三：10-12 是周一，不再属于新规则。
+          weekdays: const {DateTime.wednesday},
+          intervalWeeks: 1,
+          validFromLocalDate: DateTime(2026, 10, 5),
+        ),
+      );
+
+      expect(await exceptionCount(), 0);
+    });
+
+    test('E3：每周改双周 ⇒ 落在间隔周的例外被删除', () async {
+      await seedAndRewrite(
+        RecurrenceEditDraft(
+          weekdays: const {DateTime.monday},
+          intervalWeeks: 2,
+          // 起点 10-05 是"第 1 周"，因此 10-12 落到间隔周上。
+          validFromLocalDate: DateTime(2026, 10, 5),
+        ),
+      );
+
+      expect(
+        await exceptionCount(),
+        0,
+        reason: '新规则在 10-12 根本不发生，那条例外留着只会误导下一次扩展',
+      );
+    });
+
+    test('E3：改成双周但起点整体前移一周 ⇒ 原例外变成成员，必须保留', () async {
+      // 起点前移到 09-28（周一）：10-05 与 10-12 的周偏移分别是 1 与 2，
+      // 因此 10-12 落在"第 3 周"（偏移 2，能被 2 整除）上，仍然发生。
+      await seedAndRewrite(
+        RecurrenceEditDraft(
+          weekdays: const {DateTime.monday},
+          intervalWeeks: 2,
+          validFromLocalDate: DateTime(2026, 9, 28),
+        ),
+      );
+
+      expect(
+        await exceptionCount(),
+        1,
+        reason: '成员判定必须真的按新规则算，而不是"改了规则就一律清空"',
+      );
+    });
+  });
 }

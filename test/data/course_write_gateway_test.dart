@@ -11,7 +11,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart'
     hide CalendarEvent, RecurrenceRule;
+import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
+import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
@@ -22,6 +24,7 @@ void main() {
   const zoneId = 'Asia/Shanghai';
   late AppDatabase database;
   late DriftCalendarRepository repository;
+  late DriftCourseSeriesRepository courses;
 
   /// 批次与学期是 `calendar_events.import_batch_id` 的外键目标：来源事实必须有真行。
   Future<void> seedBatch() async {
@@ -44,10 +47,20 @@ void main() {
   setUp(() async {
     database = AppDatabase.forTesting(NativeDatabase.memory());
     repository = DriftCalendarRepository(database, zones: TimeZoneDatabase());
+    courses = DriftCourseSeriesRepository(
+      database,
+      clock: const _FixedClock(),
+      zones: TimeZoneDatabase(),
+      timeZoneId: zoneId,
+    );
     await seedBatch();
   });
 
   tearDown(() => database.close());
+
+  /// 页面打开编辑页时读到的指纹——与仓储在写事务里重算的是同一个函数。
+  Future<String> fingerprintOf(String logicalCourseId) async =>
+      (await courses.findCourse(logicalCourseId))!.revisionFingerprint;
 
   DateTime utc(int month, int day, int hour, int minute) =>
       DateTime.utc(2026, month, day, hour, minute);
@@ -159,6 +172,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     expect(
@@ -199,6 +213,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     expect(await segmentIds(), ['evt-a']);
@@ -227,6 +242,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     expect(await segmentIds(), ['course-calc-1', 'evt-a']);
@@ -266,6 +282,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     final row = await database
@@ -305,6 +322,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     expect(await segmentIds(), isEmpty);
@@ -365,6 +383,7 @@ void main() {
         zoneId: zoneId,
         updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
       ),
       throwsA(isA<ArgumentError>()),
     );
@@ -414,6 +433,7 @@ void main() {
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
       provenance: CourseSeriesProvenance.imported('batch-autumn'),
+      expectedFingerprint: await fingerprintOf('course-calc'),
     );
 
     expect(
@@ -700,4 +720,10 @@ void main() {
       expect((await batch('batch-autumn')).status, 'rolledBack');
     });
   });
+}
+
+final class _FixedClock implements Clock {
+  const _FixedClock();
+  @override
+  DateTime nowUtc() => DateTime.utc(2026, 10, 12);
 }

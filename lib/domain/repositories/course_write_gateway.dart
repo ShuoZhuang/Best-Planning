@@ -1,6 +1,21 @@
 import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
 
+/// 写事务开始时读到的课程形态与页面手上的**指纹不一致**（计划 Task 8 Step 6）。
+///
+/// 它在**写第一行之前**抛出，因此是零写入。调用方（`CourseManagementService`）
+/// 把它映射成 `CourseSaveStatus.stale`——用户要做的是重新打开，而不是重试。
+///
+/// **为什么要在事务里重算**：服务层在提交前比过一次指纹，但那一次与真正开始写之间
+/// 隔着界面确认与调度，中间完全可能有人删掉或新增了一条逐次调整。
+/// 那时按旧结论保存会把那份调整**悄悄丢掉**（它落在新规则之外，会被清理）。
+final class CourseSeriesStaleException implements Exception {
+  const CourseSeriesStaleException();
+
+  @override
+  String toString() => 'CourseSeriesStaleException()';
+}
+
 /// 课程管理需要的**写入**端口（1.8.0，设计规范 §10.2）。
 ///
 /// **为什么不是直接复用 `CalendarEventDeletion`**：那个端口的 `deleteEvent` 只删锚点行。
@@ -76,6 +91,7 @@ abstract interface class CourseWriteGateway {
     required String zoneId,
     required DateTime updatedAtUtc,
     required CourseSeriesProvenance provenance,
+    required String expectedFingerprint,
   });
 
   /// 某个锚点名下的**例外行条数**（删除前的影响预览要用，计划 Task 4 Step 2）。

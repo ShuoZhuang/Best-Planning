@@ -128,13 +128,25 @@ final class CourseSaveRequest {
 /// **这四项缺一不可**：只报"会删除 1 段"没有意义——用户要知道的是"
 /// **这学期会少上几次课**"。例外数单独列，是因为删除一段会把它名下的例外一起删掉，
 /// 那些例外是用户之前逐次调整过的内容。
+///
+/// ## 两类例外删除必须**分开报**（计划 §2.5）
+///
+/// 它们对用户是两件不同的事，合成一个数字就无法解释：
+///
+/// - [removedSegmentExceptionCount]：整段被删除，它名下**全部**例外随之消失；
+/// - [invalidatedRetainedExceptionCount]：锚点还在，但缩短周次／改星期／改单双周之后，
+///   有些例外落在新规则之外，会被清理。
+///
+/// 界面文案因此是"删除 1 个课程片段及其 2 次单独调整；另有 1 次单独调整已超出新周次，
+/// 将删除"，而不是"会删除 3 条例外"。
 final class CourseEditPreview {
   const CourseEditPreview({
     required this.addedSegments,
     required this.removedSegments,
     required this.updatedSegments,
     required this.affectedOccurrenceDelta,
-    required this.removedExceptionCount,
+    this.removedSegmentExceptionCount = 0,
+    this.invalidatedRetainedExceptionCount = 0,
   });
 
   final int addedSegments;
@@ -144,8 +156,17 @@ final class CourseEditPreview {
   /// 课次数的**变化量**（新增的减删除的）。可以为负。
   final int affectedOccurrenceDelta;
 
-  /// 会被连带删除的例外数。
-  final int removedExceptionCount;
+  /// 随**被删除片段**一起消失的例外数。
+  final int removedSegmentExceptionCount;
+
+  /// **保留锚点**名下、因不再属于新规则而被清理的例外数。
+  final int invalidatedRetainedExceptionCount;
+
+  /// 会删除的例外总数。
+  ///
+  /// **它是派生值而不是独立字段**：两个分量各自可测，总数因此不可能与它们不一致。
+  int get removedExceptionCount =>
+      removedSegmentExceptionCount + invalidatedRetainedExceptionCount;
 
   bool get hasChanges =>
       addedSegments > 0 || removedSegments > 0 || updatedSegments > 0;

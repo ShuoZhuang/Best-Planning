@@ -908,6 +908,7 @@ void main() {
         zoneId: 'Asia/Shanghai',
         updatedAtUtc: DateTime.utc(2026, 10, 2),
         provenance: lineage.provenance,
+        expectedFingerprint: (await courses.findCourse('course-calc-p1'))!.revisionFingerprint,
       );
 
       final after = await courses.findCourse('course-calc-p1');
@@ -945,6 +946,8 @@ void main() {
             sourceKind: CalendarEventSourceKind.manual,
             importBatchId: 'batch-autumn',
           ),
+          // 来源合法性在指纹之前判定，因此这里给什么都到不了那一步。
+          expectedFingerprint: 'irrelevant',
         ),
         throwsArgumentError,
         reason: '`manual` 必须不带批次；放宽任一条都会让 §3.1 的来源不变量在库里悄悄失效',
