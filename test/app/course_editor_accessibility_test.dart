@@ -259,6 +259,7 @@ final class _Gateway implements CourseWriteGateway {
     required CourseProfileDraft profile,
     required String zoneId,
     required DateTime updatedAtUtc,
+    required CourseSeriesProvenance provenance,
   }) async {}
 }
 

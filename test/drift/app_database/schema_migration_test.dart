@@ -29,6 +29,7 @@ import 'package:drift/native.dart';
 import 'package:drift_dev/api/migrations_native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
 
 import 'generated/schema.dart';
 import 'generated/schema_v1.dart' as v1;
@@ -36,6 +37,7 @@ import 'generated/schema_v3.dart' as v3;
 import 'generated/schema_v4.dart' as v4;
 import 'generated/schema_v5.dart' as v5;
 import 'generated/schema_v6.dart' as v6;
+import 'generated/schema_v9.dart' as v9;
 
 /// Fixed so that the backfilled values can be asserted exactly. The codebase
 /// stores instants as microseconds since the Unix epoch, so the migration
@@ -51,9 +53,9 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('generated schema includes the calendar event kind version 9', () {
-    expect(GeneratedHelper.versions.last, 9);
-    expect(plannerSchemaVersion, 9);
+  test('generated schema includes the partially deleted batch state version 10', () {
+    expect(GeneratedHelper.versions.last, 10);
+    expect(plannerSchemaVersion, 10);
   });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
@@ -902,6 +904,157 @@ void main() {
     expect(names.sublist(v6Names.length), [
       'kind',
     ], reason: 'v9 只准新增 kind 这一列（规范 §14）');
+
+    await db.close();
+    schema.close();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 5（课程编辑完整性修复计划）：v9 → v10 只扩充批次状态的允许值
+  // ───────────────────────────────────────────────────────────────────────────
+
+  test('M1：v9 → v10 只扩充批次 status 的 CHECK，业务数据逐值不变', () async {
+    final schema = await verifier.schemaAt(9);
+    // 直接在 v9 的裸连接上写数据：这几行代表用户库里的真实内容，而
+    // `migrateAndValidate` 之后要逐值比对它们**一个都没变**。
+    final old = v9.DatabaseAtV9(schema.newConnection());
+    await old.customStatement('''
+      INSERT INTO academic_terms
+        (id, name, first_week_monday_local_date, total_weeks, time_zone_id,
+         created_at_utc, updated_at_utc)
+      VALUES ('term-autumn', '2026 秋季', '2026-09-07', 16, 'Asia/Shanghai',
+              11, 12)
+    ''');
+    for (final (index, status) in [
+      'draft',
+      'committed',
+      'rolledBack',
+    ].indexed) {
+      await old.customStatement('''
+        INSERT INTO timetable_import_batches
+          (id, term_id, source_image_hash, source_file_name, status,
+           created_event_count, created_at_utc, updated_at_utc)
+        VALUES ('batch-$index', 'term-autumn', 'sha256:$index',
+                'schedule$index.png', '$status', ${index + 1},
+                ${100 + index}, ${200 + index})
+      ''');
+    }
+    await old.customStatement('''
+      INSERT INTO recurrence_rules
+        (id, weekdays_mask, local_start_minute, duration_minutes,
+         interval_weeks, valid_from_local_date, valid_until_local_date,
+         time_zone_id, created_at_utc, updated_at_utc)
+      VALUES ('rule-calc', 9, 480, 45, 1, '2026-09-07', '2026-12-20',
+              'Asia/Shanghai', 310, 311)
+    ''');
+    await old.customStatement('''
+      INSERT INTO calendar_events
+        (id, title, start_at_utc, end_at_utc, time_zone_id, recurrence_rule_id,
+         locked, location, notes, kind, source_kind, import_batch_id,
+         logical_course_id, created_at_utc, updated_at_utc)
+      VALUES ('evt-calc', '高等数学(上)', 1, 2, 'Asia/Shanghai', 'rule-calc',
+              1, '教一 302', '赵敏', 'fixed', 'timetableImport', 'batch-1',
+              'course-calc', 410, 411)
+    ''');
+    await old.customStatement('''
+      INSERT INTO calendar_events
+        (id, title, start_at_utc, end_at_utc, time_zone_id, exception_of_id,
+         locked, location, notes, kind, source_kind, import_batch_id,
+         logical_course_id, created_at_utc, updated_at_utc)
+      VALUES ('exc-calc', '高等数学(上)', 3, 4, 'Asia/Shanghai', 'evt-calc',
+              1, '', '', 'fixed', 'timetableImport', 'batch-1',
+              'course-calc', 510, 511)
+    ''');
+    await old.customStatement('''
+      INSERT INTO tasks
+        (id, title, priority, estimated_minutes, remaining_minutes,
+         energy_level, split_mode, min_chunk_minutes, max_chunk_minutes,
+         status, created_at_utc, updated_at_utc)
+      VALUES ('task-a', '算法作业', 'medium', 50, 50, 'high', 'continuous',
+              50, 50, 'open', 610, 611)
+    ''');
+    await old.close();
+
+    final db = AppDatabase(
+      schema.newConnection(),
+      now: () => _migrationInstant,
+    );
+    await verifier.migrateAndValidate(db, 10);
+
+    Future<List<String>> snapshot() async {
+      final rows = <String>[];
+      for (final table in [
+        'academic_terms',
+        'timetable_import_batches',
+        'recurrence_rules',
+        'calendar_events',
+        'tasks',
+      ]) {
+        final result = await db.customSelect('SELECT * FROM $table').get();
+        for (final row in result) {
+          rows.add(
+            '$table:${row.data.entries.map((e) => '${e.key}=${e.value}').join(',')}',
+          );
+        }
+      }
+      rows.sort();
+      return rows;
+    }
+
+    final rows = await snapshot();
+    expect(
+      rows,
+      hasLength(8),
+      reason: '一学期 ＋ 三批次 ＋ 一规则 ＋ 一事件与一例外 ＋ 一任务',
+    );
+    // **逐值原样**：v9 的 draft／committed／rolledBack 一律保留，不做猜测式回填。
+    expect(
+      rows.where((row) => row.startsWith('timetable_import_batches:')).map(
+        (row) => RegExp(r'status=(\w+)').firstMatch(row)!.group(1),
+      ).toList()..sort(),
+      ['committed', 'draft', 'rolledBack'],
+    );
+    expect(
+      rows.firstWhere(
+        (row) => row.startsWith('calendar_events:') && row.contains('id=evt-calc'),
+      ),
+      contains('import_batch_id=batch-1'),
+      reason: '外键与批次归属不得因重建批次表而改变',
+    );
+    expect(
+      rows.firstWhere((row) => row.startsWith('tasks:')),
+      contains('title=算法作业'),
+      reason: '迁移只动 timetable_import_batches，其它表逐值不变',
+    );
+
+    // **外键必须干净**。
+    final fkViolations = await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(fkViolations, isEmpty);
+
+    // 允许写新状态，并且新状态**确实**是可识别的枚举值。
+    await db.customStatement(
+      "UPDATE timetable_import_batches SET status = 'partiallyDeleted' "
+      "WHERE id = 'batch-1'",
+    );
+    final updated = await db
+        .customSelect(
+          "SELECT status FROM timetable_import_batches WHERE id = 'batch-1'",
+        )
+        .getSingle();
+    expect(updated.read<String>('status'), 'partiallyDeleted');
+    expect(
+      TimetableImportBatchStatus.fromStorage('partiallyDeleted'),
+      TimetableImportBatchStatus.partiallyDeleted,
+    );
+
+    // **非法状态仍被 CHECK 拒绝**（M2）。
+    await expectLater(
+      db.customStatement(
+        "UPDATE timetable_import_batches SET status = 'nonsense' "
+        "WHERE id = 'batch-2'",
+      ),
+      throwsA(isA<SqliteException>()),
+    );
 
     await db.close();
     schema.close();

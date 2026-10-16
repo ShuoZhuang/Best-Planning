@@ -1,4 +1,5 @@
 import 'package:personal_planner/domain/models/course_edit.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
 
 /// 课程管理需要的**写入**端口（1.8.0，设计规范 §10.2）。
 ///
@@ -33,11 +34,26 @@ abstract interface class CourseWriteGateway {
   /// - [zoneId]：新锚点的时区。
   /// - [updatedAtUtc]：所有新写入行的 `updated_at_utc`（由服务层的时钟决定，
   ///   仓储不自己取时间——那会让同一次保存里的两行差几毫秒）。
+  /// - [provenance]：**全部最终锚点**共同写下去的来源事实（计划 §2.1／Task 6 Step 5）。
+  ///
+  /// ## 为什么来源是参数而不是"沿用既有行"
+  ///
+  /// 修复前这里按 `existingRow == null` 决定来源：复用锚点保留旧的、新增锚点写成
+  /// `manual` + `importBatchId: null`。于是给一门导入课程新增一个片段就会造出
+  /// **混合来源**，而那一段还可能因为排序靠前让整门课从当前学期列表里消失，
+  /// 并且逃出原批次的撤销范围（C16、C17、C18）。
+  ///
+  /// 来源因此由**服务层按当前库里全部片段解析一次**、由仓储对每个最终锚点统一写入：
+  /// 新增片段、复用片段和只改资料的片段遵守同一条规则（§3.1）。
+  ///
+  /// 非法组合（`timetableImport` + 空批次、`manual` + 非空批次）必须在进入事务前
+  /// 抛 [ArgumentError]——那是编程错误，不是用户数据问题。
   Future<void> replaceCourseSeries({
     required List<CourseWriteRow> rows,
     required CourseProfileDraft profile,
     required String zoneId,
     required DateTime updatedAtUtc,
+    required CourseSeriesProvenance provenance,
   });
 
   /// 某个锚点名下的**例外行条数**（删除前的影响预览要用，计划 Task 4 Step 2）。

@@ -15,15 +15,35 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
 
 void main() {
   const zoneId = 'Asia/Shanghai';
   late AppDatabase database;
   late DriftCalendarRepository repository;
 
-  setUp(() {
+  /// 批次与学期是 `calendar_events.import_batch_id` 的外键目标：来源事实必须有真行。
+  Future<void> seedBatch() async {
+    await database.customInsert('''
+      INSERT INTO academic_terms
+        (id, name, first_week_monday_local_date, total_weeks, time_zone_id,
+         created_at_utc, updated_at_utc)
+      VALUES ('term-autumn', '2026 秋季', '2026-09-07', 16, 'Asia/Shanghai',
+              1, 1)
+    ''');
+    await database.customInsert('''
+      INSERT INTO timetable_import_batches
+        (id, term_id, source_image_hash, source_file_name, status,
+         created_event_count, created_at_utc, updated_at_utc)
+      VALUES ('batch-autumn', 'term-autumn', 'sha256:x', 'schedule.png',
+              'committed', 1, 1, 1)
+    ''');
+  }
+
+  setUp(() async {
     database = AppDatabase.forTesting(NativeDatabase.memory());
     repository = DriftCalendarRepository(database, zones: TimeZoneDatabase());
+    await seedBatch();
   });
 
   tearDown(() => database.close());
@@ -48,7 +68,7 @@ void main() {
         timeZoneId: zoneId,
         recurrenceRuleId: ruleId,
         sourceKind: CalendarEventSourceKind.timetableImport,
-        importBatchId: null,
+        importBatchId: 'batch-autumn',
         logicalCourseId: 'course-calc',
         notes: '赵敏',
         location: 'D206',
@@ -137,6 +157,7 @@ void main() {
       profile: profile([draft(startMinute: 10 * 60)]),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     expect(
@@ -176,6 +197,7 @@ void main() {
       profile: profile([draft()]),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     expect(await segmentIds(), ['evt-a']);
@@ -203,6 +225,7 @@ void main() {
       profile: profile([draft(), added]),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     expect(await segmentIds(), ['course-calc-1', 'evt-a']);
@@ -241,6 +264,7 @@ void main() {
       ),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     final row = await database
@@ -279,6 +303,7 @@ void main() {
       ),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     expect(await segmentIds(), isEmpty);
@@ -338,6 +363,7 @@ void main() {
         profile: profile([good, bad]),
         zoneId: zoneId,
         updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
       ),
       throwsA(isA<ArgumentError>()),
     );
@@ -364,6 +390,7 @@ void main() {
         timeZoneId: zoneId,
         recurrenceRuleId: 'rule-other',
         sourceKind: CalendarEventSourceKind.timetableImport,
+        importBatchId: 'batch-autumn',
         logicalCourseId: 'course-calc-b',
         updatedAtUtc: utc(10, 1, 0, 0),
       ),
@@ -385,6 +412,7 @@ void main() {
       profile: profile([draft()]),
       zoneId: zoneId,
       updatedAtUtc: utc(10, 12, 1, 0),
+      provenance: CourseSeriesProvenance.imported('batch-autumn'),
     );
 
     expect(

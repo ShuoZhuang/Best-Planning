@@ -17,6 +17,7 @@ import 'package:personal_planner/data/database/app_database.dart'
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
 
@@ -727,7 +728,7 @@ void main() {
       );
     });
 
-    test('P2／P3：同一课程一个非空批次 + 若干空批次 ≠ 冲突；两个不同批次 = 冲突', () async {
+    test('P2／P3：一个非空批次 + 若干空批次 ≠ 冲突；两个不同批次 = 冲突', () async {
       await addSeries(
         eventId: 'evt-a',
         ruleId: 'rule-a',
@@ -773,6 +774,180 @@ void main() {
         conflicting!.integrityIssues.map((issue) => issue.kind),
         contains(CourseIntegrityIssueKind.conflictingImportLineage),
         reason: '两个不同的非空批次禁止猜测来源：保存必须被阻止（P3）',
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 6（课程编辑完整性修复计划）：**来源解析与摘要归并**（P1–P3）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('课程来源（计划 §2.1）', () {
+    test('纯解析器四格：manual／imported／recoverableMixed／conflicting', () {
+      expect(
+        resolveCourseLineage(const []).state,
+        CourseLineageState.manual,
+      );
+      expect(
+        resolveCourseLineage(const [null, '']).state,
+        CourseLineageState.manual,
+        reason: '空串与 null 一样表示"没有批次"',
+      );
+      expect(
+        resolveCourseLineage(const ['b1', 'b1']).state,
+        CourseLineageState.imported,
+      );
+      final mixed = resolveCourseLineage(const ['b1', null]);
+      expect(mixed.state, CourseLineageState.recoverableMixed);
+      expect(mixed.canSave, isTrue, reason: '混合来源是**可修复**的，必须允许保存');
+      expect(mixed.provenance.importBatchId, 'b1');
+      final conflicting = resolveCourseLineage(const ['b1', 'b2']);
+      expect(conflicting.state, CourseLineageState.conflicting);
+      expect(
+        conflicting.canSave,
+        isFalse,
+        reason: '两个不同批次禁止猜测来源：任选一个都会改变另一个批次的回滚范围',
+      );
+      expect(
+        const CourseSeriesProvenance(
+          sourceKind: CalendarEventSourceKind.manual,
+          importBatchId: 'b1',
+        ).isConsistent,
+        isFalse,
+      );
+      expect(
+        const CourseSeriesProvenance(
+          sourceKind: CalendarEventSourceKind.timetableImport,
+          importBatchId: null,
+        ).isConsistent,
+        isFalse,
+      );
+    });
+
+    test('P1／P2：一空一非空的混合来源仍然归属原来的学期与批次', () async {
+      await addSeries(
+        eventId: 'evt-a',
+        ruleId: 'rule-a',
+        title: '高数',
+        logicalCourseId: 'course-mixed',
+      );
+      await addSeries(
+        eventId: 'evt-b',
+        ruleId: 'rule-b',
+        title: '高数',
+        logicalCourseId: 'course-mixed',
+        weekday: DateTime.wednesday,
+        batchId: null,
+      );
+
+      // **摘要不再盲取排序后的第一条**（C18）：`evt-b`（周三、空批次）排在后面，
+      // 而修复前只要它排到第一位，整门课就会从当前学期列表里消失。
+      final inTerm = await courses.listCourses(termId: 'term-autumn');
+      expect(
+        inTerm.map((course) => course.logicalCourseId),
+        contains('course-mixed'),
+        reason: '混合来源属于"恰好一个非空批次"，因此仍应出现在原学期里',
+      );
+      final summary = inTerm.firstWhere(
+        (course) => course.logicalCourseId == 'course-mixed',
+      );
+      expect(summary.termId, 'term-autumn');
+      expect(summary.importBatchId, 'batch-autumn');
+
+      final detail = await courses.findCourse('course-mixed');
+      final lineage = resolveCourseLineage([
+        for (final segment in detail!.segments) segment.importBatchId,
+      ]);
+      expect(lineage.state, CourseLineageState.recoverableMixed);
+    });
+
+    test('P1：新增片段按同一批次写入后，两个片段来源一致且仍按批次可撤销', () async {
+      await addSeries(
+        eventId: 'evt-a',
+        ruleId: 'rule-a',
+        title: '高数',
+        logicalCourseId: 'course-calc-p1',
+      );
+
+      final detail = await courses.findCourse('course-calc-p1');
+      final lineage = resolveCourseLineage([
+        for (final segment in detail!.segments) segment.importBatchId,
+      ]);
+      expect(lineage.state, CourseLineageState.imported);
+
+      // 保存时"新增第二个片段"：仓储对**全部最终锚点**统一写 provenance。
+      await calendar.replaceCourseSeries(
+        rows: [
+          CourseWriteRow(
+            schedule: CourseScheduleDraft(
+              startMinute: 8 * 60,
+              endMinute: 8 * 60 + 45,
+              weekdays: const {DateTime.monday},
+              validFromLocalDate: DateTime(2026, 9, 7),
+              validUntilLocalDate: DateTime(2026, 12, 20),
+            ),
+            index: 0,
+            reuseAnchorId: 'evt-a',
+          ),
+          CourseWriteRow(
+            schedule: CourseScheduleDraft(
+              startMinute: 14 * 60,
+              endMinute: 14 * 60 + 45,
+              weekdays: const {DateTime.wednesday},
+              validFromLocalDate: DateTime(2026, 9, 7),
+              validUntilLocalDate: DateTime(2026, 12, 20),
+            ),
+            index: 1,
+          ),
+        ],
+        profile: CourseProfileDraft(
+          logicalCourseId: 'course-calc-p1',
+          title: '高数',
+          schedule: const [],
+        ),
+        zoneId: 'Asia/Shanghai',
+        updatedAtUtc: DateTime.utc(2026, 10, 2),
+        provenance: lineage.provenance,
+      );
+
+      final after = await courses.findCourse('course-calc-p1');
+      expect(after!.segments, hasLength(2));
+      expect(
+        {for (final segment in after.segments) segment.importBatchId},
+        {'batch-autumn'},
+        reason: '新增片段必须继承原批次，否则它会脱离学期并逃出批次撤销范围（C16、C17）',
+      );
+      expect(
+        after.summary.importBatchId,
+        'batch-autumn',
+        reason: '摘要的批次从全部片段归并，因此新增片段不会改变课程归属',
+      );
+      expect(
+        (await courses.listCourses(termId: 'term-autumn'))
+            .map((course) => course.logicalCourseId),
+        contains('course-calc-p1'),
+        reason: '新增片段之后课程仍必须出现在原来的学期里（P1）',
+      );
+    });
+
+    test('P1：仓储拒绝非法的来源组合（manual + 非空批次）', () async {
+      await expectLater(
+        calendar.replaceCourseSeries(
+          rows: const [],
+          profile: CourseProfileDraft(
+            logicalCourseId: 'course-calc-p1',
+            title: '高数',
+            schedule: [],
+          ),
+          zoneId: 'Asia/Shanghai',
+          updatedAtUtc: DateTime.utc(2026, 10, 2),
+          provenance: const CourseSeriesProvenance(
+            sourceKind: CalendarEventSourceKind.manual,
+            importBatchId: 'batch-autumn',
+          ),
+        ),
+        throwsArgumentError,
+        reason: '`manual` 必须不带批次；放宽任一条都会让 §3.1 的来源不变量在库里悄悄失效',
       );
     });
   });

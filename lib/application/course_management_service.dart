@@ -527,6 +527,24 @@ final class CourseManagementService {
     );
     if (errors.isNotEmpty) return CourseSaveResult.invalid(errors);
 
+    // ③′ **来源解析**（计划 §2.1／Task 6 Step 3）。
+    //
+    // 位置是刻意的：**过期检查之后、字段校验之后、写网关之前**。
+    // - 放在过期检查之前，用户会基于一份过期的清单得到来源结论；
+    // - 用页面打开时缓存的批次 id 更糟：那个值可能已经被别处改过（规范 Global
+    //   Constraints 明确"页面与请求体不得伪造 `importBatchId`"）。
+    //
+    // 因此解析的输入只有一个来源：**刚刚从库里读到的 `targets`**。
+    final lineage = resolveCourseLineage([
+      for (final segment in targets) segment.importBatchId,
+    ]);
+    if (!lineage.canSave) {
+      return CourseSaveResult.failed(
+        CourseSaveStatus.integrityConflict,
+        '这门课程关联了多个导入批次，未保存。请先备份并从导入记录检查来源。',
+      );
+    }
+
     if (timeZoneId == null) {
       return CourseSaveResult.failed(
         CourseSaveStatus.unsupported,
@@ -559,6 +577,10 @@ final class CourseManagementService {
         profile: request.profile,
         zoneId: timeZoneId!,
         updatedAtUtc: _nowUtc(),
+        // **全部最终锚点统一写同一个来源**（§3.1）：新增片段、复用片段与只改资料的
+        // 片段因此遵守同一条规则。`recoverableMixed` 的成功保存会把它统一成
+        // `imported`；事务中任一行失败则混合来源原样保留。
+        provenance: lineage.provenance,
       );
     } on Object catch (error) {
       // **事务已回滚，原内容未改变**——文案必须说这一句，否则用户会以为改了一半。

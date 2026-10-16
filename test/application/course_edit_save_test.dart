@@ -22,6 +22,7 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
 
 void main() {
@@ -84,6 +85,8 @@ void main() {
     int startMinute = 8 * 60,
     int durationMinutes = 45,
     int intervalWeeks = 1,
+    /// `null` 表示"这条锚点没有批次归属"——旧缺陷造成的混合来源形状（§2.1）。
+    String? batchId = 'batch-autumn',
   }) async {
     await repository.saveRecurring(
       CalendarEvent(
@@ -94,7 +97,7 @@ void main() {
         timeZoneId: zoneId,
         recurrenceRuleId: ruleId,
         sourceKind: CalendarEventSourceKind.timetableImport,
-        importBatchId: 'batch-autumn',
+        importBatchId: batchId,
         logicalCourseId: 'course-calc',
         notes: '赵敏',
         updatedAtUtc: DateTime.utc(2026, 10, 1),
@@ -157,6 +160,94 @@ void main() {
         .get();
     return [for (final row in rows) row.read<String>('id')];
   }
+
+  Future<List<String>> batchIdsOfCourse(String logicalCourseId) async {
+    final rows = await database
+        .customSelect(
+          "SELECT import_batch_id FROM calendar_events "
+          "WHERE exception_of_id IS NULL AND logical_course_id = "
+          "'$logicalCourseId' ORDER BY id",
+        )
+        .get();
+    return [for (final row in rows) row.read<String?>('import_batch_id') ?? ''];
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Task 6（课程编辑完整性修复计划）：**来源解析与统一**（P2、P3）
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('课程来源（计划 §2.1）', () {
+    test('P2：一空一非空的存量数据可以保存，并在成功事务里统一来源', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      // 旧缺陷造成的第二个片段：同一个课程、**没有批次**。
+      await seedSegment(
+        eventId: 'evt-b',
+        ruleId: 'rule-b',
+        weekdays: const {DateTime.wednesday},
+        batchId: null,
+      );
+      expect(await batchIdsOfCourse('course-calc'), ['batch-autumn', '']);
+
+      final result = await service.saveCourse(
+        await requestFor([
+          draft(startMinute: 8 * 60),
+          draft(startMinute: 8 * 60, weekdays: const {DateTime.wednesday}),
+        ]),
+      );
+
+      expect(result.isSuccess, isTrue, reason: result.error ?? '');
+      expect(
+        await batchIdsOfCourse('course-calc'),
+        ['batch-autumn', 'batch-autumn'],
+        reason: '成功事务把全部最终片段统一到那个唯一批次（§2.1）',
+      );
+      final detail = await courses.findCourse('course-calc');
+      expect(
+        resolveCourseLineage([
+          for (final segment in detail!.segments) segment.importBatchId,
+        ]).state,
+        CourseLineageState.imported,
+        reason: '保存一次之后这门课不再处于混合来源',
+      );
+    });
+
+    test('P3：两个不同的非空批次 ⇒ 阻止保存、零写入、给出可执行的一句话', () async {
+      await seedSegment(eventId: 'evt-a', ruleId: 'rule-a');
+      await database.customInsert('''
+        INSERT INTO timetable_import_batches
+          (id, term_id, source_image_hash, source_file_name, status,
+           created_event_count, created_at_utc, updated_at_utc)
+        VALUES ('batch-other', 'term-autumn', 'sha256:y', 'other.png',
+                'committed', 1, 1, 1)
+      ''');
+      await seedSegment(
+        eventId: 'evt-b',
+        ruleId: 'rule-b',
+        weekdays: const {DateTime.wednesday},
+        batchId: 'batch-other',
+      );
+      final before = await segmentIds();
+      final beforeBatches = await batchIdsOfCourse('course-calc');
+
+      final result = await service.saveCourse(
+        await requestFor([
+          draft(startMinute: 10 * 60),
+          draft(startMinute: 10 * 60, weekdays: const {DateTime.wednesday}),
+        ]),
+      );
+
+      expect(result.status, CourseSaveStatus.integrityConflict);
+      expect(result.error, contains('多个导入批次'));
+      expect(result.error, contains('备份'));
+      expect(
+        result.error,
+        isNot(contains('evt-')),
+        reason: '界面不得显示内部 id（规范全局不变量第 7 条）',
+      );
+      expect(await segmentIds(), before, reason: '零写入');
+      expect(await batchIdsOfCourse('course-calc'), beforeBatches);
+    });
+  });
 
   group('顺序：先判过期，再校验，最后才写', () {
     test('**指纹不匹配 ⇒ stale 且零写入**', () async {

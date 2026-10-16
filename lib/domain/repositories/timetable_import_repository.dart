@@ -1,17 +1,50 @@
 import 'package:personal_planner/domain/models/calendar_event.dart';
 
+/// 导入批次的**存储状态**（计划 §2.2）。
+///
+/// 语义必须逐值分得清，因为它们决定"能不能再次导入同一张图片"：
+///
+/// - [committed]：批次提交完成，且**没有**通过"删除整个课程"这条路径移除过内容；
+/// - [partiallyDeleted]：该批次**至少有一门逻辑课程**被课程管理功能删除。
+///   **即使已经删到 0 条也保留这个状态与审计记录**——"这门课的来源已被用户删掉"
+///   正是用户下一步"用原图恢复"必须知道的事实；
+/// - [rolledBack]：用户执行了批次回滚；
+/// - [draft]：保留的兼容值，**不是**删除标记。
 enum TimetableImportBatchStatus {
   draft('draft'),
   committed('committed'),
+  partiallyDeleted('partiallyDeleted'),
   rolledBack('rolledBack');
 
   const TimetableImportBatchStatus(this.storageValue);
   final String storageValue;
 
-  static TimetableImportBatchStatus fromStorage(String value) =>
-      TimetableImportBatchStatus.values.firstWhere(
-        (status) => status.storageValue == value,
-      );
+  /// 从存储值解析。
+  ///
+  /// **未知值必须抛错，不能静默回落成 [committed]**（计划 Task 5 Step 2）：
+  /// 回落会把一条读不懂的批次当成"完整导入"，于是同一张图片被永久拦住——
+  /// 而用户看到的只是"这张课表已经导入过"，没有任何线索指向真正的原因。
+  static TimetableImportBatchStatus fromStorage(String value) {
+    for (final status in TimetableImportBatchStatus.values) {
+      if (status.storageValue == value) return status;
+    }
+    throw UnknownTimetableImportBatchStatusException(value);
+  }
+}
+
+/// 数据库里出现了枚举不认识的批次状态。
+///
+/// **它是受控的数据错误**：调用方（历史页、重导入判定）应当把它显示成
+/// "这条导入记录的存储状态无法识别，请备份数据库后重试"，
+/// 而不是把它当成 `committed` 或 `draft` 继续跑。
+final class UnknownTimetableImportBatchStatusException implements Exception {
+  const UnknownTimetableImportBatchStatusException(this.storageValue);
+
+  final String storageValue;
+
+  @override
+  String toString() =>
+      'UnknownTimetableImportBatchStatusException($storageValue)';
 }
 
 final class TimetableImportBatch {

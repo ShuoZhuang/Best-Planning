@@ -1,7 +1,130 @@
 import 'dart:collection';
 
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
+
+/// 一门课的**来源状态**（计划 §2.1 的冻结决策表）。
+///
+/// 它回答的问题是"这一门课（＝同一 `logicalCourseId` 在当前学期里的全部片段）
+/// 是从哪来的"，而不是"某一条锚点是从哪来的"。两者在多片段课程上完全不同：
+/// 新增片段会造出 `importBatchId == null` 的锚点，而它仍然属于原来那次导入。
+enum CourseLineageState {
+  /// 全部片段都没有批次：手工创建的课程。
+  manual,
+
+  /// 恰好一个非空批次，且没有空批次。
+  imported,
+
+  /// **恰好一个非空批次 ＋ 至少一个空批次**：旧缺陷造成的混合来源，**可以修复**。
+  ///
+  /// 允许保存；成功事务把全部最终片段统一到那个批次（§2.1）。
+  recoverableMixed,
+
+  /// **两个及以上不同的非空批次**：异常数据。
+  ///
+  /// **禁止保存、不猜测、不写库**：任选一个都会改变另一个批次的回滚范围，
+  /// 而那正是"撤销这次导入会删掉哪些课"这件事的依据（§17.3）。
+  conflicting,
+}
+
+/// 一门课保存时应当写下去的**来源事实**（计划 §2.1）。
+///
+/// **它不由页面提供**：批次 id 是"这条数据从哪来"的事实，
+/// 只能由服务层根据**当前数据库详情**解析（规范 Global Constraints：
+/// 页面与请求体不得伪造 `importBatchId`）。
+final class CourseSeriesProvenance {
+  const CourseSeriesProvenance({
+    required this.sourceKind,
+    required this.importBatchId,
+  });
+
+  /// 手工来源的固定取值：`sourceKind == manual` 时批次必为 `null`。
+  static const CourseSeriesProvenance manual = CourseSeriesProvenance(
+    sourceKind: CalendarEventSourceKind.manual,
+    importBatchId: null,
+  );
+
+  factory CourseSeriesProvenance.imported(String batchId) =>
+      CourseSeriesProvenance(
+        sourceKind: CalendarEventSourceKind.timetableImport,
+        importBatchId: batchId,
+      );
+
+  final CalendarEventSourceKind sourceKind;
+  final String? importBatchId;
+
+  /// 两个字段必须构成合法组合（§3.1）：
+  /// `timetableImport ⇔ importBatchId != null`。
+  bool get isConsistent =>
+      (sourceKind == CalendarEventSourceKind.timetableImport) ==
+      (importBatchId != null && importBatchId!.isNotEmpty);
+
+  @override
+  bool operator ==(Object other) =>
+      other is CourseSeriesProvenance &&
+      other.sourceKind == sourceKind &&
+      other.importBatchId == importBatchId;
+
+  @override
+  int get hashCode => Object.hash(sourceKind, importBatchId);
+}
+
+/// [resolveCourseLineage] 的结果：状态 ＋ 要写下去的来源。
+final class CourseLineageResolution {
+  const CourseLineageResolution({
+    required this.state,
+    required this.provenance,
+  });
+
+  final CourseLineageState state;
+  final CourseSeriesProvenance provenance;
+
+  bool get canSave => state != CourseLineageState.conflicting;
+}
+
+/// **来源解析的唯一定义**（计划 §2.1）。
+///
+/// 纯函数：不读数据库、不看时钟，因此四格（manual／imported／recoverableMixed／
+/// conflicting）可以逐格钉住。
+///
+/// 输入是**当前学期全部片段**的 `importBatchId`（含 `null`）。判定顺序固定：
+///
+/// | 非空值个数 | 是否有空值 | 结果 |
+/// | --- | --- | --- |
+/// | 0 | — | [CourseLineageState.manual] → 全部写 `manual`／`null` |
+/// | 1 | 无 | [CourseLineageState.imported] → 全部沿用该批次 |
+/// | 1 | 有 | [CourseLineageState.recoverableMixed] → 允许保存并统一来源 |
+/// | ≥2 | — | [CourseLineageState.conflicting] → 禁止保存、零写入 |
+CourseLineageResolution resolveCourseLineage(
+  Iterable<String?> importBatchIds,
+) {
+  final all = List<String?>.of(importBatchIds);
+  final distinct = <String>{
+    for (final id in all)
+      if (id != null && id.isNotEmpty) id,
+  };
+  if (distinct.isEmpty) {
+    return const CourseLineageResolution(
+      state: CourseLineageState.manual,
+      provenance: CourseSeriesProvenance.manual,
+    );
+  }
+  if (distinct.length > 1) {
+    // **不猜**：返回一个"不能保存"的结果，调用方据此零写入。
+    return const CourseLineageResolution(
+      state: CourseLineageState.conflicting,
+      provenance: CourseSeriesProvenance.manual,
+    );
+  }
+  final hasEmpty = all.any((id) => id == null || id.isEmpty);
+  return CourseLineageResolution(
+    state: hasEmpty
+        ? CourseLineageState.recoverableMixed
+        : CourseLineageState.imported,
+    provenance: CourseSeriesProvenance.imported(distinct.single),
+  );
+}
 
 /// 一门**逻辑课程**在某个学期里的聚合视图（1.8.0，设计规范 §10.1）。
 ///
@@ -192,6 +315,7 @@ final class CourseSeriesSegment {
     this.weekSpan = const WeekSpan(startWeek: 1, endWeek: 1),
     this.outsideTerm = false,
     required this.updatedAtUtc,
+    this.importBatchId,
   }) : weekdays = UnmodifiableSetView(
          Set.of(weekdays ?? {weekday ?? DateTime.monday}),
        ) {
@@ -258,6 +382,13 @@ final class CourseSeriesSegment {
 
   /// 锚点行的 `updated_at_utc`，供保存时发现**过期页面**（乐观并发）。
   final DateTime updatedAtUtc;
+
+  /// 这一段的导入批次（读自锚点行）。`null` 表示"没有批次归属"。
+  ///
+  /// **它必须逐片段带出来**：来源解析（§2.1）要看到"这一门课的全部片段各自属于哪个
+  /// 批次"，而只把摘要上那一个批次带出来会让"混合来源"永远不可见——
+  /// 而那正是 C18 与 `recoverableMixed` 要处理的数据。
+  final EntityId? importBatchId;
 }
 
 /// 删除课程前的影响预览（规范 §10.2："删除：先预览受影响次数，再二次确认"）。

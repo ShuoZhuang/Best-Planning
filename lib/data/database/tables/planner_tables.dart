@@ -181,7 +181,10 @@ class TimetableImportBatches extends Table {
 
   @override
   List<String> get customConstraints => [
-    "CHECK (status IN ('draft', 'committed', 'rolledBack'))",
+    // v10：新增 `partiallyDeleted`（计划 §2.2／Task 5）。它表达"这个批次至少有
+    // 一门逻辑课程被课程管理功能删掉了"——同图重导入只拦截 `committed`，
+    // 而"已删除部分课程"必须是一个**持久**事实，不能靠"当前还剩几条锚点"去猜。
+    "CHECK (status IN ('draft', 'committed', 'partiallyDeleted', 'rolledBack'))",
     'CHECK (created_event_count >= 0)',
   ];
 }

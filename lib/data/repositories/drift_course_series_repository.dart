@@ -238,14 +238,27 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
   ///
   /// 代表片段取**排序后的第一条**（开始分钟 → 间隔周数 → 事件 id）：顺序必须确定，
   /// 否则同一次点击可能打开不同的片段，而"改整个课程"的预览数字也会跳。
+  ///
+  /// ## 学期与批次**不取代表片段**（计划 §2.1／C18）
+  ///
+  /// 修复前 `termId` 与 `importBatchId` 直接取 `ordered.first` 的两个字段。那在
+  /// "新增片段被写成 `manual`／`importBatchId = null`"的旧缺陷下会**改变语义**：
+  /// 只要那个空批次的片段排到第一位，整门课就会从当前学期列表里消失，
+  /// 而按原批次撤销时它也不会被覆盖。
+  ///
+  /// 现在从**全部片段**归并：非空批次恰好一个时用那一个（于是"一空一非空"的混合来源
+  /// 仍然属于原来的学期与批次），0 个或 ≥2 个时返回 `null`——后者是异常数据，
+  /// 由 [CourseIntegrityIssueKind.conflictingImportLineage] 报出来给用户核对，
+  /// 不在这里猜一个。
   CourseSeriesSummary? _summarize(String logicalId, List<_CourseRow> rows) {
     if (rows.isEmpty) return null;
     final ordered = [...rows]..sort(_compareRows);
     final head = ordered.first;
+    final batchId = _uniqueBatchId(ordered);
     return CourseSeriesSummary(
       logicalCourseId: logicalId,
       title: head.event.title,
-      termId: head.termId,
+      termId: batchId == null ? null : _termIdForBatch(ordered, batchId),
       anchorEventIds: [for (final row in ordered) row.event.id],
       // 代表星期取**代表片段里最小的那个**（多星期规则的代表值）。
       weekday: _weekdays(head.rule.weekdaysMask)
@@ -263,10 +276,29 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
       location: head.event.location,
       // **教师在 `notes` 列**：课表导入正是用这一列存教师名的（计划 Global Constraints）。
       teacher: head.event.notes,
-      importBatchId: head.event.importBatchId,
+      importBatchId: batchId,
       // 课表导入的课没有"归档"概念（那要另加一列，本批次不做）；因此默认在生成。
       enabled: true,
     );
+  }
+
+  /// 全部片段里**唯一**的非空批次；0 个或 2 个以上时返回 `null`。
+  static String? _uniqueBatchId(List<_CourseRow> rows) {
+    final ids = {
+      for (final row in rows)
+        if (row.event.importBatchId != null &&
+            row.event.importBatchId!.isNotEmpty)
+          row.event.importBatchId!,
+    };
+    return ids.length == 1 ? ids.single : null;
+  }
+
+  /// 拥有 [batchId] 的那一行所解析出的学期。
+  static String? _termIdForBatch(List<_CourseRow> rows, String batchId) {
+    for (final row in rows) {
+      if (row.event.importBatchId == batchId) return row.termId;
+    }
+    return null;
   }
 
   CourseSeriesSegment _toSegment(_CourseRow row) {
@@ -298,6 +330,9 @@ final class DriftCourseSeriesRepository implements CourseSeriesRepository {
         row.event.updatedAtUtc,
         isUtc: true,
       ),
+      // **逐片段带出批次**（计划 §2.1／Task 6 Step 1）：来源解析要看到每一段各自
+      // 属于哪个批次，否则"混合来源"与"多批次冲突"都不可见。
+      importBatchId: row.event.importBatchId,
     );
   }
 

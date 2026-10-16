@@ -12,7 +12,7 @@ part 'app_database.g.dart';
 /// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
 /// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
 /// 已经打开的连接之后。放在这里让两处共用同一个数字。
-const int plannerSchemaVersion = 9;
+const int plannerSchemaVersion = 10;
 
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
@@ -95,7 +95,7 @@ class AppDatabase extends _$AppDatabase {
   /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
   /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -127,6 +127,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 9 && to >= 9) {
         await _upgradeToV9(migrator);
+      }
+      if (from < 10 && to >= 10) {
+        await _upgradeToV10(migrator);
       }
     },
     beforeOpen: (details) async {
@@ -220,6 +223,23 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       "UPDATE calendar_events SET kind = 'fixed' WHERE kind IS NULL",
     );
+  }
+
+  /// v10：给 `timetable_import_batches.status` 的 CHECK 增加 `partiallyDeleted`。
+  ///
+  /// **这是本批次唯一的结构变化**（计划 §2.7）：主键、外键、列集合与所有业务字段
+  /// 逐值不变，`draft`／`committed`／`rolledBack` 三种旧值原样保留、**不做猜测式回填**。
+  ///
+  /// **为什么必须重建整张表**：SQLite 无法就地修改 CHECK 约束，只能走
+  /// "建新表 → 拷数据 → 换名"这条路。`alterTable` 正是那套 12 步流程：
+  /// 它临时关掉外键、置 `legacy_alter_table = 1`（否则 `ALTER TABLE … RENAME` 会把
+  /// `calendar_events.import_batch_id` 的 REFERENCES 一起改写成临时名，
+  /// 于是迁移之后外键指向一张不存在的表）、重建索引与触发器，最后恢复外键设置。
+  ///
+  /// **不手改生成文件**：建表 SQL（含新的 CHECK）由 drift 依 `planner_tables.dart`
+  /// 生成，这里只负责把既有数据搬过去。迁移与 `onCreate` 因此共用同一份定义。
+  Future<void> _upgradeToV10(Migrator migrator) async {
+    await migrator.alterTable(TableMigration(timetableImportBatches));
   }
 
   /// 周期目标表的索引。
@@ -364,8 +384,34 @@ class AppDatabase extends _$AppDatabase {
 
   /// Adds the audit batch before event references, then gives legacy events
   /// safe manual-source defaults without guessing course metadata.
+  ///
+  /// ## 为什么这里用**字面 SQL** 而不是 `createTable(timetableImportBatches)`
+  ///
+  /// `Migrator.createTable` 用的是**当前**的 Dart 表定义。v10 之后那个定义里的
+  /// `CHECK (status IN (…, 'partiallyDeleted', …))` 会因此被写进一个**v6 形状**的库里，
+  /// 于是"v1 空库迁移到 v6"的结果与 v6 快照不再一致——drift 的 schema verifier 直接
+  /// 报 `Schema does not match`，而那正是它该报的：迁移链必须逐版本产出**它自己那一版**
+  /// 的形状，否则历史审计与逐版本对比就失去意义。
+  ///
+  /// v10 的 `_upgradeToV10` 随后会用 `alterTable` 把这张表升到新形状，所以"v6 形状"
+  /// 只是中间态，不是最终态。字面 SQL 与 v6 快照逐字一致，列集合与后续版本完全相同
+  /// （v6→v9 从未动过这张表的列），因此 `alterTable` 按列名搬迁不会丢数据。
   Future<void> _upgradeToV6(Migrator migrator) async {
-    await migrator.createTable(timetableImportBatches);
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS "timetable_import_batches" (
+        "id" TEXT NOT NULL,
+        "term_id" TEXT NOT NULL REFERENCES academic_terms (id),
+        "source_image_hash" TEXT NOT NULL,
+        "source_file_name" TEXT NOT NULL,
+        "status" TEXT NOT NULL,
+        "created_event_count" INTEGER NOT NULL,
+        "created_at_utc" INTEGER NOT NULL,
+        "updated_at_utc" INTEGER NOT NULL,
+        PRIMARY KEY ("id"),
+        CHECK (status IN ('draft', 'committed', 'rolledBack')),
+        CHECK (created_event_count >= 0)
+      )
+    ''');
     await migrator.addColumn(calendarEvents, calendarEvents.projectId);
     await migrator.addColumn(calendarEvents, calendarEvents.location);
     await migrator.addColumn(calendarEvents, calendarEvents.notes);

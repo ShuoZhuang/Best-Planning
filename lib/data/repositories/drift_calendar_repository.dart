@@ -4,6 +4,7 @@ import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/domain/models/calendar_event.dart' as domain;
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
+import 'package:personal_planner/domain/models/course_series.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_event_deletion.dart';
 import 'package:personal_planner/domain/repositories/course_write_gateway.dart';
@@ -902,7 +903,17 @@ final class DriftCalendarRepository
     required CourseProfileDraft profile,
     required String zoneId,
     required DateTime updatedAtUtc,
+    required CourseSeriesProvenance provenance,
   }) async {
+    // **非法组合在进入事务之前就拒绝**（Task 6 Step 4）：`timetableImport` 必须带批次，
+    // `manual` 必须不带。放宽任何一条都会让 §3.1 的来源不变量在库里悄悄失效。
+    if (!provenance.isConsistent) {
+      throw ArgumentError.value(
+        provenance.importBatchId,
+        'provenance',
+        'sourceKind 与 importBatchId 的组合非法',
+      );
+    }
     final courseLogicalId = profile.logicalCourseId;
     // **一个事务覆盖全部四种写入**：删旧片段、删旧规则、写新锚点、写新规则。
     // 拆成多次调用会留下"旧的删了、新的没建起来"的中间态——而排程按 drift 的 watch
@@ -938,9 +949,27 @@ final class DriftCalendarRepository
           _database.calendarEvents,
         )..where((row) => row.id.isIn(removed))).go();
         if (removedRules.isNotEmpty) {
-          await (_database.delete(
-            _database.recurrenceRules,
-          )..where((row) => row.id.isIn(removedRules))).go();
+          // **只删已经没有任何锚点引用的规则**（Task 8 Step 5／§3.2 的同一条口径）：
+          // 规则可以被多条锚点共享，无条件删除会打断别的片段。
+          final stillReferenced =
+              await (_database.selectOnly(_database.calendarEvents)
+                    ..addColumns([_database.calendarEvents.recurrenceRuleId])
+                    ..where(
+                      _database.calendarEvents.recurrenceRuleId.isIn(
+                        removedRules,
+                      ),
+                    ))
+                  .get();
+          final referenced = {
+            for (final row in stillReferenced)
+              row.read(_database.calendarEvents.recurrenceRuleId),
+          };
+          final orphaned = removedRules.difference(referenced);
+          if (orphaned.isNotEmpty) {
+            await (_database.delete(
+              _database.recurrenceRules,
+            )..where((row) => row.id.isIn(orphaned))).go();
+          }
         }
       }
 
@@ -976,14 +1005,12 @@ final class DriftCalendarRepository
             endAtUtc: endUtc,
             timeZoneId: zoneId,
             recurrenceRuleId: ruleId,
-            // **类别与来源跟着既有行走**：课表导入的课必须还是课表导入的课，
-            // 否则它会在"撤销导入"里消失（那个功能按 `importBatchId` 回滚）。
-            sourceKind: existingRow == null
-                ? domain.CalendarEventSourceKind.manual
-                : domain.CalendarEventSourceKind.fromStorage(
-                    existingRow.sourceKind,
-                  ),
-            importBatchId: existingRow?.importBatchId,
+            // **来源对全部最终锚点统一写入**（§2.1／Task 6 Step 5）：不再按
+            // `existingRow == null` 决定，因此新增片段不会变成"手工来源"、
+            // 也不会丢掉批次（C16、C17）。它同时保证课表导入的课在"撤销导入"里
+            // 仍然找得到——那个功能按 `importBatchId` 回滚。
+            sourceKind: provenance.sourceKind,
+            importBatchId: provenance.importBatchId,
             logicalCourseId: courseLogicalId,
             location: profile.location,
             // **教师存在 `notes` 列**：本批次不引入"课程备注"这个新概念。
