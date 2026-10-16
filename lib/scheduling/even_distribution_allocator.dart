@@ -21,6 +21,8 @@
 // 相同结果，而 Dart 的 Map 迭代顺序取决于插入顺序，直接遍历会把输入顺序泄漏到输出里。
 import 'dart:collection';
 
+import 'package:personal_planner/scheduling/day_allocation.dart';
+
 /// 均分器的输入。
 ///
 /// 所有 `Map` 的键都是**本地日期**（`DateTime(y, m, d)`，时间部分为 0）。
@@ -31,6 +33,8 @@ final class EvenDistributionInput {
     required this.minChunkMinutes,
     required Map<DateTime, int> capacityMinutesByLocalDate,
     Map<DateTime, int> alreadyPlannedMinutesByLocalDate = const {},
+    this.rotationTaskId,
+    DateTime? cycleStartLocalDate,
   }) : capacityMinutesByLocalDate = UnmodifiableMapView({
          for (final entry in capacityMinutesByLocalDate.entries)
            _dateOnly(entry.key): entry.value < 0 ? 0 : entry.value,
@@ -38,7 +42,10 @@ final class EvenDistributionInput {
        alreadyPlannedMinutesByLocalDate = UnmodifiableMapView({
          for (final entry in alreadyPlannedMinutesByLocalDate.entries)
            _dateOnly(entry.key): entry.value < 0 ? 0 : entry.value,
-       }) {
+       }),
+       cycleStartLocalDate = cycleStartLocalDate == null
+           ? null
+           : _dateOnly(cycleStartLocalDate) {
     if (targetMinutes < 0) {
       throw ArgumentError.value(targetMinutes, 'targetMinutes', '不能为负');
     }
@@ -61,6 +68,16 @@ final class EvenDistributionInput {
 
   /// 该周期实例在这些日期上**已经**占用的分钟（锁定块、手动钉住的块、既有的可移动块）。
   final Map<DateTime, int> alreadyPlannedMinutesByLocalDate;
+
+  /// 轮换键用的任务 ID（计划 §3.4 第 7 条）。
+  ///
+  /// **为空表示"没有身份"**：此时轮换偏移恒为 0，K 日选择退化为"余量降序 → 日期升序"，
+  /// 与修复前的行为逐值相同——这是纯函数调用点（测试、诊断）的兼容路径。
+  /// 生产路径（`RepositoryScheduleProblemSource` → 引擎）必须传真实的 task id。
+  final String? rotationTaskId;
+
+  /// 该任务所属周期的起点本地日期；为空时 `cycleOrdinal` 记 0。
+  final DateTime? cycleStartLocalDate;
 }
 
 /// 均分结果。
@@ -153,14 +170,34 @@ EvenDistributionPlan allocateEvenDistribution(EvenDistributionInput input) {
   // `K × minChunk ≤ target ≤ 这些日期的总余量`，并在其中取**最大**的 K（K 越大每天越少、
   // 越均匀）。找不到这样的 K 时才退回尽量分配。
   final minChunk = input.minChunkMinutes;
-  final byHeadroomDesc = [...active]
+  // ── K 日选择：**按稳定轮换键排序，禁止按日期取前 K 个**（计划 §3.4 第 6、7 条）────
+  //
+  // 修复前的判据是"余量降序、日期升序"再取前 K 个。七天余量完全相同时，
+  // 那个判据**永远**选中周一至周五——用户看到的是"工作日越来越挤、周末一直空着"
+  // （计划 §1.2 第 3 条），而不是容量不够。
+  //
+  // 现在排序键分成两级：
+  // 1. **余量降序**：余量更大的日期更值得承担（容量证据优先）；
+  // 2. **轮换位次升序**，再按日期 —— 由 `AllocationRotation` 从
+  //    `SHA-256(taskId)` 前 8 字节与周期序号算出（**不用 `hashCode`、不用随机数**），
+  //    因此同一周期逐值稳定，而周期推进时起始星期轮转。
+  final rotation = AllocationRotation.forTask(
+    taskId: input.rotationTaskId,
+    cycleStartLocalDate: input.cycleStartLocalDate,
+  );
+  final byRanking = [...active]
     ..sort((a, b) {
       final byRoom = headroom[b]!.compareTo(headroom[a]!);
-      return byRoom != 0 ? byRoom : a.compareTo(b);
+      if (byRoom != 0) return byRoom;
+      final byRotation = rotation
+          .rotationRank(a)
+          .compareTo(rotation.rotationRank(b));
+      if (byRotation != 0) return byRotation;
+      return a.compareTo(b);
     });
   var chosen = <DateTime>[];
-  for (var k = byHeadroomDesc.length; k >= 1; k--) {
-    final candidates = byHeadroomDesc.take(k).toList()..sort();
+  for (var k = byRanking.length; k >= 1; k--) {
+    final candidates = byRanking.take(k).toList()..sort();
     final room = candidates.fold<int>(0, (sum, date) => sum + headroom[date]!);
     if (k * minChunk <= target && target <= room) {
       chosen = candidates;

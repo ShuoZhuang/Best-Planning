@@ -393,12 +393,29 @@ void main() {
         150,
         reason: '目标必须完整排下；实际 $byDay',
       );
+      // **恰好 5 天，而不是"多于 5 天"**（算法 17 的算术结论）
+      //
+      // 计划 §3.1 第一条要求参与日期每个至少拿到一个最小片段，因此
+      // `K × 30 ≤ 150` ⇒ K ≤ 5。150 分钟在 30 分钟粒度下**不可能**摊到 6 天以上。
+      // 第一版断言写成 `greaterThan(5)`，那按定义不可满足——真正的缺陷是
+      // "选中哪 5 天"由**日期升序**决定（于是永远是周一至周五）。
       expect(
         usedDays,
-        greaterThan(5),
+        5,
+        reason: 'K=5 是算术结论（5×30 ≤ 150 ≤ 5×90）；实际只用了 $usedDays 天（$byDay）',
+      );
+      final chosenDays =
+          byDay.entries
+              .where((entry) => entry.value > 0)
+              .map((entry) => entry.key)
+              .toList()
+            ..sort();
+      expect(
+        chosenDays.every((day) => day >= 5 && day <= 9),
+        isFalse,
         reason:
-            '七天业务字段与容量完全相同，参与日不得固定是前五天；'
-            '实际只用了 $usedDays 天（$byDay）',
+            '不得按日期取前五个（周一至周五）；跨日分配必须按'
+            '"放入后的负载 + 稳定轮换键"选日期。实际 $chosenDays（$byDay）',
       );
     });
 
@@ -432,10 +449,23 @@ void main() {
       );
       expect(
         usedDays,
-        greaterThan(5),
+        5,
         reason:
-            '七天的余量与业务字段完全相同，参与日不得固定是周一至周五；'
-            '实际只用了 $usedDays 天（$byDay）',
+            '七天的余量与业务字段完全相同 ⇒ K=5（5×30 ≤ 150 ≤ 5×90），'
+            '**不是**"多于 5 天"——那受算术约束不可能；实际只用了 $usedDays 天（$byDay）',
+      );
+      final chosenDays =
+          byDay.entries
+              .where((entry) => entry.value > 0)
+              .map((entry) => entry.key)
+              .toList()
+            ..sort();
+      expect(
+        chosenDays.every((day) => day >= 5 && day <= 9),
+        isFalse,
+        reason:
+            '不得按日期取前五个（周一至周五）；均分器必须按稳定轮换键选参与日。'
+            '实际 $chosenDays（$byDay）',
       );
     });
   });

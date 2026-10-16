@@ -16,6 +16,8 @@ EvenDistributionPlan _allocate({
   Map<DateTime, int> already = const {},
   int granularity = 5,
   int minChunk = 25,
+  String? rotationTaskId,
+  DateTime? cycleStartLocalDate,
 }) => allocateEvenDistribution(
   EvenDistributionInput(
     targetMinutes: target,
@@ -23,6 +25,8 @@ EvenDistributionPlan _allocate({
     minChunkMinutes: minChunk,
     capacityMinutesByLocalDate: capacity,
     alreadyPlannedMinutesByLocalDate: already,
+    rotationTaskId: rotationTaskId,
+    cycleStartLocalDate: cycleStartLocalDate,
   ),
 );
 
@@ -320,17 +324,26 @@ void main() {
   // 于是七天余量完全相同时**永远**选中周一至周五——周末在整周里被结构性排除。
   // 用户可观察到的现象正是「工作日越来越挤、周末一直空着」（计划 §1.2 第 3 条）。
   //
-  // 判据不能写成"必须包含周末"：那等于给周末加固定奖励，而计划 §3.4 第 8 条要求
-  // 周末只因**真实容量与负载**被选中。因此这里钉的是"不得固定取前 K 个日期"。
+  // ## 判据只能是"哪 5 天"，不能是"多于 5 天"
+  //
+  // 计划 §3.1 第一条要求参与日期**每个至少拿到一个 `minChunk`**，因此
+  // `K × 30 ≤ 150` ⇒ K ≤ 5。七天各余 90 分钟时，150 分钟**不可能**摊到 6 天以上——
+  // 那不是算法选择的结果，是算术。第一版这里写的是 `greaterThan(5)`，
+  // 而它按定义不可满足；真正的缺陷是"选中哪 5 天"由**日期升序**决定。
+  //
+  // 因此判据改成：恰好 5 天、每天一个片段，且这 5 天由**稳定轮换键**决定，
+  // 不是按日期取前五个。
   // ─────────────────────────────────────────────────────────────────────────────
   group('150/30 七天等容量不固定选前五日（Task 1 Step 2）', () {
-    test('150 分钟、最小片段 30、七天各余 90 分钟 ⇒ 参与日不得只是前五天', () {
+    test('150 分钟、最小片段 30、七天各余 90 分钟 ⇒ 恰好 5 天，且不是按日期取前 5 个', () {
       final plan = _allocate(
         target: 150,
         minChunk: 30,
         granularity: 30,
         capacity: {for (var day = 5; day <= 11; day++) _d(10, day): 120},
         already: {for (var day = 5; day <= 11; day++) _d(10, day): 30},
+        rotationTaskId: 'task-rotation',
+        cycleStartLocalDate: _d(10, 5),
       );
 
       expect(
@@ -340,13 +353,63 @@ void main() {
       );
       expect(
         plan.additionalMinutesByLocalDate.length,
-        greaterThan(5),
-        reason: '参与日期不得固定是周一至周五；实际 ${plan.additionalMinutesByLocalDate}',
+        5,
+        reason:
+            'K=5 是算术结论（5×30 ≤ 150 ≤ 5×90）；'
+            '实际 ${plan.additionalMinutesByLocalDate}',
+      );
+      final chosenDays =
+          plan.additionalMinutesByLocalDate.keys
+              .map((date) => date.day)
+              .toList()
+            ..sort();
+      expect(
+        chosenDays.every((day) => day >= 5 && day <= 9),
+        isFalse,
+        reason:
+            '不得按日期取前五个（周一至周五）；轮换键必须让它落在别的组合上。'
+            '实际 $chosenDays',
       );
     });
 
-    test('同一组日期重复运行结果逐值相同（轮换不得引入随机性）', () {
-      EvenDistributionPlan allocate() => _allocate(
+    test('**同一周期稳定、连续周期轮转**（计划 §3.4 第 7 条）', () {
+      EvenDistributionPlan allocate(DateTime cycleStart) => _allocate(
+        target: 150,
+        minChunk: 30,
+        granularity: 30,
+        capacity: {for (var day = 5; day <= 11; day++) _d(10, day): 120},
+        already: {for (var day = 5; day <= 11; day++) _d(10, day): 30},
+        rotationTaskId: 'task-rotation',
+        cycleStartLocalDate: cycleStart,
+      );
+
+      final thisWeek = allocate(_d(10, 5));
+      final sameWeekAgain = allocate(_d(10, 5));
+      expect(
+        sameWeekAgain.additionalMinutesByLocalDate,
+        thisWeek.additionalMinutesByLocalDate,
+        reason: '同一周期必须逐值稳定（不用 hashCode、不用随机数）',
+      );
+
+      final nextWeek = allocate(_d(10, 12));
+      expect(
+        nextWeek.additionalMinutesByLocalDate.keys
+            .map((date) => date.day)
+            .toSet(),
+        isNot(
+          thisWeek.additionalMinutesByLocalDate.keys
+              .map((date) => date.day)
+              .toSet(),
+        ),
+        reason:
+            '周期推进时起始星期必须轮转，否则同一星期会被永久排除；'
+            '本周 ${thisWeek.additionalMinutesByLocalDate.keys.toList()} '
+            '下周 ${nextWeek.additionalMinutesByLocalDate.keys.toList()}',
+      );
+    });
+
+    test('未提供身份时退化为"余量降序 → 日期升序"（兼容纯函数调用点）', () {
+      final plan = _allocate(
         target: 150,
         minChunk: 30,
         granularity: 30,
@@ -354,15 +417,14 @@ void main() {
         already: {for (var day = 5; day <= 11; day++) _d(10, day): 30},
       );
 
-      final first = allocate();
-      for (var run = 0; run < 20; run++) {
-        final again = allocate();
-        expect(
-          again.additionalMinutesByLocalDate,
-          first.additionalMinutesByLocalDate,
-          reason: '同一周期的结果必须逐值稳定（计划 §3.4 第 7 条）',
-        );
-      }
+      // 没有身份 ⇒ `rotationOffset = 0` ⇒ 轮换位次就是星期序号，
+      // 于是一定选周一至周五。这**不是**缺陷：没有身份就没有轮换可言，
+      // 而生产路径一定带 task id（见 `RepositoryScheduleProblemSource`）。
+      expect(
+        plan.additionalMinutesByLocalDate.keys.map((date) => date.day).toList()
+          ..sort(),
+        [5, 6, 7, 8, 9],
+      );
     });
   });
 }
