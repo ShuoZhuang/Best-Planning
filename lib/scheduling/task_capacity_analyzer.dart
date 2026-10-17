@@ -142,7 +142,7 @@ TaskCapacityEvidence analyzeTaskCapacity({
   final taskPlaceableMinutes = _placeableMinutes(
     ranges: mergedWindow,
     task: task,
-    granularity: _granularityOf(problem, mergedWindow.firstOrNull),
+    granularity: _granularityOf(problem, mergedWindow.firstOrNull, zones),
   );
 
   // ── 第四层：扣除其它任务已经占用的部分 ──────────────────────────────────────
@@ -177,7 +177,7 @@ TaskCapacityEvidence analyzeTaskCapacity({
   final remainingPlaceableMinutes = _placeableMinutes(
     ranges: freeAfterOthers,
     task: task,
-    granularity: _granularityOf(problem, freeAfterOthers.firstOrNull),
+    granularity: _granularityOf(problem, freeAfterOthers.firstOrNull, zones),
   );
   final largestRemainingGapMinutes = _largestMinutes(freeAfterOthers);
 
@@ -199,8 +199,31 @@ TaskCapacityEvidence analyzeTaskCapacity({
 ///
 /// 单独一个函数是为了让"退回"这件事只有一处：粒度是**日期敏感**的，而
 /// "没有任何区间时用哪一份"必须有明确答案，不能靠调用点各自决定。
-int _granularityOf(ScheduleProblem problem, TimeRange? range) => problem
-    .policyForLocalDate(range?.startUtc ?? problem.planningWindow.startUtc)
+///
+/// ## 必须先把 UTC 瞬间换成**本地日期**
+///
+/// `policyForLocalDate` 只做归一化（丢掉时刻），**不做时区换算**。直接把
+/// `range.startUtc` 传进去，等于把 UTC 日当作本地日：
+///
+/// - 本地 10-05 08:00 的 UTC 时刻是 `10-05T00:00Z`，归一化得 10-05，看似"碰巧对"；
+/// - 但窗口起点若在本地零点（`10-04T16:00Z`），归一化得 **10-04** ——
+///   一个不在窗口内的日子，`dailyPolicies` 没有这个键，于是**抛 `StateError`**。
+///
+/// 实测：一条以本地周一零点为窗口起点的用例直接抛
+/// 「缺少本地日期 2026-10-4 的每日排程策略」，整次生成失败。
+/// 本文件另外两处（`slot.localDate`、`localDateOf(...)`）都是对的，只有这里漏了换算。
+int _granularityOf(
+  ScheduleProblem problem,
+  TimeRange? range,
+  TimeZoneDatabase zones,
+) => problem
+    .policyForLocalDate(
+      localDateOf(
+        range?.startUtc ?? problem.planningWindow.startUtc,
+        problem.timeZoneId,
+        zones,
+      ),
+    )
     .resolvedRules
     .granularityMinutes;
 
