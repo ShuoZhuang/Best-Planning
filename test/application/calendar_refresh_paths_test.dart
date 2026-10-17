@@ -53,6 +53,7 @@ import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_source.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 import '../support/daily_policies.dart';
@@ -425,7 +426,7 @@ ScheduleProposal _proposal({required int hours, required String hash}) =>
     ScheduleProposal(
       proposalId: 'proposal-$hours',
       inputHash: hash,
-      algorithmVersion: '16',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       planningWindow: TimeRange(
         startUtc: DateTime.utc(2026, 10, 5),
         endUtc: DateTime.utc(2026, 10, 12),

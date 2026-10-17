@@ -48,6 +48,7 @@ import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 import '../support/daily_policies.dart';
@@ -1113,7 +1114,7 @@ final class _Plans implements PlanRepository, PlanHistoryRepository {
     final plan = ConfirmedPlan(
       id: 'applied',
       inputHash: expectedInputHash,
-      algorithmVersion: '16',
+      algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
       blocks: proposal.blocks,
     );
     currentPlan = plan;
@@ -1125,7 +1126,7 @@ final class _Plans implements PlanRepository, PlanHistoryRepository {
 ConfirmedPlan _confirmedPlan() => ConfirmedPlan(
   id: 'plan-1',
   inputHash: 'hash',
-  algorithmVersion: '16',
+  algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
   blocks: const [],
 );
 
@@ -1171,7 +1172,7 @@ ScheduleProposal _proposal({
 }) => ScheduleProposal(
   proposalId: 'proposal-1',
   inputHash: inputHash,
-  algorithmVersion: '16',
+  algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
   planningWindow: TimeRange(
     startUtc: DateTime.utc(2026, 10, 12),
     endUtc: DateTime.utc(2026, 10, 13),

@@ -90,7 +90,23 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// ③ **每日上限在放置阶段不再被第二遍整段放开** —— 第二遍只放宽"最终余量凑不出片段"
   ///    这一条软性偏好，`maxMinutesPerLocalDay` 恢复为计划 §Global Constraints 要求的硬约束
   ///    （实测：每天 30 分钟额度、任务要 210 分钟 ⇒ 修复前排出七个 30 分钟块）。
-  static const String algorithmVersion = '16';
+  /// ## 算法 17（容量感知分层排程，2026-10-16 计划）
+  ///
+  /// 相对 16 的变化全部集中在"**先分配跨日预算，再在日内放置**"这条主线上：
+  ///
+  /// ① **逐日规则**：`DailySchedulingPolicy` 按本地日解析，日期敏感字段
+  ///    （每日上限、粒度、休息间隔、生活配额）不再复制窗口首日；
+  /// ② **单一容量账本**：`DayCapacityLedger` 是"某天还能放多少"的唯一来源，
+  ///    放置、诊断、改进三处读同一份口径（`usedMovableMinutes` **包含锁定块**）；
+  /// ③ **全局跨日分配**：`allocateTaskDays` 先按方案级字典序目标把每个任务的
+  ///    分钟摊到 K 个日期上（K 满足 `K × chunk ≤ 目标`），引擎只在这些预算内放置；
+  /// ④ **预算在改进阶段同样生效**：`_improve` 不再能把块搬去超预算的日子；
+  /// ⑤ **截止优先于形状**：分配顺序先看截止，再看"连续/可切"，
+  ///    避免无截止的连续任务抢走有截止任务唯一的窗口。
+  ///
+  /// 黄金用例（`golden_week.json`）的块与缺口在 16 → 17 之间**完全不变**，
+  /// 这正是这次升级想要的结论：新架构复现了旧行为，同时把口径收敛到一处。
+  static const String algorithmVersion = '17';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
