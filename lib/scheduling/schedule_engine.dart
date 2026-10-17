@@ -443,7 +443,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
 
-    _improve(problem, slots, blocks, targets, chunkGenerator);
+    _improve(problem, slots, blocks, targets, chunkGenerator, allocationPlan);
     // FR-CAL-05 的"不锁定"那一支：被手动拖动、但用户没有选择锁定的块，在**本次生成**里
     // 必须按锁定对待（因此上面的 `_improve` 跳过了它），否则局部改进会立刻把它搬回去，
     // 用户看到的就是"拖了没用"。生成结束后再把这些块的 `locked` 改回 false 输出，于是它
@@ -1322,6 +1322,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     List<PlannedBlock> blocks,
     Map<String, int> targets,
     CandidateGenerator candidates,
+    DayAllocationPlan allocationPlan,
   ) {
     final tasks = {for (final task in problem.tasks) task.id: task};
     var operations = 0;
@@ -1409,6 +1410,33 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           _movableMinutesByDate(problem, others),
         )) {
           continue;
+        }
+        // ── **跨日预算在改进阶段同样成立**（算法 17，计划 Task 5/6）──────────────
+        //
+        // 少了这一条会直接抹掉跨日分配的成果：实测「150 分钟、七天各余 90、
+        // 粒度 30」时，放置阶段**正确地**排出 5 天各 30 分钟
+        // （10-05/06/09/10/11），随后 `_improve` 把 10-05 的那块搬到了 10-06，
+        // 于是 10-06 变成 60 分钟、10-05 归零——**参与日从 5 天掉到 4 天**，
+        // 而分配器给的预算明明是每天 30。
+        //
+        // 判据与放置循环**同一个函数**（`_budgetRemaining`）：`others` 已排除当前
+        // 这一块，因此这里问的正是"搬过去之后那一天会不会超预算"。
+        final budgetForTask = allocationPlan.budgetFor(task.id);
+        if (budgetForTask != null) {
+          final allowed =
+              budgetForTask.minutesByLocalDate[candidate.localDate] ?? 0;
+          var alreadyOnDay = 0;
+          for (final other in others) {
+            if (other.taskId != task.id) continue;
+            if (_localDate(other.startUtc, problem.timeZoneId) ==
+                candidate.localDate) {
+              alreadyOnDay += other.durationMinutes;
+            }
+          }
+          if (allowed <= 0 ||
+              alreadyOnDay + candidate.durationMinutes > allowed) {
+            continue;
+          }
         }
         final score = _scoreCandidate(
           problem,
