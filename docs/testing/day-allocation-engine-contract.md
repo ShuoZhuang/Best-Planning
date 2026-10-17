@@ -226,3 +226,67 @@ allocated = 120   shortage = 0        ← 修复前是 90
 > 这也解释了为什么 `SearchOutcomeKind` 至今无法在界面上出现：
 > 没有跨日分配，就没有"状态预算耗尽"可言。Task 9 的最后一步被 Task 6 阻塞。
 
+---
+
+## 6. 引擎接线的实测记录（第 21 轮，已回退）
+
+按 §3 契约把分配器接进引擎后**实测**（改动已回退，因为下面第 3 条不可接受）：
+
+### 6.1 达成的效果（证明接线方向正确）
+
+- **Task 1 的红灯转绿 2 条**：
+  - `schedule_engine_test`「普通任务的跨日负载」→ 绿；
+  - `capacity_aware_week_planning_test`「150/30 不得固定选择前五个日期」→ 绿。
+  这是**跨日分配真正生效**的直接证据：普通任务不再天然挤向窗口前部。
+- 基线红灯由 5 条降到 3 条。
+
+### 6.2 接线必须成对传的两个数（契约 §3.2，已实测）
+
+```dart
+targetMinutesByTask: {
+  for (final task in problem.tasks)
+    task.id: math.max(0, targets[task.id]! - (scheduledByTask[task.id] ?? 0)),
+},
+alreadyScheduledMinutesByTask: {
+  for (final task in problem.tasks) task.id: scheduledByTask[task.id] ?? 0,
+},
+```
+
+- 只传 `targetMinutesByTask`（不给 `alreadyScheduledMinutesByTask`）：
+  分配器会把已排分钟**再减一次**，预算偏小（实测"远期任务"只排 90 而非 120）。
+- 两者都传 ⇒ `remaining = (targets − scheduled) − (planned − scheduled) = targets − planned`，
+  两边同源，与引擎的 `remaining` 一致。
+
+### 6.3 不可接受的代价（回退原因）
+
+1. **`even` 任务的按日分布被破坏**：210 分钟、四天各余 120、最小片段 50 时得到
+   `[50, 50, 50, 60]`，而既有用例（`recurring_even_distribution_test`，用户实测回归）
+   要求 `[50, 50, 55, 55]`。
+   原因：旧路径用 `even_distribution_allocator.dart` 的**水位分配**（真均衡），
+   新路径用 `day_allocation.dart` 的**轮转 + 余数落在排名首位**。
+   已在 `even` 分支加"按开放天数摊份额"的修正，但**实测未生效**，
+   说明 `even` 任务当前并不走那条分支（`chunkMinutes` 与调用路径需进一步确认）。
+2. **另外 2 条既有用例转红**：`movable_daily_limit_test`「锁定块不计入可移动上限」、
+   `week_view_test` ×2（跨页面刷新）。
+3. **规模性能退化约 7 倍**：全量 `flutter test` 由约 1.5 分钟变成约 11 分钟。
+   算法 17 明确要求性能不得退化，因此这一条单独就足以阻止提交。
+
+### 6.4 下一步（有据可依，不要再盲改）
+
+1. **先让 `even` 走回水位分配**：`even_distribution_allocator.dart` 的水位逻辑是
+   正确的，且已有 18 条用例覆盖。可选做法是在 `allocateTaskDays` 内部对
+   `TaskDistributionPolicy.even` 复用该逻辑（而不是在轮转里补丁），
+   或让引擎对 `even` 任务**照旧调用** `allocateEvenDistribution`、只对非 `even`
+   任务用 `day_allocation`。
+2. **定位性能退化**：11 分钟 vs 1.5 分钟是数量级问题。最可能的来源是
+   **每个候选都要查 `budgetPolicy`**（`_budgetRemaining` 每次遍历 `blocks`），
+   而候选数是"起点 × 时长"展开的（规模用例里数百万）。
+   处置方向与 Task 2 修过的 `PolicyLookupCache` 同形：**把当日已用分钟做成增量表**，
+   而不是每个候选重算。
+3. 三条代价都解决后再跑 §4 验收判据。
+
+**教训**：接线这次失败的原因与前面七轮不同——前七轮是"分配器算错"，
+这一轮分配器是对的，**错在把它接上去的代价**（`even` 语义 + 性能）。
+因此回退是正确的：接线本身有效（两条红灯转绿），但必须连同 `even` 与性能一起解决。
+
+
