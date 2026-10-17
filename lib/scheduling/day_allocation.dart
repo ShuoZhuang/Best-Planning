@@ -45,7 +45,6 @@ final class DayAllocationInput {
     required this.granularityMinutes,
     Map<String, int>? targetMinutesByTask,
     Map<String, int> alreadyScheduledMinutesByTask = const {},
-    this.maxReallocationPasses = 3,
     this.maxAllocationStates = 10000,
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        alreadyPlannedByTask = UnmodifiableMapView({
@@ -61,9 +60,6 @@ final class DayAllocationInput {
        ) {
     if (granularityMinutes <= 0) {
       throw ArgumentError.value(granularityMinutes, 'granularityMinutes');
-    }
-    if (maxReallocationPasses < 0) {
-      throw ArgumentError.value(maxReallocationPasses, 'maxReallocationPasses');
     }
     if (maxAllocationStates <= 0) {
       throw ArgumentError.value(maxAllocationStates, 'maxAllocationStates');
@@ -96,9 +92,6 @@ final class DayAllocationInput {
   /// [alreadyPlannedByTask] 与它**同源**，因此不能两次都减：传引擎的剩余量时，
   /// 这里传同一个 `scheduledByTask` 让分配器**减回去**。
   final Map<String, int> alreadyScheduledMinutesByTask;
-
-  /// 最多执行几轮"预算落地失败后重新分配"（计划 §3.4 第 10 条 / §6）。
-  final int maxReallocationPasses;
 
   /// 最多访问多少个分配状态（计划 §3.6 第 5 条）。
   final int maxAllocationStates;

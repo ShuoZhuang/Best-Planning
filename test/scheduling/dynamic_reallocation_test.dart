@@ -17,11 +17,13 @@
 // 分配器的 K 计算与轮转保证有容量的日子参与，引擎在放置时遍历所有有预算的
 // 日期，因此"某天放不下"的量最终会落到还放得下的参与日上。
 //
-// 但 `DayAllocationInput.maxReallocationPasses` 目前**只做参数校验、从未被
-// 读取**（`day_allocation.dart` 里三处引用全是构造与断言，没有任何循环用它）。
-// 它是**冗余参数**而不是功能缺口：动态重分的效果由 K 计算与引擎遍历达成，
-// 不依赖这个字段。留着它当"意图声明"可以，但别让读代码的人以为存在一个
-// 专门的重分循环——**没有**。
+// 但 `DayAllocationInput` **没有**多轮重分循环，也不该有：那会引起重复搜索、
+// 终止条件与状态回滚三类风险。曾经存在的 `maxReallocationPasses` 字段从未被
+// 读取，已于 2026-10-17 删除（它只是"意图声明"的残留）。
+//
+// 动态转移因此由下面两件**已经在跑**的事共同保证，本条测试钉的正是它们：
+// · 分配器按账本容量决定 K 与每日额度，并让余量落到还有容量的参与日；
+// · 引擎放置时遍历**所有有预算的日期**，某天放不下就换一天。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
