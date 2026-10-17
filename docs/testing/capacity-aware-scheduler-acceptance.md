@@ -303,17 +303,76 @@ if (dueAt != null && !_localDayStart(date).isBefore(dueAt)) continue;
 
 ---
 
-## 7. 未执行项（据实记录，不粉饰）
+## 7. Task 12 Step 1–3：自动化验收证据（**本轮实测**）
+
+按计划 Task 12 的三条命令逐条执行。**环境要求**：本机 `%TEMP%`／`%LOCALAPPDATA%`
+不可写，所有命令前必须重定向临时目录，否则 Flutter 会在
+`ErrorHandlingFileSystem.systemTempDirectory` 处崩溃。
+
+```powershell
+$t='G:\best-planing\.tooling\tmp'; $env:TMP=$t; $env:TEMP=$t
+$env:PUB_CACHE='G:\best-planing\.tooling\pub-cache'; $env:HOME="$t\home"
+cd G:\best-planing\.worktrees\native-implementation
+```
+
+### Step 1：格式与静态检查 —— **通过**
+
+```text
+dart format --output=none --set-exit-if-changed lib test
+  → Formatted 592 files (0 changed)          exit=0
+flutter analyze
+  → No issues found!                          exit=0
+```
+
+### Step 2：全部单元与组件测试 —— **2726 PASS / 5 FAIL（全部是预期红灯）**
+
+```text
+flutter test    → 2726 passed / 5 failed     exit=1
+实测耗时 98 秒
+```
+
+那 5 条红灯**全部是 Task 1 建立的预期红灯**，与 Task 6 未完成直接相关：
+
+| 文件 | 用例 | 归属 |
+| --- | --- | --- |
+| `capacity_aware_week_planning_test.dart` | 工作日繁忙、周末空闲（普通任务用周末） | Task 1 Step 3 |
+| `capacity_aware_week_planning_test.dart` | 逐日每日上限（周末按自己上限 360 算） | Task 1 Step 5 |
+| `capacity_aware_week_planning_test.dart` | 150/30 不得固定选择前五个日期 | Task 1 Step 2 |
+| `capacity_aware_week_planning_test.dart` | 150/30 均匀周期目标不得固定前五日 | Task 1 Step 2 |
+| `schedule_engine_test.dart` | 普通任务的跨日负载（块落到周末） | Task 1 Step 3 |
+
+**没有其它红灯。** 按计划要求，这些失败**不得**通过更新无关 golden 消除；
+它们要等 Task 6 完成接线后转绿。
+
+### Step 3：集成测试 —— **未执行（网络受限，不是代码问题）**
+
+```text
+flutter test integration_test
+  → Failed to download .../flutter-web-sdk.zip
+    HandshakeException: Connection terminated during handshake
+  exit=1
+```
+
+**原因与此前的记录不同**：本文件早先写的是"`%TEMP%` 不可写"，
+而实测是 **Flutter 需要下载 Web SDK 但网络握手失败**——
+`integration_test/` 目录存在，命令能启动，卡在下载依赖。
+
+按计划要求，这里**如实记录命令、环境错误与未执行状态，不写"通过"**。
+待网络可用时重跑才能给出结论。
+
+## 8. 未执行项（据实记录，不粉饰）
 
 - **Task 6–9、11–13 未完成。** 算法版本**仍是 16**（Task 13 才升到 17）。
 - **两份黄金夹具未更新**（`golden_week.json` 仍是算法 16 的结果）。
   注意：`schedule_engine_test.dart` 里有一条 golden 用例在当前 HEAD 是**绿灯**，
   但接入 Task 6 之后会变红——那是预期的（Task 13 负责冻结新黄金结果）。
-- **集成测试未执行**（`flutter test integration_test`）：本机 `%TEMP%` 不可写，
-  尚未验证该命令在重定向后能否运行。
+- **集成测试未执行**：实测为**网络受限**（Web SDK 下载握手失败），
+  命令、错误与 exit code 见 §7 Step 3。
 - **六个人工场景全部未执行**（计划 Task 12 Step 4–9）。它们需要可交互的 Windows 构建。
+  Step 4–9 的完整预期已抄录在计划附件；每项需记录构建提交、算法版本、输入摘要、
+  预期、实际、截图路径与通过/失败。
 
-## 8. 已知限制
+## 9. 已知限制
 
 - 不承诺数学意义上的全局最优。
 - 任务依赖与通用通勤时间不在本次范围内。
