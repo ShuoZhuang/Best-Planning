@@ -1,0 +1,55 @@
+{
+  "_comment": "算法 17 容量感知黄金夹具。冻结的是「逐日规则 + 单一账本 + 跨日分配」三件事的联合行为：工作日繁忙、周末空闲时，普通任务必须用上周末，而不是把工作日继续堆满。",
+  "timeZoneId": "Asia/Shanghai",
+  "planningStartLocalDate": "2026-10-05",
+  "planningEndLocalDate": "2026-10-12",
+  "weekdayDailyLimitMinutes": 180,
+  "weekendDailyLimitMinutes": 360,
+  "rules": {
+    "sleepStartMinute": 0,
+    "sleepEndMinute": 360,
+    "minimumSleepMinutes": 60,
+    "granularityMinutes": 30,
+    "breakMinutes": 10,
+    "defaultFocusMinutes": 60,
+    "weeklyLifeQuotaMinutes": 0
+  },
+  "busy": [
+    {"id": "weekday-block-5", "localDate": "2026-10-05", "startMinute": 0, "endMinute": 720},
+    {"id": "weekday-block-5b", "localDate": "2026-10-05", "startMinute": 800, "endMinute": 1440},
+    {"id": "weekday-block-6", "localDate": "2026-10-06", "startMinute": 0, "endMinute": 720},
+    {"id": "weekday-block-6b", "localDate": "2026-10-06", "startMinute": 800, "endMinute": 1440},
+    {"id": "weekday-block-7", "localDate": "2026-10-07", "startMinute": 0, "endMinute": 720},
+    {"id": "weekday-block-7b", "localDate": "2026-10-07", "startMinute": 800, "endMinute": 1440},
+    {"id": "weekday-block-8", "localDate": "2026-10-08", "startMinute": 0, "endMinute": 720},
+    {"id": "weekday-block-8b", "localDate": "2026-10-08", "startMinute": 800, "endMinute": 1440},
+    {"id": "weekday-block-9", "localDate": "2026-10-09", "startMinute": 0, "endMinute": 720},
+    {"id": "weekday-block-9b", "localDate": "2026-10-09", "startMinute": 800, "endMinute": 1440}
+  ],
+  "tasks": [
+    {
+      "id": "ordinary",
+      "minutes": 150,
+      "splitMode": "splittable",
+      "minChunk": 30,
+      "maxChunk": 90,
+      "due": null,
+      "priority": "medium",
+      "energy": "medium",
+      "life": false
+    }
+  ],
+  "expected": {
+    "algorithmVersion": "17",
+    "totalScheduledMinutes": 150,
+    "shortageMinutes": 0,
+    "usedWeekend": true,
+    "weekdayCapMinutes": 180,
+    "_why": [
+      "工作日的可用空档只有 12:00–13:20（80 分钟），去掉 10 分钟缓冲只剩 70 分钟，因此单个工作日最多放下两块（60 分钟）。",
+      "五天工作日合计最多 300 分钟，所以「150 分钟排得下」本身不构成周末必须被使用的理由——必须靠跨日负载比较才会挑周末。",
+      "周末没有忙碌区间，且自己的上限是 360（不是复制周一那个 180），因此它是方案级目标里更优的日子。",
+      "算法 16 会把 150 分钟全堆在工作日、周末保持为 0；算法 17 必须至少用一个周末日。"
+    ]
+  }
+}
