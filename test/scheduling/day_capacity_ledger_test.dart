@@ -240,7 +240,68 @@ void main() {
       );
     });
 
-    test('跨午夜的基线块**按本地日切开**，与视觉空白同一口径', () {
+    // ───────────────────────────────────────────────────────────────────────────
+    // **锁定块占用"可移动额度"**——这条口径有争议，因此单独钉住。
+    //
+    // 背景：`movable_daily_limit_test`「锁定块不计入可移动上限」要求
+    // "锁定块 300 分钟 + 可移动上限 360 ⇒ 300 分钟的可移动任务仍应排下"，
+    // 即**锁定额度与可移动额度是两份额度**。
+    //
+    // 而账本的口径相反，且是**刻意**的：`_usedMovableMinutesByLocalDate` 的文档
+    // 直接引用计划 §2 的原文——`usedMovableMinutes` **包含锁定/钉住的任务块**——
+    // 并记录了"不这样做"的实测症状（许可 180、锁定 60、本该剩 120 却报 180，
+    // 于是引擎把锁定块占着的时间又排了一遍）。
+    //
+    // 两者不可能同时成立。本条用例把**账本实际给出的数字**钉住，
+    // 好让接线时的分歧成为一条明确、可决断的差异，而不是又一个"看起来哪边都行"的模糊地带。
+    // ───────────────────────────────────────────────────────────────────────────
+    test('**锁定块占用可移动额度 ⇒ 许可 360、锁定 300 时只剩 60**', () {
+      final window = _dayWindow(5);
+      // 只留 07:00–19:00（720 分钟）空闲。
+      final fixed = [
+        TimeRange(startUtc: _midnight(5), endUtc: _at(5, 7 * 60)),
+        TimeRange(startUtc: _at(5, 19 * 60), endUtc: _midnight(6)),
+      ];
+      final locked = [
+        PlannedBlock(
+          id: 'locked-1',
+          taskId: 'locked-task',
+          range: TimeRange(startUtc: _at(5, 7 * 60), endUtc: _at(5, 12 * 60)),
+          locked: true,
+        ),
+      ];
+      final result = _build(
+        window: window,
+        rules: _rules(dailyLimit: 360),
+        fixed: fixed,
+        locked: locked,
+      );
+
+      final snapshot = result.ledger.forDate(DateTime(2026, 10, 5));
+      expect(snapshot.hardFreeMinutes, 720, reason: '日硬空闲不扣任务块');
+      expect(
+        snapshot.usedMovableMinutes,
+        300,
+        reason:
+            '账本口径：`usedMovableMinutes` **包含锁定块**（计划 §2 原文，'
+            '见 `_usedMovableMinutesByLocalDate` 的文档）',
+      );
+      expect(
+        snapshot.licensedCapacityMinutes,
+        360,
+        reason: 'min(硬空闲 720, 每日上限 360)',
+      );
+      expect(
+        snapshot.remainingMinutes,
+        60,
+        reason:
+            'min(视觉空白 420, 许可 360 − 已用 300) = 60。'
+            '`movable_daily_limit_test` 期望这里能给足 300（锁定额度与可移动额度分开），'
+            '因此两者是**互相冲突的两套口径**，必须先决断再接线',
+      );
+    });
+
+    test('跨午夜的基线块**按本地日分开**，与视觉空白同一口径', () {
       // 窗口覆盖 10-05 与 10-06 两天。
       final window = TimeRange(startUtc: _midnight(5), endUtc: _midnight(7));
       final locked = [
