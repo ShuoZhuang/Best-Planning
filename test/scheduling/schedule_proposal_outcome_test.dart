@@ -15,10 +15,8 @@
 //
 // 因此这里不是测"字段存在"，而是测"它在两条包装路径上都活得下来"。
 import 'package:flutter_test/flutter_test.dart';
-import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
-import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/scheduling/search_outcome.dart';
 

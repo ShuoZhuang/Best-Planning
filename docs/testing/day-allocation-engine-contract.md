@@ -158,25 +158,30 @@ day=11 endUtc=2026-10-12T00:00Z  endAfterDue=true    ← 被保留，但它应�
 而"这一天在目标时区下的 `[startUtc, endUtc)`"是**账本本可以携带、却没有携带**
 的一项输入。
 
-### 5.3 契约修订（取代 §3.1）
+### 5.3 契约修订（取代 §3.1）——**已实施**（提交见 §5.5）
 
 ```text
-DayCapacitySnapshot 需要携带该本地日的 UTC 边界：
-    startUtc : DateTime   // 该本地日在 timeZoneId 下的起点
-    endUtc   : DateTime   // == 次日起点，半开区间
+DayCapacitySnapshot 携带该本地日的 UTC 边界：
+    startUtc : DateTime?   // 该本地日在 timeZoneId 下的起点
+    endUtc   : DateTime?   // == 次日起点，半开区间
 ```
 
-- `buildDayCapacityLedger` 已经在算这些边界（它按本地日切分可用时段），
-  因此这是**把已有信息暴露出来**，不是新增换算。
-- 分配器的所有"与 `dueAtUtc` / `availableFromUtc` 比较"必须用
-  `snapshot.startUtc` / `snapshot.endUtc`，**不得**再用 `DateTime(y, m, d ± 1)`
-  或 `DateTime.utc(y, m, d) + 24h`。
+- `buildDayCapacityLedger` 本来就在算这些边界（它按本地日切分可用时段），
+  因此这是**把已有信息暴露出来**，不是新增换算。它**总是**显式填入两个值。
+- 两个字段可空，为 `null` 表示"手写夹具不关心时区边界"，此时分配器按
+  "`localDate` 即 UTC 日零点"理解（见 §5.5 的取舍说明）。
+- 分配器的所有"与 `dueAtUtc` / `availableFromUtc` 比较"必须用账本边界，
+  **不得**再用 `DateTime(y, m, d ± 1)` 或 `DateTime.utc(y, m, d) + 24h`。
 - 判别式（唯一一种读法）：
 
   ```text
-  排除当且仅当  snapshot.endUtc <= dueAtUtc        // 截止把这一天整段跳过
-  排除当且仅当  snapshot.endUtc <= availableFromUtc
+  排除当且仅当  dayStartUtc >= dueAtUtc        // 这一天整段都在截止之后
+  排除当且仅当  dayEndUtc   <= availableFromUtc
   ```
+
+  **注意是 `startUtc` 比截止、`endUtc` 比最早已开始**。两条边界的含义不同，
+  因为"能不能放下一段"对截止是"这一天的起点还没过截止"，对最早开始是
+  "这一天整段都已经在下界之后"。
 
 ### 5.4 为什么这解释了六轮失败
 
@@ -184,10 +189,40 @@ DayCapacitySnapshot 需要携带该本地日的 UTC 边界：
 而正确答案不在分配器里，**在账本里**。每种猜测都会让**不同的**子集日子被误判，
 于是修好一处、另一处坏掉——这正是六轮表现的形状。
 
-因此实施顺序应当是：
+实施顺序（已按此执行）：
 
-1. 先给 `DayCapacitySnapshot` 加 `startUtc` / `endUtc`（由 `buildDayCapacityLedger` 填）；
-2. 再让分配器一律读它；
-3. 然后跑 §4 的验收判据。
+1. 给 `DayCapacitySnapshot` 加 `startUtc` / `endUtc`（由 `buildDayCapacityLedger` 填）；
+2. 让分配器一律读它；
+3. 跑 §4 的验收判据。
 
-**第 1 步不做，第 3 步不可能通过。**
+### 5.5 实施结果（实测）
+
+**探针（`planningWindow` 为 UTC、`dueAtUtc = start + 2d`、目标 120、片段 30–60）：**
+
+```text
+账本边界（UTC 时区，逐日）：
+  10-05 start=10-05T00:00Z end=10-06T00:00Z remaining=600
+  10-06 start=10-06T00:00Z end=10-07T00:00Z remaining=600
+  ...
+预算 = {10-05: 60, 10-06: 60}
+allocated = 120   shortage = 0        ← 修复前是 90
+```
+
+分配器的 23 条用例 + 日容量账本 + 均分器共 **55 条全绿**（改动前也是 55 条全绿，
+因此这是"行为不变 + 生产路径变正确"）。
+
+**取舍（必须记录）**：`startUtc` / `endUtc` 做成**可空**，而不是必填。
+理由：本仓库有大量手写 `DayCapacitySnapshot` 夹具（跨多个测试文件），
+把它们全部改成必填会牵连与本次修复无关的文件；而**生产路径
+（`buildDayCapacityLedger`）总是显式传入**，因此正确性不依赖缺省值。
+
+代价：手写夹具表达不了跨时区的截止语义。**这是可接受的吗？**
+可接受——因为需要跨时区语义的用例应当走 `buildDayCapacityLedger`
+（像 §5.5 的探针那样），而不是手搓账本。
+
+**仍待完成**：本改动只修好了**分配器**。把它接进引擎（Task 6 主体）
+仍未完成：`schedule_engine.dart` 至今没有 `allocateTaskDays` 调用。
+
+> 这也解释了为什么 `SearchOutcomeKind` 至今无法在界面上出现：
+> 没有跨日分配，就没有"状态预算耗尽"可言。Task 9 的最后一步被 Task 6 阻塞。
+

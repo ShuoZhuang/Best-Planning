@@ -42,7 +42,9 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 只取一个都会漏：只取空白会超过每日上限；只取许可会把"这天已经有别的块的时段"
 /// 当成可用。
 final class DayCapacitySnapshot {
-  const DayCapacitySnapshot({
+  /// **不再是 `const` 构造**（算法 17）：`startUtc` / `endUtc` 由账本构建时
+  /// 按目标时区算出，而它们让"这一天的名字"与"这一天在 UTC 上的边界"分开。
+  DayCapacitySnapshot({
     required this.localDate,
     required this.hardFreeMinutes,
     required this.calendarGapMinutes,
@@ -52,10 +54,36 @@ final class DayCapacitySnapshot {
     required this.remainingMinutes,
     required this.utilizationPermille,
     this.overLicensedMinutes = 0,
+    this.startUtc,
+    this.endUtc,
   });
 
   /// 归一后的本地日期（时间部分为 0）。
   final DateTime localDate;
+
+  /// 这个**本地日**在目标时区下的起点（UTC 时刻）。
+  ///
+  /// ## 为什么必须随账本携带
+  ///
+  /// [localDate] 是"某一天的名字"（`DateTime(y, m, d)`，不带时区），而截止
+  /// （`task.dueAtUtc`）与最早开始（`task.availableFromUtc`）是**真实 UTC 时刻**。
+  /// 把"名字"当瞬间比，就是把两个钟混在一起——`Asia/Shanghai` 下本地零点
+  /// = 前一天 16:00Z，**相差 8 小时**，足以让一整天的可用性翻转。
+  ///
+  /// 实测（Task 6 排查）：`dueAt = localMidnightUtc(10-08) = 10-07T16:00Z`。
+  /// 用 `DateTime.utc(y, m, d)` 当起点，10-05／10-06 的起点被算成
+  /// `10-05T00:00Z`／`10-06T00:00Z`，比截止早 40 小时，于是"应当可用"的日子
+  /// 被排除、"应当被截止排除"的日子被保留——结果正好相反。
+  ///
+  /// 正确答案只有时区数据库知道，而账本构建时**本来就算出了**这些边界
+  /// （它按本地日切分可用时段）。这两个字段就是把它暴露出来。
+  ///
+  /// 为 `null` 表示"手写夹具不关心时区边界"：调用方须按
+  /// `localDate` 即 UTC 日零点理解。**生产路径总是显式传入**。
+  final DateTime? startUtc;
+
+  /// 这个本地日的终点（UTC 时刻），半开区间 `[startUtc, endUtc)`。
+  final DateTime? endUtc;
 
   /// **日硬空闲**：只扣固定、保护、睡眠与课程过渡，不扣任何任务块（计划 §2）。
   final int hardFreeMinutes;
@@ -346,6 +374,13 @@ DayCapacityLedger buildDayCapacityLedger({
         : (licensedRemaining < 0 ? 0 : licensedRemaining);
     snapshots[date] = DayCapacitySnapshot(
       localDate: date,
+      // **该本地日在目标时区下的真实 UTC 边界。** 账本构建时本来就要按本地日
+      // 切分可用时段，因此这两个值是"已经算出来的信息"，不是新增换算。
+      startUtc: zones.localMidnightToUtc(date, problem.timeZoneId),
+      endUtc: zones.localMidnightToUtc(
+        DateTime(date.year, date.month, date.day + 1),
+        problem.timeZoneId,
+      ),
       hardFreeMinutes: hardFree,
       calendarGapMinutes: gap,
       licensedCapacityMinutes: licensed,

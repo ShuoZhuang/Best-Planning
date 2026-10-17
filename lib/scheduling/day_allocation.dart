@@ -468,21 +468,29 @@ List<DateTime> _eligibleDates(
   final dates = <DateTime>[];
   for (final date in allDates) {
     if (!task.allowsWeekday(date.weekday)) continue;
-    // ── 截止：排除**整段都在截止之后**的本地日 ───────────────────────────────────
+    // ── 截止与最早开始：用**账本携带的 UTC 边界**，不再猜日键与时区的关系 ────────
     //
-    // 判据只有一条：**这一天的起点自始至终都不早于截止**。半开区间 `[start, end)`
-    // 下，一块必须整段落在截止之前，因此"截止日当天"仍然可能合法（早上的空档够用），
-    // 而"截止恰好落在某日零点"会把那一天排除掉。
+    // 判据（见 `docs/testing/day-allocation-engine-contract.md` §5.3）：
     //
-    // 精确的"某个候选是否越过截止"由候选生成按 `end <= dueAt` 判定——那是唯一的
-    // 硬判据；跨日阶段只排除**毫无机会**的日子，多排一天都会白丢可用容量。
+    // ```text
+    // 排除当且仅当  dayStartUtc >= dueAtUtc      // 这一天整段都在截止之后
+    // 排除当且仅当  dayEndUtc   <= availableFromUtc
+    // ```
     //
-    // 第一版写成 `!dayStart.isBefore(dueAt)` 看似等价，但它把"截止恰在某日零点"
-    // 的**前一天**也留了下来（实测"截止更早者先分配"被分到不该有的日子）。
-    // 现在两条边界的含义写死：`dayStart >= dueAt ⇒ 排除`。
-    if (dueAt != null && !_localDayStart(date).isBefore(dueAt)) continue;
-    // 最早开始同理：整段都到下界之后才开始的日子不可用。
-    if (availableFrom != null && !_localDayEnd(date).isAfter(availableFrom)) {
+    // **不得**用 `DateTime(y, m, d ± 1)` 或 `DateTime.utc(y, m, d) + 24h` 当边界：
+    // 前者把日键当本地零点、后者当 UTC 零点，两者都不是"这一天在目标时区下的
+    // 真实边界"，而正确答案只有时区数据库知道。
+    //
+    // 实测（Task 6 六轮失败的根因）：`Asia/Shanghai` + 截止 `10-07T16:00Z`
+    // （本地 10-08 零点）时，把起点算成 UTC 零点会让 10-05／10-06 的起点比截止
+    // 早 40 小时，于是"应当可用"的日子被排除、"应当被截止排除"的日子被保留。
+    final bounds = input.ledger.forDate(date);
+    final dayStart = bounds.startUtc ?? _utcMidnight(date);
+    final dayEnd =
+        bounds.endUtc ??
+        _utcMidnight(DateTime(date.year, date.month, date.day + 1));
+    if (dueAt != null && !dayStart.isBefore(dueAt)) continue;
+    if (availableFrom != null && !dayEnd.isAfter(availableFrom)) {
       continue;
     }
     final headroom = _headroomOf(
@@ -601,16 +609,13 @@ int _projectionStep(SchedulableTask task, int headroom) {
   return effective < headroom ? effective : headroom;
 }
 
-/// 本地日的起点（本地零点）。
+/// 手写夹具未提供时区边界时的退化：把日键当作 UTC 日零点。
 ///
-/// 分配阶段的日期键就是"本地自然日"（`DayCapacityLedger.localDates` 与
-/// `AvailabilitySlot.localDate` 都是），因此起点就是它自己。写成函数是为了让
-/// "跨日阶段不引入第二个时区换算"这件事在代码里可见（计划 §3.4 第 3 条）。
-DateTime _localDayStart(DateTime date) => date;
-
-/// 本地日的终点（次日零点，半开区间）。
-DateTime _localDayEnd(DateTime date) =>
-    DateTime(date.year, date.month, date.day + 1);
+/// **生产路径不会走到这里**：`buildDayCapacityLedger` 总是显式填
+/// `startUtc` / `endUtc`。这个缺省只让"只想描述某天容量"的单元测试夹具
+/// 仍然可用，代价是那些夹具不能表达跨时区的截止语义。
+DateTime _utcMidnight(DateTime date) =>
+    DateTime.utc(date.year, date.month, date.day);
 
 /// 这一天该任务还能新增多少分钟。
 ///
