@@ -390,6 +390,12 @@ DayAllocationPlan allocateTaskDays(DayAllocationInput input) {
         allocated[date] = (allocated[date] ?? 0) + minutes;
         ledger = ledger.allocate(date, minutes);
         left -= minutes;
+        // **必须前进到下一天**：否则余量会一次又一次地发给同一天，
+        // 直到它被填满为止——那正是"余数全落在排名第一那天"的成因。
+        //
+        // 实测（`DIAG13`）：本应给 10-05、10-06 各 +5，却给 10-05 加了两次，
+        // 得到 `[60, 50, 50, 50]` 而不是 `[55, 55, 50, 50]`。
+        index++;
         if (left < granularity) break;
       }
       budgets[task.id] = TaskDayBudget(
