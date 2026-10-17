@@ -8,8 +8,8 @@ import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
+import 'package:personal_planner/scheduling/day_allocation.dart';
 import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
-import 'package:personal_planner/scheduling/even_distribution_allocator.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
@@ -23,9 +23,11 @@ abstract interface class ScheduleEngine {
 }
 
 final class DeterministicScheduleEngine implements ScheduleEngine {
-  DeterministicScheduleEngine(this._zones)
+  DeterministicScheduleEngine(this._zones, {this.maxAllocationStates = 10000})
     : _availabilityBuilder = AvailabilityBuilder(_zones),
       _validator = PlanValidator(_zones);
+
+  final int maxAllocationStates;
 
   /// 算法版本。任何会改变排程结果的改动都必须提升该值，否则历史计划无法按
   /// 当时的算法复现（设计 §5.1）。版本 2 引入同一任务的片段间休息，并把续排
@@ -204,6 +206,20 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // 于是判定从"每个候选扫一遍所有块"退化为一次 Map 查表。
     // 见 `_exceedsMovableDailyLimit` 的说明（取消候选截断后这一项曾是主要开销）。
     final movableMinutesByDate = _movableMinutesByDate(problem, blocks);
+    final taskMinutesByDate = <String, Map<DateTime, int>>{};
+    void chargeTaskMinutes(PlannedBlock block) {
+      final byDate = taskMinutesByDate.putIfAbsent(
+        block.taskId,
+        () => <DateTime, int>{},
+      );
+      final date = _localDate(block.startUtc, problem.timeZoneId);
+      byDate[date] = (byDate[date] ?? 0) + block.durationMinutes;
+    }
+
+    for (final block in blocks) {
+      chargeTaskMinutes(block);
+    }
+
     void chargeMovable(PlannedBlock block) {
       final date = _localDate(block.startUtc, problem.timeZoneId);
       movableMinutesByDate[date] =
@@ -215,39 +231,43 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // **这一步必须在放置之前**：候选评分里的同任务连续性、精力匹配与旧计划稳定性都只看
     // "这一天内部哪个位置更好"，一旦让它们参与"选哪一天"，就会出现用户实测的
     // `35 / 125 / 50 / 0`（计划 §2.3）。
-    final evenPlans = <String, EvenDistributionPlan>{
-      for (final task in problem.tasks)
-        if (task.distributionPolicy == TaskDistributionPolicy.even)
-          task.id: allocateEvenDistribution(
-            EvenDistributionInput(
-              targetMinutes: math.max(
-                0,
-                targets[task.id]! - (scheduledByTask[task.id] ?? 0),
-              ),
-              granularityMinutes: problem.rules.granularityMinutes,
-              minChunkMinutes: task.minChunkMinutes,
-              capacityMinutesByLocalDate: _capacityByLocalDate(
-                task,
-                slots,
-                problem.rules.granularityMinutes,
-              ),
-
-              alreadyPlannedMinutesByLocalDate: _plannedMinutesByLocalDate(
-                problem,
-                task,
-                problem.lockedBlocks,
-              ),
+    final allocationPlan = allocateTaskDays(
+      DayAllocationInput(
+        tasks: problem.tasks,
+        ledger: ledger,
+        alreadyPlannedByTask: {
+          for (final task in problem.tasks)
+            task.id: _plannedMinutesByLocalDate(
+              problem,
+              task,
+              problem.lockedBlocks,
             ),
-          ),
-    };
+        },
+        timeZoneId: problem.timeZoneId,
+        cycleStartByTask: _cycleStartsByTask(problem),
+        granularityMinutes: problem.rules.granularityMinutes,
+        targetMinutesByTask: {
+          for (final task in problem.tasks)
+            task.id: math.max(
+              0,
+              targets[task.id]! - (scheduledByTask[task.id] ?? 0),
+            ),
+        },
+        alreadyScheduledMinutesByTask: {
+          for (final task in problem.tasks)
+            task.id: scheduledByTask[task.id] ?? 0,
+        },
+        maxAllocationStates: maxAllocationStates,
+      ),
+    );
 
     for (final task in tasks) {
       var remaining = math.max(
         0,
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
-      final evenPlanForTask = evenPlans[task.id];
-      final evenBudgetDates = evenPlanForTask?.additionalMinutesByLocalDate;
+      final taskBudget = allocationPlan.budgetFor(task.id);
+      final budgetMinutesByDate = taskBudget?.minutesByLocalDate ?? const {};
 
       while (remaining > 0) {
         // ── 每一轮都用**当前**剩余量重新生成候选（计划 §2.1 / Task 4 Step 4）──────
@@ -282,8 +302,8 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             )
             .where(
               (candidate) =>
-                  evenBudgetDates == null ||
-                  evenBudgetDates.containsKey(candidate.localDate),
+                  budgetMinutesByDate.isEmpty ||
+                  budgetMinutesByDate.containsKey(candidate.localDate),
             )
             .toList();
         if (roundCandidates.isEmpty) {
@@ -307,8 +327,21 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         // 在第二遍**整段返回 false**，于是任务自己声明的每日上限在放置阶段形同不存在
         // （实测：每天 30 分钟额度、任务要 210 分钟 ⇒ 排出七个 30 分钟块）。
         var ranked = <_RankedCandidate>[];
-        final evenPlan = evenPlanForTask;
-        final relaxedDailyQuota = evenPlan != null;
+        // **只有 `even` 任务放宽每日可移动上限**。
+        //
+        // 原因：`even` 任务的每日分钟已由分配器按**许可容量**算定（预算本身就是
+        // 额度约束），再叠一层"每日可移动上限"是对同一件事的重复限制，会把
+        // 预先算好的预算卡掉。实测（`recurring_planning_test`
+        // 「均匀分布不会把 180 分钟全堆到周日」）：若对所有任务都收紧，
+        // 该 even 任务**一个块都排不进去**（`blocks.length == 0`）。
+        //
+        // 而**普通任务必须严格检查上限**——那正是 `movable_daily_limit_test`
+        // 「锁定块占用可移动额度」钉住的规则（锁定 300 + 上限 360 ⇒ 最多再排 60）。
+        //
+        // 因此判据回到"是不是 even"，而不是"有没有预算"。
+        final relaxedDailyQuota =
+            task.distributionPolicy == TaskDistributionPolicy.even;
+        final budgetPlan = taskBudget;
         // **"最终余量凑不出片段"只排除那些候选，不排除整件事**（1.8.0，冻结决策 §1.4）。
         //
         // 修复前这里是**无条件 `continue`**：一个 12 分钟的任务选 10 分钟会留下 2 分钟，
@@ -323,10 +356,10 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         var allowUnschedulableLeftover = false;
         for (
           var pass = 0;
-          pass < (evenPlan == null ? 2 : 1) && ranked.isEmpty;
+          pass < (budgetPlan == null ? 2 : 1) && ranked.isEmpty;
           pass++
         ) {
-          allowUnschedulableLeftover = evenPlan != null || pass == 1;
+          allowUnschedulableLeftover = budgetPlan != null || pass == 1;
           // **判定只有一份实现**：放置循环与最终诊断都调
           // `evaluateCandidateEligibility`（`candidate_eligibility.dart`）。
           // 两处各写一套"看起来差不多"的硬约束判断，就必然漂移——而漂移的后果是
@@ -338,19 +371,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             blocks: blocks,
             policies: policies,
             movableMinutesByDate: movableMinutesByDate,
-            plannedMinutesForTaskByDate: _taskMinutesByLocalDate(
-              problem,
-              task,
-              blocks,
-            ),
-            budgetPolicy: evenPlan == null
+            plannedMinutesForTaskByDate:
+                taskMinutesByDate[task.id] ?? const <DateTime, int>{},
+            budgetPolicy: budgetPlan == null
                 ? null
-                : (candidate) => _evenBudgetRemaining(
-                    problem,
-                    task,
+                : (candidate) => _budgetRemaining(
                     candidate,
-                    evenPlan,
-                    blocks,
+                    budgetPlan,
+                    taskMinutesByDate[task.id] ?? const <DateTime, int>{},
                   ),
             allowUnschedulableLeftover: allowUnschedulableLeftover,
             relaxedDailyTaskLimit: relaxedDailyQuota,
@@ -405,6 +433,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         );
         blocks.add(block);
         chargeMovable(block);
+        chargeTaskMinutes(block);
         remaining -= selected.durationMinutes;
         scheduledByTask.update(
           task.id,
@@ -970,63 +999,6 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 实测（本专项回归夹具）：210 分钟、截止周日、七日窗口 ⇒ 均分给出**每天 30 分钟**，
   /// 其中三天在截止之后；引擎只排进 120 分钟，剩下 90 分钟被报成 `dailyLimitReached`。
   /// 只按截止筛掉那三天之后，同样的输入一次排满 210。
-  Map<DateTime, int> _capacityByLocalDate(
-    SchedulableTask task,
-    List<AvailabilitySlot> slots,
-    int granularity,
-  ) {
-    final eligibleDates = _eligibleLocalDates(task, slots);
-    final dueAtUtc = task.dueAtUtc;
-    final rangesByDate = <DateTime, List<TimeRange>>{};
-    for (final slot in slots) {
-      if (!eligibleDates.contains(slot.localDate)) continue;
-      if (!task.allowsWeekday(slot.localDate.weekday)) continue;
-      // 截止之后开始的时段装不下任何候选（候选必须整段落在截止之前），
-      // 因此它这一天不该参与预算分配。用"起点不早于截止"判定是**保守且充分**的：
-      // 起点在截止之后 ⇒ 该时段一个候选都没有；起点在截止之前 ⇒ 仍然保留，
-      // 由候选生成按 `end <= due` 精确过滤（那一步不能被预算层替代）。
-      if (dueAtUtc != null && !slot.startUtc.isBefore(dueAtUtc)) continue;
-      (rangesByDate[slot.localDate] ??= []).add(slot.range);
-    }
-    final result = <DateTime, int>{};
-    for (final entry in rangesByDate.entries) {
-      final sorted = [...entry.value]
-        ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
-      var total = 0;
-      DateTime? cursor;
-      DateTime? end;
-      for (final range in sorted) {
-        if (cursor == null) {
-          cursor = range.startUtc;
-          end = range.endUtc;
-          continue;
-        }
-        if (!range.startUtc.isAfter(end!)) {
-          if (range.endUtc.isAfter(end)) end = range.endUtc;
-          continue;
-        }
-        total += end.difference(cursor).inMinutes;
-        cursor = range.startUtc;
-        end = range.endUtc;
-      }
-      if (cursor != null) total += end!.difference(cursor).inMinutes;
-      // 向下取整到粒度：不足一个粒度的碎片放不下任何片段。
-      result[entry.key] = (total ~/ granularity) * granularity;
-    }
-    return result;
-  }
-
-  /// 可用时段真正覆盖到的本地日集合。
-  ///
-  /// **不能用"窗口起止各取本地日再逐日推进"**：窗口起点是 `planningStartUtc`，它在本地日
-  /// 内部（例如周四 20:00），若把它的 `localDate` 当成第一天，窗口边界之外的半天会被算进来。
-  /// 因此这里反过来——以 `AvailabilityBuilder` 实际产出的 `slot.localDate` 为准，
-  /// 它已经按本地日切好片。
-  Set<DateTime> _eligibleLocalDates(
-    SchedulableTask task,
-    List<AvailabilitySlot> slots,
-  ) => {for (final slot in slots) slot.localDate};
-
   /// 该任务在这些块上按本地日期已经占用的分钟。
   ///
   /// 均分器的 `alreadyPlannedMinutesByLocalDate` 用它：那些分钟已经占了这一天的一部分，
@@ -1050,23 +1022,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// 从计划的 `additionalMinutesByLocalDate` 减去"本次生成已在该日放下的分钟"，后者由当前
   /// `blocks` 里该任务的块推算——**不留可变状态**，因此同样的输入必然得到同样的结果
   /// （排程器的确定性要求）。
-  int _evenBudgetRemaining(
-    ScheduleProblem problem,
-    SchedulableTask task,
+  int _budgetRemaining(
     SchedulingCandidate candidate,
-    EvenDistributionPlan plan,
-    List<PlannedBlock> blocks,
+    TaskDayBudget budget,
+    Map<DateTime, int> taskMinutesByDate,
   ) {
-    final date = candidate.localDate;
-    final budget = plan.additionalMinutesByLocalDate[date] ?? 0;
-    if (budget <= 0) return 0;
-    var consumed = 0;
-    for (final block in blocks) {
-      if (block.taskId != task.id) continue;
-      final blockDate = _localDate(block.startUtc, problem.timeZoneId);
-      if (blockDate == date) consumed += block.durationMinutes;
-    }
-    return budget - consumed;
+    final allowed = budget.minutesByLocalDate[candidate.localDate] ?? 0;
+    if (allowed <= 0) return 0;
+    return allowed - (taskMinutesByDate[candidate.localDate] ?? 0);
   }
 
   /// 同一任务在该候选所在本地日是否已有其它片段。
@@ -1474,6 +1437,32 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   DateTime _localDate(DateTime instantUtc, String zoneId) {
     final local = _zones.toLocal(instantUtc, zoneId);
     return DateTime(local.year, local.month, local.day);
+  }
+
+  /// 周期实例的「周期起点本地日期」表（计划 §3.4 第 7 条）。
+  Map<String, DateTime> _cycleStartsByTask(ScheduleProblem problem) {
+    final result = <String, DateTime>{};
+    for (final task in problem.tasks) {
+      final start = _cycleStartOf(task.id);
+      if (start == null) continue;
+      result[task.id] = start;
+    }
+    return result;
+  }
+
+  /// 形状 `recurring:<templateId>:<yyyy-MM-dd>`；不匹配返回 null（不猜）。
+  DateTime? _cycleStartOf(String taskId) {
+    if (!taskId.startsWith('recurring:')) return null;
+    final lastColon = taskId.lastIndexOf(':');
+    if (lastColon <= 0 || lastColon == taskId.length - 1) return null;
+    final parts = taskId.substring(lastColon + 1).split('-');
+    if (parts.length != 3) return null;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return DateTime(year, month, day);
   }
 }
 

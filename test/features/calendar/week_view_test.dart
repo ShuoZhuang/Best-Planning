@@ -994,11 +994,6 @@ void main() {
 
     Finder inPage(Type page, Finder matching) =>
         find.descendant(of: find.byType(page), matching: matching);
-    String clockOf(DateTime instantUtc) {
-      final local = zones.toLocal(instantUtc, timeZoneId);
-      return '${local.hour.toString().padLeft(2, '0')}:'
-          '${local.minute.toString().padLeft(2, '0')}';
-    }
 
     // ① 应用新计划：三个页面都必须自己出现那个计划块，而且是**同一个**块。
     //
@@ -1015,39 +1010,46 @@ void main() {
     // drift 的查询队列是串行的，页面那几条查询要等假时钟推进才会跑，而 `runAsync`
     // 期间假时钟不动。实测正是卡在这一句上（`XS4` 之后没有下文）。
     final confirmed = applied.plan!;
-    final block = confirmed.blocks.single;
-    final itemId = 'block:${block.id}';
-    final blockRange =
-        '${clockOf(block.range.startUtc)}–'
-        '${clockOf(block.range.endUtc)}';
+    // ── **算法 17 的形状变化**：一个任务会被合法切成多块散到多天 ─────────────────
+    //
+    // 本条用例此前写 `confirmed.blocks.single` + "三个页面都显示它"。
+    // 那两条都是**算法 16** 的假设：
+    //   · `single`：跨日分配会把 60 分钟摊成多块（实测 3 块）；
+    //   · "三个页面都显示"：`DayViewPage` 与 `TodayPage` **按设计只渲染今天**，
+    //     而跨日分配把块放到了**今天之后**的日子（实测 10-07/08/09）。
+    //
+    // 实测证据（DIAG15）：
+    //   WeekViewPage 文本含 "周三 10月7日 … 完成课程论文" ← 渲染正确
+    //   DayViewPage  文本只有 "10 月 5 日 … 午餐 … 晚餐" ← 今天没有该块，正确
+    //
+    // 因此本条用例的正确判据是：
+    //   ① **近期日历**（整周）必须显示每一块，且用同一个条目 id 与同一区间；
+    //   ② **三处一起刷新**这个性质由后面的固定日程步骤验证——固定日程落在今天，
+    //      日视图与今日页本来就应该显示它（那两步正是为此而设）。
+    expect(confirmed.blocks, isNotEmpty, reason: '应用之后必须有计划块');
     await settle();
 
-    for (final page in const [WeekViewPage, DayViewPage, TodayPage]) {
+    for (final block in confirmed.blocks) {
+      final itemId = 'block:${block.id}';
       expect(
-        inPage(page, find.text('完成课程论文')),
-        findsWidgets,
-        reason: '$page 必须自己收到新的计划块（无需离开页面或手工刷新）',
+        inPage(
+          WeekViewPage,
+          find.byKey(ValueKey('week-schedule-card-$itemId')),
+        ),
+        findsOneWidget,
+        reason: '近期日历必须用**同一份**条目 id 渲染该块（$itemId）',
       );
     }
+    // 标题至少出现一次（块可能跨多天，因此用 findsWidgets 而非 findsOneWidget）。
+    //
+    // **不再断言区间文本**：`WeekViewPage` 在本用例里没有传 `timeZoneId`，
+    // 因此它按 UTC 显示时刻（实测 `05:50–06:15`），而 `clockOf` 给的是本地时刻。
+    // 那条断言测的是"时区显示配置"，与本用例要证的"三处自动刷新"无关——
+    // 它此前能过，只是因为算法 16 恰好把块放在今天且区间字符串碰巧对得上。
     expect(
-      inPage(DayViewPage, find.byKey(Key('day-schedule-card-$itemId'))),
-      findsOneWidget,
-      reason: '日视图渲染的是**同一份**条目 id',
-    );
-    expect(
-      inPage(TodayPage, find.byKey(ValueKey('today-schedule-card-$itemId'))),
-      findsOneWidget,
-      reason: '今日页渲染的是**同一份**条目 id',
-    );
-    expect(
-      inPage(WeekViewPage, find.byKey(ValueKey('week-schedule-card-$itemId'))),
-      findsOneWidget,
-      reason: '近期日历渲染的是**同一份**条目 id',
-    );
-    expect(
-      inPage(DayViewPage, find.textContaining(blockRange)),
+      inPage(WeekViewPage, find.text('完成课程论文')),
       findsWidgets,
-      reason: '日视图显示的区间就是那条计划块的区间（同一 range）',
+      reason: '近期日历必须显示计划块的标题',
     );
 
     // ② 新建固定日程：三处自动出现。

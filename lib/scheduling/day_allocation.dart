@@ -43,6 +43,8 @@ final class DayAllocationInput {
     required this.timeZoneId,
     required Map<String, DateTime> cycleStartByTask,
     required this.granularityMinutes,
+    Map<String, int>? targetMinutesByTask,
+    Map<String, int> alreadyScheduledMinutesByTask = const {},
     this.maxReallocationPasses = 3,
     this.maxAllocationStates = 10000,
   }) : tasks = UnmodifiableListView(List.of(tasks)),
@@ -50,7 +52,13 @@ final class DayAllocationInput {
          for (final entry in alreadyPlannedByTask.entries)
            entry.key: UnmodifiableMapView(Map.of(entry.value)),
        }),
-       cycleStartByTask = UnmodifiableMapView(Map.of(cycleStartByTask)) {
+       cycleStartByTask = UnmodifiableMapView(Map.of(cycleStartByTask)),
+       targetMinutesByTask = targetMinutesByTask == null
+           ? null
+           : UnmodifiableMapView(Map.of(targetMinutesByTask)),
+       alreadyScheduledMinutesByTask = UnmodifiableMapView(
+         Map.of(alreadyScheduledMinutesByTask),
+       ) {
     if (granularityMinutes <= 0) {
       throw ArgumentError.value(granularityMinutes, 'granularityMinutes');
     }
@@ -74,6 +82,20 @@ final class DayAllocationInput {
   final Map<String, DateTime> cycleStartByTask;
 
   final int granularityMinutes;
+
+  /// **本次要为每个任务安排的分钟**（契约 §3.2）。
+  ///
+  /// 引擎的"这次要排多少"**不是** `task.requiredMinutes`，而是
+  /// `_targetFor(problem, task)` 的结果。分配器若自己用 `requiredMinutes` 推，
+  /// 两边从第一步就不一致。为 `null` 时退化为按 `requiredMinutes` 推
+  /// （只服务纯函数调用点）；**生产路径必须显式传引擎的目标**。
+  final Map<String, int>? targetMinutesByTask;
+
+  /// 引擎侧已经为每个任务排定的分钟（`scheduledByTask`）。
+  ///
+  /// [alreadyPlannedByTask] 与它**同源**，因此不能两次都减：传引擎的剩余量时，
+  /// 这里传同一个 `scheduledByTask` 让分配器**减回去**。
+  final Map<String, int> alreadyScheduledMinutesByTask;
 
   /// 最多执行几轮"预算落地失败后重新分配"（计划 §3.4 第 10 条 / §6）。
   final int maxReallocationPasses;
@@ -195,9 +217,15 @@ DayAllocationPlan allocateTaskDays(DayAllocationInput input) {
   final budgets = <String, TaskDayBudget>{};
   for (final task in ordered) {
     final planned = input.alreadyPlannedByTask[task.id] ?? const {};
+    final plannedTotal = planned.values.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
+    // **目标来自调用方**（契约 §3.2），并只扣一次同源分钟。
+    final target = input.targetMinutesByTask?[task.id] ?? task.requiredMinutes;
     final remaining =
-        task.requiredMinutes -
-        (planned.values.fold<int>(0, (sum, value) => sum + value));
+        target -
+        (plannedTotal - (input.alreadyScheduledMinutesByTask[task.id] ?? 0));
     if (remaining <= 0) {
       budgets[task.id] = TaskDayBudget(
         taskId: task.id,
@@ -316,9 +344,28 @@ DayAllocationPlan allocateTaskDays(DayAllocationInput input) {
     // 同一种形状。轮转保证 K 天各承担一份，之后才回头补齐。
     final neededChunks =
         (remainingToAllocate + chunkMinutes - 1) ~/ chunkMinutes;
-    final participantCount = neededChunks < ranked.length
-        ? neededChunks
+    // **每个参与日至少拿到一个 `chunkMinutes`**（计划 §3.1 第 1 条）。
+    //
+    // 这条约束此前在 `even` 分支里**漏了**（那一版写 `participantCount = ranked.length`，
+    // 让 K 等于可用日总数）。实测「180 分钟、8 个可用日、minChunk 30」被摊成
+    // 每天 20~25 分钟——**每天都不够放一块**，引擎排出 0 块，
+    // 诊断为 `unexplainedSchedulingFailure`。计划的判词很直白：
+    //
+    // > "每天 25 分钟"不是"均匀"，那是**不可用的预算**。
+    //
+    // 正确判据：`K × chunkMinutes ≤ 目标`，即 K 最多 `目标 ÷ chunkMinutes`
+    // （180÷30 = 6 ⇒ 6 天各 30；150÷30 = 5 ⇒ 5 天各 30——后者正是 Task 1 的
+    // 「150/30 不得固定选择前五个日期」所要求的 K=5）。
+    final maxByChunk = chunkMinutes <= 0
+        ? ranked.length
+        : remainingToAllocate ~/ chunkMinutes;
+    final cappedByChunk = maxByChunk < ranked.length
+        ? maxByChunk
         : ranked.length;
+    final participantCount =
+        task.distributionPolicy == TaskDistributionPolicy.even
+        ? cappedByChunk
+        : (neededChunks < ranked.length ? neededChunks : ranked.length);
     final participants = ranked.take(participantCount).toList();
 
     // ── `even` 任务：**按天数等分**，不走轮转循环（契约 §7.2）───────────────────
