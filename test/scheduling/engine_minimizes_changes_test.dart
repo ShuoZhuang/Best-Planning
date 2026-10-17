@@ -167,7 +167,7 @@ void main() {
     expect(first.blocks, isNotEmpty);
   });
 
-  test('算法版本是 18（连续 17 的容量感知排程 + 既有块的身份）', () {
+  test('算法版本是 19（容量感知排程 + 既有块身份 + 精力偏离解释）', () {
     // 设计 §5.1：任何会改变排程结果的改动都必须抬版本，否则历史计划无法按当时的算法复现。
     //
     // **17 涵盖 2026-10-16「容量感知分层排程修复」**（实施计划
@@ -195,6 +195,6 @@ void main() {
     //
     // 这条用例刻意写死字符串（而不是引用常量），于是抬版本时**必须**回到这里
     // 补一句"为什么"，否则它不会通过。
-    expect(DeterministicScheduleEngine.algorithmVersion, '18');
+    expect(DeterministicScheduleEngine.algorithmVersion, '19');
   });
 }

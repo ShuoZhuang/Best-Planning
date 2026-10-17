@@ -9,6 +9,14 @@ String explanationLabel(String code) => switch (code) {
   'deadline_and_progress' => '截止压力与推进进度',
   'life_quota_gap' => '生活娱乐配额不足',
   'energy_match' => '与精力区间匹配',
+  // 计划场景 C 的验收判据：高精力任务被排到普通时段时，页面必须说清
+  // **偏离了精力偏好**——那是用户可以改善的事（调整精力区间或挪开课程）。
+  //
+  // 修复前这种情况返回 `'priority'`，页面于是说「优先级较高」：一个与事实
+  // 无关、且用户无法据以行动的理由。
+  'energy_offpeak' => '偏离精力偏好',
+  // **旧数据兼容**：算法 18 及更早写入库的 `explanationCode` 可能是 `'priority'`。
+  // 保留映射，历史计划才不会退化成兜底的「排程调整」。
   'priority' => '优先级较高',
   _ => '排程调整',
 };

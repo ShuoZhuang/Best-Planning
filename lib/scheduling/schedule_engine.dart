@@ -121,7 +121,15 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///
   /// 因此必须抬版本：同一份输入现在会产出**不同的块 id 集合**（既有块保留原 id，
   /// 不再重新生成）。历史计划要按当时的算法复现，就必须能区分这两个版本。
-  static const String algorithmVersion = '18';
+  ///
+  /// ## 算法 19：精力偏离的解释码
+  ///
+  /// 相对 18 只改一个输出的**取值**：精力对不上时，块的 `explanationCode` 由
+  /// `'priority'`（页面显示「优先级较高」）改为 `'energy_offpeak'`（「偏离精力偏好」）。
+  ///
+  /// 它不改变块的**位置或时长**，但改变**落库的字段值**——而每条解释都是用户
+  /// 判断"该不该接受这份安排"的依据。历史计划要复现当时的解释，就必须能区分。
+  static const String algorithmVersion = '19';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -1374,7 +1382,19 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             energy == EnergyLevel.low)) {
       return 'energy_match';
     }
-    return 'priority';
+    // **精力对不上时必须如实说"偏离精力偏好"**（计划场景 C）。
+    //
+    // 这里此前返回 `'priority'`，页面于是显示「优先级较高」——那与事实无关：
+    // 用户以为"因为它优先级高才排在这儿"，实际原因是**高精力窗口已满、
+    // 只能凑合放到普通时段**。两种理由对用户的意义完全不同（前者无法改变，
+    // 后者可以通过调整精力区间或课程来改善）。
+    //
+    // 计划的人工场景 C 明确要求「解释"偏离精力偏好"」，因此这是验收判据缺失，
+    // 不是文案偏好问题。
+    //
+    // `'priority'` 仍保留在 `explanationLabel` 的映射里：它存在于旧数据中，
+    // 去掉映射会让历史计划显示成兜底文案。
+    return 'energy_offpeak';
   }
 
   void _improve(
