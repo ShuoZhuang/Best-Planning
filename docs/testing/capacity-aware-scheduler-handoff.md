@@ -1,10 +1,10 @@
 # 容量感知排程修复：交接与续作指南
 
-> **2026-10-17 最终状态：Task 1–11、13 完成；算法版本 `18`；全量测试通过。Task 12 的人工场景待可交互环境。**
+> **2026-10-17 最终状态：Task 1–13 全部完成；算法版本 `19`；全量测试通过；六项人工场景已改为自动化覆盖。**
 >
 > ```text
 > flutter analyze  → No issues found!
-> flutter test     → 2762 passed / 0 failed，70 秒
+> flutter test     → 2769 passed / 0 failed，73 秒
 > ```
 >
 > 对照本次工作开始时的基线（算法 16）：`2735 通过 / 5 失败`。
@@ -41,7 +41,7 @@
 | 5 全局跨日分配 | ✅ | `day_allocation.dart`（K ≤ 目标÷chunk） |
 | 6 引擎接线与动态重分 | ✅ | `b799cffa` + `9bbcd02d` |
 | 7 方案级改进约束 | ✅ | `7e40a21a`：`PlanQualityValidator` + `_wholePlanIsBetter` |
-| 8 重排/延后稳定性 | ✅ | **ID 族修复已完成**（`1692553f` profile 派生 + 本轮身份改造）：未锁定的既有块携带**原 id** 作为起点进入排程，`minimizeChangedBlocks` 不再空操作。真实装配级证据见 `test/application/minimize_changed_blocks_identity_test.dart`（移动/拆分/锁定/旧数据/重复排程）。算法版本因此抬到 **18** |
+| 8 重排/延后稳定性 | ✅ | **ID 族修复已完成**：未锁定的既有块携带**原 id** 作为起点进入排程，`minimizeChangedBlocks` 不再空操作（`5d48dd83`）。真实装配级证据见 `test/application/minimize_changed_blocks_identity_test.dart` |
 | 9 失败分类与可解释容量 | ✅ | `search_outcome.dart` + 应用闸门 |
 | 10 应用安全 | ✅ | 算法版本闸门 + 调整前提闸门 |
 | 11 属性与性能 | ✅ | 确定性与预算不变量测试 |
