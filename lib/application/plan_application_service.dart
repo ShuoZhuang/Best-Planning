@@ -5,6 +5,7 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
+import 'package:personal_planner/scheduling/search_outcome.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
@@ -98,6 +99,32 @@ final class PlanApplicationService {
           request.notBeforeUtc != requirement.notBeforeUtc) {
         return ApplyPlanResult.stale();
       }
+    }
+    // ── 搜索结果闸门（计划 Task 9／Task 10「应用安全」）────────────────────────
+    //
+    // 提案自带 `outcome`（算法 17）。两类处境**任何模式都不许应用**，
+    // `allowPartial` 也不得绕过（ALG-42）：
+    //
+    // - `budgetExhausted`：搜索达到预算，**既没证明有解也没证明无解**。
+    //   计划 §1.2 第 9 条与 ALG-47 明令它**不得**被说成"可用时间不足"；
+    //   正确处置是重新生成（很可能就成功）。
+    // - `invariantViolation`：引擎还有合法候选却留下缺口。那不是"装不下"，
+    //   而是排程器自己没排好——用户要做的不是腾时间，而是报缺陷。
+    //
+    // 没有这道闸门时，一个"预算耗尽"的提案会落到 `unscheduled.isNotEmpty` 那一支：
+    // 完整模式返回 `partialRequired`（把未决说成"要不要就这样应用"），
+    // `allowPartial` 模式**直接写库**。两种都是一次静默的错误应用。
+    //
+    // 位置在 `conflicts` 之前：这两类是**未决/异常**，比任何"内容是否合法"的判断
+    // 都更早成立——内容看起来合法并不代表这份搜索结果可用了。
+    if (!isApplicableOutcome(proposal.outcome, allowPartial: true)) {
+      return ApplyPlanResult.invalid([
+        PlanningConflict(
+          code: proposal.outcome == SearchOutcomeKind.invariantViolation
+              ? ConflictCode.schedulingInvariantViolation
+              : ConflictCode.insufficientCapacity,
+        ),
+      ]);
     }
     // **引擎已经报过的阻断冲突先落地**：`stale` 检查之后、validator 之前。
     // 非空立即返回 `invalid`，因此 `allowPartial` 无法绕过引擎已经报告的阻断冲突，
