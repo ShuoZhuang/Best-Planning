@@ -108,7 +108,20 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///
   /// 黄金用例（`golden_week.json`）的块与缺口在 16 → 17 之间**完全不变**，
   /// 这正是这次升级想要的结论：新架构复现了旧行为，同时把口径收敛到一处。
-  static const String algorithmVersion = '17';
+  ///
+  /// ## 算法 18：既有块的身份（Task 8 的 ID 族修复）
+  ///
+  /// 相对 17 只改一件事，但它**改变输出**：未锁定的既有计划块携带**原 id**
+  /// 作为起点进入排程。
+  ///
+  /// 修复前引擎为所有块重新起名（`block:<taskId>:<micros>:<dur>`），而
+  /// `referenceBlocks` 的键是确认计划的 persistedId——两边不同族，于是
+  /// `minimizeChangedBlocks` 的 `referenceBlocks.containsKey(block.id)` 永远为 false，
+  /// 那一步在真实装配下是**空操作**，"尽量少改动"只在函数级测试里成立。
+  ///
+  /// 因此必须抬版本：同一份输入现在会产出**不同的块 id 集合**（既有块保留原 id，
+  /// 不再重新生成）。历史计划要按当时的算法复现，就必须能区分这两个版本。
+  static const String algorithmVersion = '18';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -157,10 +170,32 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     };
     final tasks = [...problem.tasks]
       ..sort((a, b) => _compareTasks(a, b, slots, targets));
-    final blocks = [...problem.lockedBlocks]..sort(_compareBlocks);
+    // ── 起点：锁定块 + **未锁定的既有块**（Task 8 的 ID 族修复）──────────────────
+    //
+    // 既有块必须以**原 id** 作为起点进入排程。否则引擎会为它重新起名
+    // （`block:<taskId>:<micros>:<dur>`），而真实装配里 `referenceBlocks` 的键是
+    // persistedId（`<提案 id>:<引擎 id>`）——两边不同族，于是
+    // `minimizeChangedBlocks` 的 `referenceBlocks.containsKey(block.id)` 永远为 false，
+    // 那一步在真实装配下是**空操作**，"尽量少改动"只在函数级测试里成立。
+    //
+    // 采纳判据只有四条，**全部与身份无关**（id 只用于匹配，不参与评分或可行性）：
+    // · 任务仍在本次输入里（被跳过/已完成的任务不该继续占位）；
+    // · 不与锁定块重复；
+    // · 仍完整落在某个可用时段内——可用时段已扣掉固定日程、保护时间、睡眠与
+    //   课程过渡，因此这一条同时覆盖那三类硬占用；
+    // · 累计不超过该任务的目标分钟。
+    //
+    // 不合法的一律不采纳：它由放置循环重新安排并拿到新 id。那条路径才是"移走"，
+    // 而采纳路径是"原地保留"，两者在提案里由 `continuedFromId` 区分。
+    final adopted = _adoptableExistingBlocks(
+      problem: problem,
+      slots: slots,
+      targets: targets,
+    );
+    final blocks = [...problem.lockedBlocks, ...adopted]..sort(_compareBlocks);
     final explanations = <PlanExplanation>[];
     final scheduledByTask = <String, int>{};
-    for (final block in problem.lockedBlocks) {
+    for (final block in blocks) {
       scheduledByTask.update(
         block.taskId,
         (value) => value + block.durationMinutes,
@@ -1684,6 +1719,51 @@ bool _containsLocalMinute(LocalTimeRange range, int minute) =>
 String _blockId(String taskId, SchedulingCandidate candidate) =>
     'block:$taskId:${candidate.startUtc.microsecondsSinceEpoch}:'
     '${candidate.durationMinutes}';
+
+/// 从 [ScheduleProblem.existingBlocks] 里挑出**可以作为起点**的块（Task 8）。
+///
+/// 关键点：返回的块**原样携带它们的 id**。这是"同一块换了位置时仍能被认出"
+/// 的前提——`referenceBlocks` 与 `minimizeChangedBlocks` 都以 id 匹配，
+/// 而引擎自己命名的 id 与确认计划的 persistedId 不同族。
+///
+/// 判据见调用处注释；这里只强调两件**不做**的事：
+/// - **不按 id 做任何偏好**：id 长得像什么、来自哪一版提案，都不影响采纳；
+/// - **不因"已经排过"而跳过**：既有块正是"已经排过"的那一份，采纳它就是目的。
+///
+/// 结果按 `(startUtc, id)` 排序，保证同一份输入得到同一个起点顺序。
+List<PlannedBlock> _adoptableExistingBlocks({
+  required ScheduleProblem problem,
+  required List<AvailabilitySlot> slots,
+  required Map<String, int> targets,
+}) {
+  if (problem.existingBlocks.isEmpty) return const [];
+  final lockedIds = {for (final block in problem.lockedBlocks) block.id};
+  final adopted = <PlannedBlock>[];
+  final minutesByTask = <String, int>{};
+  for (final block in problem.existingBlocks) {
+    if (lockedIds.contains(block.id)) continue;
+    final target = targets[block.taskId];
+    // 任务不在本次输入里（已完成、被跳过）⇒ 不占位。
+    if (target == null) continue;
+    // 必须完整落在某个可用时段内。可用时段已排除固定日程、保护时间、睡眠
+    // 与课程过渡，因此这一条同时覆盖那三类硬占用。
+    final stillFits = slots.any(
+      (slot) =>
+          slot.range.startUtc.compareTo(block.startUtc) <= 0 &&
+          slot.range.endUtc.compareTo(block.endUtc) >= 0,
+    );
+    if (!stillFits) continue;
+    final already = minutesByTask[block.taskId] ?? 0;
+    if (already + block.durationMinutes > target) continue;
+    minutesByTask[block.taskId] = already + block.durationMinutes;
+    adopted.add(block);
+  }
+  adopted.sort((a, b) {
+    final byStart = a.startUtc.compareTo(b.startUtc);
+    return byStart != 0 ? byStart : a.id.compareTo(b.id);
+  });
+  return adopted;
+}
 
 PlannedBlock _temporaryBlock(String taskId, SchedulingCandidate candidate) =>
     PlannedBlock(id: 'temporary', taskId: taskId, range: candidate.range);

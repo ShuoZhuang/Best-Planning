@@ -47,7 +47,7 @@ void main() {
     energyLevel: TaskEnergyLevel.medium,
   );
 
-  test('**已知缺口**：引擎输出的块 id 与确认计划的 id 不同族，最小化改动因此是空操作', () {
+  test('既有未锁定块携带原 id 进入排程，最小化改动因此不再空操作', () {
     // 这一条**记录现状**，不是断言期望行为。它存在的价值是让下一个接手的人一眼看到：
     //
     // · 引擎给新排的块起 id 的规则是 `block:<taskId>:<开始微秒>:<时长>`
@@ -93,15 +93,36 @@ void main() {
     final proposal = engine.generate(problem);
 
     expect(proposal.blocks, isNotEmpty);
+    // ── **任务 8 的 ID 族修复**：既有未锁定块必须携带**原 id** 进入排程 ────────────
+    //
+    // 这条此前写成"记录现状"的反向断言（`expect(...id == 'a', isFalse)`），
+    // 把空操作当成既定事实冻了下来。而它是有代价的：
+    //
+    // · 真实装配里确认计划的块 id 是 persistedId（`<提案 id>:<引擎 id>`），
+    //   而 `referenceBlocks` 的键**正是同一批 persistedId**；
+    // · 引擎此前为所有块重新起名（`block:<taskId>:<micros>:<dur>`），
+    //   于是 `minimizeChangedBlocks` 的 `referenceBlocks.containsKey(block.id)`
+    //   在真实装配下**永远为 false** —— 那一步是空操作，
+    //   "尽量少改动"只在函数级测试里成立。
+    //
+    // 修复后的契约（用户确认的实施边界）：
+    // · 未锁定的既有块携带原 id 作为**起点**进入排程；
+    // · 引擎新排的块用新的稳定 id，**不得冒用**既有 id；
+    // · 移动保留 id，拆分时原 id 保留一块、其余新 id；
+    // · 锁定块 / 固定日程 / 保护时间的身份语义不变。
     expect(
-      proposal.blocks.any((placed) => placed.id == 'a'),
-      isFalse,
-      reason: '确认计划的块 id（`a`）不会出现在输出里——引擎重新起了名字',
+      proposal.blocks.map((placed) => placed.id),
+      contains('a'),
+      reason:
+          '既有块必须保留原 id，否则 `referenceBlocks.containsKey(block.id)` '
+          '永远为 false，最小化改动在真实装配下依旧是空操作',
     );
     expect(
-      proposal.blocks.every((placed) => placed.id.startsWith('block:')),
+      proposal.blocks
+          .where((placed) => placed.id != 'a')
+          .every((placed) => placed.id.startsWith('block:')),
       isTrue,
-      reason: '输出里每个块都是引擎自己命名的；这就是参照匹配不上的原因',
+      reason: '新排的块必须使用引擎自己命名的新 id，不得冒用既有 id',
     );
   });
 
@@ -146,7 +167,7 @@ void main() {
     expect(first.blocks, isNotEmpty);
   });
 
-  test('算法版本是 17（容量感知分层排程：逐日规则、单一账本、跨日分配）', () {
+  test('算法版本是 18（连续 17 的容量感知排程 + 既有块的身份）', () {
     // 设计 §5.1：任何会改变排程结果的改动都必须抬版本，否则历史计划无法按当时的算法复现。
     //
     // **17 涵盖 2026-10-16「容量感知分层排程修复」**（实施计划
@@ -174,6 +195,6 @@ void main() {
     //
     // 这条用例刻意写死字符串（而不是引用常量），于是抬版本时**必须**回到这里
     // 补一句"为什么"，否则它不会通过。
-    expect(DeterministicScheduleEngine.algorithmVersion, '17');
+    expect(DeterministicScheduleEngine.algorithmVersion, '18');
   });
 }

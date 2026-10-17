@@ -388,9 +388,33 @@ void main() {
 
       final proposal = generate(problem);
 
-      // 没有意图就不该有任何 id 为 block-1 的块——它是"已确认但未锁定"的块，引擎会
-      // 重新安排任务，而不是把这一块原样搬过去。
-      expect(proposal.blocks.where((block) => block.id == 'block-1'), isEmpty);
+      // ── **判别性对照**：没有拖动意图时，块**不会凭空出现在目标日** ──────────────
+      //
+      // 这条此前写 `expect(blocks.where(id == 'block-1'), isEmpty)`，理由是
+      // "引擎会重新安排任务，而不是把这一块原样搬过去"。
+      //
+      // 那个理由在 Task 8 的 ID 族修复之后**不再成立**：未锁定的既有块现在会携带
+      // **原 id** 作为起点进入排程（否则 `minimizeChangedBlocks` 的
+      // `referenceBlocks.containsKey(block.id)` 永远为 false，它会是空操作）。
+      // 因此 `block-1` 出现在结果里是**期望行为**。
+      //
+      // 但这条用例真正要证的判据没变：**没有拖动，就不该出现在目标日（10-07）**。
+      // 断言因此改成"它还在周一原位、且不在拖动目标上"——比原来更精确，
+      // 同时保留了"拖动才有用"的判别性。
+      final adopted = proposal.blocks
+          .where((block) => block.id == 'block-1')
+          .toList();
+      expect(adopted, hasLength(1), reason: '既有块应当被采纳并保留原 id');
+      expect(
+        adopted.single.startUtc,
+        mondayBlock().startUtc,
+        reason: '没有拖动意图时，既有块必须留在原位',
+      );
+      expect(
+        adopted.single.startUtc,
+        isNot(DateTime.utc(2026, 10, 7, 2)),
+        reason: '目标日是拖动意图的产物；没有意图就不该有块落在那里',
+      );
     });
   });
 
