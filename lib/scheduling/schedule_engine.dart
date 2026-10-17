@@ -913,15 +913,35 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   /// （实测 1.6 秒 → 3.3 秒）。这里把"看块"的部分挪到循环外，判定退化为一次 Map 查表。
   ///
   /// 调用方必须在**每次 `blocks` 变化后**重新调用它，否则判定会用到过期数字。
+  /// 按本地日期汇总**计入每日可移动上限**的任务块分钟。
+  ///
+  /// ## 为什么**包含锁定块**
+  ///
+  /// 计划把它写得很死（§术语表 + Task 3 验收式）：
+  ///
+  /// > **日已用量** `usedMovableMinutes`：当前基线里当日所有**计入可移动上限**的
+  /// > 任务块分钟，**包含锁定/钉住的任务块**，不含固定和保护日程。
+  /// >
+  /// > `remainingMinutes = min(max(0, calendarGap − allocated),
+  /// > max(0, licensed − used − allocated))`
+  ///
+  /// 因此锁定额度与可移动额度是**同一份**额度：锁定 300 分钟会占掉上限 360 里的 300。
+  ///
+  /// 修复前这里**跳过锁定块**，于是 `_exceedsMovableDailyLimit` 只统计本轮新排的块，
+  /// 上限对锁定时间完全失效。实测（`movable_daily_limit_test`）：
+  /// 锁定 300 + 上限 360 时，引擎仍然排下了 300 分钟的可移动任务，
+  /// 当天合计 600 分钟——**超过上限 360**，而计划要求最多 60。
+  ///
+  /// **与账本同源**：账本的 `usedMovableMinutes` 用的是同一份块集合与同一个
+  /// "锁定也计入"口径，两处因此给出同一个数字。
+  ///
+  /// 调用方必须在**每次 `blocks` 变化后**重新调用它，否则判定会用到过期数字。
   Map<DateTime, int> _movableMinutesByDate(
     ScheduleProblem problem,
     List<PlannedBlock> blocks,
   ) {
     final result = <DateTime, int>{};
     for (final block in blocks) {
-      final movable =
-          !block.locked || problem.pinnedUnlockedBlockIds.contains(block.id);
-      if (!movable) continue;
       final date = _localDate(block.startUtc, problem.timeZoneId);
       result[date] = (result[date] ?? 0) + block.durationMinutes;
     }
