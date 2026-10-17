@@ -92,6 +92,10 @@ flutter test                     # 2743 passed / 4 failed, 约 98 秒
 
 ### 4.3 下一步就是这一条（**一次运行即可定性**）
 
+> **已否证（第 40 轮）**：把 `settle()` 的真实异步等待从 **400ms 提到 3000ms**，
+> `week_view`「真实源跨页面」**仍然失败**。因此**不是测试时序问题**——
+> 接线之后页面确实拿不到计划块。这一步排掉了"等得不够"这个最常见的解释。
+>
 > **重要线索（第 39 轮）**：`week_view_test` 那条用例**没有注册任何 stream error handler**
 > （`errorBuilder` / `onError` 均无）。而 `RepositoryScheduleViewSource.load()` 的错误路径是
 > `controller.addError(error, stackTrace)`——**没有 handler 时它被静默吞掉**。
