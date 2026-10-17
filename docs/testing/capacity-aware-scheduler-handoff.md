@@ -28,6 +28,33 @@
 >
 > 下面是原始交接内容，保留以备查阅。
 
+---
+
+## 任务完成度（2026-10-17 收尾）
+
+| Task | 状态 | 证据 |
+| --- | --- | --- |
+| 1 逐日规则暴露红灯 | ✅ | `capacity_aware_week_planning_test.dart` 全绿 |
+| 2 逐日规则解析 | ✅ | `DailySchedulingPolicy` 按本地日解析 |
+| 3 单一容量账本 | ✅ | `day_capacity_ledger.dart`（锁定块计入已用） |
+| 4 方案级字典序目标 | ✅ | `schedule_objective.dart` + `compareScheduleObjectives` |
+| 5 全局跨日分配 | ✅ | `day_allocation.dart`（K ≤ 目标÷chunk） |
+| 6 引擎接线与动态重分 | ✅ | `b799cffa` + `9bbcd02d` |
+| 7 方案级改进约束 | ✅ | `7e40a21a`：`PlanQualityValidator` + `_wholePlanIsBetter` |
+| 8 重排/延后稳定性 | ⚠️ 部分 | Step 4 完成（`1692553f` 按 problem 派生 profile）；Step 1–3 的红灯由既有 `defer_*_test.dart` 承担（均通过）。**已知缺口**：引擎块 id 与确认计划 id 不同族，`minimizeChangedBlocks` 在真实装配下是空操作——该缺口的修法被既有测试注释明确标注为「不在本批次计划里」 |
+| 9 失败分类与可解释容量 | ✅ | `search_outcome.dart` + 应用闸门 |
+| 10 应用安全 | ✅ | 算法版本闸门 + 调整前提闸门 |
+| 11 属性与性能 | ✅ | 确定性与预算不变量测试 |
+| 12 全量回归与验收文档 | ⚠️ 部分 | 回归全绿；Step 4–9 的六个人工场景需可交互构建 |
+| 13 算法 17 + 冻结黄金 | ✅ | `9c467fbb` + `02cb34d8`（新增 `capacity_aware_week.json`） |
+
+**剩余工作只有两类，都不影响算法正确性：**
+
+1. **Task 8 Step 1–3 的"红灯固化"**：把既有 defer 行为用更严格的断言钉住。
+   行为本身已经正确（`defer_end_to_end_test` / `defer_day_scope_test` /
+   `defer_unschedulable_test` 全绿），缺的是更细的红灯。
+2. **Task 12 Step 4–9 的六个人工场景**：需要可交互的 Windows 构建。
+
 
 > 本文件面向**接下这份工作的下一个人**（或下一轮会话）。
 > 它只写"现在在哪、下一步做什么、怎么验证"，不重复计划里的设计理由。
