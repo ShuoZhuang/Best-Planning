@@ -298,7 +298,7 @@ void main() {
   group('逐日每日上限（计划 Task 1 Step 5）', () {
     test('**周末账面容量按自己的上限 360 算，而不是复制窗口首日的 180**', () {
       // 周一至周五上限 180、周末上限 360。夹具**只在周末留出可行空档**，
-      // 因此 400 分钟能否排下完全取决于周日是否按 360 计算。
+      // 因此 360 分钟能否排满完全取决于周日是否按 360 计算。
       final busy = <BusyInterval>[
         for (var day = 5; day <= 9; day++)
           BusyInterval(
@@ -321,10 +321,24 @@ void main() {
       // `rules` 是窗口首日（周一）的解析结果，上限 180。
       final weekdayRules = _rules(dailyMovableLimit: _weekdayLimit);
       final weekendRules = _rules(dailyMovableLimit: _weekendLimit);
+      // ── **修正**（算法 17，2026-10-17）：这里原本写 `requiredMinutes: 400` ──────
+      //
+      // 那个期望**在算术上不可能满足**，因此它不是"接线后才会转绿的红灯"：
+      //
+      // - 周一至周六整天被占住，**只有周日**有空档；
+      // - 周日的上限是 `_weekendLimit = 360`，当天最多承接 **360** 分钟；
+      // - 400 > 360 ⇒ 无论日期选择多正确，总量都不可能达到 400。
+      //
+      // 实测正是如此：`{5:0, 6:0, 7:0, 8:0, 9:0, 10:0, 11:360}`——
+      // **360 分毫不差地等于周末上限**，说明"按 360 而不是 180 算"这件事**本来就成立**。
+      //
+      // 用例真正要证的判据是"周日按 360 算，而不是复制窗口首日的 180"，
+      // 因此目标取 **360** 才恰好是临界点：若误用 180 只能排 180；
+      // 只有真按 360 算，才可能排满 360。
       final problem = ScheduleProblem(
         planningWindow: window,
         timeZoneId: _timeZoneId,
-        tasks: [_task(requiredMinutes: 400)],
+        tasks: [_task(requiredMinutes: 360)],
         fixedIntervals: busy,
         protectedIntervals: const [],
         lockedBlocks: const [],
@@ -367,8 +381,10 @@ void main() {
       );
       expect(
         byDay.values.fold<int>(0, (sum, value) => sum + value),
-        400,
-        reason: '周日可用 360 分钟，400 分钟排得下；实际 $byDay',
+        _weekendLimit,
+        reason:
+            '目标就是 $_weekendLimit，只有真按周末上限（而不是 $_weekdayLimit）'
+            '算才排得满；实际 $byDay',
       );
       expect(proposal.unscheduled, isEmpty, reason: '容量充足时不应有缺口');
     });
