@@ -1,7 +1,7 @@
 # 跨日分配器 ↔ 排程引擎：接口契约（Task 6 前置）
 
-> 状态：**提案稿，未实施**。Task 6（引擎日内接线与动态重分）在实施层尝试六轮均回退，
-> 因此先把契约写清楚，再据此改代码。本文只记录**已实测确认**的事实，未验证的推测显式标注。
+> 状态：**分配器已就绪并通过验证；引擎接线仍未提交**（第 21、24 轮各试一次，均回退）。
+> 第 24 轮的接线**解决了三件事**（见 §8），只剩两个具体问题未解。
 >
 > 相关记录：`docs/testing/capacity-aware-scheduler-acceptance.md` §6。
 
@@ -362,6 +362,61 @@ remainder= 目标 − base × K                    // 210 − 200 = 10
 
 注意 `blocks` 也会被**移除**（§3.3 撤掉上一轮 `even` 安排那条路径），
 因此增量表必须同时支持扣减，或者在那一步之后重建一次。
+
+---
+
+## 8. 第 24 轮接线实测（**增量表已实现，接线仍回退**）
+
+按 §6.2 的两个数与 §7.4 的增量表重新接线后实测：
+
+### 8.1 已解决
+
+| 项 | 结果 |
+| --- | --- |
+| `even` 按日分布 | ✅ `recurring_even_distribution_test` **转绿**（round 23 的 `index++` 修好了它） |
+| 普通任务跨日负载 | ✅ `schedule_engine_test`「普通任务的跨日负载」**转绿** |
+| 150/30 普通任务 | ✅ `capacity_aware_week_planning_test`「150/30 不得固定选择前五个日期」**转绿** |
+| 规模用例性能 | ✅ `scale_smoke_test` 单文件 **12 秒**（基线 10.2 秒的 `elapsedMs=10236`），**
+未退化** |
+
+增量表的实现方式（本轮已验证可用）：
+
+```dart
+final taskMinutesByDate = <String, Map<DateTime, int>>{};
+void chargeTaskMinutes(PlannedBlock block) {
+  final byDate = taskMinutesByDate.putIfAbsent(block.taskId, () => {});
+  final date = _localDate(block.startUtc, problem.timeZoneId);
+  byDate[date] = (byDate[date] ?? 0) + block.durationMinutes;
+}
+for (final block in blocks) chargeTaskMinutes(block);   // 建初值：按**当前** blocks
+// 放置成功处：blocks.add(block); chargeMovable(block); chargeTaskMinutes(block);
+```
+
+`budgetPolicy` 与 `plannedMinutesForTaskByDate` 都改为查这张表。
+
+### 8.2 仍未解决（回退原因）
+
+1. **`movable_daily_limit_test`「锁定块不计入可移动上限」转红**：期望 300，实测 0。
+   该用例是"锁定块 300 分钟 + 可移动上限 360 ⇒ 300 分钟的可移动任务仍应排下"。
+   分配器给出的预算不足或为空——最可能是 `_headroomOf` 的账本口径与
+   "锁定额度不占可移动额度"这条规则不一致（锁定的 300 分钟被算进了当天占用）。
+2. **`week_view_test` ×2 转红**（跨页面刷新、早餐规则）。这两条走完整装配 + 界面，
+   需要单独定位。
+3. **全量 `flutter test` 仍约 11 分钟**（基线约 1.5 分钟）。
+   **注意**：`scale_smoke_test` 单独跑只有 12 秒，因此瓶颈**不在规模用例**，
+   而在别的（尚慢）测试文件上——很可能是某个反复生成排程的界面/集成用例。
+   下一轮应当**逐文件计时**定位，而不是继续猜。
+
+### 8.3 下一步
+
+1. 先修 `movable_daily_limit` 的账本口径（§8.2 第 1 条）——它是**正确性**问题，
+   且与分配器直接相关。
+2. 逐文件计时找出 11 分钟的来源（`week_view_test` 是首要嫌疑）。
+3. 两者都解决后再提交接线。
+
+**注意**：`golden_week` 与 Task 1 的两条断言（`360` / `{5}`）在接线后仍是红，
+那是**预期**的（Task 1 的判据需要在接线后重新校准，golden 归 Task 13）。
+
 
 
 
