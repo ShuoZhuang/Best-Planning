@@ -1512,6 +1512,30 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     return DateTime(local.year, local.month, local.day);
   }
 
+  /// 这份问题应当按哪个方案目标档位比较（计划 Task 8 Step 4）。
+  ///
+  /// 三档的差别只在**比较顺序**（`scheduleObjectiveStageNames`），而这正是
+  /// "该不该移动已确认的块"这条纪律的落点：
+  ///
+  /// - **有块级调整**（`adjustment != null`）⇒ `explicitAdjustment`：
+  ///   用户点名要动某一块，因此允许为此移动相邻块；
+  /// - **有确认基线**（`referenceBlocks` 非空、但没有点名调整）⇒ `backgroundReplan`：
+  ///   后台重排，稳定性被大幅提前，"只改善一点点就别动"；
+  /// - **从零生成** ⇒ `initialGeneration`：没有基线可保，比的是方案本身的质量。
+  ///
+  /// 判据**只从 `ScheduleProblem` 自身派生**，不接受调用方另传一个"请按 X 档比较"：
+  /// 那样两处装配可能说法不一致，而这类不一致会表现为"同一份输入在预览与落地时
+  /// 给出不同方案"——本计划要消灭的正是这种双真相。
+  ScheduleObjectiveProfile _objectiveProfileOf(ScheduleProblem problem) {
+    if (problem.adjustment != null) {
+      return ScheduleObjectiveProfile.explicitAdjustment;
+    }
+    if (problem.referenceBlocks.isNotEmpty) {
+      return ScheduleObjectiveProfile.backgroundReplan;
+    }
+    return ScheduleObjectiveProfile.initialGeneration;
+  }
+
   /// 整案比较：`trial` 是否**严格优于** `current`（计划 Task 7 Step 5）。
   ///
   /// 两道判据都必须通过：
@@ -1531,6 +1555,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     required Map<String, int> targets,
     required DayAllocationPlan allocationPlan,
   }) {
+    final profile = _objectiveProfileOf(problem);
     final quality = PlanQualityValidator.validate(
       problem: problem,
       blocks: trial,
@@ -1545,19 +1570,19 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       blocks: trial,
       ledger: ledger,
       zones: _zones,
-      profile: ScheduleObjectiveProfile.initialGeneration,
+      profile: profile,
     );
     final currentObjective = evaluateScheduleObjective(
       problem: problem,
       blocks: current,
       ledger: ledger,
       zones: _zones,
-      profile: ScheduleObjectiveProfile.initialGeneration,
+      profile: profile,
     );
     return compareScheduleObjectives(
           trialObjective,
           currentObjective,
-          ScheduleObjectiveProfile.initialGeneration,
+          profile,
         ) <
         0;
   }
