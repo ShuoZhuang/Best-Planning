@@ -26,11 +26,11 @@
 | Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 **`1.8.1+45`**，产品名 `优计主义` |
 | 启动冒烟 | 便携版在**临时副本**中启动成功：进程存活 10 秒、无错误输出（仅 Impeller 后端日志）、自动生成 `user-data\`（数据库初始化成功）。冒烟副本已删除，`user-data` **不在交付包内** |
 | Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.8.1-build45-windows-x64-20261017`（**12 个顶层条目**） |
-| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.8.1-build45-windows-x64-20261017.zip`（**34738007 字节**，**34 条目**） |
-| MSIX | 同目录内 `Best-Planning-1.8.1-build45-windows-x64-20261017.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.8.1.0`** / x64（已解包核对 `<Identity … Version="1.8.1.0"`） |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.8.1-build45-windows-x64-20261017.zip`（**34737909 字节**，**34 条目**） |
+| MSIX | 同目录内 `PersonalPlanner-1.8.1-build45-windows-x64-20261017.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.8.1.0`** / x64（已解包核对 `<Identity … Version="1.8.1.0"`） |
 | EXE SHA-256 | `BE4906C3BCB0623412C7B05F7CCC71F73C3D0DD10A6D7B6960E0B1C92D34C916`（EXE 只是启动器，Dart 代码改动不改变它——与 `1.8.0.2` 同值正是这个原因，**不能**拿它当内容判据） |
 | app.so SHA-256 | `D8AB3AC2C0092B32995048F37D39CB9DC51A591905437B1DE430C167C0DEF698`（真正的 Dart 代码；与 `1.8.0.2` 的 `C474317B…` **不同**） |
-| ZIP SHA-256 | `E3C9457544D5195CBF03C20B1381726D9FAE5CE93AB68ADBE1F8EB7B183FFC31` |
+| ZIP SHA-256 | `3FFC7D4463507240D2B1CE6D40C351384010B0762F6A0119B2DFA10FB7313F2C` |
 | MSIX SHA-256 | `6ADCDF7AEBF6E4592716330E88D9D47A349E0AF9E016F8D4B2B595FBA35565CF` |
 | 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
 | MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
