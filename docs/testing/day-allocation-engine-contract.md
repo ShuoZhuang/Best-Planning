@@ -662,6 +662,49 @@ ConfirmedPlan（apply 返回的 applied.plan）
 `RepositoryScheduleViewSource` 的输出，断言它包含刚应用的块。
 若它为空 ⇒ 问题在装配/失效总线；若它有块 ⇒ 问题在页面的等待条件。
 
+### 12.5 已核查的装配层事实（第 36 轮，缩小范围）
+
+本轮逐个读过装配链，以下**都不是**原因：
+
+| 环节 | 事实 |
+| --- | --- |
+| `PlanApplicationService.apply` | 测试断言 `applied.status == applied`，且 `applied.plan!.blocks` 非空 |
+| `ScheduleViewInvalidationWiring.planAfter` | 形状正确：成功写入后 `notify`，且 `try/finally` 保证一定会发 |
+| `ScheduleViewInvalidationBus.notify` | revision 单调递增；dispose 后安全忽略 |
+| `RepositoryScheduleViewSource.invalidation` | 生产装配已传 `bus`（测试里也传了） |
+| `_load` 的当前版选择 | `currentBlocks = confirmed?.blocks`，规则 1 对"当天有当前版块"直接取当前版 |
+| `_granularityOf`（引擎侧） | **已修**（`ea209be5`），不再是抛错来源 |
+
+**因此剩下的可疑点集中在"页面侧如何消费 revision 并重建列表"**，
+而不是"数据有没有写进去"。下一轮应当：
+
+1. 在 `week_view_test` 里**直接断言** `bus.revision` 在 `apply` 之后递增
+   （一行断言就能区分"没发信号"与"发了但页面没用"）；
+2. 若 revision 正常递增，再查三个页面（`WeekViewPage` / `DayViewPage` / `TodayPage`）
+   各自如何订阅 `ScheduleViewSource`——它们共用同一个 `source` 实例，
+   而接线后**同一实例的 `load()` 现在会做更多工作**（跨日块更多），
+   是否在 `requestReload` 期间被并发重入、导致最后一次加载被丢弃。
+
+> **注**：`ScheduleViewInvalidationBus` 只暴露 `Stream<int> get revisions`，
+> 没有同步读当前 revision 的 getter。因此第 1 步的断言要写成
+> "先订阅再 apply，等第一次事件"——而不是读一个同步属性。
+> 若需要同步判据，应给 bus 增加一个 `int get revision`（只读，安全）。
+
+---
+
+## 13. 本轮的净结论（第 36 轮）
+
+本轮**没有改动产品代码**，只把装配层的六处逐一核查并排除（§12.5），
+把 `week_view` 的剩余可疑范围从"整条链路"收窄到"页面如何消费 revision"。
+全量维持在 **2743 passed / 4 failed**（98 秒）。
+
+这属于**有代价的进展**：范围更小、排除项有据，但用户可见的缺口仍在。
+考虑到剩余轮次，下一轮若仍不能定位，应把 Task 6 明确标记为未完成并转入
+不依赖它的任务（Task 9 的剩余部分、Task 12 的 Step 4–9 清单化），
+而不是继续在同一处投入。
+
+
+
 ### 12.4 两条需要修正的 Task 1 断言（**不是**接线能解决的）
 
 - `150/30 不得固定选择前五个日期`（普通任务）：HEAD 上实测**只用 2 天**，
