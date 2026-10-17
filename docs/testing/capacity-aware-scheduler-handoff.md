@@ -92,6 +92,16 @@ flutter test                     # 2743 passed / 4 failed, 约 98 秒
 
 ### 4.3 下一步就是这一条（**一次运行即可定性**）
 
+> **重要线索（第 39 轮）**：`week_view_test` 那条用例**没有注册任何 stream error handler**
+> （`errorBuilder` / `onError` 均无）。而 `RepositoryScheduleViewSource.load()` 的错误路径是
+> `controller.addError(error, stackTrace)`——**没有 handler 时它被静默吞掉**。
+> 所以"页面空白"也可能是**一次被吞掉的异常**，而不是"数据没写进去"。
+>
+> 已新增 `no_silent_generation_failure_test.dart` 覆盖"生成/诊断/容量分析不得抛异常"
+> （HEAD 上 3/3 通过，说明在当前代码下它们不抛）。但**视图源自己的 `_load` 仍未被这条
+> 检验覆盖**——它读的是 drift，需要真实装配。**给那条用例加 `errorBuilder` 只需几行**，
+> 却是把"静默失败"变成"可见失败"的最快手段，建议优先做。
+
 `ScheduleViewInvalidationBus` 只暴露 `Stream<int> get revisions`，**没有同步 getter**。
 因此判据要写成"先订阅、再 apply"：
 
