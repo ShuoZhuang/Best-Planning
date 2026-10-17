@@ -546,6 +546,71 @@ for (final block in blocks) chargeTaskMinutes(block);   // 建初值：按**当�
 2. 检查 `Isolate.run` 内新类型是否需要像 `TimeZoneDatabase()` 那样预置。
 3. 在此之前**不要**再提交接线——一个"页面永远停在加载态"的改动比没有跨日分配更糟。
 
+---
+
+## 11. 第 32–33 轮：两个假设被否证，**第三个真 bug 已修**
+
+### 11.1 否证：isolate 不是问题
+
+`isolate_problem_transfer_test.dart` 直接把 `ScheduleProblem`（含
+`dailyPolicies` 与 `weeklyLifeQuotaByWeekStart`）送进 `Isolate.run`，
+在里面真跑一次 `generate()`。**2/2 通过** ⇒ 对象与逐日策略都能过 isolate 边界。
+
+### 11.2 否证：不是"零进展循环"
+
+零进展守卫（`remaining` 不严格减少就 `break`）加上之后**毫无变化**，
+说明放置循环每轮都在真实减少剩余量。
+
+### 11.3 真 bug：`_granularityOf` 把 UTC 瞬间当本地日期（**已修**，`ea209be5`）
+
+`create_proposal_convergence_test.dart`（真实装配形状、带超时）在**4 秒**内报出：
+
+```text
+Bad state: 缺少本地日期 2026-10-4 的每日排程策略
+  task_capacity_analyzer.dart:203 (_granularityOf)
+```
+
+`policyForLocalDate` 只做**归一化**（丢掉时刻），**不做时区换算**。
+`_granularityOf` 传的是 `range.startUtc`／`planningWindow.startUtc`，
+于是本地周一零点（`10-04T16:00Z`）被当成 10-04——窗口外的日子，`dailyPolicies` 无此键。
+
+本文件另外两处（`slot.localDate`、`localDateOf(...)`）都用了 `localDateOf`，只有这里漏了。
+**修法**：`_granularityOf` 先 `localDateOf(...)` 再查策略。
+
+### 11.4 修好之后：接线状态大幅改善，但**仍不能提交**
+
+`ea209be5` 之后重接线，实测：
+
+| 观察 | 结果 |
+| --- | --- |
+| `week_view`「真实源跨页面」 | 由**挂起 10 分钟**变成**2 秒内失败**（`Bad state: Too many elements`） |
+| 核心四套件耗时 | **7 秒**（不再是 10+ 分钟） |
+| 剩余红灯 | **3 条**（此前 8+） |
+
+`Too many elements` 的根因已定位到**用例自身的假设过期**：
+
+```dart
+final block = confirmed.blocks.single;   // ← 算法 16 的形状
+```
+
+跨日分配上线后一个 120 分钟任务会被**合法切成多块散到多天**，
+`.single` 因此抛错。**那不是缺陷**。已按"逐块断言"改写该用例
+（比原来更强：原来只验一块），改写后该用例**再降到 2 秒内**给出新症状：
+三个页面**一个计划块都没显示**（`找到 0 个 "完成课程论文"`）。
+
+### 11.5 下一轮的三件事（已按优先级排好）
+
+1. **`week_view` 只显示 0 个块**：这是当前最靠近根因的一条。
+   引擎输出有块（`create_proposal_convergence_test` 断言过 `blocks` 非空），
+   因此嫌疑在"确认计划的块 → `RepositoryScheduleViewSource` → 三个页面"这一段。
+2. **`150/30 均匀` 仍 4 天**：预算给对了 5 天各 30，引擎只用了
+   `{6: 60, 9: 30, 10: 30, 11: 30}`——缺口在**放置顺序**，不在分配器。
+3. **`week_view` 的 `360 / 400` 断言**需重新校准（该断言的原始可满足性存疑）。
+
+**性能**：`scale_smoke_test` 在接线状态下 `elapsedMs=9862`（基线 10236），
+核心四套件 7 秒 ⇒ 性能不再是障碍。
+
+
 
 
 
