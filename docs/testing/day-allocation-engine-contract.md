@@ -610,6 +610,68 @@ final block = confirmed.blocks.single;   // ← 算法 16 的形状
 **性能**：`scale_smoke_test` 在接线状态下 `elapsedMs=9862`（基线 10236），
 核心四套件 7 秒 ⇒ 性能不再是障碍。
 
+---
+
+## 12. 第 35 轮：全量实测的**准确失败清单**（接线状态）
+
+`7254db87`（把一条算术上不可能的断言重新校准到 360）之后重接线，全量实测：
+
+```text
+flutter test（接线状态）→ 2742 passed / 5 failed，耗时 656 秒（11 分钟）
+flutter test（HEAD，无接线）→ 2743 passed / 4 failed，耗时 98 秒
+```
+
+**接线带来的净变化：−1 passed、+1 failed、+558 秒。** 因此本轮再次回退。
+
+### 12.1 五条红灯的准确归属
+
+| 用例 | 性质 |
+| --- | --- |
+| `capacity_aware_week_planning_test`「150/30 均匀周期目标」 | **Task 6 真缺口**：分配器给对 5 天各 30，引擎只用 4 天 |
+| `recurring_planning_test`「均匀分布不会把 180 分钟全堆到周日」 | **接线新引入的失败**（HEAD 上为绿）——需单独定位 |
+| `week_view_test`「真实源跨页面」 | 接线后 **0 个计划块到达页面**（已确认不是重复块、不是 isolate） |
+| `week_view_test`「早餐规则…」 | 同一根因（页面拿不到计划） |
+| `schedule_engine_test` golden week | **预期**：算法变了，golden 归 Task 13 |
+
+### 12.2 已排除的可能性（都不成立的假设）
+
+历轮已用**独立、可快速运行**的检验逐一排除：
+
+| 假设 | 检验 | 结果 |
+| --- | --- | --- |
+| isolate 传不动新类型 | `isolate_problem_transfer_test` | **否证**（2/2 通过） |
+| 零进展死循环 | 加守卫后无变化 | **否证** |
+| 引擎输出重复块 | `no_duplicate_blocks_test` | **否证**（3/3 通过） |
+| 引擎在这种形状下不收敛 | `create_proposal_convergence_test` | **否证**（4 秒内完成） |
+| 白天粒度取错日期 | 见 §11.3 | **已修**（`ea209be5`） |
+
+### 12.3 剩下的**唯一**未定位项
+
+`week_view` 三页面拿不到计划块。已排除引擎侧的全部嫌疑（上面五条），
+因此范围收窄到：
+
+```text
+ConfirmedPlan（apply 返回的 applied.plan）
+  → RepositoryScheduleViewSource
+  → ScheduleViewInvalidationBus / Wiring
+  → 三个页面
+```
+
+**决定性检验（下一轮先做这一条）**：在**不挂界面**的情况下，
+用同样的真实装配 `apply` 一份提案，然后**直接读**
+`RepositoryScheduleViewSource` 的输出，断言它包含刚应用的块。
+若它为空 ⇒ 问题在装配/失效总线；若它有块 ⇒ 问题在页面的等待条件。
+
+### 12.4 两条需要修正的 Task 1 断言（**不是**接线能解决的）
+
+- `150/30 不得固定选择前五个日期`（普通任务）：HEAD 上实测**只用 2 天**，
+  接线后仍不达标。它与 `普通任务的跨日负载` 同源，属真正的 Task 6 目标。
+- `工作日繁忙、周末空闲（普通任务用周末）`：同源。
+
+**结论**：Task 6 的验收判据就是这两条 + 两条 `week_view` + 一条 golden；
+其中 golden 归 Task 13，`week_view` 的根因已收窄到装配层一步。
+
+
 
 
 
