@@ -320,11 +320,93 @@ DayAllocationPlan allocateTaskDays(DayAllocationInput input) {
         ? neededChunks
         : ranked.length;
     final participants = ranked.take(participantCount).toList();
+
+    // ── `even` 任务：**按天数等分**，不走轮转循环（契约 §7.2）───────────────────
+    //
+    // 轮转写法对 `even` 必然算错：它每轮给每个参与日各加一个 `chunkMinutes`，
+    // 于是余数**永远落在排名第一的那天**。实测"目标 210、四天各余 120、粒度 5"：
+    //
+    // ```text
+    // 第 1 轮 [50, 50, 50, 50]，剩 10 ⇒ 第 2 轮第一名 +10 ⇒ [60, 50, 50, 50]
+    // ```
+    //
+    // 而计划 §3.1 要的"每天尽量均衡"是 **`[55, 55, 50, 50]`**
+    // （两个 50、两个 55 —— `recurring_even_distribution_test` 钉住的形状）。
+    //
+    // 正确判据：先给每个参与日 `base = ⌊目标 / K⌋`（向下取整到粒度），
+    // 再把余量按**粒度**逐份发给排名靠前的日期。
+    if (task.distributionPolicy == TaskDistributionPolicy.even) {
+      final granularity = input.granularityMinutes;
+      final perDayBase =
+          (remainingToAllocate ~/ participants.length) ~/
+          granularity *
+          granularity;
+      var left = remainingToAllocate;
+      for (final date in participants) {
+        if (left <= 0) break;
+        if (visited >= input.maxAllocationStates) {
+          exhausted = true;
+          break;
+        }
+        visited++;
+        final headroom = _headroomOf(
+          ledger: ledger,
+          input: input,
+          task: task,
+          date: date,
+          alreadyPlanned: planned,
+          allocatedNow: allocated,
+        );
+        final wanted = perDayBase < left ? perDayBase : left;
+        final minutes = wanted < headroom ? wanted : headroom;
+        if (minutes <= 0) continue;
+        allocated[date] = (allocated[date] ?? 0) + minutes;
+        ledger = ledger.allocate(date, minutes);
+        left -= minutes;
+      }
+      // 余量：按粒度逐份发给排名靠前的日期，直到发完或没有余量可放。
+      var index = 0;
+      while (left > 0 && !exhausted && index < participants.length) {
+        final date = participants[index];
+        if (visited >= input.maxAllocationStates) {
+          exhausted = true;
+          break;
+        }
+        visited++;
+        final headroom = _headroomOf(
+          ledger: ledger,
+          input: input,
+          task: task,
+          date: date,
+          alreadyPlanned: planned,
+          allocatedNow: allocated,
+        );
+        final step = left < granularity ? left : granularity;
+        final minutes = step < headroom ? step : headroom;
+        if (minutes <= 0) {
+          index++;
+          continue;
+        }
+        allocated[date] = (allocated[date] ?? 0) + minutes;
+        ledger = ledger.allocate(date, minutes);
+        left -= minutes;
+        if (left < granularity) break;
+      }
+      budgets[task.id] = TaskDayBudget(
+        taskId: task.id,
+        minutesByLocalDate: allocated,
+        allocatedMinutes: allocated.values.fold<int>(
+          0,
+          (sum, value) => sum + value,
+        ),
+        shortageMinutes: left,
+      );
+      continue;
+    }
+
     // `even`：在所有候选日之间摊（先每个日期各 1 个片段，再回头）；
     // 普通任务：先填满排名第一的日期，再轮到下一个 —— 它没有"任务自身均匀"这个目标。
-    final cycle = task.distributionPolicy == TaskDistributionPolicy.even
-        ? ranked
-        : participants;
+    final cycle = participants;
 
     var placedAnything = true;
     while (remainingToAllocate > 0 && placedAnything && !exhausted) {
