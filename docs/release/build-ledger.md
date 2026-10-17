@@ -4,11 +4,41 @@
 “已发布”，才算正式发布。
 
 > **当前正式发布：`1.6.2+37` / MSIX `1.6.2.0`（2026-10-08，tag `v1.6.2-build37`）** —— 见下方 `1.6.2+37` 批次。
-> **当前候选：`1.8.0+44` / MSIX `1.8.0.2`（2026-10-14）** —— 产物已就绪，**尚未发布**；见下方 `1.8.0+44 / MSIX 1.8.0.2` 批次。
+> **当前候选：`1.8.1+45` / MSIX `1.8.1.0`（2026-10-17）** —— 产物已就绪，**尚未发布**；见下方 `1.8.1+45 / MSIX 1.8.1.0` 批次。
+> `1.8.0+44` / MSIX `1.8.0.2` 已被 `1.8.1+45` 取代（产物仍在 `release\` 下留档）。
 > `1.8.0+44` / MSIX `1.8.0.1` 已被**同批次重打包**的 `1.8.0.2` 取代（前者是日历修复**之前**的构建；产物仍在 `release\` 下留档）。
 > `1.8.0+43` / MSIX `1.8.0.0` 已被 `1.8.0+44` 取代（其产物仍在 `release\` 下留档）。
 > `1.7.1+42` / MSIX `1.7.1.1` 已被 `1.8.0+43` 取代（其产物仍在 `release\` 下留档）。
 > `1.6.2+37` 之前的所有批次都保持"候选构建"状态，未对外发布。
+
+## 1.8.1+45 / MSIX 1.8.1.0 — 2026-10-17（`1.8` 发布线 · 容量感知分层排程修复批次）
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **候选构建**（产物已就绪，**尚未发布**）——等待人工验收与 GitHub Release |
+| 变更范围 | **容量感知分层排程修复**（计划 `docs/superpowers/plans/2026-10-16-capacity-aware-hierarchical-scheduler-repair.md`）：① **逐日规则**——`DailySchedulingPolicy` 按本地日解析，每日上限／粒度／休息间隔／生活配额不再复制窗口首日（周末上限此前整周不生效）；② **单一容量账本**——`DayCapacityLedger` 成为"某天还能放多少"的唯一来源，且 `usedMovableMinutes` **包含锁定块**（修复前锁定 300 分钟、上限 360 的一天仍可再排 360）；③ **方案级字典序目标**——`ScheduleObjective` + `compareScheduleObjectives`，禁止加权和；④ **全局跨日分配**——`allocateTaskDays` 先按方案目标把分钟摊到 K 个日期（`K × chunk ≤ 目标`），引擎只在预算内放置；⑤ **引擎日内接线与动态重分**——预算落地失败由 K 计算与引擎遍历转让，**没有**多轮重分循环；⑥ **方案级改进闸门**——`PlanQualityValidator` + `_wholePlanIsBetter`，局部候选分更高也不能恶化整案；⑦ **既有块身份（ID 族）**——未锁定的既有块携带**原 id** 作为起点进入排程，`minimizeChangedBlocks` 不再空操作；⑧ **精力偏离解释**——`explanationCode` 由 `energy_offpeak`（「偏离精力偏好」）取代此前的 `priority`（「优先级较高」） |
+| 版本段位 | `1.8.0+44` → **`1.8.1+45`**；MSIX `1.8.0.2` → **`1.8.1.0`**（第四段归零：本批**改了代码**，不是同批重打包）。按版本策略第 2 节判据，本批**全是修复**（无新增用户可感知功能），因此抬第 3 段 |
+| 数据库 | **schema 未变，无迁移**；`drift_schemas/` 未改 |
+| 排程算法 | **`16` → `19`**：17 = 容量感知分层排程（逐日规则／账本／方案目标／跨日分配）；18 = 既有块身份（ID 族）；19 = 精力偏离解释码 |
+| 格式／分析／测试 | `dart format --output=none --set-exit-if-changed lib test`：**605 文件 0 改动**；`flutter analyze`：**No issues found**；`flutter test`：**2769 项通过 / 0 失败**（约 73 秒） |
+| Windows 集成测试 | **未执行**——本环境 `flutter test integration_test` 因 `flutter-web-sdk.zip` 下载握手失败（网络受限），不是代码问题 |
+| 人工验收 | 六项人工场景**已改为自动化覆盖**（`test/app/manual_scenarios_ui_test.dart` 6 条全绿），见 `docs/testing/capacity-aware-scheduler-acceptance.md` §9 |
+| Windows Release | `flutter build windows --release --no-pub` 成功；EXE 文件版本与产品版本均为 **`1.8.1+45`**，产品名 `优计主义` |
+| 启动冒烟 | 便携版在**临时副本**中启动成功：进程存活 10 秒、无错误输出（仅 Impeller 后端日志）、自动生成 `user-data\`（数据库初始化成功）。冒烟副本已删除，`user-data` **不在交付包内** |
+| Windows 目录 | `G:\best-planing\release\PersonalPlanner-1.8.1-build45-windows-x64-20261017`（**12 个顶层条目**） |
+| Windows ZIP | `G:\best-planing\release\PersonalPlanner-1.8.1-build45-windows-x64-20261017.zip`（**34738007 字节**，**34 条目**） |
+| MSIX | 同目录内 `Best-Planning-1.8.1-build45-windows-x64-20261017.msix`；清单 `ShuoZhuang.PersonalPlanner` / **`1.8.1.0`** / x64（已解包核对 `<Identity … Version="1.8.1.0"`） |
+| EXE SHA-256 | `BE4906C3BCB0623412C7B05F7CCC71F73C3D0DD10A6D7B6960E0B1C92D34C916`（EXE 只是启动器，Dart 代码改动不改变它——与 `1.8.0.2` 同值正是这个原因，**不能**拿它当内容判据） |
+| app.so SHA-256 | `D8AB3AC2C0092B32995048F37D39CB9DC51A591905437B1DE430C167C0DEF698`（真正的 Dart 代码；与 `1.8.0.2` 的 `C474317B…` **不同**） |
+| ZIP SHA-256 | `E3C9457544D5195CBF03C20B1381726D9FAE5CE93AB68ADBE1F8EB7B183FFC31` |
+| MSIX SHA-256 | `6ADCDF7AEBF6E4592716330E88D9D47A349E0AF9E016F8D4B2B595FBA35565CF` |
+| 证书 SHA-256 | `23FAE03376B8D05022A82B6C47D284117AB37D3100F9ECD1E3D9AB10C1A24A3C`（与历次同值） |
+| MSIX 签名 | `Get-AuthenticodeSignature` = **`Valid`**，签名者 `CN=Shuo Zhuang, O=Personal User, C=CN` |
+| 覆盖安装 | **`1.8.1.0` > 已装 `1.8.0.2`** ⇒ 可原位升级（安装前需先退出正在运行的应用，否则 `0x80073D02`）。**本次未执行任何本地安装**（按用户要求） |
+| 交付完整性 | 便携目录、ZIP、已签名 MSIX、签名公钥证书、一键安装器（`安装.cmd` + `install-planner.ps1`）、验收说明、`SHA-256.txt` 齐全；ZIP **34 条目**、**无** `user-data`／`.sqlite`／`.bak`／`.pfx`／`.key`／`.pem`／`.log`（已按条目名自检，计数为 0） |
+| 隐私 | `.pfx` 与私钥不进版本库也不进交付包；交付包只带**公钥** `.cer` |
+| 构建环境注意事项 | 本机构建需绕过一个 Flutter SDK 与 Windows 的交互缺陷：`Link.createSync` 未传 `ALLOW_UNPRIVILEGED_CREATE`，即使已开开发者模式也报 `errno 1314`。绕法＝**先用 PowerShell 预创建** `windows\flutter\ephemeral\.plugin_symlinks` 下的 6 个插件链接（Flutter 检测到已存在即跳过），再 `flutter build windows --release --no-pub` |
+| 尚未完成 | **人工验收与 GitHub Release 未完成**；GitHub 正式 Release 与 tag 尚未创建/推送 |
 
 ## 1.8.0+44 / MSIX 1.8.0.2 — 2026-10-14（`1.8` 发布线 · 日历与排程完整性修复批次 · **同批重打包**）
 
