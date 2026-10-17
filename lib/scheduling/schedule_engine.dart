@@ -11,6 +11,8 @@ import 'package:personal_planner/scheduling/candidate_scorer.dart';
 import 'package:personal_planner/scheduling/day_allocation.dart';
 import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
+import 'package:personal_planner/scheduling/plan_quality_validator.dart';
+import 'package:personal_planner/scheduling/schedule_objective.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
@@ -459,7 +461,15 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       }
     }
 
-    _improve(problem, slots, blocks, targets, chunkGenerator, allocationPlan);
+    _improve(
+      problem,
+      slots,
+      blocks,
+      targets,
+      chunkGenerator,
+      allocationPlan,
+      ledger,
+    );
     // FR-CAL-05 的"不锁定"那一支：被手动拖动、但用户没有选择锁定的块，在**本次生成**里
     // 必须按锁定对待（因此上面的 `_improve` 跳过了它），否则局部改进会立刻把它搬回去，
     // 用户看到的就是"拖了没用"。生成结束后再把这些块的 `locked` 改回 false 输出，于是它
@@ -1339,6 +1349,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     Map<String, int> targets,
     CandidateGenerator candidates,
     DayAllocationPlan allocationPlan,
+    DayCapacityLedger allocationLedger,
   ) {
     final tasks = {for (final task in problem.tasks) task.id: task};
     var operations = 0;
@@ -1470,10 +1481,28 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           explanationCode: _explanationCode(problem, task, candidate, others),
         );
         final trial = [...others, replacement];
-        if (_validator.validate(problem, trial).isEmpty) {
-          blocks[blockIndex] = replacement;
-          break;
+        if (_validator.validate(problem, trial).isNotEmpty) continue;
+        // ── **方案级闸门**（算法 17，计划 Task 7 Step 5）────────────────────────
+        //
+        // 上面那道 `score.totalScore > currentScore` 是**候选级**判据：它只看
+        // "这一块放到新位置是不是更讨喜"（精力匹配、进度、紧迫度……）。
+        // 候选级更优**不等于**整份方案更优——实测的典型形状就是
+        // 「局部精力分更高，却把工作日负载从 70% 推到 100%、周末仍为 20%」。
+        //
+        // 因此这里再比一次**整案**：把 trial 当成一份完整方案，按 profile 对应的
+        // 字典序目标与当前方案比较，只有**严格更优**才接受。
+        if (!_wholePlanIsBetter(
+          problem: problem,
+          current: blocks,
+          trial: trial,
+          ledger: allocationLedger,
+          targets: targets,
+          allocationPlan: allocationPlan,
+        )) {
+          continue;
         }
+        blocks[blockIndex] = replacement;
+        break;
       }
     }
   }
@@ -1481,6 +1510,56 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   DateTime _localDate(DateTime instantUtc, String zoneId) {
     final local = _zones.toLocal(instantUtc, zoneId);
     return DateTime(local.year, local.month, local.day);
+  }
+
+  /// 整案比较：`trial` 是否**严格优于** `current`（计划 Task 7 Step 5）。
+  ///
+  /// 两道判据都必须通过：
+  /// 1. **结构自洽**：`PlanQualityValidator` 无违规（唯一块 ID、任务分钟守恒、
+  ///    日预算、每日硬上限、缺口是否有解释）；
+  /// 2. **方案不恶化**：按 [ScheduleObjectiveProfile.initialGeneration] 的字典序
+  ///    比较，`trial` 必须严格更优。
+  ///
+  /// 用 `initialGeneration` 而不是另外两个 profile：这个引擎做的是**生成**，
+  /// 没有"已确认基线"可依。带基线的重排（`backgroundReplan`）与块级调整
+  /// （`explicitAdjustment`）走 `local_repair`，它们各自传入自己的 profile。
+  bool _wholePlanIsBetter({
+    required ScheduleProblem problem,
+    required List<PlannedBlock> current,
+    required List<PlannedBlock> trial,
+    required DayCapacityLedger ledger,
+    required Map<String, int> targets,
+    required DayAllocationPlan allocationPlan,
+  }) {
+    final quality = PlanQualityValidator.validate(
+      problem: problem,
+      blocks: trial,
+      ledger: ledger,
+      zones: _zones,
+      targets: targets,
+      allocationPlan: allocationPlan,
+    );
+    if (quality.isNotEmpty) return false;
+    final trialObjective = evaluateScheduleObjective(
+      problem: problem,
+      blocks: trial,
+      ledger: ledger,
+      zones: _zones,
+      profile: ScheduleObjectiveProfile.initialGeneration,
+    );
+    final currentObjective = evaluateScheduleObjective(
+      problem: problem,
+      blocks: current,
+      ledger: ledger,
+      zones: _zones,
+      profile: ScheduleObjectiveProfile.initialGeneration,
+    );
+    return compareScheduleObjectives(
+          trialObjective,
+          currentObjective,
+          ScheduleObjectiveProfile.initialGeneration,
+        ) <
+        0;
   }
 
   /// 周期实例的「周期起点本地日期」表（计划 §3.4 第 7 条）。
