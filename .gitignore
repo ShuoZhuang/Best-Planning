@@ -25,3 +25,11 @@ __pycache__/
 *.sqlite-wal
 *.pfx
 *.key
+
+# Agent working agreements (kept on disk, deliberately not versioned)
+#
+# `版本号规则.md` 是给**在本仓库里工作的 agent**看的操作约定（什么时候抬哪一段、
+# 要同步改哪几处），它属于工作方式，不属于产品代码或对外文档。
+# 用户 2026-10-17 明确：这份规则不需要提交。留在这里是为了让它在磁盘上继续可用，
+# 同时保证任何 `git add -A` 都不会把它带进版本库。
+版本号规则.md
