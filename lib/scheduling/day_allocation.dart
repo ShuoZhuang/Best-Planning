@@ -279,23 +279,35 @@ DayAllocationPlan allocateTaskDays(DayAllocationInput input) {
           rotation: rotation,
           targetPermille: targetPermille,
         );
-        final date = rankedForContinuous.isEmpty
-            ? null
-            : rankedForContinuous.first;
-        if (date != null) {
+        // **必须遍历所有候选日期，不能只看排名第一的那一天。**
+        //
+        // 连续任务只有"整块放下"一种形态，因此判据是"哪一天余量装得下整块"。
+        // 此前这里只取 `rankedForContinuous.first`：若那一天余量不足就**直接放弃**，
+        // 于是明明别的日子装得下也排不进去——实测黄金用例里
+        // `movie`（连续、120 分钟、周三 18:00–20:00 恰好 120 分钟）从"能放下"
+        // 变成"缺 120 分钟"，而排名第一的日期并不是周三。
+        //
+        // 排序仍然决定**优先尝试**哪一天（§3.4 第 3、4、5 条），
+        // 但"装不下"只否掉**那一天**，不否掉整件事。
+        DateTime? date;
+        for (final candidateDate in rankedForContinuous) {
           final headroom = _headroomOf(
             ledger: ledger,
             input: input,
             task: task,
-            date: date,
+            date: candidateDate,
             alreadyPlanned: planned,
             allocatedNow: allocated,
           );
           if (headroom >= remainingToAllocate) {
-            allocated[date] = remainingToAllocate;
-            ledger = ledger.allocate(date, remainingToAllocate);
-            remainingToAllocate = 0;
+            date = candidateDate;
+            break;
           }
+        }
+        if (date != null) {
+          allocated[date] = remainingToAllocate;
+          ledger = ledger.allocate(date, remainingToAllocate);
+          remainingToAllocate = 0;
         }
         visited++;
       } else {
@@ -544,6 +556,26 @@ int compareTasksForAllocation(
   DayAllocationInput input,
   List<DateTime> allDates,
 ) {
+  // ── **截止优先于形状** ────────────────────────────────────────────────────
+  //
+  // 这里此前把"连续任务"**无条件**排在最前（`aContinuous ? -1 : 1`），理由是
+  // 连续任务最难放、应当先占位。但截止是**硬约束**，形状只是喜好：
+  // 一个无截止的连续任务因此能抢走一个有截止任务唯一的窗口。
+  //
+  // 实测（黄金用例）：`movie`（连续、120 分钟、无截止）排在
+  // `research`（360 分钟、周二 18:00 截止）之前，占掉了周二 12:00–18:00，
+  // 于是两边各缺 120 分钟——而旧算法只缺 30 分钟。
+  //
+  // 判据改为：**有截止的、截止更早的先排**；紧急度相同时，连续任务才因为
+  // "更难放"而优先。
+  final aDue = a.dueAtUtc;
+  final bDue = b.dueAtUtc;
+  final aHasDue = aDue != null;
+  final bHasDue = bDue != null;
+  if (aHasDue != bHasDue) return aHasDue ? -1 : 1;
+  if (aHasDue && bHasDue && aDue != bDue) return aDue.compareTo(bDue);
+
+  // 紧急度相当之后，连续任务优先（它只有"整块放下"一种形态，最需要先占位）。
   final aContinuous = a.splitMode == TaskSplitMode.continuous;
   final bContinuous = b.splitMode == TaskSplitMode.continuous;
   if (aContinuous != bContinuous) return aContinuous ? -1 : 1;
@@ -551,13 +583,6 @@ int compareTasksForAllocation(
   final aDates = _eligibleDates(a, input, allDates).length;
   final bDates = _eligibleDates(b, input, allDates).length;
   if (aDates != bDates) return aDates.compareTo(bDates);
-
-  final aDue = a.dueAtUtc;
-  final bDue = b.dueAtUtc;
-  if (aDue != null && bDue != null && aDue != bDue) {
-    return aDue.compareTo(bDue);
-  }
-  if ((aDue == null) != (bDue == null)) return aDue == null ? 1 : -1;
 
   final aPressure = _deadlinePressure(a, input, allDates);
   final bPressure = _deadlinePressure(b, input, allDates);
