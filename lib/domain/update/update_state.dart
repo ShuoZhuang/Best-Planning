@@ -310,6 +310,8 @@ final class UpdateState {
     this.etag,
     this.lastModified,
     this.retryAttempt = 0,
+    this.targetFailureCount = 0,
+    this.pausedTargetVersion,
     this.nextAttemptUtc,
     this.lastCheckedUtc,
     this.lastConfirmedUtc,
@@ -340,6 +342,13 @@ final class UpdateState {
   final String? lastModified;
 
   final int retryAttempt;
+
+  /// 同一目标版本的连续下载/验证失败次数。达到上限后停止自动重试（规格 §13.4 / UPD-039）。
+  final int targetFailureCount;
+
+  /// 已因"安装后未通过健康确认并回退"而暂停的版本。为空表示没有暂停。
+  final String? pausedTargetVersion;
+
   final DateTime? nextAttemptUtc;
 
   final DateTime? lastCheckedUtc;
@@ -384,6 +393,8 @@ final class UpdateState {
     Object? etag = _unset,
     Object? lastModified = _unset,
     int? retryAttempt,
+    int? targetFailureCount,
+    Object? pausedTargetVersion = _unset,
     Object? nextAttemptUtc = _unset,
     Object? lastCheckedUtc = _unset,
     Object? lastConfirmedUtc = _unset,
@@ -406,6 +417,8 @@ final class UpdateState {
     etag: _pick(etag, this.etag),
     lastModified: _pick(lastModified, this.lastModified),
     retryAttempt: retryAttempt ?? this.retryAttempt,
+    targetFailureCount: targetFailureCount ?? this.targetFailureCount,
+    pausedTargetVersion: _pick(pausedTargetVersion, this.pausedTargetVersion),
     nextAttemptUtc: _pick(nextAttemptUtc, this.nextAttemptUtc),
     lastCheckedUtc: _pick(lastCheckedUtc, this.lastCheckedUtc),
     lastConfirmedUtc: _pick(lastConfirmedUtc, this.lastConfirmedUtc),
@@ -478,6 +491,8 @@ final class UpdateState {
     'etag': etag,
     'lastModified': lastModified,
     'retryAttempt': retryAttempt,
+    'targetFailureCount': targetFailureCount,
+    'pausedTargetVersion': pausedTargetVersion,
     'nextAttemptUtc': nextAttemptUtc?.toUtc().toIso8601String(),
     'lastCheckedUtc': lastCheckedUtc?.toUtc().toIso8601String(),
     'lastConfirmedUtc': lastConfirmedUtc?.toUtc().toIso8601String(),
@@ -511,6 +526,9 @@ final class UpdateState {
     if (phase == null) return null;
     final receivedBytes = json['receivedBytes'];
     final retryAttempt = json['retryAttempt'];
+    final targetFailureCount = json['targetFailureCount'] is int
+        ? json['targetFailureCount'] as int
+        : 0;
     if (receivedBytes is! int ||
         receivedBytes < 0 ||
         retryAttempt is! int ||
@@ -584,6 +602,10 @@ final class UpdateState {
       etag: etag as String?,
       lastModified: lastModified as String?,
       retryAttempt: retryAttempt,
+      targetFailureCount: targetFailureCount,
+      pausedTargetVersion: json['pausedTargetVersion'] is String
+          ? json['pausedTargetVersion'] as String
+          : null,
       nextAttemptUtc: _parseUtc(json['nextAttemptUtc']),
       lastCheckedUtc: _parseUtc(json['lastCheckedUtc']),
       lastConfirmedUtc: _parseUtc(json['lastConfirmedUtc']),

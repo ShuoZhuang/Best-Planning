@@ -33,6 +33,7 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update/update_baseline_service.dart';
+import 'package:personal_planner/application/update/update_feature_flag.dart';
 import 'package:personal_planner/application/update/update_check_scheduler.dart';
 import 'package:personal_planner/application/update/update_health_service.dart';
 import 'package:personal_planner/application/update/update_install_service.dart';
@@ -392,7 +393,7 @@ Future<void> main() async {
     );
   }
   // 后台建立回退基线（规格 §13.3）：基线完成前禁止安装，但允许下载新版本。
-  if (updateController.autoUpdateEnabled) {
+  if (nativeUpdaterEnabled && updateController.autoUpdateEnabled) {
     unawaited(updateController.ensureBaseline());
   }
 
@@ -944,10 +945,10 @@ Future<void> main() async {
         backups: backups,
         erasure: erasure,
         // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
-        updateController: updateController,
+        updateController: nativeUpdaterEnabled ? updateController : null,
         // M6：周期目标的生成、结算与三条路由（§3.3）。
         recurringTasks: recurringTasks,
-        updateCheckScheduler: updateCheckScheduler,
+        updateCheckScheduler: nativeUpdaterEnabled ? updateCheckScheduler : null,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),

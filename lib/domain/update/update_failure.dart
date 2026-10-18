@@ -174,6 +174,8 @@ enum UpdateFailureCode {
       retryable: true, message: '安装失败，当前版本未受影响'),
   installResultUnknown('UPDATE_INSTALL_RESULT_UNKNOWN', UpdateStage.install,
       retryable: true, message: '安装结果未知'),
+  installTargetPaused('UPDATE_INSTALL_TARGET_PAUSED', UpdateStage.install,
+      retryable: false, message: '该版本上次更新失败，已暂停自动安装；可手动重试。'),
   healthProcessNotStarted(
       'UPDATE_HEALTH_PROCESS_NOT_STARTED', UpdateStage.health,
       retryable: true, message: '新版本没有启动'),

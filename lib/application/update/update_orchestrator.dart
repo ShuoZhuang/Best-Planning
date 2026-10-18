@@ -133,7 +133,14 @@ final class UpdateOrchestrator {
       _state = _state.copyWith(phase: UpdatePhase.rolledBack);
     }
     if (_state.phase == UpdatePhase.rolledBack) {
-      _state = _state.copyWith(phase: UpdatePhase.idle);
+      _state = _state.copyWith(
+        phase: UpdatePhase.failed,
+        pausedTargetVersion: _state.target?.msixVersion.value,
+        lastFailure: const UpdateFailure(UpdateFailureCode.rollbackSucceeded),
+        retryAttempt: 0,
+        targetFailureCount: 0,
+        nextAttemptUtc: null,
+      );
     }
     if (_state.phase == UpdatePhase.installing ||
         _state.phase == UpdatePhase.launchingNewVersion ||
@@ -248,6 +255,15 @@ final class UpdateOrchestrator {
       );
     }
 
+    final pausedTarget = _state.pausedTargetVersion;
+    if (pausedTarget != null &&
+        pausedTarget == verified.manifest.msixVersion.value) {
+      return _handleCheckFailure(
+        const UpdateFailure(UpdateFailureCode.installTargetPaused),
+        installed,
+      );
+    }
+
     final relation = verified.manifest.relationTo(installed.version);
     final now = clock.nowUtc();
     if (relation == UpdateVersionRelation.older) {
@@ -306,6 +322,8 @@ final class UpdateOrchestrator {
       etag: null,
       lastModified: null,
       retryAttempt: 0,
+      targetFailureCount: 0,
+      pausedTargetVersion: null,
       nextAttemptUtc: null,
       lastConfirmedUtc: now,
       manifestEtag: verified.etag,
@@ -573,6 +591,8 @@ final class UpdateOrchestrator {
       totalBytes: target.sizeBytes,
       lastFailure: null,
       retryAttempt: 0,
+      targetFailureCount: 0,
+      pausedTargetVersion: null,
       nextAttemptUtc: null,
     );
     log.writeLine(
@@ -638,6 +658,11 @@ final class UpdateOrchestrator {
     required UpdateTarget target,
   }) async {
     final attempt = _state.retryAttempt + 1;
+    final targetFailureCount = _state.targetFailureCount + 1;
+    final exhausted = targetFailureCount >= 3;
+    final effectiveCode = exhausted && failure.retryable
+        ? UpdateFailureCode.downloadRetryExhausted
+        : failure.code;
     final next = clock.nowUtc().add(updateRetryDelay(attempt));
     if (!await _go(UpdatePhase.failed)) {
       // 从 verifying 等阶段进入 failed 是允许的；若不允许，保持原状态并只记录。
@@ -649,14 +674,15 @@ final class UpdateOrchestrator {
     }
     _state = _state.copyWith(
       lastFailure: UpdateFailure(
-        failure.code,
+        effectiveCode,
         detail: failure.detail,
         windowsResultCode: failure.windowsResultCode,
         occurredAtUtc: clock.nowUtc(),
         attempt: attempt,
       ),
       retryAttempt: attempt,
-      nextAttemptUtc: failure.retryable ? next : null,
+      targetFailureCount: targetFailureCount,
+      nextAttemptUtc: failure.retryable && !exhausted ? next : null,
     );
     log.write(failure);
     await _persist();
@@ -869,9 +895,13 @@ final class UpdateOrchestrator {
   /// 立即重试（用户点击或退避到点）。
   Future<void> retry() async {
     final failure = _state.lastFailure;
-    if (failure != null && !failure.retryable) return;
+    final paused = _state.pausedTargetVersion;
+    // 用户显式重试可以清掉"该目标已暂停"，这是唯一的人工恢复路径。
+    if (failure != null && !failure.retryable && paused == null) return;
     _state = _state.copyWith(
       retryAttempt: 0,
+      targetFailureCount: 0,
+      pausedTargetVersion: null,
       nextAttemptUtc: null,
       lastFailure: null,
     );

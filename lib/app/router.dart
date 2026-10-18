@@ -1159,6 +1159,7 @@ GoRouter createPlannerRouter({
               return CourseEditorPage(
                 service: service,
                 logicalCourseId: logicalCourseId,
+                updateSafety: updateController?.safety,
                 // 保存与取消都回**同一门课的详情**，而不是列表：
                 // 用户刚改完这门课，最可能想做的就是核对改后的样子（Task 5 Step 6）。
                 onSaved: () => context.go('/calendar/courses/$logicalCourseId'),
@@ -1662,6 +1663,7 @@ GoRouter createPlannerRouter({
               service: settingsService,
               autoAdjustStore: autoAdjustStore,
               reconcileNotifications: reconcileNotifications,
+              updateSafety: updateController?.safety,
             ),
           ),
           GoRoute(

@@ -256,6 +256,63 @@ void main() {
     expect(lock.acquires, 1);
     expect(lock.releases, 1);
   });
+  test('同一目标连续失败三次后停止自动重试（UPD-039）', () async {
+    downloader.outcome = const DownloadOutcome.failed(
+      UpdateFailure(UpdateFailureCode.downloadHashMismatch),
+    );
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+    );
+
+    await orchestrator.check(manual: false, autoDownload: true);
+    await orchestrator.startDownload();
+    await orchestrator.startDownload();
+
+    expect(orchestrator.state.phase, UpdatePhase.failed);
+    expect(orchestrator.state.targetFailureCount, 3);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.downloadRetryExhausted,
+    );
+    expect(orchestrator.state.lastFailure!.retryable, isFalse);
+    expect(orchestrator.state.nextAttemptUtc, isNull);
+    expect(orchestrator.canAutoRetry, isFalse);
+  });
+
+  test('回退过的版本被暂停：再次检查不会自动下载，手动重试才恢复', () async {
+    store.state = const UpdateState(
+      phase: UpdatePhase.rolledBack,
+      target: targetFixture,
+    );
+    final verified = await verifiedManifestFixture();
+    final source = FakeManifestSource(ManifestFetchResult.verified(verified));
+    final orchestrator = UpdateOrchestrator(
+      manifestSource: source,
+      stateStore: store,
+      installedPackages: installed,
+      downloader: downloader,
+      verifier: verifier,
+      layout: layout,
+      safety: safety,
+      log: log,
+      clock: clock,
+      diskSpace: FakeDiskSpace(50 * 1024 * 1024 * 1024),
+    );
+
+    await orchestrator.initialize();
+    expect(orchestrator.state.phase, UpdatePhase.failed);
+    expect(orchestrator.state.pausedTargetVersion, '1.9.0.0');
+
+    final result = await orchestrator.check(manual: false, autoDownload: true);
+    expect(result.failure!.code, UpdateFailureCode.installTargetPaused);
+    expect(downloader.calls, 0);
+
+    // 用户显式重试会清掉暂停并允许重新检查/下载。
+    await orchestrator.retry();
+    expect(orchestrator.state.pausedTargetVersion, isNull);
+  });
+
   test('磁盘空间不足时暂停并给出可重试的阻塞原因', () async {
     final verified = await verifiedManifestFixture();
     final orchestrator = build(

@@ -97,6 +97,8 @@ void main() {
         etag: '"abc"',
         lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
         retryAttempt: 2,
+        targetFailureCount: 3,
+        pausedTargetVersion: '1.9.0.0',
         nextAttemptUtc: DateTime.utc(2026, 10, 18, 1),
         lastCheckedUtc: DateTime.utc(2026, 10, 18, 0),
         lastCheckClassification: UpdateCheckClassification.updateAvailable,
@@ -129,6 +131,8 @@ void main() {
       expect(restored.baseline!.version.value, '1.8.1.0');
       expect(restored.lastFailure!.code, UpdateFailureCode.networkOffline);
       expect(restored.lastCheckClassification, UpdateCheckClassification.updateAvailable);
+      expect(restored.targetFailureCount, 3);
+      expect(restored.pausedTargetVersion, '1.9.0.0');
       expect(restored.downloadProgress, 0.5);
     });
 
