@@ -354,6 +354,14 @@ bool ProcessMatchesStartTime(DWORD pid, const FILETIME& expected) {
   HANDLE process = OpenProcess(
       PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
   if (process == nullptr) return false;
+  // 关键：进程对象在所有句柄关闭前仍然存在，OpenProcess 对**已退出**的进程
+  // 也可能成功。必须用退出码判断是否仍活着，否则会把已退出的主进程当成
+  // “一直在运行”，最终报 UPDATE_HELPER_PROCESS_EXIT_TIMEOUT。
+  DWORD exit_code = 0;
+  if (!GetExitCodeProcess(process, &exit_code) || exit_code != STILL_ACTIVE) {
+    CloseHandle(process);
+    return false;
+  }
   FILETIME creation{}, exit{}, kernel{}, user{};
   const bool has_times =
       GetProcessTimes(process, &creation, &exit, &kernel, &user) != FALSE;
