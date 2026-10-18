@@ -898,7 +898,10 @@ bool RelocateOutOfPackageIfNeeded(int argc, wchar_t** argv) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-  if (RelocateOutOfPackageIfNeeded(argc, argv)) return 0;
+  // 只有部署（--apply）需要搬到包外；--probe/--verify 是只读查询，
+  // 必须原地执行并返回 stdout，否则调用方会得到空结果。
+  const bool apply = argc >= 2 && std::wstring(argv[1]) == L"--apply";
+  if (apply && RelocateOutOfPackageIfNeeded(argc, argv)) return 0;
   SetConsoleOutputCP(CP_UTF8);
   winrt::init_apartment(winrt::apartment_type::single_threaded);
   if (argc < 2) {
