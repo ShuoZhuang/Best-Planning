@@ -208,4 +208,40 @@ void main() {
       }
     }
   });
+
+  test('自动下载不按网络类型分支（UPD-009）', () {
+    final directories = [
+      Directory('lib/application/update'),
+      Directory('lib/infrastructure/update'),
+    ];
+    final hits = <String>[];
+    var scanned = 0;
+    for (final directory in directories) {
+      if (!directory.existsSync()) continue;
+      for (final file in directory
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))) {
+        scanned++;
+        final code = _stripLineComments(file.readAsStringSync());
+        for (final forbidden in const [
+          'connectivity_plus',
+          'NetworkType',
+          'metered',
+          'isWifi',
+          'cellular',
+        ]) {
+          if (code.contains(forbidden)) {
+            hits.add('${_normalized(file)} 含 $forbidden');
+          }
+        }
+      }
+    }
+    expect(scanned, greaterThan(10), reason: '扫描路径可能失效');
+    expect(
+      hits,
+      isEmpty,
+      reason: '自动更新不应按 Wi-Fi/计费网络分支（规格 §7.3）：$hits',
+    );
+  });
 }

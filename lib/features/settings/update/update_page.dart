@@ -9,7 +9,7 @@ import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/features/settings/update/update_diagnostics_panel.dart';
 
-final class UpdatePage extends StatelessWidget {
+final class UpdatePage extends StatefulWidget {
   const UpdatePage({
     super.key,
     required this.controller,
@@ -27,13 +27,20 @@ final class UpdatePage extends StatelessWidget {
   final Future<void> Function()? clearLogs;
 
   @override
+  State<UpdatePage> createState() => _UpdatePageState();
+}
+
+final class _UpdatePageState extends State<UpdatePage> {
+  bool _releaseNotesFailed = false;
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('更新')),
       body: ListenableBuilder(
-        listenable: controller,
+        listenable: widget.controller,
         builder: (context, _) {
-          final snapshot = controller.snapshot;
+          final snapshot = widget.controller.snapshot;
           final state = snapshot.state;
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -41,20 +48,32 @@ final class UpdatePage extends StatelessWidget {
               _StatusCard(snapshot: snapshot),
               const SizedBox(height: 12),
               _ActionsCard(
-                controller: controller,
+                controller: widget.controller,
                 snapshot: snapshot,
-                onOpenReleaseNotes: openUrl == null
+                onOpenReleaseNotes: widget.openUrl == null
                     ? null
                     : () => _openReleaseNotes(context),
               ),
               const SizedBox(height: 12),
-              _SettingsCard(controller: controller, snapshot: snapshot),
+              _SettingsCard(
+                controller: widget.controller,
+                snapshot: snapshot,
+              ),
               const SizedBox(height: 12),
               UpdateDiagnosticsPanel(
                 snapshot: snapshot,
-                readLogs: readLogs,
-                clearLogs: clearLogs,
+                readLogs: widget.readLogs,
+                clearLogs: widget.clearLogs,
               ),
+              if (_releaseNotesFailed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '无法打开说明页面',
+                    key: const Key('update-release-notes-failed'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               if (state.phase == UpdatePhase.failed ||
                   state.phase == UpdatePhase.temporarilyBlocked)
                 Padding(
@@ -73,13 +92,12 @@ final class UpdatePage extends StatelessWidget {
   }
 
   Future<void> _openReleaseNotes(BuildContext context) async {
-    final url = controller.snapshot.releaseNotesUrl;
-    if (url == null || openUrl == null) return;
-    final opened = await openUrl!(Uri.parse(url));
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('无法打开说明页面')),
-      );
+    final url = widget.controller.snapshot.releaseNotesUrl;
+    final open = widget.openUrl;
+    if (url == null || open == null) return;
+    final opened = await open(Uri.parse(url));
+    if (!opened && mounted) {
+      setState(() => _releaseNotesFailed = true);
     }
   }
 }
@@ -305,4 +323,5 @@ String _formatBytes(int bytes) {
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
+
 

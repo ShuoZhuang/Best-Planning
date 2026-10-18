@@ -62,6 +62,21 @@ PKCS#7 签名、证书链、内容哈希。
 
 正常用户会话仍优先使用 AppxPackaging；降级路径只处理"读取器不可用"，不降低任何校验要求。
 
+## 请求校验与安装准备（dry-run）
+
+`tool/update_helper_tests.ps1` 生成一份真实请求（真实 MSIX、真实大小/SHA-256、一次性令牌、
+PID/启动时间、有效期），执行：
+
+```powershell
+update_helper.exe --apply <request> --dry-run
+```
+
+输出 `helper-status.json`：`{"transactionId":"dry-run-1","state":"verified",...}`，退出码 0。
+该模式真实执行：请求结构/有效期/路径越界校验、跨进程锁、进程退出等待、二次读取包身份、
+大小与 SHA-256 复核、签名验证；**在部署前停止**，不做 `AddPackageAsync`、不激活、不回退。
+
+同一脚本用短令牌重放请求，断言被拒绝且失败码为 `UPDATE_HELPER_REQUEST_INVALID`（不进入部署）。
+
 ## 未覆盖
 
 - `--apply` 的真实部署、AUMID 启动、健康等待与回退：需要两台真实 Windows 与正式产物，

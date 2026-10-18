@@ -673,7 +673,7 @@ int RunVerify(const std::wstring& path) {
   return inspection.ok ? 0 : 2;
 }
 
-int RunApply(const std::wstring& request_path) {
+int RunApply(const std::wstring& request_path, bool dry_run = false) {
   const std::wstring directory =
       std::filesystem::path(request_path).parent_path().wstring();
   std::wstring failure;
@@ -761,6 +761,12 @@ int RunApply(const std::wstring& request_path) {
     return 5;
   }
 
+  // 证据模式：验证、哈希、进程等待与锁都真实执行，但不部署、不激活、不回退。
+  if (dry_run) {
+    WriteStatus(directory, request.transaction_id, L"verified");
+    return 0;
+  }
+
   WriteStatus(directory, request.transaction_id, L"installing");
   int hresult = 0;
   std::wstring detail;
@@ -834,8 +840,8 @@ int wmain(int argc, wchar_t** argv) {
   winrt::init_apartment(winrt::apartment_type::single_threaded);
   if (argc < 2) {
     std::printf(
-        "usage: update_helper --probe | --verify <msix> | --apply <request> | "
-        "--selftest\n");
+        "usage: update_helper --probe | --verify <msix> | --apply <request> "
+        "[--dry-run] | --selftest\n");
     return 64;
   }
   const std::wstring command = argv[1];
@@ -846,7 +852,8 @@ int wmain(int argc, wchar_t** argv) {
   }
   if (command == L"--apply") {
     if (argc < 3) return 64;
-    return RunApply(argv[2]);
+    const bool dry_run = argc > 3 && std::wstring(argv[3]) == L"--dry-run";
+    return RunApply(argv[2], dry_run);
   }
   if (command == L"--selftest") return RunSelfTest();
   if (command == L"--version") {

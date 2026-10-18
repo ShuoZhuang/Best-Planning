@@ -35,10 +35,14 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
           _expanded = false;
           return const SizedBox.shrink();
         }
-        return Padding(
+        // 导航栏给子项的是无界宽度；入口内部有 Expanded 与 stretch 的 Column，
+        // 必须自带一个确定宽度，否则会在真实外壳里触发布局断言。
+        return SizedBox(
           key: const Key('update-indicator'),
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-          child: Column(
+          width: 236,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -68,6 +72,7 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
                 onLongPress: () => widget.onOpenDetails?.call(),
               ),
             ],
+          ),
           ),
         );
       },

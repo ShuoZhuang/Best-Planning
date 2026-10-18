@@ -25,6 +25,15 @@ $cmake = 'E:\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\M
 | `--apply <request>` | 执行一次安装事务（请求校验、等待进程退出、部署、激活、健康等待、回退） |
 | `--selftest` | 请求路径越界、token、版本、临时写入的自检 |
 
+## 可复现验收
+
+```powershell
+& tool\update_helper_tests.ps1 -SkipBuild
+```
+
+它依次运行 `--selftest`、对真实 MSIX 运行 `--verify`、生成一次性请求并执行
+`--apply --dry-run`（验证、锁、进程等待都真实执行，部署前停止），最后用错误令牌验证请求会被拒绝。
+
 ## 安全边界
 
 - 不联网、不调用 PowerShell/cmd/批处理、不执行远端命令；
