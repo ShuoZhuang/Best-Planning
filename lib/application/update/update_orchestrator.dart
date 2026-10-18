@@ -60,6 +60,7 @@ final class UpdateOrchestrator {
     this.diskSpace,
     this.windowsBuild,
     this.helper,
+    this.installCoordinator,
   });
 
   final UpdateManifestSource manifestSource;
@@ -77,6 +78,9 @@ final class UpdateOrchestrator {
   final Future<MsixVersion?> Function()? windowsBuild;
 
   final UpdateHelper? helper;
+
+  /// 安装准备（快照、一次性请求、助手握手、退出）。为空时点击就绪入口会明确报告"助手缺失"。
+  final UpdateInstallCoordinator? installCoordinator;
 
   final StreamController<UpdateState> _states =
       StreamController<UpdateState>.broadcast();
@@ -643,7 +647,15 @@ final class UpdateOrchestrator {
   Future<void> install() async {
     if (_state.phase != UpdatePhase.ready) return;
     final target = _state.target;
+    final installed = _installed;
     if (target == null) return;
+    if (installed == null) {
+      await _failDownload(
+        const UpdateFailure(UpdateFailureCode.environmentNotPackaged),
+        target: target,
+      );
+      return;
+    }
 
     final safetyStatus = safety.status;
     if (!safetyStatus.canInstall) {
@@ -655,11 +667,50 @@ final class UpdateOrchestrator {
       return;
     }
 
-    // 安装链在 M3 由独立助手执行；界面入口与状态推进在这里保持唯一。
-    await _failDownload(
-      const UpdateFailure(UpdateFailureCode.helperMissing),
+    final coordinator = installCoordinator;
+    if (coordinator == null) {
+      await _failDownload(
+        const UpdateFailure(UpdateFailureCode.helperMissing),
+        target: target,
+      );
+      return;
+    }
+
+    if (!await _go(UpdatePhase.preparingInstall)) return;
+    await _persist();
+    _emit();
+
+    final outcome = await coordinator.prepareAndLaunch(
       target: target,
+      state: _state,
+      installed: installed,
     );
+    final failure = outcome.failure;
+    if (!outcome.launched || failure != null) {
+      // 助手没有确认之前不得退出：退回到就绪，保留包，等待用户重试。
+      await _go(UpdatePhase.ready);
+      _state = _state.copyWith(
+        lastFailure: failure ??
+            const UpdateFailure(UpdateFailureCode.helperLaunchFailed),
+        transactionId: null,
+      );
+      log.write(_state.lastFailure!);
+      await _persist();
+      _emit();
+      return;
+    }
+
+    _state = _state.copyWith(
+      transactionId: outcome.transactionId,
+      snapshotPath: outcome.snapshotPath,
+      helperStartedUtc: clock.nowUtc(),
+      lastFailure: null,
+    );
+    await _go(UpdatePhase.waitingForExit);
+    await _persist();
+    _emit();
+    // 助手已取得请求；只有到这一步主程序才退出（规格 §12.3 第 10～11 步）。
+    await coordinator.requestExit();
   }
 
   /// 安全阻塞变化时刷新界面（阻塞不改变已就绪的包）。

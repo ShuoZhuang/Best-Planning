@@ -68,6 +68,8 @@ final class UpdateController extends ChangeNotifier {
 
   UpdateState get state => orchestrator.state;
 
+  InstalledPackage? get installed => orchestrator.installed;
+
   bool get autoUpdateEnabled => _settings.autoUpdateEnabled;
 
   UpdateSnapshot get snapshot => UpdateSnapshot(
@@ -147,4 +149,5 @@ final class UpdateController extends ChangeNotifier {
     super.dispose();
   }
 }
+
 

@@ -252,3 +252,85 @@ final class BlockingDownloader implements UpdatePackageDownloader {
 ManifestFetchResult networkFailureFixture() => ManifestFetchResult.failed(
   const UpdateFailure(UpdateFailureCode.networkOffline),
 );
+
+final class FakeProcessProbe implements ProcessIdentityProbe {
+  FakeProcessProbe({
+    this.pid = 4321,
+    DateTime? startedAtUtc,
+  }) : startedAtUtc = startedAtUtc ?? DateTime.utc(2026, 10, 18, 11);
+
+  final int pid;
+  final DateTime startedAtUtc;
+
+  @override
+  Future<ProcessIdentity> current() async =>
+      ProcessIdentity(pid: pid, startedAtUtc: startedAtUtc);
+
+  @override
+  Future<ProcessIdentity?> forPid(int processId) async =>
+      processId == pid ? ProcessIdentity(pid: pid, startedAtUtc: startedAtUtc) : null;
+}
+
+final class FakeUpdateHelper implements UpdateHelper {
+  FakeUpdateHelper({
+    this.probeResult,
+    this.verifyResult,
+    this.launchResult = const HelperLaunchResult.started(),
+  });
+
+  HelperProbe? probeResult;
+  PackageVerification? verifyResult;
+  HelperLaunchResult launchResult;
+  UpdateHelperRequest? lastRequest;
+  int launchCalls = 0;
+
+  @override
+  Future<HelperProbe?> probe() async => probeResult;
+
+  @override
+  Future<PackageVerification> verifyPackage({required String path}) async =>
+      verifyResult ??
+      PackageVerification.valid(
+        path: path,
+        sizeBytes: 1,
+        sha256: 'a' * 64,
+        identity: null,
+      );
+
+  @override
+  Future<HelperLaunchResult> launch(UpdateHelperRequest request) async {
+    launchCalls++;
+    lastRequest = request;
+    return launchResult;
+  }
+}
+
+final class FakeInstallCoordinator implements UpdateInstallCoordinator {
+  FakeInstallCoordinator({
+    this.outcome = const InstallPreparationOutcome.launched(
+      transactionId: 'tx-1',
+      snapshotPath: 'C:/Updates/snapshot-tx-1',
+    ),
+  });
+
+  InstallPreparationOutcome outcome;
+  int prepareCalls = 0;
+  int exitCalls = 0;
+  InstalledPackage? lastInstalled;
+
+  @override
+  Future<InstallPreparationOutcome> prepareAndLaunch({
+    required UpdateTarget target,
+    required UpdateState state,
+    required InstalledPackage installed,
+  }) async {
+    prepareCalls++;
+    lastInstalled = installed;
+    return outcome;
+  }
+
+  @override
+  Future<void> requestExit() async {
+    exitCalls++;
+  }
+}

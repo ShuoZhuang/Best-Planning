@@ -46,6 +46,7 @@ void main() {
     UpdatePackageDownloader? packageDownloader,
     UpdatePackageVerifier? packageVerifier,
     int? availableBytes,
+    UpdateInstallCoordinator? installCoordinator,
   }) => UpdateOrchestrator(
     manifestSource: FakeManifestSource(fetchResult),
     stateStore: store,
@@ -57,6 +58,7 @@ void main() {
     log: log,
     clock: clock,
     diskSpace: FakeDiskSpace(availableBytes ?? 50 * 1024 * 1024 * 1024),
+    installCoordinator: installCoordinator,
   );
 
   test('验证通过且版本更高：进入 updateAvailable，四类结论里只有它不是 upToDate', () async {
@@ -291,6 +293,63 @@ void main() {
     expect(orchestrator.state.phase, UpdatePhase.ready);
   });
 
+  test('点击就绪入口：助手确认后进入 waitingForExit 并请求退出', () async {
+    final coordinator = FakeInstallCoordinator();
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      installCoordinator: coordinator,
+    );
+    await orchestrator.check(manual: false, autoDownload: true);
+    expect(orchestrator.state.phase, UpdatePhase.ready);
+
+    await orchestrator.install();
+
+    expect(coordinator.prepareCalls, 1);
+    expect(coordinator.exitCalls, 1);
+    expect(orchestrator.state.phase, UpdatePhase.waitingForExit);
+    expect(orchestrator.state.transactionId, 'tx-1');
+    expect(orchestrator.state.snapshotPath, isNotNull);
+  });
+
+  test('助手握手失败：退回就绪并保留安装包，不退出', () async {
+    final coordinator = FakeInstallCoordinator(
+      outcome: const InstallPreparationOutcome.failed(
+        UpdateFailure(UpdateFailureCode.helperLaunchFailed),
+      ),
+    );
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      installCoordinator: coordinator,
+    );
+    await orchestrator.check(manual: false, autoDownload: true);
+
+    await orchestrator.install();
+
+    expect(coordinator.exitCalls, 0);
+    expect(orchestrator.state.phase, UpdatePhase.ready);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.helperLaunchFailed,
+    );
+  });
+
+  test('没有装配安装链时点击就绪入口报告助手缺失', () async {
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+    );
+    await orchestrator.check(manual: false, autoDownload: true);
+
+    await orchestrator.install();
+
+    expect(orchestrator.state.phase, UpdatePhase.failed);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.helperMissing,
+    );
+  });
   test('启动恢复：checking 回到 idle', () async {
     store.state = const UpdateState(phase: UpdatePhase.checking);
     final verified = await verifiedManifestFixture();
@@ -367,4 +426,5 @@ void main() {
     expect(result.isConfirmedUpToDate, isFalse);
   });
 }
+
 

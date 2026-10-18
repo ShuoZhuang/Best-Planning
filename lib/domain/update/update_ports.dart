@@ -192,6 +192,20 @@ abstract interface class InstalledPackageProvider {
   Future<InstalledPackage?> current();
 }
 
+/// 当前进程与指定进程的身份（PID + 启动时间）。pid 会被复用，只有两者同时匹配才是同一个进程。
+final class ProcessIdentity {
+  const ProcessIdentity({required this.pid, required this.startedAtUtc});
+
+  final int pid;
+  final DateTime startedAtUtc;
+}
+
+abstract interface class ProcessIdentityProbe {
+  Future<ProcessIdentity> current();
+
+  Future<ProcessIdentity?> forPid(int pid);
+}
+
 /// 更新助手的能力（探测、独立验证、执行安装）。
 abstract interface class UpdateHelper {
   /// 助手版本与当前包信息。助手缺失时返回 `null`。
@@ -202,6 +216,36 @@ abstract interface class UpdateHelper {
 
   /// 启动助手并把一次性请求交给它。**返回后不保证安装成功**，只保证助手已取得请求。
   Future<HelperLaunchResult> launch(UpdateHelperRequest request);
+}
+
+/// 一次安装准备的结果。只有 [launched] 为真时主程序才允许退出。
+final class InstallPreparationOutcome {
+  const InstallPreparationOutcome.launched({
+    this.transactionId,
+    this.snapshotPath,
+  }) : failure = null;
+
+  const InstallPreparationOutcome.failed(this.failure)
+    : transactionId = null,
+      snapshotPath = null;
+
+  final UpdateFailure? failure;
+  final String? transactionId;
+  final String? snapshotPath;
+
+  bool get launched => failure == null;
+}
+
+/// 安装准备：快照、一次性请求、启动助手与握手（规格 §12.3 第 1～9 步）。
+abstract interface class UpdateInstallCoordinator {
+  Future<InstallPreparationOutcome> prepareAndLaunch({
+    required UpdateTarget target,
+    required UpdateState state,
+    required InstalledPackage installed,
+  });
+
+  /// 助手已握手后，主程序才调用它退出。
+  Future<void> requestExit();
 }
 
 final class HelperProbe {
@@ -253,6 +297,7 @@ final class UpdateHelperRequest {
     required this.rollbackPackagePath,
     required this.rollbackVersion,
     required this.snapshotPath,
+    this.dataDirectory,
   });
 
   final int schemaVersion;
@@ -277,6 +322,9 @@ final class UpdateHelperRequest {
   final MsixVersion? rollbackVersion;
   final String? snapshotPath;
 
+  /// 业务数据目录：回退时快照按相对路径恢复到它下面。
+  final String? dataDirectory;
+
   Map<String, Object?> toJson() => {
     'schemaVersion': schemaVersion,
     'transactionId': transactionId,
@@ -299,6 +347,7 @@ final class UpdateHelperRequest {
     'rollbackPackagePath': rollbackPackagePath,
     'rollbackVersion': rollbackVersion?.value,
     'snapshotPath': snapshotPath,
+    'dataDirectory': dataDirectory,
   };
 }
 
@@ -358,3 +407,5 @@ abstract interface class UpdateLogSink {
 
   Future<void> clear();
 }
+
+

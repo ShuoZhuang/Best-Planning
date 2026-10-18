@@ -33,9 +33,13 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update/update_check_scheduler.dart';
+import 'package:personal_planner/application/update/update_health_service.dart';
+import 'package:personal_planner/application/update/update_install_service.dart';
+import 'package:personal_planner/application/update/update_snapshot_service.dart';
 import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/application/update/update_orchestrator.dart';
 import 'package:personal_planner/domain/update/update_safety.dart';
+import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_settings.dart';
 import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
 import 'package:personal_planner/infrastructure/update/file_update_manifest_cache.dart';
@@ -85,6 +89,7 @@ import 'package:personal_planner/platform/ocr/windows_timetable_ocr.dart';
 import 'package:personal_planner/platform/update/network_status_monitor.dart';
 import 'package:personal_planner/platform/update/windows_disk_space_probe.dart';
 import 'package:personal_planner/platform/update/windows_package_info.dart';
+import 'package:personal_planner/platform/update/windows_process_probe.dart';
 import 'package:personal_planner/platform/update/windows_update_helper.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
@@ -305,6 +310,30 @@ Future<void> main() async {
   );
   final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
   final updateSafety = InMemoryUpdateSafetyCoordinator();
+  final updateHealth = UpdateHealthService(layout: updateLayout, clock: clock);
+  final updateSnapshotService = UpdateSnapshotService(
+    layout: updateLayout,
+    sources: defaultSnapshotSources(
+      databasePath: databasePath,
+      layout: updateLayout,
+    ),
+    clock: clock,
+    // 冻结写入后的检查点：把 WAL 落盘，快照才是一致状态（规格 §13.1）。
+    checkpoint: () => database.customStatement('PRAGMA wal_checkpoint(TRUNCATE)'),
+  );
+  final updateInstallService = UpdateInstallService(
+    layout: updateLayout,
+    helper: updateMainHelper,
+    snapshotService: updateSnapshotService,
+    processProbe: WindowsProcessIdentityProbe(),
+    clock: clock,
+    dataDirectory: dataDirectoryFor(databasePath),
+    onRequestExit: () async {
+      // 助手已确认取得请求；先关数据库再退出，避免下次启动看到未刷新的 WAL。
+      await database.close();
+      exit(0);
+    },
+  );
   final updateOrchestrator = UpdateOrchestrator(
     manifestSource: updateManifestSource,
     stateStore: FileUpdateStateStore(file: updateLayout.stateFile),
@@ -319,6 +348,7 @@ Future<void> main() async {
     diskSpace: WindowsDiskSpaceProbe(),
     windowsBuild: const WindowsBuildProbe().current,
     helper: updateMainHelper,
+    installCoordinator: updateInstallService,
   );
   final updateController = UpdateController(
     orchestrator: updateOrchestrator,
@@ -327,6 +357,21 @@ Future<void> main() async {
   );
   // 启动恢复只读状态文件与包身份，不发网络请求；失败也不阻止应用启动。
   await updateController.initialize();
+  // 如果这次启动正是"助手装完新版后拉起来"的那一次，写健康确认（规格 §13.2）。
+  final recoveredState = updateController.state;
+  final recoveredTarget = recoveredState.target;
+  final recoveredTransaction = recoveredState.transactionId;
+  if (recoveredTarget != null &&
+      recoveredTransaction != null &&
+      updateController.installed?.version == recoveredTarget.msixVersion &&
+      (recoveredState.phase == UpdatePhase.installing ||
+          recoveredState.phase == UpdatePhase.launchingNewVersion ||
+          recoveredState.phase == UpdatePhase.waitingForHealth)) {
+    await updateHealth.writeConfirmation(
+      transactionId: recoveredTransaction,
+      version: recoveredTarget.msixVersion,
+    );
+  }
   final updateCheckScheduler = UpdateCheckScheduler(
     controller: updateController,
     clock: clock,
@@ -917,4 +962,5 @@ Future<void> main() async {
     ),
   );
 }
+
 
