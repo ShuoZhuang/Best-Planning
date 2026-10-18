@@ -23,10 +23,10 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 
 | 产物 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BestPlanning_Setup_1.10.0_x64.exe` | 19,004,248 | `8f5e89ee01f84a1f96ea4b0341139035a09ebe98dc6f56c338dd9ac480501648` |
-| `BestPlanning_Portable_1.10.0_x64.zip` | 17,212,092 | `95e6c7e2449192768d20d11f3ec601bb1a7bfaaf9b751a460c9bd052d6a3d912` |
-| `BestPlanning_1.10.0.0_x64.msix` | 18,566,232 | `3a79cfc81b7cd0639408bb9224222f2565e69d3647f0ff75ec4124d693572c03` |
-| `update-manifest.json` | 1,275 | `4cbc81dc425cad85ef6101de12d41c90718a900d6df97a47f009c8b5f8539334` |
+| `BestPlanning_Setup_1.10.0_x64.exe` | 19,009,880 | `613297d3f2d88b8a626b6fc2101df9f42659e16d0ecbd87354d7a483d2f879fb` |
+| `BestPlanning_Portable_1.10.0_x64.zip` | 17,217,492 | `f6f9bf78568a8675619c6a243213e314c95ef86a40d8f4218c2f6ebf729c0ef1` |
+| `BestPlanning_1.10.0.0_x64.msix` | 18,571,861 | `15f00d9a3fb5ea2efc3ce3b3144d28a6810a370df4e75229f195e6c5806fcbe0` |
+| `update-manifest.json` | 1,275 | `7d5f912fc75fa8fb8869325fd6bb3ff1dda1683249d2dc30d86417d2f06abaa5` |
 
 - Setup 的 Authenticode 状态为 `Valid`，时间戳为 `DigiCert SHA256 RSA4096 Timestamp Responder 2026 1`。
 - 先嵌入资源、后签名；签名之后文件未再被修改（§8.7）。

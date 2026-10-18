@@ -5,6 +5,11 @@
 // 并等待助手握手。
 //
 // **握手是安全边界**：助手没有确认取得请求之前，主程序不得退出（§12.3 第 8～9 步）。
+//
+// **部署时必须从包外运行助手**：助手默认位于已安装包内（`WindowsApps`），直接从那里启动
+// 会让它自己占住包文件，Windows 随即以 `ERROR_PACKAGES_IN_USE (0x80073D02)` 拒绝原位升级
+// （2026-10-18 在真实 1.9.1 → 1.9.2 的应用内更新中复现）。因此 `launch` 先把它复制到
+// 临时目录再启动；复制失败按启动失败处理，不会退回包内路径。
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -31,6 +36,58 @@ final class WindowsUpdateHelper implements UpdateHelper {
   final String helperPath;
   final Duration handshakeTimeout;
   final DateTime Function() _nowUtc;
+  String? _stagedHelper;
+
+  /// 把助手复制到包外的临时目录，返回可执行路径。
+  ///
+  /// 同一个实例只复制一次；复制失败会抛出异常（调用方按启动失败处理），
+  /// **不会**退回包内路径，否则部署必然被 Windows 以“包正在使用”拒绝。
+  Future<String> stageHelperForLaunch() async {
+    final cached = _stagedHelper;
+    if (cached != null && File(cached).existsSync()) return cached;
+    final source = File(helperPath);
+    if (!await source.exists()) return helperPath;
+    final parent = Directory(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}BestPlanningUpdateHelper',
+    );
+    await parent.create(recursive: true);
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final directory = Directory(
+      '${parent.path}${Platform.pathSeparator}$pid-$stamp',
+    );
+    await directory.create(recursive: true);
+    final target = File(
+      '${directory.path}${Platform.pathSeparator}update_helper.exe',
+    );
+    await source.copy(target.path);
+    if (await target.length() != await source.length()) {
+      throw const FileSystemException('helper copy size mismatch');
+    }
+    _stagedHelper = target.path;
+    unawaited(_pruneStagedHelpers(parent, except: directory.path));
+    return target.path;
+  }
+
+  Future<void> _pruneStagedHelpers(
+    Directory parent, {
+    required String except,
+  }) async {
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(days: 1));
+      await for (final entry in parent.list()) {
+        if (entry is! Directory || entry.path == except) continue;
+        try {
+          if ((await entry.stat()).modified.isBefore(cutoff)) {
+            await entry.delete(recursive: true);
+          }
+        } on Object {
+          // 清理失败不影响本次更新。
+        }
+      }
+    } on Object {
+      // 目录不存在或被占用时忽略。
+    }
+  }
 
   static String _defaultHelperPath() {
     final executable = Platform.resolvedExecutable;
@@ -119,8 +176,10 @@ final class WindowsUpdateHelper implements UpdateHelper {
       // 清掉上一次的状态，避免把旧事务的握手当成这一次的。
       if (await statusFile.exists()) await statusFile.delete();
       await writeJsonAtomically(requestFile, request.toJson());
+      // 必须从包外启动，否则助手自己会把安装包锁住（0x80073D02）。
+      final launchPath = await stageHelperForLaunch();
       final process = await Process.start(
-        helperPath,
+        launchPath,
         ['--apply', requestFile.path],
         mode: ProcessStartMode.detached,
       );
