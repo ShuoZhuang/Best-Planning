@@ -22,10 +22,15 @@
 
 | 版本 | 文件 | 字节 | SHA-256 |
 | --- | --- | --- | --- |
-| 1.9.0+46 | `release-artifacts/1.9.0/BestPlanning_1.9.0.0_x64.msix` | 18,542,094 | `13c1fae0e0874f0c313eebffc619034f69b97f265488ef302f6bb1a4f26d317e` |
-| 1.9.1+47 | `release-artifacts/1.9.1/BestPlanning_1.9.1.0_x64.msix` | 18,542,141 | `d8a0e3f3e4ccf5c4b6e35ca62da21fe4486d6f92e185c17cd9d57c98fc829833` |
+| 1.9.0+46 | `release-artifacts/1.9.0/BestPlanning_1.9.0.0_x64.msix` | 18,542,096 | `18cc6fdcfd0a46702fd31f8080f9bfe24cc2c0f18fdac68f1d0d5f823e50d09d` |
+| 1.9.1+47 | `release-artifacts/1.9.1/BestPlanning_1.9.1.0_x64.msix` | 18,542,143 | `999567a17f719d82a048122324c0096506052ced564d2e77a64031bd61462244` |
 
-另有同名 `*_release.zip` 方便整包拷贝，以及每目录的 `SHA256SUMS.txt`。
+首次安装另有两套旧发布形态的完整包（便携目录 + MSIX + 证书 + 一键安装脚本 + 校验值）：
+
+| 版本 | ZIP | 字节 |
+| --- | --- | --- |
+| 1.9.0+46 | `release-artifacts/PersonalPlanner-1.9.0-build46-windows-x64-20261018.zip` | 35,424,021 |
+| 1.9.1+47 | `release-artifacts/PersonalPlanner-1.9.1-build47-windows-x64-20261018.zip` | 35,424,121 |
 
 两份产物都用 `update_helper --verify` 验证过身份/签名，并用
 `dart run tool/update_pipeline.dart verify` 复验过清单与成品一致。`pubspec.yaml` 与
