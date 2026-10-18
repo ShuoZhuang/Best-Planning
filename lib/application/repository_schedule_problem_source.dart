@@ -11,13 +11,16 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
+import 'package:personal_planner/domain/repositories/day_exception_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/repositories/preference_rule_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
@@ -63,6 +66,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.pendingMoves,
     this.pendingSkips,
     this.recurring,
+    this.dayExceptions,
+    this.preferenceRules,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
   final TaskRepository tasks;
@@ -90,6 +95,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   /// 周期目标的生成与进度（M6）。**为空时行为与从前完全一致**：周期实例仍会作为普通任务
   /// 参与排程（它本来就在 `tasks` 里），只是不带"本周视角"的截止时间与剩余量。
   final RecurringTaskService? recurring;
+
+  /// 特殊日事实来源（算法 20，规范 §5.1）。为空时行为与算法 19 完全一致。
+  final DayExceptionRepository? dayExceptions;
+
+  /// 已确认学习偏好规则来源（算法 20，规范 §9.5）。为空时快照为空。
+  final PreferenceRuleRepository? preferenceRules;
 
   @override
   Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
@@ -138,10 +149,65 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // **这一段必须排在"硬占用区间"之前**：保护时间与睡眠此后按**当天规则**展开，
     // 而"当天规则"就是这里算出来的。修复前它们用 `resolvedRules`（窗口首日）展开，
     // 于是"周末睡眠不同""周末上限更高"这类设置整周都不生效（计划 §1.2 第 1 条）。
+    // ── 特殊日事实：只读取已确认、且日期落在本次窗口内的记录 ────────────────────
+    //
+    // 读取范围向前后各扩一天：前一天的记录可能把今天作为恢复日；后一天的恢复日可能
+    // 落在窗口最后一天。草稿/撤销/过期一律在这里过滤掉——**只有 confirmed 才生效**
+    // （规范 §8.1 / ALG20-008）。
+    final windowFirstDate = startLocalDate;
+    final windowLastDate = DateTime(
+      startLocalDate.year,
+      startLocalDate.month,
+      startLocalDate.day + days - 1,
+    );
+    final dayExceptionRepository = dayExceptions;
+    final confirmedDayExceptions = <DayException>[
+      if (dayExceptionRepository != null)
+        ...(await dayExceptionRepository.listBetween(
+          DateTime(
+            windowFirstDate.year,
+            windowFirstDate.month,
+            windowFirstDate.day - 1,
+          ),
+          DateTime(
+            windowLastDate.year,
+            windowLastDate.month,
+            windowLastDate.day + 1,
+          ),
+        )).where((value) => value.status == DayExceptionStatus.confirmed),
+    ];
+    // 本次生成的**一次性特殊日事实**（确认前的草稿只在内存里）：它必须先并入
+    // 逐日策略与输入哈希，确认阶段才能用同一个 override 重放出同一份提案。
+    final overrideDayException = override?.dayException;
+    if (overrideDayException != null &&
+        overrideDayException.status == DayExceptionStatus.confirmed &&
+        !confirmedDayExceptions.any(
+          (value) => value.id == overrideDayException.id,
+        )) {
+      confirmedDayExceptions.add(overrideDayException);
+    }
+    final dayExceptionByDate = <DateTime, DayException>{
+      for (final value in confirmedDayExceptions)
+        if (value.localDate == normalizeLocalDate(value.localDate))
+          value.localDate: value,
+    };
+
+    // ── 学习偏好快照：一次读取，之后不再查库 ──────────────────────────────────
+    final preferenceRuleRepository = preferenceRules;
+    final learningEnabled = await settings.loadLearningEnabled();
+    final learnedRules = preferenceRuleRepository == null
+        ? const <LearnedPreferenceRule>[]
+        : await preferenceRuleRepository.listAll();
+    final preferenceSnapshot = buildPreferenceSnapshot(
+      enabled: learningEnabled,
+      rules: learnedRules,
+    );
+
     final dailyPoliciesResult = await _dailyPoliciesFor(
       startUtc: startUtc,
       endUtc: endUtc,
       override: override,
+      dayExceptionByDate: dayExceptionByDate,
     );
     final windowDates = dailyPoliciesResult.windowDates;
     final dailyPolicies = dailyPoliciesResult.policies;
@@ -254,6 +320,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         continue;
       }
       if (!admission.entersSchedule) continue;
+      final learned = preferenceSnapshot.forTask(areaId: task.areaId);
       schedulable.add(
         SchedulableTask(
           id: task.id,
@@ -269,7 +336,10 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           energyLevel: task.energyLevel,
           // 生活配额因子此前恒为 0，因为这里从未设置该字段。
           isLifeTask: lifeTaskIds.contains(task.id),
-          preferredWindow: task.preferredWindow,
+          areaId: task.areaId,
+          // **用户长期手动设置优先于学习偏好**（规范 §4.1/§9.5）：任务自己有期望
+          // 时段时不再被领域偏好覆盖。
+          preferredWindow: task.preferredWindow ?? learned?.preferredWindow,
         ),
       );
     }
@@ -430,12 +500,22 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         ),
     ];
     final sleepIntervals = <BusyInterval>[
+      // 窗口从本地 00:00 开始时，00:00–起床 属于**前一天**的睡眠。
+      ...protectedTimes.sleepForDate(
+        localDate: DateTime(
+          windowDates.first.year,
+          windowDates.first.month,
+          windowDates.first.day - 1,
+        ),
+        rules: dailyPolicies[windowDates.first]!.resolvedRules,
+        timeZoneId: timeZoneId,
+      ),
       for (final date in windowDates)
-        ...protectedTimes.sleep(
+        ...protectedTimes.sleepForDate(
+          localDate: date,
           rules: dailyPolicies[date]!.resolvedRules,
-          startUtc: zones.localMidnightToUtc(date, timeZoneId),
-          endUtc: zones.localMidnightToUtc(_nextLocalDate(date), timeZoneId),
           timeZoneId: timeZoneId,
+          dayException: dailyPolicies[date]!.dayException,
         ),
     ];
     final protectedIntervalsAll = [
@@ -700,16 +780,20 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       dailyPolicies: dailyPolicies,
       weeklyLifeQuotaByWeekStart: weeklyLifeQuotaByWeekStart,
       preferences: const PreferenceProfile(),
+      preferenceSnapshot: preferenceSnapshot,
       inputHash: '',
       pinnedUnlockedBlockIds: pinnedUnlocked,
       referenceBlocks: referenceBlocks,
       // 块级调整上下文（裁定第 3 点）：延后经它进入引擎，而不是折算成任务级下界。
       adjustment: adjustment,
+      adjustmentLocallyRepaired: adjustedTarget != null,
       // 当前确认计划里的块（裁定第 1、4 点）：生成**之后**用它建立来源关联，
       // 好让预览把"同一块换了时间"报成「移动」而不是删除＋新增。
       confirmedBlocks: confirmedBlocks,
       // 准入期就判定为阻断的输入错误（§1.7）：它们不进 `tasks`，但必须走到预览。
       admissionConflicts: admissionConflicts,
+      // 特殊日事实进入问题本体：哈希、审计与延长日提案都要读它。
+      dayExceptions: confirmedDayExceptions,
     );
     // **装配层用 `TimeZoneDatabase` 证明逐日策略精确覆盖窗口**（计划 Task 2 Step 4）：
     // "覆盖窗口涉及的每一个本地日期"这件事需要时区换算，因此它不能伪装成
@@ -801,6 +885,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
               // 粒度来自**这一天自己的**规则，而不是窗口首日。
               granularityMinutes: entry.value.resolvedRules.granularityMinutes,
             ),
+            // **必须逐值保留**：特殊日覆盖的是当天的睡眠开始，丢掉它会让
+            // "确认特殊日 → 生成计划"这条路径静默回到原作息。
+            dayException: entry.value.dayException,
           ),
       },
     );
@@ -844,6 +931,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     required DateTime startUtc,
     required DateTime endUtc,
     required ScheduleRuleOverride? override,
+    Map<DateTime, DayException> dayExceptionByDate = const {},
   }) async {
     final windowDates = _enumerateLocalDates(
       zones,
@@ -885,6 +973,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           localDate: date,
           resolvedRules: _requireRulesFor(rulesByDate, date),
           softReserveTargetMinutes: 0,
+          dayException: dayExceptionByDate[date],
         ),
     };
     return DailyRulesForWindow(
@@ -1063,6 +1152,7 @@ List<SchedulableTask> recurringSchedulableTasks({
     availableFromUtc: availableFromUtc,
     priority: template.priority,
     energyLevel: template.energyLevel,
+    areaId: template.areaId,
     preferredWindow: template.preferredWindow,
     allowedWeekdaysMask: allowedWeekdaysMask,
     distributionPolicy: distributionPolicy,

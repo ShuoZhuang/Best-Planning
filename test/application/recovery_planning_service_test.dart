@@ -4,8 +4,10 @@ import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -121,6 +123,51 @@ void main() {
       throwsA(isA<SettingsValidationException>()),
     );
     expect(planning.calls, 0);
+  });
+
+  test('四种恢复选择映射成四条互不相同的提交效果', () {
+    final service = RecoveryPlanningService(
+      planning: _ProposalCreator(),
+      zones: TimeZoneDatabase(),
+    );
+    final rules = DefaultSettings.v1();
+    final nextDate = DateTime(2026, 10, 18);
+
+    RecoveryCommitEffect effect(RecoveryChoice choice) =>
+        service.planRecoveryEffect(
+          choice: choice,
+          nextLocalDate: nextDate,
+          rules: rules,
+          timeZoneId: 'Asia/Shanghai',
+        );
+
+    final rest = effect(RecoveryChoice.nextDayRest);
+    expect(rest.protectedRestUtc, isNotNull);
+    expect(rest.protectedRestUtc!.durationMinutes, 60);
+    expect(rest.nextNightSleepStartMinute, isNull);
+    expect(rest.nextDayMovableLoadCapMinutes, isNull);
+
+    final earlier = effect(RecoveryChoice.nextNightEarlierSleep);
+    expect(earlier.protectedRestUtc, isNull);
+    expect(earlier.nextNightSleepStartMinute, 22 * 60 + 30);
+    expect(earlier.nextDayMovableLoadCapMinutes, isNull);
+
+    final reduce = effect(RecoveryChoice.reduceNextDayLoad);
+    expect(reduce.protectedRestUtc, isNull);
+    expect(reduce.nextNightSleepStartMinute, isNull);
+    expect(reduce.nextDayMovableLoadCapMinutes, 240);
+
+    final none = effect(RecoveryChoice.none);
+    expect(none.protectedRestUtc, isNull);
+    expect(none.nextNightSleepStartMinute, isNull);
+    expect(none.nextDayMovableLoadCapMinutes, isNull);
+
+    final signatures = {
+      for (final value in [rest, earlier, reduce, none])
+        '${value.protectedRestUtc}|${value.nextNightSleepStartMinute}|'
+            '${value.nextDayMovableLoadCapMinutes}',
+    };
+    expect(signatures, hasLength(4));
   });
 }
 

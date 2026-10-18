@@ -4,8 +4,10 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 
 enum RecoveryResolution {
@@ -74,6 +76,69 @@ final class RecoveryPlanningService {
 
   final ProposalCreator planning;
   final TimeZoneDatabase zones;
+
+  /// 把规范 §8.4 的四种恢复选择映射成**四条真实不同的提交效果**。
+  ///
+  /// 这一步是纯函数式的（只读规则、不写库）；写入由 `PlanningCommitRepository`
+  /// 在同一事务里完成。`none` 明确返回"不写任何恢复项"，而不是落回某个默认。
+  RecoveryCommitEffect planRecoveryEffect({
+    required RecoveryChoice choice,
+    required DateTime nextLocalDate,
+    required PlanningRules rules,
+    required String timeZoneId,
+    TimeRange? protectedRestUtc,
+    int? nextNightSleepStartMinute,
+    int? nextDayMovableLoadCapMinutes,
+    String title = '恢复休息',
+  }) {
+    final date = DateTime(
+      nextLocalDate.year,
+      nextLocalDate.month,
+      nextLocalDate.day,
+    );
+    switch (choice) {
+      case RecoveryChoice.nextDayRest:
+        final range =
+            protectedRestUtc ??
+            TimeRange(
+              startUtc: zones.localDateTimeToUtc(date, 13 * 60, timeZoneId),
+              endUtc: zones.localDateTimeToUtc(date, 14 * 60, timeZoneId),
+            );
+        return RecoveryCommitEffect(
+          choice: choice,
+          nextLocalDate: date,
+          protectedRestUtc: range,
+          timeZoneId: timeZoneId,
+          title: title,
+        );
+      case RecoveryChoice.nextNightEarlierSleep:
+        final start =
+            nextNightSleepStartMinute ??
+            (rules.sleepRange.startMinute - 60 + 24 * 60) % (24 * 60);
+        return RecoveryCommitEffect(
+          choice: choice,
+          nextLocalDate: date,
+          nextNightSleepStartMinute: start,
+          timeZoneId: timeZoneId,
+        );
+      case RecoveryChoice.reduceNextDayLoad:
+        final cap =
+            nextDayMovableLoadCapMinutes ??
+            (rules.dailyMovableTaskLimitMinutes - 120).clamp(60, 24 * 60);
+        return RecoveryCommitEffect(
+          choice: choice,
+          nextLocalDate: date,
+          nextDayMovableLoadCapMinutes: cap,
+          timeZoneId: timeZoneId,
+        );
+      case RecoveryChoice.none:
+        return RecoveryCommitEffect(
+          choice: choice,
+          nextLocalDate: date,
+          timeZoneId: timeZoneId,
+        );
+    }
+  }
 
   Future<RecoveryPlan> createOverride(SpecialDayDraft draft) async {
     final effectiveSleepMinutes = switch (draft.resolution) {

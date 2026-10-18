@@ -12,7 +12,7 @@ part 'app_database.g.dart';
 /// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
 /// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
 /// 已经打开的连接之后。放在这里让两处共用同一个数字。
-const int plannerSchemaVersion = 10;
+const int plannerSchemaVersion = 11;
 
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
@@ -40,6 +40,7 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     ChangeLog,
     RecurringTaskTemplates,
     RecurringTaskCycles,
+    DayExceptions,
   ],
   daos: [TaskDao],
 )
@@ -95,13 +96,14 @@ class AppDatabase extends _$AppDatabase {
   /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
   /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) async {
       await migrator.createAll();
       await _createRecurringTaskIndexes();
+      await _createDayExceptionIndexes();
     },
     onUpgrade: (migrator, from, to) async {
       if (from < 2 && to >= 2) {
@@ -130,6 +132,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 10 && to >= 10) {
         await _upgradeToV10(migrator);
+      }
+      if (from < 11 && to >= 11) {
+        await _upgradeToV11(migrator);
       }
     },
     beforeOpen: (details) async {
@@ -240,6 +245,33 @@ class AppDatabase extends _$AppDatabase {
   /// 生成，这里只负责把既有数据搬过去。迁移与 `onCreate` 因此共用同一份定义。
   Future<void> _upgradeToV10(Migrator migrator) async {
     await migrator.alterTable(TableMigration(timetableImportBatches));
+  }
+
+  /// v11：新增特殊日表与索引（算法 20，规范 §8.1/§11 ALG20-074）。
+  ///
+  /// **只新增表和索引**。既有任务、日历、计划、专注与偏好证据行逐值保留；
+  /// 本迁移不执行任何 `UPDATE`/`DELETE`，也不重建既有表。
+  Future<void> _upgradeToV11(Migrator migrator) async {
+    await migrator.createTable(dayExceptions);
+    await _createDayExceptionIndexes();
+  }
+
+  /// 特殊日查询所需的两条索引：按本地日找当日记录、按恢复日找"影响这一天"
+  /// 的记录。`listAffecting` 的 OR 条件因此两条都能走索引。
+  Future<void> _createDayExceptionIndexes() async {
+    const statements = [
+      'CREATE INDEX IF NOT EXISTS idx_day_exceptions_local_date '
+          'ON day_exceptions (local_date, status, updated_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_day_exceptions_recovery_date '
+          'ON day_exceptions (recovery_local_date, status, updated_at_utc)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与周期索引同一约定：只有"表还不存在"会走到这里（逐版本迁移测试）。
+      }
+    }
   }
 
   /// 周期目标表的索引。

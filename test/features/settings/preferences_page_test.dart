@@ -5,6 +5,28 @@ import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 
 void main() {
+  testWidgets('确认偏好后提供显式“立即重新生成计划”入口', (tester) async {
+    final service = PreferenceService(
+      analyzer: const RuleBasedPreferenceAnalyzer(),
+      store: MemoryPreferenceStore(),
+    );
+    await service.refresh(_evidence());
+    var regenerated = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PreferencesPage(
+          service: service,
+          onRegenerate: () => regenerated++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('立即重新生成计划'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('preference-regenerate-plan')));
+    await tester.pumpAndSettle();
+    expect(regenerated, 1);
+  });
+
   testWidgets('用户可查看依据并确认、拒绝、停用、清除和撤销自动更新', (tester) async {
     final store = MemoryPreferenceStore();
     final service = PreferenceService(
@@ -61,11 +83,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('10:00—12:30'), findsOneWidget);
-    expect(find.text('等待你的决定'), findsOneWidget);
+    expect(find.text('已修改，待确认'), findsOneWidget);
     final updated = (await service.list()).single;
     expect(updated.suggestedStartMinute, 10 * 60);
     expect(updated.suggestedEndMinute, 12 * 60 + 30);
-    expect(updated.status, PreferenceSuggestionStatus.suggested);
+    // 编辑是独立状态，刷新或重排都不能把它降回 suggested（规范 §9.4）。
+    expect(updated.status, PreferenceSuggestionStatus.edited);
   });
 }
 

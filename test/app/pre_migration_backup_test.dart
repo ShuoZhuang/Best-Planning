@@ -218,8 +218,8 @@ void main() {
     expect(database.schemaVersion, plannerSchemaVersion);
     expect(
       plannerSchemaVersion,
-      10,
-      reason: 'v10 只扩充 timetable_import_batches.status 的 CHECK（计划 §2.7）',
+      11,
+      reason: 'v11 只新增 day_exceptions 表与索引（算法 20 规范 §8.1/§11）',
     );
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:isolate';
 
+import 'package:personal_planner/application/extension_day_service.dart';
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -37,6 +38,7 @@ final class PlanningService implements ProposalCreator {
     this.onProposalCreated,
     this.recurring,
     this.clock,
+    this.extensionDays,
   });
 
   final ScheduleProblemSource source;
@@ -49,6 +51,9 @@ final class PlanningService implements ProposalCreator {
 
   /// 判定"哪一周"用的时钟。为空时取系统当前时刻。
   final Clock? clock;
+
+  /// 临时延长日候选生成（算法 20）。为空时不建议，行为与算法 19 一致。
+  final ExtensionDayService? extensionDays;
 
   /// 每次生成提案后的通知回调（与 `FocusService.onFinished` 同型）。
   ///
@@ -95,9 +100,15 @@ final class PlanningService implements ProposalCreator {
         // "这次延后到底兑现了没有"，而调整意图在生成结束后就被清掉
         // （规范 §11.3 最后一段），不带走就无从校验。
         .withAdjustmentRequirement(_adjustmentRequirementOf(problem));
-    _previews[preview.proposalId] = preview;
-    onProposalCreated?.call(preview);
-    return preview;
+    final extensionService = extensionDays;
+    final withExtensions = extensionService == null
+        ? preview
+        : preview.withExtensionCandidates(
+            await extensionService.propose(problem: problem, proposal: preview),
+          );
+    _previews[withExtensions.proposalId] = withExtensions;
+    onProposalCreated?.call(withExtensions);
+    return withExtensions;
   }
 
   ScheduleProposal? preview(String proposalId) => _previews[proposalId];
@@ -211,6 +222,7 @@ ScheduleProblem _withInputHash(
   dailyPolicies: dailyPolicies ?? problem.dailyPolicies,
   weeklyLifeQuotaByWeekStart: problem.weeklyLifeQuotaByWeekStart,
   preferences: problem.preferences,
+  preferenceSnapshot: problem.preferenceSnapshot,
   inputHash: inputHash,
   // 必须原样搬运：确认阶段会用同一个来源重新装配输入并比对哈希，丢掉这个集合会让
   // 手动拖动产生的提案被判为过期（C8 那次"重放不一致"是同型缺陷）。
@@ -231,6 +243,7 @@ ScheduleProblem _withInputHash(
   // 这里，于是 `block_level_defer_test.dart` 两条用例当场报 `Actual: <null>`。
   // 与 `referenceBlocks` 那次是同一个陷阱——**新增字段时这里是必查的复制点**。
   adjustment: problem.adjustment,
+  adjustmentLocallyRepaired: problem.adjustmentLocallyRepaired,
   // **同样必须原样搬运**（裁定第 1、4 点）：来源关联要用它把新块与上一版配对。
   // 丢掉它的症状是"预览又把移动报成删除＋新增"——**不报错，只是说法错了**，
   // 因此只能靠用例发现（`defer_end_to_end_test.dart` 的"预览把延后报成移动"）。
@@ -242,6 +255,9 @@ ScheduleProblem _withInputHash(
   // （前两处是 `referenceBlocks` 与 `adjustment`）——新增 `ScheduleProblem`
   // 字段时，这里永远是必查的复制点。
   admissionConflicts: problem.admissionConflicts,
+  // **必须原样搬运**（算法 20，规范 §5.1）：特殊日事实改变了逐日策略与输入哈希，
+  // 重建问题后丢掉它会让"确认特殊日 → 重新生成"这条路径失去事实来源。
+  dayExceptions: problem.dayExceptions,
 );
 
 /// 从排程输入里取出**本次延后要求**（用户第 72 轮）。

@@ -10,6 +10,9 @@ import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
+import 'package:personal_planner/application/day_exception_service.dart';
+import 'package:personal_planner/application/extension_day_service.dart';
+import 'package:personal_planner/application/extension_rejection_store.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
@@ -26,10 +29,12 @@ import 'package:personal_planner/application/recurring_notification_service.dart
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
+import 'package:personal_planner/application/preference_evidence_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/repository_recurring_cycle_reader.dart';
 import 'package:personal_planner/application/settings_service.dart';
+import 'package:personal_planner/application/special_day_planning_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update_check_scheduler.dart';
@@ -48,11 +53,13 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
+import 'package:personal_planner/data/repositories/drift_day_exception_repository.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
+import 'package:personal_planner/data/repositories/drift_preference_rule_repository.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
@@ -271,6 +278,8 @@ Future<void> main() async {
     ),
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
+  final dayExceptionRepository = DriftDayExceptionRepository(database);
+  final preferenceRuleRepository = DriftPreferenceRuleRepository(database);
   final settingsRepository = DriftSettingsRepository(database, clock);
 
   // ── 更新检查（M8，路线图 §3.6 / Task 10／11）────────────────────────────────
@@ -348,6 +357,8 @@ Future<void> main() async {
     pendingSkips: pendingSkips,
     // M6（§3.4）：周期实例以"本周视角"进排程（截止＝本周末、只送剩余、允许星期）。
     recurring: recurringTasks,
+    dayExceptions: dayExceptionRepository,
+    preferenceRules: preferenceRuleRepository,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -561,6 +572,14 @@ Future<void> main() async {
   // （只有测试调用），因此建议永远不会被生成。这里把两端接上——专注结束时写证据，
   // 打开偏好页时按证据重新分析。
   final preferenceEvidence = DriftPreferenceEvidenceRepository(database);
+  final preferenceEvidenceService = PreferenceEvidenceService(
+    evidence: preferenceEvidence,
+    clock: clock,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    idGenerator: UuidIdGenerator(),
+    dayExceptions: dayExceptionRepository,
+  );
   final focusEvidence = FocusEvidenceRecorder(
     evidence: preferenceEvidence,
     tasks: taskRepository,
@@ -573,8 +592,13 @@ Future<void> main() async {
     // 那条排除逻辑一直都在——于是它永远筛不掉任何东西（结构就绪、数据恒为常量）。
     // 这里的口径与 spec §8.9 写下的一致：**当天存在按日例外即视为特殊日**，而按日例外的
     // 唯一写入方就是"临时放宽每日上限"那条入口（`SettingsService.saveDateOverride`）。
-    isSpecialDay: (localDate) async =>
-        (await settingsService.loadDateOverride(localDate)) != null,
+    isSpecialDay: (localDate) async {
+      if ((await settingsService.loadDateOverride(localDate)) != null) {
+        return true;
+      }
+      // 算法 20：持久特殊日与把这一天作为恢复日的记录同样排除。
+      return (await dayExceptionRepository.listAffecting(localDate)).isNotEmpty;
+    },
   );
   final focusService = FocusService(
     store: DriftFocusEntryStore(database),
@@ -636,11 +660,30 @@ Future<void> main() async {
     }
   }());
 
+  // 特殊日生命周期与配额（算法 20）。它与计划提交共用同一个数据库，但真正的
+  // "特殊日 + 计划 + 审计"原子性由 `DriftPlanRepository.commit` 保证。
+  final dayExceptionService = DayExceptionService(
+    repository: dayExceptionRepository,
+    settings: settingsService,
+    clock: clock,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+  final extensionDayService = ExtensionDayService(
+    settings: settingsService,
+    dayExceptions: dayExceptionService,
+    zones: zones,
+    clock: clock,
+    rejectionStore: SettingsExtensionRejectionStore(settingsRepository),
+    evidence: preferenceEvidenceService,
+  );
+
   // 排程服务：每次生成提案后把最近一份交给上面那个持有者，冲突通知因此有了真实来源。
   final planningService = PlanningService(
     source: problemSource,
     engine: DeterministicScheduleEngine(zones),
     onProposalCreated: (proposal) => latestProposal = proposal,
+    extensionDays: extensionDayService,
   );
   // 特殊日与次日恢复保护（Task 11）。C8 修复后例外是**提案输入**而不是持久设置，
   // 因此这条链路必须真正可达：页面早已存在，却从来没有路由（W3）。
@@ -661,6 +704,21 @@ Future<void> main() async {
     // 但仓储层仍可能抛）**不得**让"计划已经落库"这件事在界面上变成没发生。
     // `try/finally` 保证信号一定发出去，页面因此读回真实的已提交结果。
     onPlanChanged: invalidation.planAfter(resyncNotifications),
+    preferenceEvidence: preferenceEvidenceService,
+    areaIdForTask: (taskId) async =>
+        (await taskRepository.getById(taskId))?.areaId,
+  );
+  // 特殊日确认编排：特殊日事实 + 新计划 + 审计由一个事务提交（规范 §8.3）。
+  final specialDayPlanning = SpecialDayPlanningService(
+    planning: planningService,
+    application: planApplication,
+    settings: settingsService,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    clock: clock,
+    dayExceptionService: dayExceptionService,
+    problemSource: problemSource,
+    extensionDays: extensionDayService,
   );
 
   // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
@@ -841,6 +899,7 @@ Future<void> main() async {
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),
+          ruleRepository: preferenceRuleRepository,
         ),
         zones: zones,
         timeZoneId: timeZoneId,
@@ -853,6 +912,7 @@ Future<void> main() async {
         timetableOcr: WindowsTimetableOcr(),
         timetableImport: timetableImport,
         planApplication: planApplication,
+        specialDayPlanning: specialDayPlanning,
         // 同一份失效总线交给数据源（Plan §2.6）：三个日历视图共用一个 app-scoped 实例，
         // 因此任何一处成功写入都让它们同时刷新。
         scheduleInvalidation: scheduleInvalidation,

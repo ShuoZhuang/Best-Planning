@@ -86,7 +86,7 @@ void main() {
     await seeding.close();
 
     final before = _snapshot(path);
-    expect(before['schemaVersion'], 10, reason: '前置条件：v10 只扩充批次状态的 CHECK');
+    expect(before['schemaVersion'], 11, reason: '前置条件：v11 新增 day_exceptions 表');
     expect(
       (before['events']! as List),
       isNotEmpty,
@@ -95,7 +95,7 @@ void main() {
 
     // ② 备份 → 破坏原库 → 恢复。
     final roundTrip = BackupService(
-      database: _FileDatabaseLifecycle(path, version: 10),
+      database: _FileDatabaseLifecycle(path, version: 11),
       archives: const BackupArchiveAdapter(),
       hashes: const Sha256FileHashAdapter(),
       clock: const _FixedClock(),

@@ -28,6 +28,7 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update_check_scheduler.dart';
 import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/special_day_planning_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
@@ -69,6 +70,7 @@ final class PlannerApp extends StatefulWidget {
     this.scheduleSource,
     this.planningService,
     this.planApplication,
+    this.specialDayPlanning,
     this.planRepository,
     this.correctionLog,
     this.analytics,
@@ -159,6 +161,7 @@ final class PlannerApp extends StatefulWidget {
   /// 排程链路；为空时隐藏"生成计划"入口，预览页明确提示未装配。
   final PlanningService? planningService;
   final PlanApplicationService? planApplication;
+  final SpecialDayPlanningService? specialDayPlanning;
   final PlanRepository? planRepository;
 
   /// 剩余时长修正记录的写入端口（FR-TASK-05）。为空时修正照常生效，但不留历史，
@@ -495,6 +498,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       timeZoneId: widget.timeZoneId,
       planningService: widget.planningService,
       planApplication: widget.planApplication,
+      specialDayPlanning: widget.specialDayPlanning,
       plans: widget.planRepository,
       // 撤销（FR-REPLAN-08）只在这份仓储**同时**提供计划历史时才有入口。真实装配里
       // `DriftPlanRepository` 两者都实现；测试里只实现 `PlanRepository` 的替身则没有撤销

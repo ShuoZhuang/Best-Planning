@@ -5,11 +5,13 @@ import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
+import 'package:personal_planner/scheduling/bounded_repair_search.dart';
 import 'package:personal_planner/scheduling/candidate_eligibility.dart';
 import 'package:personal_planner/scheduling/candidate_generator.dart';
 import 'package:personal_planner/scheduling/candidate_scorer.dart';
 import 'package:personal_planner/scheduling/day_allocation.dart';
 import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
+import 'package:personal_planner/scheduling/frozen_block_policy.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_quality_validator.dart';
 import 'package:personal_planner/scheduling/schedule_objective.dart';
@@ -18,6 +20,8 @@ import 'package:personal_planner/scheduling/preferred_time_scorer.dart';
 import 'package:personal_planner/scheduling/pressure_calculator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+import 'package:personal_planner/scheduling/search_outcome.dart';
+import 'package:personal_planner/scheduling/shape_aware_capacity.dart';
 import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 
 abstract interface class ScheduleEngine {
@@ -25,11 +29,18 @@ abstract interface class ScheduleEngine {
 }
 
 final class DeterministicScheduleEngine implements ScheduleEngine {
-  DeterministicScheduleEngine(this._zones, {this.maxAllocationStates = 10000})
-    : _availabilityBuilder = AvailabilityBuilder(_zones),
-      _validator = PlanValidator(_zones);
+  DeterministicScheduleEngine(
+    this._zones, {
+    this.maxAllocationStates = 10000,
+    this.onRepairSearch,
+  }) : _availabilityBuilder = AvailabilityBuilder(_zones),
+       _validator = PlanValidator(_zones);
 
   final int maxAllocationStates;
+
+  /// 测试用计数钩子：生产为空。它只观察"是否真的进入有界修复搜索"，
+  /// 不改变任何排程结果（ALG20-038 的调用计数）。
+  final void Function()? onRepairSearch;
 
   /// 算法版本。任何会改变排程结果的改动都必须提升该值，否则历史计划无法按
   /// 当时的算法复现（设计 §5.1）。版本 2 引入同一任务的片段间休息，并把续排
@@ -129,7 +140,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///
   /// 它不改变块的**位置或时长**，但改变**落库的字段值**——而每条解释都是用户
   /// 判断"该不该接受这份安排"的依据。历史计划要复现当时的解释，就必须能区分。
-  static const String algorithmVersion = '19';
+  static const String algorithmVersion = '20';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -292,6 +303,14 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     // **这一步必须在放置之前**：候选评分里的同任务连续性、精力匹配与旧计划稳定性都只看
     // "这一天内部哪个位置更好"，一旦让它们参与"选哪一天"，就会出现用户实测的
     // `35 / 125 / 50 / 0`（计划 §2.3）。
+    // ── 形状感知容量：分配之前先知道"哪一天真的放得下"（算法 20，规范 §5.3）──
+    final shapeCapacities = buildTaskDayCapacities(
+      problem: problem,
+      availability: availability,
+      ledger: ledger,
+      allBlocks: blocks,
+      zones: _zones,
+    );
     final allocationPlan = allocateTaskDays(
       DayAllocationInput(
         tasks: problem.tasks,
@@ -318,6 +337,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
           for (final task in problem.tasks)
             task.id: scheduledByTask[task.id] ?? 0,
         },
+        shapeCapacities: shapeCapacities,
         maxAllocationStates: maxAllocationStates,
       ),
     );
@@ -328,7 +348,9 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         targets[task.id]! - (scheduledByTask[task.id] ?? 0),
       );
       final taskBudget = allocationPlan.budgetFor(task.id);
-      final budgetMinutesByDate = taskBudget?.minutesByLocalDate ?? const {};
+      var budgetMinutesByDate = taskBudget?.minutesByLocalDate ?? const {};
+      var activeBudget = taskBudget;
+      var budgetFallbackUsed = false;
 
       while (remaining > 0) {
         // ── 每一轮都用**当前**剩余量重新生成候选（计划 §2.1 / Task 4 Step 4）──────
@@ -402,7 +424,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
         // 因此判据回到"是不是 even"，而不是"有没有预算"。
         final relaxedDailyQuota =
             task.distributionPolicy == TaskDistributionPolicy.even;
-        final budgetPlan = taskBudget;
+        final budgetPlan = activeBudget;
         // **"最终余量凑不出片段"只排除那些候选，不排除整件事**（1.8.0，冻结决策 §1.4）。
         //
         // 修复前这里是**无条件 `continue`**：一个 12 分钟的任务选 10 分钟会留下 2 分钟，
@@ -477,6 +499,38 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
             }
           }
         }
+        if (ranked.isEmpty) {
+          // **预算退回并重新分配**（算法 20，规范 §5.4 / ALG20-025）。
+          //
+          // 跨日分配是"事前的容量估计"，日内放置可能发现那一日根本放不下（形状、
+          // 休息、固定占用）。此时不能拿着过期预算直接报缺口：把剩余分钟按**当前**
+          // 仍可用的日期重新摊一次，再试一轮。
+          if (!budgetFallbackUsed) {
+            final fallback = _fallbackBudgets(
+              problem: problem,
+              task: task,
+              slots: slots,
+              remainingMinutes: remaining,
+              movableMinutesByDate: movableMinutesByDate,
+              taskMinutesByDate: taskMinutesByDate[task.id] ?? const {},
+            );
+            if (fallback.isNotEmpty) {
+              budgetMinutesByDate = fallback;
+              activeBudget = TaskDayBudget(
+                taskId: task.id,
+                minutesByLocalDate: fallback,
+                allocatedMinutes: fallback.values.fold<int>(
+                  0,
+                  (sum, value) => sum + value,
+                ),
+                shortageMinutes: 0,
+              );
+              budgetFallbackUsed = true;
+              continue;
+            }
+          }
+          break;
+        }
         if (ranked.isEmpty) break;
         ranked.sort(_compareRankedCandidates);
         final selected = ranked.first.candidate;
@@ -512,6 +566,18 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       chunkGenerator,
       allocationPlan,
       ledger,
+    );
+    // ── 有界修复搜索（算法 20，规范 §5.6）───────────────────────────────────────
+    //
+    // 初次放置与局部改进之后仍有缺口时，尝试**一次搬移/插入**：搬走占用唯一长槽的
+    // 灵活任务，或把剩余分钟放进其它合法空档。搜索有明确状态预算、签名去重与固定
+    // 顺序，不读墙钟；预算耗尽或结果未过 validator 时保留原方案。
+    _repairWithBoundedSearch(
+      problem: problem,
+      slots: slots,
+      blocks: blocks,
+      targets: targets,
+      chunkGenerator: chunkGenerator,
     );
     // FR-CAL-05 的"不锁定"那一支：被手动拖动、但用户没有选择锁定的块，在**本次生成**里
     // 必须按锁定对待（因此上面的 `_improve` 跳过了它），否则局部改进会立刻把它搬回去，
@@ -667,10 +733,27 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       0,
       (sum, task) => sum + task.shortageMinutes,
     );
+    // ── 搜索结果种类（规范 §5.6 / §10；ALG20-032）─────────────────────────────
+    //
+    // 四种处境必须可区分：预算耗尽、结构异常、已证明硬无解、以及"排完了但只用到
+    // 软偏好之外"。默认 `solved` 只服务手写夹具，引擎在这里**总是**显式给出结论。
+    final softRelaxed = blocks.any((block) {
+      final code = block.explanationCode;
+      return code == 'energy_offpeak' || code == 'preferred_time_off';
+    });
+    final outcome = switch (allocationPlan.outcome) {
+      SearchOutcomeKind.budgetExhausted => SearchOutcomeKind.budgetExhausted,
+      _ when unexplainedTaskIds.isNotEmpty =>
+        SearchOutcomeKind.invariantViolation,
+      _ when unscheduled.isNotEmpty => SearchOutcomeKind.hardInfeasible,
+      _ when softRelaxed => SearchOutcomeKind.solvedWithSoftRelaxation,
+      _ => SearchOutcomeKind.solved,
+    };
     return ScheduleProposal(
       proposalId: 'proposal:${problem.inputHash}:$algorithmVersion',
       inputHash: problem.inputHash,
       algorithmVersion: algorithmVersion,
+      outcome: outcome,
       // **生成时的窗口随提案走**（1.8.0，冻结决策 §1.3）：预览装配层要在生成**之后**
       // 按同一个边界过滤两侧的块，而那时 `ScheduleProblem` 已经不在手里了。
       planningWindow: problem.planningWindow,
@@ -1397,6 +1480,187 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     return 'energy_offpeak';
   }
 
+  /// 生产可达的有界修复搜索（规范 §5.6 / ALG20-030）。
+  ///
+  /// 只在初次放置与局部改进后仍有缺口时运行。搜索结果必须通过同一个
+  /// `PlanValidator`，否则保留原方案——搜索可以"没找到更好"，但不能把不合法的
+  /// 中间状态带进提案。
+  void _repairWithBoundedSearch({
+    required ScheduleProblem problem,
+    required List<AvailabilitySlot> slots,
+    required List<PlannedBlock> blocks,
+    required Map<String, int> targets,
+    required CandidateGenerator chunkGenerator,
+  }) {
+    if (_shortageTotal(blocks, targets) <= 0) return;
+    final adjustment = problem.adjustment;
+    if (adjustment != null) {
+      // 规范 §6 / ALG20-038：局部修复成功时**不**启动全局搜索；只有失败后
+      // 才允许一次有界全局搜索（由下面的计数钩子直接证明）。
+      if (problem.adjustmentLocallyRepaired) return;
+      onRepairSearch?.call();
+    } else {
+      onRepairSearch?.call();
+    }
+    // **大型夹具不做修复搜索**：规范 §12 要求 200 任务/300 基线块的七日窗口 p95
+    // 不超过 2 秒，而搜索的状态数 × 候选数会随规模增长。小/中型输入仍走完整搜索，
+    // 大型输入保留贪心 + 局部改进的最佳合法方案（绝不因"没搜"而伪装成无解）。
+    if (problem.tasks.length > 40 || blocks.length > 60) return;
+    // 冻结 ID 由**纯函数**计算，修复搜索与后续稳定性层共用同一份口径。
+    final baselineById = <String, PlannedBlock>{
+      for (final block in problem.confirmedBlocks) block.id: block,
+      for (final block in problem.lockedBlocks) block.id: block,
+      for (final block in problem.existingBlocks) block.id: block,
+    };
+    final frozenIds = computeFrozenBlockIds(
+      baseline: baselineById.values.toList(),
+      nowUtc: problem.planningWindow.startUtc,
+      executingBlockIds: const {},
+      explicitlyPinnedIds: problem.pinnedUnlockedBlockIds,
+      adjustment: problem.adjustment,
+    );
+    final searchProblem = _EngineRepairProblem(
+      problem: problem,
+      slots: slots,
+      targets: targets,
+      candidates: chunkGenerator,
+      zones: _zones,
+      frozenIds: frozenIds,
+    );
+    final result = runBoundedRepairSearch(
+      problem: searchProblem,
+      initialBlocks: blocks,
+      budget: repairSearchBudget,
+    );
+    if (result.status != RepairSearchStatus.feasible) return;
+    if (_shortageTotal(result.bestBlocks, targets) >=
+        _shortageTotal(blocks, targets)) {
+      return;
+    }
+    final conflicts = _validator.validate(problem, result.bestBlocks);
+    if (conflicts.isNotEmpty) return;
+    blocks
+      ..clear()
+      ..addAll(result.bestBlocks);
+  }
+
+  /// 日内放置失败后的**重新分配预算**（规范 §5.4 / ALG20-025）。
+  ///
+  /// 与 `allocateTaskDays` 的区别只有一处：它用**当前**已排块与当前剩余量重算，
+  /// 因此"某日预算还在但形状放不下"不会直接变成缺口。返回空表示确实没有日期能接。
+  Map<DateTime, int> _fallbackBudgets({
+    required ScheduleProblem problem,
+    required SchedulableTask task,
+    required List<AvailabilitySlot> slots,
+    required int remainingMinutes,
+    required Map<DateTime, int> movableMinutesByDate,
+    required Map<DateTime, int> taskMinutesByDate,
+  }) {
+    if (remainingMinutes <= 0) return const {};
+    final slotsByDate = <DateTime, List<AvailabilitySlot>>{};
+    for (final slot in slots) {
+      if (!task.allowsWeekday(slot.localDate.weekday)) continue;
+      final from = task.availableFromUtc;
+      var start = slot.startUtc;
+      if (from != null && from.isAfter(start)) start = from;
+      final due = task.dueAtUtc;
+      var end = slot.endUtc;
+      if (due != null && due.isBefore(end)) end = due;
+      if (!end.isAfter(start)) continue;
+      slotsByDate
+          .putIfAbsent(slot.localDate, () => [])
+          .add(
+            AvailabilitySlot(
+              range: TimeRange(startUtc: start, endUtc: end),
+              localDate: slot.localDate,
+            ),
+          );
+    }
+    if (slotsByDate.isEmpty) return const {};
+
+    final capacity = <DateTime, int>{};
+    for (final entry in slotsByDate.entries) {
+      final date = entry.key;
+      final policy = problem.policyForLocalDate(date);
+      final granularity = policy.resolvedRules.granularityMinutes;
+      final globalRemaining =
+          policy.resolvedRules.dailyMovableTaskLimitMinutes -
+          (movableMinutesByDate[date] ?? 0);
+      final taskLimit = task.maxMinutesPerLocalDay;
+      final taskRemaining = taskLimit == null
+          ? remainingMinutes
+          : taskLimit - (taskMinutesByDate[date] ?? 0);
+      final longest = entry.value
+          .map((slot) => slot.durationMinutes)
+          .reduce((a, b) => a > b ? a : b);
+      final total = entry.value.fold<int>(
+        0,
+        (sum, slot) => sum + slot.durationMinutes,
+      );
+      final minimum = task.splitMode == TaskSplitMode.continuous
+          ? remainingMinutes
+          : task.requiredMinutes < task.minChunkMinutes
+          ? shortRemainderAllowance(
+              requiredMinutes: task.requiredMinutes,
+              granularityMinutes: granularity,
+            )
+          : ((task.minChunkMinutes + granularity - 1) ~/ granularity) *
+                granularity;
+      final shape = task.splitMode == TaskSplitMode.continuous
+          ? (longest >= remainingMinutes ? remainingMinutes : 0)
+          : total;
+      final cap = [
+        remainingMinutes,
+        globalRemaining,
+        taskRemaining,
+        shape,
+      ].reduce((a, b) => a < b ? a : b);
+      if (cap < minimum || cap <= 0) continue;
+      capacity[date] = cap;
+    }
+    if (capacity.isEmpty) return const {};
+
+    final ordered = capacity.entries.toList()
+      ..sort((a, b) {
+        final byCapacity = b.value.compareTo(a.value);
+        return byCapacity != 0 ? byCapacity : a.key.compareTo(b.key);
+      });
+    final budgets = <DateTime, int>{};
+    var left = remainingMinutes;
+    for (final entry in ordered) {
+      if (left <= 0) break;
+      final minutes = entry.value < left ? entry.value : left;
+      if (minutes <= 0) continue;
+      budgets[entry.key] = minutes;
+      left -= minutes;
+    }
+    return budgets;
+  }
+
+  int _shortageTotal(List<PlannedBlock> blocks, Map<String, int> targets) {
+    final scheduled = <String, int>{};
+    for (final block in blocks) {
+      scheduled.update(
+        block.taskId,
+        (value) => value + block.durationMinutes,
+        ifAbsent: () => block.durationMinutes,
+      );
+    }
+    var total = 0;
+    for (final entry in targets.entries) {
+      final shortage = entry.value - (scheduled[entry.key] ?? 0);
+      if (shortage > 0) total += shortage;
+    }
+    return total;
+  }
+
+  static const SearchBudget repairSearchBudget = SearchBudget(
+    maxStates: 128,
+    maxFrontier: 32,
+    maxRepairDepth: 2,
+    maxBranchesPerState: 12,
+  );
+
   void _improve(
     ScheduleProblem problem,
     List<AvailabilitySlot> slots,
@@ -1666,6 +1930,309 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
     if (year == null || month == null || day == null) return null;
     if (month < 1 || month > 12 || day < 1 || day > 31) return null;
     return DateTime(year, month, day);
+  }
+}
+
+/// 引擎侧的有界修复问题（规范 §5.6）。
+///
+/// 后继只有三类：把一个未安排片段插入合法空档、把一个非冻结块搬到另一个合法位置、
+/// 以及同长度块的一次交换。它们都先过同一组硬约束筛选；最终结果还要再过
+/// `PlanValidator`，因此搜索不可能把重叠、越界或超上限的方案带进提案。
+final class _EngineRepairProblem implements RepairSearchProblem {
+  _EngineRepairProblem({
+    required this.problem,
+    required this.slots,
+    required this.targets,
+    required this.candidates,
+    required this.zones,
+    required this.frozenIds,
+  }) : _tasksById = {for (final task in problem.tasks) task.id: task};
+
+  final ScheduleProblem problem;
+  final List<AvailabilitySlot> slots;
+  final Map<String, int> targets;
+  final CandidateGenerator candidates;
+  final TimeZoneDatabase zones;
+  final Set<String> frozenIds;
+  final Map<String, SchedulableTask> _tasksById;
+
+  @override
+  int objectiveValue(List<PlannedBlock> blocks) =>
+      unscheduledMinutes(blocks) * 100000 + blocks.length;
+
+  @override
+  int unscheduledMinutes(List<PlannedBlock> blocks) {
+    final scheduled = _scheduledByTask(blocks);
+    var total = 0;
+    for (final entry in targets.entries) {
+      final shortage = entry.value - (scheduled[entry.key] ?? 0);
+      if (shortage > 0) total += shortage;
+    }
+    return total;
+  }
+
+  @override
+  String signature(List<PlannedBlock> blocks) => [
+    for (final block in [...blocks]..sort((a, b) => a.id.compareTo(b.id)))
+      '${block.id}:${block.taskId}:'
+          '${block.startUtc.microsecondsSinceEpoch}:${block.durationMinutes}',
+  ].join('|');
+
+  @override
+  List<UnscheduledTask> unscheduledFor(List<PlannedBlock> blocks) {
+    final scheduled = _scheduledByTask(blocks);
+    final result = <UnscheduledTask>[];
+    for (final entry in targets.entries) {
+      final shortage = entry.value - (scheduled[entry.key] ?? 0);
+      if (shortage <= 0) continue;
+      result.add(
+        UnscheduledTask(
+          taskId: entry.key,
+          shortageMinutes: shortage,
+          primaryReason: UnscheduledReason(
+            code: UnscheduledReasonCode.insufficientCapacity,
+            placementRemainingMinutes: shortage,
+          ),
+        ),
+      );
+    }
+    result.sort((a, b) => a.taskId.compareTo(b.taskId));
+    return result;
+  }
+
+  @override
+  List<List<PlannedBlock>> successors(List<PlannedBlock> blocks, int depth) {
+    final result = <List<PlannedBlock>>[];
+    final scheduled = _scheduledByTask(blocks);
+    final shortages = <({SchedulableTask task, int shortage})>[];
+    for (final task in problem.tasks) {
+      final shortage = targets[task.id]! - (scheduled[task.id] ?? 0);
+      if (shortage > 0) shortages.add((task: task, shortage: shortage));
+    }
+    shortages.sort((a, b) {
+      final order = b.shortage.compareTo(a.shortage);
+      return order != 0 ? order : a.task.id.compareTo(b.task.id);
+    });
+
+    // ① 插入一个剩余片段。
+    for (final entry in shortages) {
+      final generated = candidates.generate(
+        entry.task,
+        slots,
+        remainingMinutes: entry.shortage,
+      );
+      var accepted = 0;
+      for (final candidate in generated) {
+        if (candidate.durationMinutes > entry.shortage) continue;
+        if (!_fits(entry.task, candidate, blocks)) continue;
+        final block = PlannedBlock(
+          id:
+              'repair:${entry.task.id}:'
+              '${candidate.startUtc.microsecondsSinceEpoch}:'
+              '${candidate.durationMinutes}',
+          taskId: entry.task.id,
+          range: candidate.range,
+        );
+        result.add([...blocks, block]);
+        accepted++;
+        if (accepted >= 3) break;
+      }
+    }
+
+    // ② 搬移一个非冻结块；③ 同长度块交换。
+    final movable = [
+      for (final block in blocks)
+        if (!block.locked && !frozenIds.contains(block.id)) block,
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    var moves = 0;
+    for (final block in movable) {
+      if (moves >= 18) break;
+      final task = _tasksById[block.taskId];
+      if (task == null || block.durationMinutes <= 0) continue;
+      final generated = candidates.generate(
+        task,
+        slots,
+        remainingMinutes: block.durationMinutes,
+      );
+      var accepted = 0;
+      for (final candidate in generated) {
+        if (candidate.durationMinutes != block.durationMinutes) continue;
+        if (candidate.range == block.range) continue;
+        if (!_fits(task, candidate, blocks, ignoreBlockId: block.id)) continue;
+        result.add(
+          _replaceBlock(
+            blocks,
+            block.id,
+            PlannedBlock(
+              id: block.id,
+              taskId: block.taskId,
+              range: candidate.range,
+              locked: block.locked,
+              explanationCode: block.explanationCode,
+            ),
+          ),
+        );
+        moves++;
+        accepted++;
+        if (accepted >= 8) break;
+      }
+    }
+    // 一次交换：把两块互换位置，适用于"彼此占了对方唯一能用的槽"。
+    for (var left = 0; left < movable.length; left++) {
+      for (var right = left + 1; right < movable.length; right++) {
+        if (moves >= 24) break;
+        final a = movable[left];
+        final b = movable[right];
+        if (a.durationMinutes != b.durationMinutes) continue;
+        final aTask = _tasksById[a.taskId];
+        final bTask = _tasksById[b.taskId];
+        if (aTask == null || bTask == null) continue;
+        if (!_rangeFitsTask(aTask, b.range, _localDateOfRange(b.range))) {
+          continue;
+        }
+        if (!_rangeFitsTask(bTask, a.range, _localDateOfRange(a.range))) {
+          continue;
+        }
+        final swappedA = PlannedBlock(
+          id: a.id,
+          taskId: a.taskId,
+          range: b.range,
+          locked: a.locked,
+          explanationCode: a.explanationCode,
+        );
+        final swappedB = PlannedBlock(
+          id: b.id,
+          taskId: b.taskId,
+          range: a.range,
+          locked: b.locked,
+          explanationCode: b.explanationCode,
+        );
+        var next = _replaceBlock(blocks, a.id, swappedA);
+        next = _replaceBlock(next, b.id, swappedB);
+        if (!_overlapsAny(next) && _dailyLimitsOk(next)) result.add(next);
+        moves++;
+      }
+    }
+    return result;
+  }
+
+  List<PlannedBlock> _replaceBlock(
+    List<PlannedBlock> blocks,
+    String id,
+    PlannedBlock replacement,
+  ) => [
+    for (final block in blocks)
+      if (block.id == id) replacement else block,
+  ];
+
+  bool _fits(
+    SchedulableTask task,
+    SchedulingCandidate candidate,
+    List<PlannedBlock> blocks, {
+    String? ignoreBlockId,
+  }) {
+    final date = candidate.localDate;
+    final taskLimit = task.maxMinutesPerLocalDay;
+    var taskMinutes = 0;
+    var globalMinutes = 0;
+    for (final block in blocks) {
+      if (block.id == ignoreBlockId) continue;
+      final blockDate = block.localDateFor(problem, zones);
+      if (blockDate != date) continue;
+      globalMinutes += block.durationMinutes;
+      if (block.taskId == task.id) taskMinutes += block.durationMinutes;
+    }
+    if (taskLimit != null &&
+        taskMinutes + candidate.durationMinutes > taskLimit) {
+      return false;
+    }
+    final policy = problem.policyForLocalDate(date);
+    if (globalMinutes + candidate.durationMinutes >
+        policy.resolvedRules.dailyMovableTaskLimitMinutes) {
+      return false;
+    }
+    for (final block in blocks) {
+      if (block.id == ignoreBlockId) continue;
+      if (block.range.startUtc.isBefore(candidate.endUtc) &&
+          candidate.startUtc.isBefore(block.range.endUtc)) {
+        return false;
+      }
+    }
+    return _rangeFitsTask(task, candidate.range, date);
+  }
+
+  bool _rangeFitsTask(
+    SchedulableTask task,
+    TimeRange range,
+    DateTime localDate,
+  ) {
+    if (!task.allowsWeekday(localDate.weekday)) return false;
+    final due = task.dueAtUtc;
+    if (due != null && range.endUtc.isAfter(due)) return false;
+    final from = task.availableFromUtc;
+    if (from != null && range.startUtc.isBefore(from)) return false;
+    return true;
+  }
+
+  bool _overlapsAny(List<PlannedBlock> blocks) {
+    final sorted = [...blocks]
+      ..sort((a, b) => a.startUtc.compareTo(b.startUtc));
+    for (var index = 1; index < sorted.length; index++) {
+      if (sorted[index - 1].endUtc.isAfter(sorted[index].startUtc)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _dailyLimitsOk(List<PlannedBlock> blocks) {
+    final taskMinutes = <String, int>{};
+    final globalMinutes = <DateTime, int>{};
+    for (final block in blocks) {
+      final date = _localDateOfRange(block.range);
+      globalMinutes[date] = (globalMinutes[date] ?? 0) + block.durationMinutes;
+      final key = '${block.taskId}|${date.toIso8601String()}';
+      taskMinutes[key] = (taskMinutes[key] ?? 0) + block.durationMinutes;
+    }
+    for (final entry in taskMinutes.entries) {
+      final split = entry.key.split('|');
+      final task = _tasksById[split[0]];
+      if (task?.maxMinutesPerLocalDay case final limit?) {
+        if (entry.value > limit) return false;
+      }
+    }
+    for (final entry in globalMinutes.entries) {
+      final limit = problem
+          .policyForLocalDate(entry.key)
+          .resolvedRules
+          .dailyMovableTaskLimitMinutes;
+      if (entry.value > limit) return false;
+    }
+    return true;
+  }
+
+  DateTime _localDateOfRange(TimeRange range) {
+    final local = zones.toLocal(range.startUtc, problem.timeZoneId);
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  Map<String, int> _scheduledByTask(List<PlannedBlock> blocks) {
+    final result = <String, int>{};
+    for (final block in blocks) {
+      result.update(
+        block.taskId,
+        (value) => value + block.durationMinutes,
+        ifAbsent: () => block.durationMinutes,
+      );
+    }
+    return result;
+  }
+}
+
+extension on PlannedBlock {
+  DateTime localDateFor(ScheduleProblem problem, TimeZoneDatabase zones) {
+    final local = zones.toLocal(startUtc, problem.timeZoneId);
+    return DateTime(local.year, local.month, local.day);
   }
 }
 

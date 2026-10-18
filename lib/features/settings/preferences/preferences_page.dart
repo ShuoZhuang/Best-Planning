@@ -8,6 +8,7 @@ final class PreferencesPage extends StatefulWidget {
     required this.service,
     this.loadEvidence,
     this.onSuggestionAction,
+    this.onRegenerate,
     super.key,
   });
 
@@ -26,12 +27,16 @@ final class PreferencesPage extends StatefulWidget {
   /// 代码产生它们，因此该项恒为空（W5）。这一页是这些动作唯一的发生地。
   final void Function(String action, String suggestionId)? onSuggestionAction;
 
+  /// “立即重新生成计划”（规范 §9.5）：确认偏好只影响下一次生成，不能静默移动当前计划。
+  final VoidCallback? onRegenerate;
+
   @override
   State<PreferencesPage> createState() => _PreferencesPageState();
 }
 
 final class _PreferencesPageState extends State<PreferencesPage> {
   List<PreferenceSuggestion> _suggestions = const [];
+  List<_PreferenceProgress> _progress = const [];
   bool _loading = true;
 
   @override
@@ -43,9 +48,11 @@ final class _PreferencesPageState extends State<PreferencesPage> {
   Future<void> _reload() async {
     final loadEvidence = widget.loadEvidence;
     if (loadEvidence != null) {
+      final evidence = await loadEvidence();
+      _progress = _progressOf(evidence);
       // 先按证据重新分析，再把结果列出来；否则这一页永远只显示"没有建议"。
       // autoApply 保持默认的 false：FR-PREF-04 要求默认由用户确认后才影响排程。
-      await widget.service.refresh(await loadEvidence());
+      await widget.service.refresh(evidence);
     }
     final values = await widget.service.list();
     if (!mounted) return;
@@ -197,6 +204,11 @@ final class _PreferencesPageState extends State<PreferencesPage> {
             const SizedBox(height: 8),
             const Text('只分析非特殊日的已确认记录。学习结果仅影响软偏好，不会改变最低睡眠、用餐保护或每日上限。'),
             const SizedBox(height: 18),
+            if (_progress.isNotEmpty) ...[
+              for (final progress in _progress)
+                _PreferenceProgressCard(progress: progress),
+              const SizedBox(height: 8),
+            ],
             if (_loading) const LinearProgressIndicator(),
             if (!_loading && _suggestions.isEmpty)
               const Card(
@@ -249,10 +261,115 @@ final class _PreferencesPageState extends State<PreferencesPage> {
                   icon: const Icon(Icons.delete_sweep_outlined),
                   label: const Text('清除学习结果'),
                 ),
+                if (widget.onRegenerate != null)
+                  FilledButton.icon(
+                    key: const Key('preference-regenerate-plan'),
+                    onPressed: widget.onRegenerate,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('立即重新生成计划'),
+                  ),
               ],
             ),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+final class _PreferenceProgress {
+  const _PreferenceProgress({
+    required this.subjectKey,
+    required this.validCount,
+    required this.activeDays,
+    required this.bucketCounts,
+    required this.excludedCount,
+  });
+
+  final String subjectKey;
+  final int validCount;
+  final int activeDays;
+  final Map<String, int> bucketCounts;
+  final int excludedCount;
+}
+
+List<_PreferenceProgress> _progressOf(List<PreferenceEvidence> evidence) {
+  final bySubject = <String, List<PreferenceEvidence>>{};
+  for (final item in evidence.where(
+    (item) => item.kind == PreferenceEvidenceKind.focusCompletion,
+  )) {
+    bySubject.putIfAbsent(item.subjectKey, () => []).add(item);
+  }
+  final result = <_PreferenceProgress>[];
+  for (final entry in bySubject.entries) {
+    var valid = 0;
+    var excluded = 0;
+    final days = <String>{};
+    final buckets = <String, int>{
+      'morning': 0,
+      'afternoon': 0,
+      'evening': 0,
+      'night': 0,
+    };
+    for (final item in entry.value) {
+      final isV2 = item.metadata['evidenceVersion'] == 2;
+      final reason = item.metadata['excludedReason'];
+      if (!isV2 || item.specialDay || reason != null) {
+        excluded++;
+        continue;
+      }
+      valid++;
+      final date = item.metadata['observedLocalDate'];
+      if (date is String) days.add(date);
+      final bucket = item.metadata['timeBucket'];
+      if (bucket is String && buckets.containsKey(bucket)) {
+        buckets[bucket] = buckets[bucket]! + 1;
+      }
+    }
+    result.add(
+      _PreferenceProgress(
+        subjectKey: entry.key,
+        validCount: valid,
+        activeDays: days.length,
+        bucketCounts: buckets,
+        excludedCount: excluded,
+      ),
+    );
+  }
+  result.sort((a, b) => a.subjectKey.compareTo(b.subjectKey));
+  return result;
+}
+
+final class _PreferenceProgressCard extends StatelessWidget {
+  const _PreferenceProgressCard({required this.progress});
+
+  final _PreferenceProgress progress;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    key: Key('preference-progress-${progress.subjectKey}'),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            progress.subjectKey == 'global'
+                ? '全局样本'
+                : '领域 ${progress.subjectKey.replaceFirst('area:', '')}',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '有效记录 ${progress.validCount}/20 · '
+            '活跃日 ${progress.activeDays}/14 · '
+            '上午 ${progress.bucketCounts['morning']} · '
+            '下午 ${progress.bucketCounts['afternoon']} · '
+            '晚上 ${progress.bucketCounts['evening']} · '
+            '夜间 ${progress.bucketCounts['night']} · '
+            '已排除 ${progress.excludedCount}',
+          ),
+        ],
       ),
     ),
   );
@@ -332,6 +449,7 @@ String _title(PreferenceSuggestion suggestion) => switch (suggestion.kind) {
 
 String _status(PreferenceSuggestionStatus status) => switch (status) {
   PreferenceSuggestionStatus.suggested => '等待你的决定',
+  PreferenceSuggestionStatus.edited => '已修改，待确认',
   PreferenceSuggestionStatus.confirmed => '已确认',
   PreferenceSuggestionStatus.rejected => '已拒绝',
   PreferenceSuggestionStatus.disabled => '已停用',

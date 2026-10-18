@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 
 final class SpecialDayPage extends StatefulWidget {
@@ -13,6 +15,7 @@ final class SpecialDayPage extends StatefulWidget {
     required this.onCreateOverride,
     required this.timeZoneId,
     this.onOpenPreview,
+    this.onConfirmPersistent,
     super.key,
   });
 
@@ -36,6 +39,19 @@ final class SpecialDayPage extends StatefulWidget {
   /// 就永远停在"已生成、未应用"。导航由路由器注入，页面不认识路由。
   final ValueChanged<String>? onOpenPreview;
 
+  /// 持久特殊日确认（算法 20）：由组合根接到 `SpecialDayPlanningService`。
+  ///
+  /// 回调内部完成“特殊日事实 + 新计划 + 审计”的同一事务；页面只负责收集时刻，
+  /// 不在本地猜任何规则。
+  final Future<ApplyPlanResult> Function({
+    required DateTime localDate,
+    required int originalSleepStartOffsetMinutes,
+    required int temporarySleepStartOffsetMinutes,
+    required int fixedWakeOffsetMinutes,
+    required RecoveryChoice recoveryChoice,
+  })?
+  onConfirmPersistent;
+
   @override
   State<SpecialDayPage> createState() => _SpecialDayPageState();
 }
@@ -46,7 +62,9 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
   RecoveryResolution _resolution = RecoveryResolution.scheduleRecoverySleep;
   RecoveryPlan? _result;
   String? _error;
+  String? _persistMessage;
   bool _saving = false;
+  bool _persisting = false;
 
   @override
   void dispose() {
@@ -93,6 +111,64 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
       if (mounted) setState(() => _error = '无法生成恢复方案，请检查输入');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _persist() async {
+    final callback = widget.onConfirmPersistent;
+    if (callback == null) return;
+    final endMinute = _parseTime(_endTime.text);
+    if (endMinute == null) {
+      setState(() => _error = '请填写有效的结束时间');
+      return;
+    }
+    setState(() {
+      _persisting = true;
+      _error = null;
+      _persistMessage = null;
+    });
+    try {
+      // 凌晨结束（<12:00）属于**前一天**开始的特殊日，入睡偏移加 24 小时；
+      // 晚间结束则属于当天。固定起床保持用户规则里的钟点。
+      final morning = endMinute < 12 * 60;
+      final specialDate = morning
+          ? DateTime(
+              widget.recoveryDate.year,
+              widget.recoveryDate.month,
+              widget.recoveryDate.day - 1,
+            )
+          : DateTime(
+              widget.recoveryDate.year,
+              widget.recoveryDate.month,
+              widget.recoveryDate.day,
+            );
+      final sleep = widget.rules.sleepRange;
+      final original = sleep.startMinute;
+      final temporary = morning ? endMinute + 24 * 60 : endMinute;
+      final wake = sleep.endMinute + (sleep.crossesMidnight ? 24 * 60 : 0);
+      final choice = switch (_resolution) {
+        RecoveryResolution.scheduleRecoverySleep => RecoveryChoice.nextDayRest,
+        RecoveryResolution.rescheduleMovableTasks =>
+          RecoveryChoice.reduceNextDayLoad,
+        _ => RecoveryChoice.none,
+      };
+      final result = await callback(
+        localDate: specialDate,
+        originalSleepStartOffsetMinutes: original,
+        temporarySleepStartOffsetMinutes: temporary,
+        fixedWakeOffsetMinutes: wake,
+        recoveryChoice: choice,
+      );
+      if (!mounted) return;
+      setState(() {
+        _persistMessage = result.status == ApplyPlanStatus.applied
+            ? '特殊日已保存，新计划已生效'
+            : '未应用：${result.status.name}';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = '无法保存特殊日：$error');
+    } finally {
+      if (mounted) setState(() => _persisting = false);
     }
   }
 
@@ -151,6 +227,21 @@ final class _SpecialDayPageState extends State<SpecialDayPage> {
             icon: const Icon(Icons.bedtime_outlined),
             label: const Text('生成恢复方案'),
           ),
+          if (widget.onConfirmPersistent != null) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('confirm-persistent-special-day'),
+              onPressed: _persisting ? null : _persist,
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('保存特殊日并应用'),
+            ),
+            if (_persisting) const LinearProgressIndicator(),
+            if (_persistMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(_persistMessage!),
+              ),
+          ],
           if (_result != null) ...[
             const SizedBox(height: 20),
             const Card(

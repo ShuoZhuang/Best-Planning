@@ -87,7 +87,8 @@ void main() {
     );
     await service.clearLearned();
     expect(await service.list(), isEmpty);
-    expect((await store.loadProfile()).enabled, isFalse);
+    // 清除结果不关闭学习：用户仍可继续积累新证据（算法 20 规范 §9.4）。
+    expect((await store.loadProfile()).enabled, isTrue);
   });
 
   test('设置存储在服务重建后保留建议、偏好和自动采用撤销历史', () async {

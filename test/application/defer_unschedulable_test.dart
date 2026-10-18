@@ -14,6 +14,7 @@
 // `endMinute == 1440`（当天 24:00 = 次日零点），因此不需要我去猜窗口边界。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -191,6 +192,25 @@ void main() {
     );
   });
 
+  test('延后彻底无解时应用闸门零写入（不调用仓储写方法）', () async {
+    final source = makeSource(calendar: blockEveryDayInWindow());
+    final proposal = await PlanningService(
+      source: source,
+      engine: DeterministicScheduleEngine(zones),
+    ).createProposal();
+    final repository = _NoWritePlan();
+    final application = PlanApplicationService(
+      source: source,
+      repository: repository,
+      zones: zones,
+    );
+
+    final result = await application.apply(proposal);
+
+    expect(result.status, ApplyPlanStatus.invalidProposal);
+    expect(repository.applyCalls, 0, reason: '无解提案不得触碰计划仓储');
+  });
+
   test('对照：不堵死时同一份输入能正常排出（确认上一条不是恒真）', () async {
     final source = makeSource(calendar: const []);
     final proposal = await PlanningService(
@@ -254,6 +274,29 @@ final class _Calendar implements CalendarRepository {
 
   @override
   Future<void> save(CalendarEvent event) async {}
+}
+
+final class _NoWritePlan implements PlanRepository {
+  int applyCalls = 0;
+
+  @override
+  Future<ConfirmedPlan?> current() async => null;
+
+  @override
+  Future<ApplyPlanResult> applyProposal(
+    ScheduleProposal proposal,
+    String expectedInputHash,
+  ) async {
+    applyCalls++;
+    return ApplyPlanResult.applied(
+      ConfirmedPlan(
+        id: proposal.proposalId,
+        inputHash: proposal.inputHash,
+        algorithmVersion: proposal.algorithmVersion,
+        blocks: proposal.blocks,
+      ),
+    );
+  }
 }
 
 final class _Plan implements PlanRepository {

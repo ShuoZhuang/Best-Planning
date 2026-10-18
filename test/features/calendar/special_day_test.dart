@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/features/calendar/special_day/special_day_page.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
@@ -49,6 +51,50 @@ void main() {
     // 文案必须与真实行为一致：例外只用于本次方案，预览不会留下持久设置。
     expect(find.text('恢复保护已用于本次方案'), findsOneWidget);
     expect(find.text('仅作用于本次生成的计划，不会写入长期作息偏好。'), findsOneWidget);
+  });
+
+  testWidgets('保存特殊日并应用时把凌晨结束换算成前一天的跨日偏移', (tester) async {
+    DateTime? confirmedDate;
+    int? confirmedTemporary;
+    int? confirmedWake;
+    RecoveryChoice? confirmedChoice;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SpecialDayPage(
+          recoveryDate: DateTime(2026, 10, 3),
+          rules: DefaultSettings.v1(),
+          timeZoneId: 'UTC',
+          fixedEvents: const [],
+          onCreateOverride: (draft) async => _result(),
+          onConfirmPersistent:
+              ({
+                required localDate,
+                required originalSleepStartOffsetMinutes,
+                required temporarySleepStartOffsetMinutes,
+                required fixedWakeOffsetMinutes,
+                required recoveryChoice,
+              }) async {
+                confirmedDate = localDate;
+                confirmedTemporary = temporarySleepStartOffsetMinutes;
+                confirmedWake = fixedWakeOffsetMinutes;
+                confirmedChoice = recoveryChoice;
+                return ApplyPlanResult.invalid(const []);
+              },
+        ),
+      ),
+    );
+
+    final button = find.byKey(const Key('confirm-persistent-special-day'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    // 默认结束时间 01:00 ⇒ 特殊日是前一天，偏移 1500；固定起床 07:30 ⇒ 1890。
+    expect(confirmedDate, DateTime(2026, 10, 2));
+    expect(confirmedTemporary, 1500);
+    expect(confirmedWake, 1890);
+    expect(confirmedChoice, RecoveryChoice.nextDayRest);
+    expect(find.textContaining('未应用'), findsOneWidget);
   });
 
   testWidgets('最低睡眠与早课冲突时明确保留早课', (tester) async {

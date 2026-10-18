@@ -53,13 +53,10 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test(
-    'generated schema includes the partially deleted batch state version 10',
-    () {
-      expect(GeneratedHelper.versions.last, 10);
-      expect(plannerSchemaVersion, 10);
-    },
-  );
+  test('generated schema includes the day exception table version 11', () {
+    expect(GeneratedHelper.versions.last, 11);
+    expect(plannerSchemaVersion, 11);
+  });
 
   // 覆盖全部版本组合：v1→v2、v1→v3、v2→v3。漏掉任何一步都会在这里被判为结构不符。
   const versions = GeneratedHelper.versions;

@@ -12157,6 +12157,1017 @@ class RecurringTaskCyclesCompanion extends UpdateCompanion<RecurringTaskCycle> {
   }
 }
 
+class $DayExceptionsTable extends DayExceptions
+    with TableInfo<$DayExceptionsTable, DayException> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DayExceptionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _localDateMeta = const VerificationMeta(
+    'localDate',
+  );
+  @override
+  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
+    'local_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _originalSleepStartOffsetMinutesMeta =
+      const VerificationMeta('originalSleepStartOffsetMinutes');
+  @override
+  late final GeneratedColumn<int> originalSleepStartOffsetMinutes =
+      GeneratedColumn<int>(
+        'original_sleep_start_offset_minutes',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _temporarySleepStartOffsetMinutesMeta =
+      const VerificationMeta('temporarySleepStartOffsetMinutes');
+  @override
+  late final GeneratedColumn<int> temporarySleepStartOffsetMinutes =
+      GeneratedColumn<int>(
+        'temporary_sleep_start_offset_minutes',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _fixedWakeOffsetMinutesMeta =
+      const VerificationMeta('fixedWakeOffsetMinutes');
+  @override
+  late final GeneratedColumn<int> fixedWakeOffsetMinutes = GeneratedColumn<int>(
+    'fixed_wake_offset_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _absoluteMinimumSleepMinutesMeta =
+      const VerificationMeta('absoluteMinimumSleepMinutes');
+  @override
+  late final GeneratedColumn<int> absoluteMinimumSleepMinutes =
+      GeneratedColumn<int>(
+        'absolute_minimum_sleep_minutes',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _recoveryChoiceMeta = const VerificationMeta(
+    'recoveryChoice',
+  );
+  @override
+  late final GeneratedColumn<String> recoveryChoice = GeneratedColumn<String>(
+    'recovery_choice',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _recoveryLocalDateMeta = const VerificationMeta(
+    'recoveryLocalDate',
+  );
+  @override
+  late final GeneratedColumn<String> recoveryLocalDate =
+      GeneratedColumn<String>(
+        'recovery_local_date',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _triggeringProposalIdMeta =
+      const VerificationMeta('triggeringProposalId');
+  @override
+  late final GeneratedColumn<String> triggeringProposalId =
+      GeneratedColumn<String>(
+        'triggering_proposal_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _auditNoteMeta = const VerificationMeta(
+    'auditNote',
+  );
+  @override
+  late final GeneratedColumn<String> auditNote = GeneratedColumn<String>(
+    'audit_note',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtUtcMeta = const VerificationMeta(
+    'updatedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _revokedAtUtcMeta = const VerificationMeta(
+    'revokedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> revokedAtUtc = GeneratedColumn<int>(
+    'revoked_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    localDate,
+    kind,
+    status,
+    originalSleepStartOffsetMinutes,
+    temporarySleepStartOffsetMinutes,
+    fixedWakeOffsetMinutes,
+    absoluteMinimumSleepMinutes,
+    recoveryChoice,
+    recoveryLocalDate,
+    source,
+    triggeringProposalId,
+    auditNote,
+    createdAtUtc,
+    updatedAtUtc,
+    revokedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'day_exceptions';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DayException> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('local_date')) {
+      context.handle(
+        _localDateMeta,
+        localDate.isAcceptableOrUnknown(data['local_date']!, _localDateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localDateMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('original_sleep_start_offset_minutes')) {
+      context.handle(
+        _originalSleepStartOffsetMinutesMeta,
+        originalSleepStartOffsetMinutes.isAcceptableOrUnknown(
+          data['original_sleep_start_offset_minutes']!,
+          _originalSleepStartOffsetMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_originalSleepStartOffsetMinutesMeta);
+    }
+    if (data.containsKey('temporary_sleep_start_offset_minutes')) {
+      context.handle(
+        _temporarySleepStartOffsetMinutesMeta,
+        temporarySleepStartOffsetMinutes.isAcceptableOrUnknown(
+          data['temporary_sleep_start_offset_minutes']!,
+          _temporarySleepStartOffsetMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_temporarySleepStartOffsetMinutesMeta);
+    }
+    if (data.containsKey('fixed_wake_offset_minutes')) {
+      context.handle(
+        _fixedWakeOffsetMinutesMeta,
+        fixedWakeOffsetMinutes.isAcceptableOrUnknown(
+          data['fixed_wake_offset_minutes']!,
+          _fixedWakeOffsetMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_fixedWakeOffsetMinutesMeta);
+    }
+    if (data.containsKey('absolute_minimum_sleep_minutes')) {
+      context.handle(
+        _absoluteMinimumSleepMinutesMeta,
+        absoluteMinimumSleepMinutes.isAcceptableOrUnknown(
+          data['absolute_minimum_sleep_minutes']!,
+          _absoluteMinimumSleepMinutesMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_absoluteMinimumSleepMinutesMeta);
+    }
+    if (data.containsKey('recovery_choice')) {
+      context.handle(
+        _recoveryChoiceMeta,
+        recoveryChoice.isAcceptableOrUnknown(
+          data['recovery_choice']!,
+          _recoveryChoiceMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_recoveryChoiceMeta);
+    }
+    if (data.containsKey('recovery_local_date')) {
+      context.handle(
+        _recoveryLocalDateMeta,
+        recoveryLocalDate.isAcceptableOrUnknown(
+          data['recovery_local_date']!,
+          _recoveryLocalDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('triggering_proposal_id')) {
+      context.handle(
+        _triggeringProposalIdMeta,
+        triggeringProposalId.isAcceptableOrUnknown(
+          data['triggering_proposal_id']!,
+          _triggeringProposalIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('audit_note')) {
+      context.handle(
+        _auditNoteMeta,
+        auditNote.isAcceptableOrUnknown(data['audit_note']!, _auditNoteMeta),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('updated_at_utc')) {
+      context.handle(
+        _updatedAtUtcMeta,
+        updatedAtUtc.isAcceptableOrUnknown(
+          data['updated_at_utc']!,
+          _updatedAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtUtcMeta);
+    }
+    if (data.containsKey('revoked_at_utc')) {
+      context.handle(
+        _revokedAtUtcMeta,
+        revokedAtUtc.isAcceptableOrUnknown(
+          data['revoked_at_utc']!,
+          _revokedAtUtcMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DayException map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DayException(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      localDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_date'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      originalSleepStartOffsetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}original_sleep_start_offset_minutes'],
+      )!,
+      temporarySleepStartOffsetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}temporary_sleep_start_offset_minutes'],
+      )!,
+      fixedWakeOffsetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}fixed_wake_offset_minutes'],
+      )!,
+      absoluteMinimumSleepMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}absolute_minimum_sleep_minutes'],
+      )!,
+      recoveryChoice: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}recovery_choice'],
+      )!,
+      recoveryLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}recovery_local_date'],
+      ),
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      triggeringProposalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}triggering_proposal_id'],
+      ),
+      auditNote: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}audit_note'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+      revokedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revoked_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  $DayExceptionsTable createAlias(String alias) {
+    return $DayExceptionsTable(attachedDatabase, alias);
+  }
+}
+
+class DayException extends DataClass implements Insertable<DayException> {
+  final String id;
+  final String localDate;
+  final String kind;
+  final String status;
+  final int originalSleepStartOffsetMinutes;
+  final int temporarySleepStartOffsetMinutes;
+  final int fixedWakeOffsetMinutes;
+  final int absoluteMinimumSleepMinutes;
+  final String recoveryChoice;
+  final String? recoveryLocalDate;
+  final String source;
+  final String? triggeringProposalId;
+  final String auditNote;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  final int? revokedAtUtc;
+  const DayException({
+    required this.id,
+    required this.localDate,
+    required this.kind,
+    required this.status,
+    required this.originalSleepStartOffsetMinutes,
+    required this.temporarySleepStartOffsetMinutes,
+    required this.fixedWakeOffsetMinutes,
+    required this.absoluteMinimumSleepMinutes,
+    required this.recoveryChoice,
+    this.recoveryLocalDate,
+    required this.source,
+    this.triggeringProposalId,
+    required this.auditNote,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    this.revokedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['local_date'] = Variable<String>(localDate);
+    map['kind'] = Variable<String>(kind);
+    map['status'] = Variable<String>(status);
+    map['original_sleep_start_offset_minutes'] = Variable<int>(
+      originalSleepStartOffsetMinutes,
+    );
+    map['temporary_sleep_start_offset_minutes'] = Variable<int>(
+      temporarySleepStartOffsetMinutes,
+    );
+    map['fixed_wake_offset_minutes'] = Variable<int>(fixedWakeOffsetMinutes);
+    map['absolute_minimum_sleep_minutes'] = Variable<int>(
+      absoluteMinimumSleepMinutes,
+    );
+    map['recovery_choice'] = Variable<String>(recoveryChoice);
+    if (!nullToAbsent || recoveryLocalDate != null) {
+      map['recovery_local_date'] = Variable<String>(recoveryLocalDate);
+    }
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || triggeringProposalId != null) {
+      map['triggering_proposal_id'] = Variable<String>(triggeringProposalId);
+    }
+    map['audit_note'] = Variable<String>(auditNote);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    if (!nullToAbsent || revokedAtUtc != null) {
+      map['revoked_at_utc'] = Variable<int>(revokedAtUtc);
+    }
+    return map;
+  }
+
+  DayExceptionsCompanion toCompanion(bool nullToAbsent) {
+    return DayExceptionsCompanion(
+      id: Value(id),
+      localDate: Value(localDate),
+      kind: Value(kind),
+      status: Value(status),
+      originalSleepStartOffsetMinutes: Value(originalSleepStartOffsetMinutes),
+      temporarySleepStartOffsetMinutes: Value(temporarySleepStartOffsetMinutes),
+      fixedWakeOffsetMinutes: Value(fixedWakeOffsetMinutes),
+      absoluteMinimumSleepMinutes: Value(absoluteMinimumSleepMinutes),
+      recoveryChoice: Value(recoveryChoice),
+      recoveryLocalDate: recoveryLocalDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(recoveryLocalDate),
+      source: Value(source),
+      triggeringProposalId: triggeringProposalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(triggeringProposalId),
+      auditNote: Value(auditNote),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+      revokedAtUtc: revokedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(revokedAtUtc),
+    );
+  }
+
+  factory DayException.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DayException(
+      id: serializer.fromJson<String>(json['id']),
+      localDate: serializer.fromJson<String>(json['localDate']),
+      kind: serializer.fromJson<String>(json['kind']),
+      status: serializer.fromJson<String>(json['status']),
+      originalSleepStartOffsetMinutes: serializer.fromJson<int>(
+        json['originalSleepStartOffsetMinutes'],
+      ),
+      temporarySleepStartOffsetMinutes: serializer.fromJson<int>(
+        json['temporarySleepStartOffsetMinutes'],
+      ),
+      fixedWakeOffsetMinutes: serializer.fromJson<int>(
+        json['fixedWakeOffsetMinutes'],
+      ),
+      absoluteMinimumSleepMinutes: serializer.fromJson<int>(
+        json['absoluteMinimumSleepMinutes'],
+      ),
+      recoveryChoice: serializer.fromJson<String>(json['recoveryChoice']),
+      recoveryLocalDate: serializer.fromJson<String?>(
+        json['recoveryLocalDate'],
+      ),
+      source: serializer.fromJson<String>(json['source']),
+      triggeringProposalId: serializer.fromJson<String?>(
+        json['triggeringProposalId'],
+      ),
+      auditNote: serializer.fromJson<String>(json['auditNote']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+      revokedAtUtc: serializer.fromJson<int?>(json['revokedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'localDate': serializer.toJson<String>(localDate),
+      'kind': serializer.toJson<String>(kind),
+      'status': serializer.toJson<String>(status),
+      'originalSleepStartOffsetMinutes': serializer.toJson<int>(
+        originalSleepStartOffsetMinutes,
+      ),
+      'temporarySleepStartOffsetMinutes': serializer.toJson<int>(
+        temporarySleepStartOffsetMinutes,
+      ),
+      'fixedWakeOffsetMinutes': serializer.toJson<int>(fixedWakeOffsetMinutes),
+      'absoluteMinimumSleepMinutes': serializer.toJson<int>(
+        absoluteMinimumSleepMinutes,
+      ),
+      'recoveryChoice': serializer.toJson<String>(recoveryChoice),
+      'recoveryLocalDate': serializer.toJson<String?>(recoveryLocalDate),
+      'source': serializer.toJson<String>(source),
+      'triggeringProposalId': serializer.toJson<String?>(triggeringProposalId),
+      'auditNote': serializer.toJson<String>(auditNote),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+      'revokedAtUtc': serializer.toJson<int?>(revokedAtUtc),
+    };
+  }
+
+  DayException copyWith({
+    String? id,
+    String? localDate,
+    String? kind,
+    String? status,
+    int? originalSleepStartOffsetMinutes,
+    int? temporarySleepStartOffsetMinutes,
+    int? fixedWakeOffsetMinutes,
+    int? absoluteMinimumSleepMinutes,
+    String? recoveryChoice,
+    Value<String?> recoveryLocalDate = const Value.absent(),
+    String? source,
+    Value<String?> triggeringProposalId = const Value.absent(),
+    String? auditNote,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+    Value<int?> revokedAtUtc = const Value.absent(),
+  }) => DayException(
+    id: id ?? this.id,
+    localDate: localDate ?? this.localDate,
+    kind: kind ?? this.kind,
+    status: status ?? this.status,
+    originalSleepStartOffsetMinutes:
+        originalSleepStartOffsetMinutes ?? this.originalSleepStartOffsetMinutes,
+    temporarySleepStartOffsetMinutes:
+        temporarySleepStartOffsetMinutes ??
+        this.temporarySleepStartOffsetMinutes,
+    fixedWakeOffsetMinutes:
+        fixedWakeOffsetMinutes ?? this.fixedWakeOffsetMinutes,
+    absoluteMinimumSleepMinutes:
+        absoluteMinimumSleepMinutes ?? this.absoluteMinimumSleepMinutes,
+    recoveryChoice: recoveryChoice ?? this.recoveryChoice,
+    recoveryLocalDate: recoveryLocalDate.present
+        ? recoveryLocalDate.value
+        : this.recoveryLocalDate,
+    source: source ?? this.source,
+    triggeringProposalId: triggeringProposalId.present
+        ? triggeringProposalId.value
+        : this.triggeringProposalId,
+    auditNote: auditNote ?? this.auditNote,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    revokedAtUtc: revokedAtUtc.present ? revokedAtUtc.value : this.revokedAtUtc,
+  );
+  DayException copyWithCompanion(DayExceptionsCompanion data) {
+    return DayException(
+      id: data.id.present ? data.id.value : this.id,
+      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      status: data.status.present ? data.status.value : this.status,
+      originalSleepStartOffsetMinutes:
+          data.originalSleepStartOffsetMinutes.present
+          ? data.originalSleepStartOffsetMinutes.value
+          : this.originalSleepStartOffsetMinutes,
+      temporarySleepStartOffsetMinutes:
+          data.temporarySleepStartOffsetMinutes.present
+          ? data.temporarySleepStartOffsetMinutes.value
+          : this.temporarySleepStartOffsetMinutes,
+      fixedWakeOffsetMinutes: data.fixedWakeOffsetMinutes.present
+          ? data.fixedWakeOffsetMinutes.value
+          : this.fixedWakeOffsetMinutes,
+      absoluteMinimumSleepMinutes: data.absoluteMinimumSleepMinutes.present
+          ? data.absoluteMinimumSleepMinutes.value
+          : this.absoluteMinimumSleepMinutes,
+      recoveryChoice: data.recoveryChoice.present
+          ? data.recoveryChoice.value
+          : this.recoveryChoice,
+      recoveryLocalDate: data.recoveryLocalDate.present
+          ? data.recoveryLocalDate.value
+          : this.recoveryLocalDate,
+      source: data.source.present ? data.source.value : this.source,
+      triggeringProposalId: data.triggeringProposalId.present
+          ? data.triggeringProposalId.value
+          : this.triggeringProposalId,
+      auditNote: data.auditNote.present ? data.auditNote.value : this.auditNote,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+      revokedAtUtc: data.revokedAtUtc.present
+          ? data.revokedAtUtc.value
+          : this.revokedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayException(')
+          ..write('id: $id, ')
+          ..write('localDate: $localDate, ')
+          ..write('kind: $kind, ')
+          ..write('status: $status, ')
+          ..write(
+            'originalSleepStartOffsetMinutes: $originalSleepStartOffsetMinutes, ',
+          )
+          ..write(
+            'temporarySleepStartOffsetMinutes: $temporarySleepStartOffsetMinutes, ',
+          )
+          ..write('fixedWakeOffsetMinutes: $fixedWakeOffsetMinutes, ')
+          ..write('absoluteMinimumSleepMinutes: $absoluteMinimumSleepMinutes, ')
+          ..write('recoveryChoice: $recoveryChoice, ')
+          ..write('recoveryLocalDate: $recoveryLocalDate, ')
+          ..write('source: $source, ')
+          ..write('triggeringProposalId: $triggeringProposalId, ')
+          ..write('auditNote: $auditNote, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('revokedAtUtc: $revokedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    localDate,
+    kind,
+    status,
+    originalSleepStartOffsetMinutes,
+    temporarySleepStartOffsetMinutes,
+    fixedWakeOffsetMinutes,
+    absoluteMinimumSleepMinutes,
+    recoveryChoice,
+    recoveryLocalDate,
+    source,
+    triggeringProposalId,
+    auditNote,
+    createdAtUtc,
+    updatedAtUtc,
+    revokedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DayException &&
+          other.id == this.id &&
+          other.localDate == this.localDate &&
+          other.kind == this.kind &&
+          other.status == this.status &&
+          other.originalSleepStartOffsetMinutes ==
+              this.originalSleepStartOffsetMinutes &&
+          other.temporarySleepStartOffsetMinutes ==
+              this.temporarySleepStartOffsetMinutes &&
+          other.fixedWakeOffsetMinutes == this.fixedWakeOffsetMinutes &&
+          other.absoluteMinimumSleepMinutes ==
+              this.absoluteMinimumSleepMinutes &&
+          other.recoveryChoice == this.recoveryChoice &&
+          other.recoveryLocalDate == this.recoveryLocalDate &&
+          other.source == this.source &&
+          other.triggeringProposalId == this.triggeringProposalId &&
+          other.auditNote == this.auditNote &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc &&
+          other.revokedAtUtc == this.revokedAtUtc);
+}
+
+class DayExceptionsCompanion extends UpdateCompanion<DayException> {
+  final Value<String> id;
+  final Value<String> localDate;
+  final Value<String> kind;
+  final Value<String> status;
+  final Value<int> originalSleepStartOffsetMinutes;
+  final Value<int> temporarySleepStartOffsetMinutes;
+  final Value<int> fixedWakeOffsetMinutes;
+  final Value<int> absoluteMinimumSleepMinutes;
+  final Value<String> recoveryChoice;
+  final Value<String?> recoveryLocalDate;
+  final Value<String> source;
+  final Value<String?> triggeringProposalId;
+  final Value<String> auditNote;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int?> revokedAtUtc;
+  final Value<int> rowid;
+  const DayExceptionsCompanion({
+    this.id = const Value.absent(),
+    this.localDate = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.status = const Value.absent(),
+    this.originalSleepStartOffsetMinutes = const Value.absent(),
+    this.temporarySleepStartOffsetMinutes = const Value.absent(),
+    this.fixedWakeOffsetMinutes = const Value.absent(),
+    this.absoluteMinimumSleepMinutes = const Value.absent(),
+    this.recoveryChoice = const Value.absent(),
+    this.recoveryLocalDate = const Value.absent(),
+    this.source = const Value.absent(),
+    this.triggeringProposalId = const Value.absent(),
+    this.auditNote = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.revokedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DayExceptionsCompanion.insert({
+    required String id,
+    required String localDate,
+    required String kind,
+    required String status,
+    required int originalSleepStartOffsetMinutes,
+    required int temporarySleepStartOffsetMinutes,
+    required int fixedWakeOffsetMinutes,
+    required int absoluteMinimumSleepMinutes,
+    required String recoveryChoice,
+    this.recoveryLocalDate = const Value.absent(),
+    required String source,
+    this.triggeringProposalId = const Value.absent(),
+    this.auditNote = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.revokedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       localDate = Value(localDate),
+       kind = Value(kind),
+       status = Value(status),
+       originalSleepStartOffsetMinutes = Value(originalSleepStartOffsetMinutes),
+       temporarySleepStartOffsetMinutes = Value(
+         temporarySleepStartOffsetMinutes,
+       ),
+       fixedWakeOffsetMinutes = Value(fixedWakeOffsetMinutes),
+       absoluteMinimumSleepMinutes = Value(absoluteMinimumSleepMinutes),
+       recoveryChoice = Value(recoveryChoice),
+       source = Value(source),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<DayException> custom({
+    Expression<String>? id,
+    Expression<String>? localDate,
+    Expression<String>? kind,
+    Expression<String>? status,
+    Expression<int>? originalSleepStartOffsetMinutes,
+    Expression<int>? temporarySleepStartOffsetMinutes,
+    Expression<int>? fixedWakeOffsetMinutes,
+    Expression<int>? absoluteMinimumSleepMinutes,
+    Expression<String>? recoveryChoice,
+    Expression<String>? recoveryLocalDate,
+    Expression<String>? source,
+    Expression<String>? triggeringProposalId,
+    Expression<String>? auditNote,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? revokedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (localDate != null) 'local_date': localDate,
+      if (kind != null) 'kind': kind,
+      if (status != null) 'status': status,
+      if (originalSleepStartOffsetMinutes != null)
+        'original_sleep_start_offset_minutes': originalSleepStartOffsetMinutes,
+      if (temporarySleepStartOffsetMinutes != null)
+        'temporary_sleep_start_offset_minutes':
+            temporarySleepStartOffsetMinutes,
+      if (fixedWakeOffsetMinutes != null)
+        'fixed_wake_offset_minutes': fixedWakeOffsetMinutes,
+      if (absoluteMinimumSleepMinutes != null)
+        'absolute_minimum_sleep_minutes': absoluteMinimumSleepMinutes,
+      if (recoveryChoice != null) 'recovery_choice': recoveryChoice,
+      if (recoveryLocalDate != null) 'recovery_local_date': recoveryLocalDate,
+      if (source != null) 'source': source,
+      if (triggeringProposalId != null)
+        'triggering_proposal_id': triggeringProposalId,
+      if (auditNote != null) 'audit_note': auditNote,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (revokedAtUtc != null) 'revoked_at_utc': revokedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DayExceptionsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? localDate,
+    Value<String>? kind,
+    Value<String>? status,
+    Value<int>? originalSleepStartOffsetMinutes,
+    Value<int>? temporarySleepStartOffsetMinutes,
+    Value<int>? fixedWakeOffsetMinutes,
+    Value<int>? absoluteMinimumSleepMinutes,
+    Value<String>? recoveryChoice,
+    Value<String?>? recoveryLocalDate,
+    Value<String>? source,
+    Value<String?>? triggeringProposalId,
+    Value<String>? auditNote,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int?>? revokedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return DayExceptionsCompanion(
+      id: id ?? this.id,
+      localDate: localDate ?? this.localDate,
+      kind: kind ?? this.kind,
+      status: status ?? this.status,
+      originalSleepStartOffsetMinutes:
+          originalSleepStartOffsetMinutes ??
+          this.originalSleepStartOffsetMinutes,
+      temporarySleepStartOffsetMinutes:
+          temporarySleepStartOffsetMinutes ??
+          this.temporarySleepStartOffsetMinutes,
+      fixedWakeOffsetMinutes:
+          fixedWakeOffsetMinutes ?? this.fixedWakeOffsetMinutes,
+      absoluteMinimumSleepMinutes:
+          absoluteMinimumSleepMinutes ?? this.absoluteMinimumSleepMinutes,
+      recoveryChoice: recoveryChoice ?? this.recoveryChoice,
+      recoveryLocalDate: recoveryLocalDate ?? this.recoveryLocalDate,
+      source: source ?? this.source,
+      triggeringProposalId: triggeringProposalId ?? this.triggeringProposalId,
+      auditNote: auditNote ?? this.auditNote,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      revokedAtUtc: revokedAtUtc ?? this.revokedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (localDate.present) {
+      map['local_date'] = Variable<String>(localDate.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (originalSleepStartOffsetMinutes.present) {
+      map['original_sleep_start_offset_minutes'] = Variable<int>(
+        originalSleepStartOffsetMinutes.value,
+      );
+    }
+    if (temporarySleepStartOffsetMinutes.present) {
+      map['temporary_sleep_start_offset_minutes'] = Variable<int>(
+        temporarySleepStartOffsetMinutes.value,
+      );
+    }
+    if (fixedWakeOffsetMinutes.present) {
+      map['fixed_wake_offset_minutes'] = Variable<int>(
+        fixedWakeOffsetMinutes.value,
+      );
+    }
+    if (absoluteMinimumSleepMinutes.present) {
+      map['absolute_minimum_sleep_minutes'] = Variable<int>(
+        absoluteMinimumSleepMinutes.value,
+      );
+    }
+    if (recoveryChoice.present) {
+      map['recovery_choice'] = Variable<String>(recoveryChoice.value);
+    }
+    if (recoveryLocalDate.present) {
+      map['recovery_local_date'] = Variable<String>(recoveryLocalDate.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (triggeringProposalId.present) {
+      map['triggering_proposal_id'] = Variable<String>(
+        triggeringProposalId.value,
+      );
+    }
+    if (auditNote.present) {
+      map['audit_note'] = Variable<String>(auditNote.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (revokedAtUtc.present) {
+      map['revoked_at_utc'] = Variable<int>(revokedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayExceptionsCompanion(')
+          ..write('id: $id, ')
+          ..write('localDate: $localDate, ')
+          ..write('kind: $kind, ')
+          ..write('status: $status, ')
+          ..write(
+            'originalSleepStartOffsetMinutes: $originalSleepStartOffsetMinutes, ',
+          )
+          ..write(
+            'temporarySleepStartOffsetMinutes: $temporarySleepStartOffsetMinutes, ',
+          )
+          ..write('fixedWakeOffsetMinutes: $fixedWakeOffsetMinutes, ')
+          ..write('absoluteMinimumSleepMinutes: $absoluteMinimumSleepMinutes, ')
+          ..write('recoveryChoice: $recoveryChoice, ')
+          ..write('recoveryLocalDate: $recoveryLocalDate, ')
+          ..write('source: $source, ')
+          ..write('triggeringProposalId: $triggeringProposalId, ')
+          ..write('auditNote: $auditNote, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('revokedAtUtc: $revokedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -12195,6 +13206,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $RecurringTaskTemplatesTable(this);
   late final $RecurringTaskCyclesTable recurringTaskCycles =
       $RecurringTaskCyclesTable(this);
+  late final $DayExceptionsTable dayExceptions = $DayExceptionsTable(this);
   late final TaskDao taskDao = TaskDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -12223,6 +13235,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     changeLog,
     recurringTaskTemplates,
     recurringTaskCycles,
+    dayExceptions,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -22371,6 +23384,454 @@ typedef $$RecurringTaskCyclesTableProcessedTableManager =
       RecurringTaskCycle,
       PrefetchHooks Function({bool templateId, bool taskId})
     >;
+typedef $$DayExceptionsTableCreateCompanionBuilder =
+    DayExceptionsCompanion Function({
+      required String id,
+      required String localDate,
+      required String kind,
+      required String status,
+      required int originalSleepStartOffsetMinutes,
+      required int temporarySleepStartOffsetMinutes,
+      required int fixedWakeOffsetMinutes,
+      required int absoluteMinimumSleepMinutes,
+      required String recoveryChoice,
+      Value<String?> recoveryLocalDate,
+      required String source,
+      Value<String?> triggeringProposalId,
+      Value<String> auditNote,
+      required int createdAtUtc,
+      required int updatedAtUtc,
+      Value<int?> revokedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$DayExceptionsTableUpdateCompanionBuilder =
+    DayExceptionsCompanion Function({
+      Value<String> id,
+      Value<String> localDate,
+      Value<String> kind,
+      Value<String> status,
+      Value<int> originalSleepStartOffsetMinutes,
+      Value<int> temporarySleepStartOffsetMinutes,
+      Value<int> fixedWakeOffsetMinutes,
+      Value<int> absoluteMinimumSleepMinutes,
+      Value<String> recoveryChoice,
+      Value<String?> recoveryLocalDate,
+      Value<String> source,
+      Value<String?> triggeringProposalId,
+      Value<String> auditNote,
+      Value<int> createdAtUtc,
+      Value<int> updatedAtUtc,
+      Value<int?> revokedAtUtc,
+      Value<int> rowid,
+    });
+
+class $$DayExceptionsTableFilterComposer
+    extends Composer<_$AppDatabase, $DayExceptionsTable> {
+  $$DayExceptionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get originalSleepStartOffsetMinutes => $composableBuilder(
+    column: $table.originalSleepStartOffsetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get temporarySleepStartOffsetMinutes => $composableBuilder(
+    column: $table.temporarySleepStartOffsetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get fixedWakeOffsetMinutes => $composableBuilder(
+    column: $table.fixedWakeOffsetMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get absoluteMinimumSleepMinutes => $composableBuilder(
+    column: $table.absoluteMinimumSleepMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recoveryChoice => $composableBuilder(
+    column: $table.recoveryChoice,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recoveryLocalDate => $composableBuilder(
+    column: $table.recoveryLocalDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get triggeringProposalId => $composableBuilder(
+    column: $table.triggeringProposalId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get auditNote => $composableBuilder(
+    column: $table.auditNote,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get revokedAtUtc => $composableBuilder(
+    column: $table.revokedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DayExceptionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DayExceptionsTable> {
+  $$DayExceptionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get originalSleepStartOffsetMinutes =>
+      $composableBuilder(
+        column: $table.originalSleepStartOffsetMinutes,
+        builder: (column) => ColumnOrderings(column),
+      );
+
+  ColumnOrderings<int> get temporarySleepStartOffsetMinutes =>
+      $composableBuilder(
+        column: $table.temporarySleepStartOffsetMinutes,
+        builder: (column) => ColumnOrderings(column),
+      );
+
+  ColumnOrderings<int> get fixedWakeOffsetMinutes => $composableBuilder(
+    column: $table.fixedWakeOffsetMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get absoluteMinimumSleepMinutes => $composableBuilder(
+    column: $table.absoluteMinimumSleepMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recoveryChoice => $composableBuilder(
+    column: $table.recoveryChoice,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recoveryLocalDate => $composableBuilder(
+    column: $table.recoveryLocalDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get triggeringProposalId => $composableBuilder(
+    column: $table.triggeringProposalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get auditNote => $composableBuilder(
+    column: $table.auditNote,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get revokedAtUtc => $composableBuilder(
+    column: $table.revokedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DayExceptionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DayExceptionsTable> {
+  $$DayExceptionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get localDate =>
+      $composableBuilder(column: $table.localDate, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get originalSleepStartOffsetMinutes =>
+      $composableBuilder(
+        column: $table.originalSleepStartOffsetMinutes,
+        builder: (column) => column,
+      );
+
+  GeneratedColumn<int> get temporarySleepStartOffsetMinutes =>
+      $composableBuilder(
+        column: $table.temporarySleepStartOffsetMinutes,
+        builder: (column) => column,
+      );
+
+  GeneratedColumn<int> get fixedWakeOffsetMinutes => $composableBuilder(
+    column: $table.fixedWakeOffsetMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get absoluteMinimumSleepMinutes => $composableBuilder(
+    column: $table.absoluteMinimumSleepMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get recoveryChoice => $composableBuilder(
+    column: $table.recoveryChoice,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get recoveryLocalDate => $composableBuilder(
+    column: $table.recoveryLocalDate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get triggeringProposalId => $composableBuilder(
+    column: $table.triggeringProposalId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get auditNote =>
+      $composableBuilder(column: $table.auditNote, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtUtc => $composableBuilder(
+    column: $table.updatedAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get revokedAtUtc => $composableBuilder(
+    column: $table.revokedAtUtc,
+    builder: (column) => column,
+  );
+}
+
+class $$DayExceptionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DayExceptionsTable,
+          DayException,
+          $$DayExceptionsTableFilterComposer,
+          $$DayExceptionsTableOrderingComposer,
+          $$DayExceptionsTableAnnotationComposer,
+          $$DayExceptionsTableCreateCompanionBuilder,
+          $$DayExceptionsTableUpdateCompanionBuilder,
+          (
+            DayException,
+            BaseReferences<_$AppDatabase, $DayExceptionsTable, DayException>,
+          ),
+          DayException,
+          PrefetchHooks Function()
+        > {
+  $$DayExceptionsTableTableManager(_$AppDatabase db, $DayExceptionsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DayExceptionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DayExceptionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DayExceptionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> localDate = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> originalSleepStartOffsetMinutes =
+                    const Value.absent(),
+                Value<int> temporarySleepStartOffsetMinutes =
+                    const Value.absent(),
+                Value<int> fixedWakeOffsetMinutes = const Value.absent(),
+                Value<int> absoluteMinimumSleepMinutes = const Value.absent(),
+                Value<String> recoveryChoice = const Value.absent(),
+                Value<String?> recoveryLocalDate = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> triggeringProposalId = const Value.absent(),
+                Value<String> auditNote = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> updatedAtUtc = const Value.absent(),
+                Value<int?> revokedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DayExceptionsCompanion(
+                id: id,
+                localDate: localDate,
+                kind: kind,
+                status: status,
+                originalSleepStartOffsetMinutes:
+                    originalSleepStartOffsetMinutes,
+                temporarySleepStartOffsetMinutes:
+                    temporarySleepStartOffsetMinutes,
+                fixedWakeOffsetMinutes: fixedWakeOffsetMinutes,
+                absoluteMinimumSleepMinutes: absoluteMinimumSleepMinutes,
+                recoveryChoice: recoveryChoice,
+                recoveryLocalDate: recoveryLocalDate,
+                source: source,
+                triggeringProposalId: triggeringProposalId,
+                auditNote: auditNote,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                revokedAtUtc: revokedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String localDate,
+                required String kind,
+                required String status,
+                required int originalSleepStartOffsetMinutes,
+                required int temporarySleepStartOffsetMinutes,
+                required int fixedWakeOffsetMinutes,
+                required int absoluteMinimumSleepMinutes,
+                required String recoveryChoice,
+                Value<String?> recoveryLocalDate = const Value.absent(),
+                required String source,
+                Value<String?> triggeringProposalId = const Value.absent(),
+                Value<String> auditNote = const Value.absent(),
+                required int createdAtUtc,
+                required int updatedAtUtc,
+                Value<int?> revokedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DayExceptionsCompanion.insert(
+                id: id,
+                localDate: localDate,
+                kind: kind,
+                status: status,
+                originalSleepStartOffsetMinutes:
+                    originalSleepStartOffsetMinutes,
+                temporarySleepStartOffsetMinutes:
+                    temporarySleepStartOffsetMinutes,
+                fixedWakeOffsetMinutes: fixedWakeOffsetMinutes,
+                absoluteMinimumSleepMinutes: absoluteMinimumSleepMinutes,
+                recoveryChoice: recoveryChoice,
+                recoveryLocalDate: recoveryLocalDate,
+                source: source,
+                triggeringProposalId: triggeringProposalId,
+                auditNote: auditNote,
+                createdAtUtc: createdAtUtc,
+                updatedAtUtc: updatedAtUtc,
+                revokedAtUtc: revokedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$DayExceptionsTable, DayException>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $DayExceptionsTable,
+                    DayException
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DayExceptionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DayExceptionsTable,
+      DayException,
+      $$DayExceptionsTableFilterComposer,
+      $$DayExceptionsTableOrderingComposer,
+      $$DayExceptionsTableAnnotationComposer,
+      $$DayExceptionsTableCreateCompanionBuilder,
+      $$DayExceptionsTableUpdateCompanionBuilder,
+      (
+        DayException,
+        BaseReferences<_$AppDatabase, $DayExceptionsTable, DayException>,
+      ),
+      DayException,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -22424,4 +23885,6 @@ class $AppDatabaseManager {
       );
   $$RecurringTaskCyclesTableTableManager get recurringTaskCycles =>
       $$RecurringTaskCyclesTableTableManager(_db, _db.recurringTaskCycles);
+  $$DayExceptionsTableTableManager get dayExceptions =>
+      $$DayExceptionsTableTableManager(_db, _db.dayExceptions);
 }

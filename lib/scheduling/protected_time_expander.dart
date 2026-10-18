@@ -1,4 +1,5 @@
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -107,12 +108,31 @@ final class ProtectedTimeExpander {
     required DateTime startUtc,
     required DateTime endUtc,
     required String timeZoneId,
+    DayException? dayException,
   }) {
     if (!startUtc.isUtc || !endUtc.isUtc) {
       throw ArgumentError('Planning window must use UTC instants.');
     }
     if (!endUtc.isAfter(startUtc)) {
       throw ArgumentError('Planning window must have positive duration.');
+    }
+
+    // 特殊日 / 临时延长日：**只覆盖这一天的睡眠开始**，固定起床保持不变。
+    // 偏移可以大于 1440，因此用 `DayException` 自己的时区换算，而不是把分钟硬塞进
+    // `LocalTimeRange`（那会把"次日 01:00"读成"当天 01:00"）。
+    if (dayException != null) {
+      final start = dayException.temporarySleepStartUtc(_zones, timeZoneId);
+      final end = dayException.fixedWakeUtc(_zones, timeZoneId);
+      if (!end.isAfter(start)) return const [];
+      // **不按调用方窗口裁剪**：装配层逐日调用本方法时传的是"当天的
+      // 00:00–24:00"，而延后的睡眠开始可能落在次日 01:00——裁剪会把整段覆盖
+      // 误删。真正的窗口裁剪由 `AvailabilityBuilder` 的区间并集统一完成。
+      return List.unmodifiable([
+        BusyInterval(
+          id: 'sleep:exception:${dayException.id}',
+          range: TimeRange(startUtc: start, endUtc: end),
+        ),
+      ]);
     }
 
     final intervals = <BusyInterval>[];
@@ -189,6 +209,56 @@ final class ProtectedTimeExpander {
     }
 
     return List.unmodifiable(merged);
+  }
+
+  /// 展开**某一个本地日**的睡眠，使用那一天的规则与特殊日覆盖。
+  ///
+  /// 与 [sleep] 的区别只有一件事：本方法**不会**为前后各多展开一天。调用方按本地日
+  /// 逐个调用它，因此"周末睡眠不同""某天临时延长"不会污染相邻日期——而 [sleep] 的
+  /// 前后各一天循环会带着**当前日**的规则去重展开邻居的睡眠，正是这个差异让
+  /// "特殊日把当天睡眠推到次日 01:00"之外多出一段错误的默认睡眠。
+  ///
+  /// 返回的区间**不裁剪到当天 00:00–24:00**：跨午夜睡眠的次日部分必须保留，
+  /// 由 `AvailabilityBuilder` 的区间并集统一处理。
+  List<BusyInterval> sleepForDate({
+    required DateTime localDate,
+    required PlanningRules rules,
+    required String timeZoneId,
+    DayException? dayException,
+  }) {
+    final date = _dateOnly(localDate);
+    if (dayException != null) {
+      final start = dayException.temporarySleepStartUtc(_zones, timeZoneId);
+      final end = dayException.fixedWakeUtc(_zones, timeZoneId);
+      if (!end.isAfter(start)) return const [];
+      return List.unmodifiable([
+        BusyInterval(
+          id: 'sleep:exception:${dayException.id}',
+          range: TimeRange(startUtc: start, endUtc: end),
+        ),
+      ]);
+    }
+
+    final intervals = <BusyInterval>[];
+    for (final segment in rules.sleepRange.splitAtMidnight()) {
+      final segmentDate = _shiftDate(date, segment.dayOffset);
+      final start = _localMinuteToUtc(
+        segmentDate,
+        segment.startMinute,
+        timeZoneId,
+      );
+      final end = _localMinuteToUtc(segmentDate, segment.endMinute, timeZoneId);
+      if (!end.isAfter(start)) continue;
+      intervals.add(
+        BusyInterval(
+          id:
+              'sleep:${_dateKey(date)}:'
+              '${segment.startMinute}:${segment.dayOffset}',
+          range: TimeRange(startUtc: start, endUtc: end),
+        ),
+      );
+    }
+    return List.unmodifiable(intervals);
   }
 
   /// 本地"某天第 [minute] 分钟"换算为 UTC。

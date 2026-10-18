@@ -113,6 +113,58 @@ final class InputSnapshotBuilder {
           ? null
           : _energyWindows(problem.preferences.preferredEnergyWindows!),
     },
+    // 已确认学习偏好快照：版本由规则内容派生，确认/撤销/停用都会改变哈希
+    // （规范 §9.5 / ALG20-066）。
+    'preferenceSnapshot': problem.preferenceSnapshot == null
+        ? null
+        : {
+            'enabled': problem.preferenceSnapshot!.enabled,
+            'evidenceVersion': problem.preferenceSnapshot!.evidenceVersion,
+            'subjects': [
+              for (final key
+                  in problem.preferenceSnapshot!.bySubject.keys.toList()
+                    ..sort())
+                {
+                  'subjectKey': key,
+                  'startMinute': problem
+                      .preferenceSnapshot!
+                      .bySubject[key]!
+                      .preferredWindow
+                      ?.startMinute,
+                  'endMinute': problem
+                      .preferenceSnapshot!
+                      .bySubject[key]!
+                      .preferredWindow
+                      ?.endMinute,
+                  'focusMinutes': problem
+                      .preferenceSnapshot!
+                      .bySubject[key]!
+                      .preferredFocusMinutes,
+                },
+            ],
+          },
+    // ── 特殊日事实进哈希（算法 20，规范 §5.1 / ALG20-010）──────────────────────
+    //
+    // 只序列化**影响排程的取值**，不把审计时间戳或来源文本混进来：用户只是撤销一条
+    // 从未生效的草稿，不应该让一份合法提案被判为过期。草稿/撤销在装配层已被过滤，
+    // 因此这里看到的都是 confirmed。
+    'dayExceptions': [
+      for (final value in problem.dayExceptions)
+        {
+          'id': value.id,
+          'localDate': _localDateKey(value.localDate),
+          'kind': value.kind.name,
+          'originalSleepStartOffsetMinutes':
+              value.originalSleepStartOffsetMinutes,
+          'temporarySleepStartOffsetMinutes':
+              value.temporarySleepStartOffsetMinutes,
+          'fixedWakeOffsetMinutes': value.fixedWakeOffsetMinutes,
+          'recoveryChoice': value.recoveryChoice.name,
+          'recoveryLocalDate': value.recoveryLocalDate == null
+              ? null
+              : _localDateKey(value.recoveryLocalDate!),
+        },
+    ],
   };
 
   /// 本地日期的稳定文本键（`2026-10-05`）。

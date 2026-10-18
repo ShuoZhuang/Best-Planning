@@ -11,6 +11,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
+import 'package:personal_planner/application/day_exception_service.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
@@ -25,6 +26,7 @@ import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/week_view_preference_service.dart';
+import 'package:personal_planner/application/special_day_planning_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
@@ -35,6 +37,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
@@ -407,6 +410,9 @@ GoRouter createPlannerRouter({
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   void Function(String action, String suggestionId)? onSuggestionAction,
   RecoveryPlanningService? recovery,
+
+  /// 持久特殊日确认（算法 20）。为空时页面不显示“保存特殊日并应用”。
+  SpecialDayPlanningService? specialDayPlanning,
   CalendarRepository? calendar,
   CalendarService? calendarService,
   AcademicCalendarService? academicCalendar,
@@ -1776,6 +1782,15 @@ GoRouter createPlannerRouter({
                 loadEvidence: loadPreferenceEvidence,
                 // FR-STAT 的"建议采纳行为"来源（W5）。
                 onSuggestionAction: onSuggestionAction,
+                // 确认偏好只影响下一次生成；用户必须显式点这个入口（规范 §9.5）。
+                onRegenerate: planningService == null
+                    ? null
+                    : () => _generatePlan(
+                        context,
+                        planningService,
+                        planApplication,
+                        autoAdjustStore,
+                      ),
               );
             },
           ),
@@ -1799,6 +1814,7 @@ GoRouter createPlannerRouter({
                 zones: zones,
                 timeZoneId: timeZoneId,
                 nowUtc: nowUtc ?? todayStartUtc,
+                specialDayPlanning: specialDayPlanning,
                 onOpenPreview: (proposalId) =>
                     context.go('/planning/preview/$proposalId'),
               );
@@ -1826,6 +1842,7 @@ GoRouter createPlannerRouter({
               recurring: recurringTasks,
               settings: settingsService,
               autoAdjustStore: autoAdjustStore,
+              specialDayPlanning: specialDayPlanning,
               zones: zones,
               timeZoneId: timeZoneId,
               // 保护时间管理页需要**写入服务与系列读模型**两者；缺一它就只是一句
@@ -1855,6 +1872,7 @@ final class _SpecialDayLoader extends StatelessWidget {
     required this.timeZoneId,
     required this.nowUtc,
     required this.onOpenPreview,
+    this.specialDayPlanning,
   });
 
   final RecoveryPlanningService recovery;
@@ -1864,6 +1882,7 @@ final class _SpecialDayLoader extends StatelessWidget {
   final String timeZoneId;
   final DateTime nowUtc;
   final ValueChanged<String> onOpenPreview;
+  final SpecialDayPlanningService? specialDayPlanning;
 
   @override
   Widget build(BuildContext context) => FutureBuilder<_SpecialDayInputs>(
@@ -1880,6 +1899,23 @@ final class _SpecialDayLoader extends StatelessWidget {
         timeZoneId: timeZoneId,
         onCreateOverride: recovery.createOverride,
         onOpenPreview: onOpenPreview,
+        onConfirmPersistent: specialDayPlanning == null
+            ? null
+            : ({
+                required localDate,
+                required originalSleepStartOffsetMinutes,
+                required temporarySleepStartOffsetMinutes,
+                required fixedWakeOffsetMinutes,
+                required recoveryChoice,
+              }) => specialDayPlanning!.confirm(
+                localDate: localDate,
+                originalSleepStartOffsetMinutes:
+                    originalSleepStartOffsetMinutes,
+                temporarySleepStartOffsetMinutes:
+                    temporarySleepStartOffsetMinutes,
+                fixedWakeOffsetMinutes: fixedWakeOffsetMinutes,
+                recoveryChoice: recoveryChoice,
+              ),
       );
     },
   );
@@ -2553,6 +2589,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.settings,
     this.taskTitles,
     this.onRememberUndo,
+    this.specialDayPlanning,
     this.protectedTimeRouteWired = false,
     super.key,
   });
@@ -2581,6 +2618,9 @@ final class _PlanPreviewLoader extends StatefulWidget {
 
   /// 与设置页共用同一个服务（"临时放宽每日上限"是**设置**，不在这里另造一份）。
   final SettingsService? settings;
+
+  /// 临时延长日确认（算法 20）。为空时建议卡不显示确认按钮。
+  final SpecialDayPlanningService? specialDayPlanning;
 
   /// 保护时间管理页这次是否真的接线（写入服务 ＋ 系列读模型都在）。
   final bool protectedTimeRouteWired;
@@ -2681,6 +2721,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
 
     return PlanPreviewModel(
       proposalId: widget.proposalId,
+      extensionCandidates: proposal.extensionCandidates,
       changes: [
         for (final change in diff.changes)
           PreviewChange(
@@ -2785,6 +2826,69 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         zones: widget.zones,
         timeZoneId: widget.timeZoneId,
         onConfirm: (mode) => _confirm(context, model, mode),
+        onConfirmExtension: widget.specialDayPlanning == null
+            ? null
+            : (candidate) async {
+                final result = await widget.specialDayPlanning!.confirm(
+                  localDate: candidate.localDate,
+                  originalSleepStartOffsetMinutes:
+                      candidate.originalSleepStartOffsetMinutes,
+                  temporarySleepStartOffsetMinutes:
+                      candidate.temporarySleepStartOffsetMinutes,
+                  fixedWakeOffsetMinutes: candidate.fixedWakeOffsetMinutes,
+                  recoveryChoice: RecoveryChoice.none,
+                  triggeringProposalId: widget.proposalId,
+                );
+                if (!context.mounted) return;
+                showPlannerMessage(
+                  context,
+                  message: result.status == ApplyPlanStatus.applied
+                      ? '临时延长日已保存，新计划已生效'
+                      : '未应用：${result.status.name}',
+                );
+                if (result.status == ApplyPlanStatus.applied) {
+                  context.go('/today');
+                }
+              },
+        onRejectExtension:
+            widget.planning == null ||
+                widget.specialDayPlanning?.extensionDays == null
+            ? null
+            : () async {
+                final current = widget.planning!.preview(widget.proposalId);
+                if (current == null) return;
+                await widget.specialDayPlanning!.extensionDays!.reject(
+                  inputHash: current.inputHash,
+                  candidates: current.extensionCandidates,
+                );
+              },
+        onCustomExtension:
+            widget.specialDayPlanning == null ||
+                widget.specialDayPlanning!.problemSource == null
+            ? null
+            : (date, endMinute) async {
+                final current = widget.planning!.preview(widget.proposalId);
+                if (current == null) return;
+                try {
+                  final prepared = await widget.specialDayPlanning!
+                      .prepareCustom(
+                        localDate: date,
+                        endMinute: endMinute,
+                        triggeringTaskIds: [
+                          for (final item in current.unscheduled) item.taskId,
+                        ],
+                      );
+                  if (context.mounted) {
+                    context.go('/planning/preview/${prepared.proposalId}');
+                  }
+                } on DayExceptionValidationException catch (error) {
+                  if (!context.mounted) return;
+                  showPlannerMessage(
+                    context,
+                    message: error.fieldErrors.values.first,
+                  );
+                }
+              },
         // 恢复动作的落点（计划 §2.8 / Task 6 Step 2）。
         onRecover: (action, issue) => _recover(context, action, issue),
         // **只报真的能到达的动作**：`/tasks/:taskId/edit` 与 `/settings/rules` 的路由

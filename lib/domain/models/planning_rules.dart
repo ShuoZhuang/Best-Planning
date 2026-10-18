@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 
 enum EnergyLevel { low, medium, high }
@@ -240,12 +241,23 @@ final class PlanningRulesPatch {
 /// "整窗口唯一"的字段只有在 [localDate] 是窗口首日时才可能生效；这是既有限制，
 /// 不是本类型引入的。
 final class ScheduleRuleOverride {
-  const ScheduleRuleOverride({required this.localDate, required this.patch});
+  const ScheduleRuleOverride({
+    required this.localDate,
+    required this.patch,
+    this.dayException,
+  });
 
   /// 覆盖生效的本地日期（只比较年月日，不比较时刻）。
   final DateTime localDate;
 
   final PlanningRulesPatch patch;
+
+  /// 本次生成**临时带入**的特殊日事实（算法 20）。
+  ///
+  /// 它让"确认特殊日 → 重新生成 → 原子提交"可以在**不先写库**的前提下完成：
+  /// 输入装配把这条事实并入逐日策略与输入哈希，确认阶段用同一个 override 重放，
+  /// 最后由 `PlanningCommitRepository` 与计划一起落库。
+  final DayException? dayException;
 
   /// 该覆盖是否作用于 [date]。
   ///
