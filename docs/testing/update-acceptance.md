@@ -16,6 +16,23 @@
 2026-10-18 最近一次结果：`flutter analyze` 无问题；全量 `flutter test` **2899 个通过**；
 助手脚本 `selftest`、真实 MSIX `--verify`、`--apply --dry-run`、错误令牌拒绝全部通过。
 
+## 测试产物（2026-10-18）
+
+`tool/build_update_release.ps1` 生成并签名的候选产物（**未安装、未发布**）：
+
+| 版本 | 文件 | 字节 | SHA-256 |
+| --- | --- | --- | --- |
+| 1.9.0+46 | `release-artifacts/1.9.0/BestPlanning_1.9.0.0_x64.msix` | 18,538,929 | `2a03988ad8abda3b7383fc2ad21c332c8020198da80e8a20db0a18b5f4d72970` |
+| 1.9.1+47 | `release-artifacts/1.9.1/BestPlanning_1.9.1.0_x64.msix` | 18,538,905 | `52727ba719d0a8c7ae4aa14d84a8f60d787e2839df1032cdd80e9146b55a1df2` |
+
+两份产物都用 `update_helper --verify` 验证过身份/签名，并用
+`dart run tool/update_pipeline.dart verify` 复验过清单与成品一致。`pubspec.yaml` 与
+`backup_assembly.dart` 在构建后已恢复为 `1.8.1+45`，产物目录被 `.gitignore` 忽略。
+
+生成过程中修复了 `update_pipeline verify` 的一个真实缺陷：它把已解析的信封再次传给
+`UpdateManifestEnvelope.tryParse`，导致 `type 'Null' is not a subtype ...`；现在直接校验
+解析后的信封。
+
 ## 状态汇总
 
 | 状态 | UPD |

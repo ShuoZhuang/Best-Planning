@@ -236,8 +236,7 @@ Future<void> _verifyCommand(Map<String, String> options) async {
     publicKeys[options['key-id'] ?? 'test-key'] = extraKey;
   }
   await verifyManifestEnvelope(
-    envelope: UpdateManifestEnvelope.tryParse(envelope)
-        as UpdateManifestEnvelope,
+    envelope: envelope,
     msix: File(msixPath),
     publicKeys: publicKeys,
   );
@@ -416,6 +415,7 @@ Future<String> readEd25519SeedFromPem(File file) async {
 }
 
 String _sha256Hex(List<int> bytes) => sha256.convert(bytes).toString();
+
 
 
 
