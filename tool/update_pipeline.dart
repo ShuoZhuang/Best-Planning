@@ -23,6 +23,8 @@ import 'package:personal_planner/domain/update/update_version.dart';
 import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
 import 'package:personal_planner/infrastructure/update/update_package_verifier.dart';
 
+import 'update_publisher.dart';
+
 Future<void> main(List<String> arguments) async {
   if (arguments.isEmpty) {
     stderr.writeln(_usage);
@@ -40,7 +42,7 @@ Future<void> main(List<String> arguments) async {
       case 'gate':
         _gateCommand(options);
       case 'publish':
-        _publishPreflight(options);
+        await _publishCommand(options);
       default:
         stderr.writeln('未知子命令：$command\n\n$_usage');
         exitCode = 64;
@@ -62,7 +64,9 @@ const String _usage = '''
   verify   --manifest <update-manifest.json> --msix <成品.msix>
   gate     --version <新> --build <新> --msix-version <新> \\
            --previous-version <旧> --previous-build <旧>
-  publish  --manifest <...> --msix <...>   # 只做发布前检查
+  publish  --manifest <...> --msix <...> --tag v1.9.0 --title <标题> \\
+           [--notes <文件>] [--workspace <目录>]
+           # 设置 BEST_PLANNING_PUBLISH_CONFIRMED=1 才真正上传与发布
 
 签名私钥：BEST_PLANNING_UPDATE_SIGNING_KEY=<ed25519-pkcs8.pem>
 签名密钥 ID：BEST_PLANNING_UPDATE_SIGNING_KEY_ID（默认 best-planning-2026-10）
@@ -346,18 +350,42 @@ List<String> gateIssues({
   return issues;
 }
 
-void _publishPreflight(Map<String, String> options) {
-  final issues = <String>[];
+Future<void> _publishCommand(Map<String, String> options) async {
   final manifest = File(_required(options, 'manifest'));
   final msix = File(_required(options, 'msix'));
+  final tag = _required(options, 'tag');
+  final title = options['title'] ?? tag;
+  final issues = <String>[];
   if (!manifest.existsSync()) issues.add('清单不存在');
   if (!msix.existsSync()) issues.add('成品不存在');
-  final key = Platform.environment['BEST_PLANNING_UPDATE_SIGNING_KEY'];
-  if (key == null || key.isEmpty) issues.add('签名私钥环境变量未设置');
+  if (!RegExp(r'^v\d+\.\d+\.\d+$').hasMatch(tag)) {
+    issues.add('tag 不是 vX.Y.Z');
+  }
   if (issues.isNotEmpty) throw PipelineException(issues.join('；'));
+
+  if (Platform.environment['BEST_PLANNING_PUBLISH_CONFIRMED'] != '1') {
+    stdout.writeln(
+      '发布前置检查通过，但未设置 BEST_PLANNING_PUBLISH_CONFIRMED=1。'
+      '设置后才会创建草稿、上传、从 GitHub 回读复核并发布。',
+    );
+    return;
+  }
+
+  final publisher = UpdatePublisher(
+    repository: 'ShuoZhuang/Best-Planning',
+    workspace: Directory(options['workspace'] ?? Directory.current.path),
+    runner: runGh,
+  );
+  final result = await publisher.publish(
+    tag: tag,
+    manifestFile: manifest,
+    msixFile: msix,
+    title: title,
+    notesFile: options['notes'] == null ? null : File(options['notes']!),
+  );
   stdout.writeln(
-    '发布前置检查通过。上传后必须先用 `verify` 从 GitHub 重新下载的资产复验，'
-    '通过后才能把草稿 Release 发布。',
+    '已发布 ${result.tag}（包 ${result.packageSha256}，'
+    'latest=${result.latestTag}）',
   );
 }
 
@@ -388,5 +416,6 @@ Future<String> readEd25519SeedFromPem(File file) async {
 }
 
 String _sha256Hex(List<int> bytes) => sha256.convert(bytes).toString();
+
 
 
