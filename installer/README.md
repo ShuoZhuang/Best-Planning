@@ -76,7 +76,7 @@ installer\build\Release\installer_tests.exe     单元测试
 
 **在开发机上验证时要把被测 EXE 复制到工作区之外再运行**：本仓库所在的文件沙箱会限制
 "位于仓库内的进程"写入系统临时目录，直接运行会得到与安装器无关的 `ACCESS_DENIED`。
-两个脚本都已经这样做（暂存目录 `%LOCALAPPDATA%\BestPlanningSetup\...`）。
+两个脚本都已经这样做（暂存目录在仓库之外，如 `%TEMP%\BestPlanningSetup\...`）。
 
 ## 安全边界
 
