@@ -13,7 +13,7 @@
 & tool\update_helper_tests.ps1 -SkipBuild
 ```
 
-2026-10-18 最近一次结果：`flutter analyze` 无问题；全量 `flutter test` **2899 个通过**；
+2026-10-18 最近一次结果（HEAD `cef5b727`）：`flutter analyze` 无问题；全量 `flutter test` **2911 个通过**；
 助手脚本 `selftest`、真实 MSIX `--verify`、`--apply --dry-run`、错误令牌拒绝全部通过。
 
 ## 测试产物（2026-10-18）
@@ -87,3 +87,4 @@
 
 **结论**：代码与自动证据已覆盖除真机部署/升级矩阵以外的全部条目；按规格 §23，在 045–047
 完成前不能把整个子系统标记为“已实现”。
+
