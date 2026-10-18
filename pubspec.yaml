@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # 版本规则与历史回填见 docs/release/version-policy.md。这一行是**唯一数值来源**：
 # msix_config.msix_version 与 lib/app/backup_assembly.dart 的 appVersion 都由它派生，
 # 并由 test/app/version_consistency_test.dart 守着必须一致。
-version: 1.10.0+47
+version: 1.10.0+49
 
 environment:
   sdk: ^3.13.4

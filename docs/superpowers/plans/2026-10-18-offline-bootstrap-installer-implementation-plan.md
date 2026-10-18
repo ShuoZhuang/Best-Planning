@@ -30,7 +30,7 @@
 | Publisher | `CN=Shuo Zhuang, O=Personal User, C=CN` |
 | Family | `ShuoZhuang.PersonalPlanner_v9555qkaxdyym` |
 | 架构 | `x64` |
-| 目标版本 | `1.10.0+47` / MSIX `1.10.0.0` |
+| 目标版本 | `1.10.0+49` / MSIX `1.10.0.0` |
 | 产物 | `BestPlanning_Setup_1.10.0_x64.exe`、`BestPlanning_Portable_1.10.0_x64.zip`、`BestPlanning_1.10.0.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
 
 ## 2. 代码边界
@@ -329,14 +329,18 @@ integration_test/
 补充（2026-10-18 本轮）：同版本"重新安装"原先调用 `ForceUpdateFromAnyVersion`，实测返回成功
 但**不替换**已安装文件。已改为**修复安装**（`RegisterPackageByFullNameAsync` 重新登记），
 界面与 README 写明"不替换文件、文件损坏需先卸载再安装"；安装态验证退出码 0、版本与文件不变。
+**版本裁定（2026-10-18 修订）**：线上已发布 `v1.9.1+47`，因此本批 `1.10.0` 改为 `+49`；在它之前
+先发只含助手回退修复的 `1.9.2+48`（无界面/业务变化），让 `1.9.0/1.9.1` 用户先换掉旧助手。
+已验证 `1.9.2 → 1.10.0+49` 健康确认超时后回退成功（退出码 7，回到 1.9.2）。
+
 **回退演练（2026-10-18 本机）**：真实执行"安装 1.9.0 → 升级 1.10.0 → 健康确认超时 → 回退"。
 首次失败：回退部署用 `DeploymentOptions::None`，Windows 拒绝降级，且新版本仍在运行；
 `helper-status` 报 `UPDATE_ROLLBACK_DEPLOYMENT_FAILED`、退出码 9。已修复为
 `ForceUpdateFromAnyVersion | ForceApplicationShutdown`，并把回退 HRESULT 写入状态文件；
 再次执行退出码 7、`rolledBack`、回到 `1.9.0.0` 并重新拉起旧版，数据库表与行数完整。
-证据：`docs/testing/v1.10.0-update-rollback-acceptance.md`。**残留发布限制**：已发布的
-`1.9.0` 内置旧助手，真实用户从 `1.9.0` 应用内升级失败时仍不会自动回退；需要先发一个
-只含助手修复的 `1.9.x`，或在 Release 说明中给出人工恢复步骤，或暂缓 `1.9.0` 的自动升级。
+证据：`docs/testing/v1.10.0-update-rollback-acceptance.md`。**限制已缓解**：先发布 `1.9.2+48`（只含助手修复），
+用户先升到 `1.9.2` 后，`1.9.2 → 1.10.0` 的自动回退已实测通过；`1.9.0/1.9.1` 直接升 `1.10.0`
+的一跳仍无自动回退，Release 说明已写明该限制与先升 `1.9.2` 的指引。
 
 Windows 10 与干净 Windows 11 环境、普通账户凭据、故障注入、五类界面截图仍为 `NOT RUN`；
 `1.9.0` 的第一跳自动回退还受上述限制。因此 `1.10.0` 仍是"发布验收未完成"。
@@ -352,7 +356,7 @@ Windows 10 与干净 Windows 11 环境、普通账户凭据、故障注入、五
   负责资源内嵌；`tests/` 含 5 个测试文件（36 个用例）。
 - `tool/`：`build_offline_installer.ps1`、`verify_release_assets.ps1`、`installer_tests.ps1`，
   并把 `build_update_release.ps1` 改写为产出五个正式产物。
-- 版本：`pubspec.yaml` `1.10.0+47` / MSIX `1.10.0.0`，`backup_assembly.dart` 同步。
+- 版本：`pubspec.yaml` `1.10.0+49` / MSIX `1.10.0.0`，`backup_assembly.dart` 同步。
 
 ### 9.2 验证结果
 

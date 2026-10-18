@@ -3,7 +3,7 @@
 日期：2026-10-18
 依据：`docs/superpowers/specs/2026-10-18-offline-bootstrap-installer-design.md`（下称"规格"）
 实施计划：`docs/superpowers/plans/2026-10-18-offline-bootstrap-installer-implementation-plan.md`
-目标版本：`1.10.0+47` / MSIX `1.10.0.0`
+目标版本：`1.10.0+49` / MSIX `1.10.0.0`
 
 结论（规格 §18 口径）：**代码完成，发布验收未完成。**
 自动化测试、真实构建、签名与门禁、以及一次真实的 `1.9.0.0 → 1.10.0.0` 原位升级都已完成；
@@ -23,10 +23,10 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 
 | 产物 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BestPlanning_Setup_1.10.0_x64.exe` | 19,004,248 | `4e022beda3e2309676635a5d27c0232d98cacb37c449d8b2a38071fa16e25f72` |
-| `BestPlanning_Portable_1.10.0_x64.zip` | 17,212,111 | `e2ae286fee7fd7fb39f1268e9df581822fbea1d5f08eabbf0a6706e7993d24ac` |
-| `BestPlanning_1.10.0.0_x64.msix` | 18,566,191 | `4bdf2563198f994ed5f769affad502c9b3123a50ba332ba4ef0c28464b6f8de7` |
-| `update-manifest.json` | 1,275 | `f31792a96dac4082f41eb071d6060ab28bdb5289ac84f3239642462f7471f1e5` |
+| `BestPlanning_Setup_1.10.0_x64.exe` | 19,004,248 | `8f5e89ee01f84a1f96ea4b0341139035a09ebe98dc6f56c338dd9ac480501648` |
+| `BestPlanning_Portable_1.10.0_x64.zip` | 17,212,092 | `95e6c7e2449192768d20d11f3ec601bb1a7bfaaf9b751a460c9bd052d6a3d912` |
+| `BestPlanning_1.10.0.0_x64.msix` | 18,566,232 | `3a79cfc81b7cd0639408bb9224222f2565e69d3647f0ff75ec4124d693572c03` |
+| `update-manifest.json` | 1,275 | `4cbc81dc425cad85ef6101de12d41c90718a900d6df97a47f009c8b5f8539334` |
 
 - Setup 的 Authenticode 状态为 `Valid`，时间戳为 `DigiCert SHA256 RSA4096 Timestamp Responder 2026 1`。
 - 先嵌入资源、后签名；签名之后文件未再被修改（§8.7）。
@@ -69,7 +69,7 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 ### 4.1 `--plan`（不写系统）
 
 ```json
-{"ok":true,"targetVersion":"1.10.0.0","appVersion":"1.10.0+47",
+{"ok":true,"targetVersion":"1.10.0.0","appVersion":"1.10.0+49",
  "certificateTrusted":true,"wouldRequestElevation":false,
  "action":"upgrade","installedVersion":"1.9.0.0",
  "aumid":"ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner"}

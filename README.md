@@ -21,7 +21,7 @@ Download the latest Windows release here:
 > 新用户只需下载 **`BestPlanning_Setup_1.10.0_x64.exe`**，双击后同意一次管理员授权即可完成安装。
 > 安装器内含完整 MSIX 与公开证书，**断网也能安装**，不需要 PowerShell、证书管理器或单独的 `.msix`。
 >
-> **当前版本 `1.10.0+47`**（MSIX `1.10.0.0`），同一次 Release 发布五个文件：
+> **当前版本 `1.10.0+49`**（MSIX `1.10.0.0`），同一次 Release 发布五个文件：
 >
 > | 文件 | 用途 |
 > | --- | --- |
