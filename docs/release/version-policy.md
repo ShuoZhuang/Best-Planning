@@ -383,7 +383,7 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
 | 应用版本 | `1.9.2+48` |
 | MSIX 版本 | `1.9.2.0` |
 | Git 标签 | `v1.9.2` |
-| 正式产物 | `BestPlanning_Setup_1.9.2_x64.exe`、`BestPlanning_Portable_1.9.2_x64.zip`、`BestPlanning_1.9.2.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+| 正式产物 | `PersonalPlanner-1.9.2-build48-windows-x64-20261018.zip`、`BestPlanning_1.9.2.0_x64.msix`、`update-manifest.json`、`PersonalPlanner-signing-cert.cer`、`SHA-256.txt`（与 `1.9.0`/`1.9.1` 相同的交付形态） |
 
 - 不是 `1.9.x`：`1.10.0` 新增了单文件安装器、权限隔离、证书信任链与新的产物结构；
   也不是 `2.0.0`：包身份、发布者、用户数据兼容性没有破坏性变化。
