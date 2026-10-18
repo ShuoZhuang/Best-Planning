@@ -2,7 +2,7 @@
 
 ### A local-first intelligent schedule planner for Windows / 面向大学生的本地优先日程规划软件
 
-[![Release](https://img.shields.io/github/v/release/ShuoZhuang/Best-Planning?include_prereleases&logo=github&label=Release)](https://github.com/ShuoZhuang/Best-Planning/releases)
+[![Release](https://img.shields.io/github/v/release/ShuoZhuang/Best-Planning?logo=github&label=Release)](https://github.com/ShuoZhuang/Best-Planning/releases)
 [![Downloads](https://img.shields.io/github/downloads/ShuoZhuang/Best-Planning/total?logo=github&label=Downloads)](https://github.com/ShuoZhuang/Best-Planning/releases)
 [![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows)](https://github.com/ShuoZhuang/Best-Planning/releases)
 [![Local First](https://img.shields.io/badge/Data-local%20first-2EA44F)](#privacy--数据与隐私)
