@@ -22,8 +22,10 @@
 
 | 版本 | 文件 | 字节 | SHA-256 |
 | --- | --- | --- | --- |
-| 1.9.0+46 | `release-artifacts/1.9.0/BestPlanning_1.9.0.0_x64.msix` | 18,538,929 | `2a03988ad8abda3b7383fc2ad21c332c8020198da80e8a20db0a18b5f4d72970` |
-| 1.9.1+47 | `release-artifacts/1.9.1/BestPlanning_1.9.1.0_x64.msix` | 18,538,905 | `52727ba719d0a8c7ae4aa14d84a8f60d787e2839df1032cdd80e9146b55a1df2` |
+| 1.9.0+46 | `release-artifacts/1.9.0/BestPlanning_1.9.0.0_x64.msix` | 18,542,094 | `13c1fae0e0874f0c313eebffc619034f69b97f265488ef302f6bb1a4f26d317e` |
+| 1.9.1+47 | `release-artifacts/1.9.1/BestPlanning_1.9.1.0_x64.msix` | 18,542,141 | `d8a0e3f3e4ccf5c4b6e35ca62da21fe4486d6f92e185c17cd9d57c98fc829833` |
+
+另有同名 `*_release.zip` 方便整包拷贝，以及每目录的 `SHA256SUMS.txt`。
 
 两份产物都用 `update_helper --verify` 验证过身份/签名，并用
 `dart run tool/update_pipeline.dart verify` 复验过清单与成品一致。`pubspec.yaml` 与

@@ -36,8 +36,8 @@ $versions = @(
   [ordered]@{ app = '1.9.1+47'; name = '1.9.1'; build = '47'; msix = '1.9.1.0' }
 )
 
-$pubspecOriginal = Get-Content $pubspec -Raw
-$backupOriginal = Get-Content $backupAssembly -Raw
+$pubspecOriginal = [System.IO.File]::ReadAllBytes($pubspec)
+$backupOriginal = [System.IO.File]::ReadAllBytes($backupAssembly)
 
 function Set-Version([string]$app, [string]$msix) {
   $script:pubspecText = $script:pubspecText -replace '(?m)^version: .*$', "version: $app"
