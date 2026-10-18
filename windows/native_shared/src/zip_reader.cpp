@@ -1,10 +1,10 @@
-#include "zip_reader.h"
+#include "native_shared/zip_reader.h"
 
 #include <cstdint>
 #include <fstream>
 #include <vector>
 
-namespace update_helper {
+namespace planner::native {
 namespace {
 
 std::uint16_t ReadU16(const std::vector<BYTE>& data, std::size_t offset) {
@@ -350,4 +350,4 @@ bool ReadZipEntry(const std::wstring& path, const std::string& entry_name,
   return false;
 }
 
-}  // namespace update_helper
+}  // namespace planner::native

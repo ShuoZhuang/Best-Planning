@@ -26,9 +26,13 @@
 #include <string>
 #include <vector>
 
-#include "package_inspector.h"
+#include "native_shared/package_inspector.h"
+#include "native_shared/planner_identity.h"
+#include "native_shared/text.h"
 
 namespace {
+
+namespace nh = planner::native;
 
 using winrt::Windows::Data::Json::JsonObject;
 using winrt::Windows::Data::Json::JsonValue;
@@ -40,8 +44,8 @@ constexpr wchar_t kAumid[] =
     L"ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner";
 constexpr wchar_t kExpectedIdentity[] = L"ShuoZhuang.PersonalPlanner";
 constexpr wchar_t kExpectedPublisher[] = L"CN=Shuo Zhuang, O=Personal User, C=CN";
-constexpr wchar_t kExpectedFamily[] =
-    L"ShuoZhuang.PersonalPlanner_v9555qkaxdyym";
+const std::wstring kExpectedFamily =
+    nh::PackageFamilyName(kExpectedIdentity, kExpectedPublisher);
 
 std::string Utf8(const std::wstring& value) {
   if (value.empty()) return {};
@@ -267,7 +271,7 @@ Request ParseRequest(const JsonObject& object, const std::wstring& request_path,
     failure = L"UPDATE_HELPER_REQUEST_INVALID";
     return request;
   }
-  if (!update_helper::IsPathUnderRoot(request.package_path, update_root)) {
+  if (!nh::IsPathUnderRoot(request.package_path, update_root)) {
     failure = L"UPDATE_HELPER_REQUEST_INVALID";
     return request;
   }
@@ -279,13 +283,13 @@ Request ParseRequest(const JsonObject& object, const std::wstring& request_path,
     return request;
   }
   if (!request.rollback_package_path.empty() &&
-      !update_helper::IsPathUnderRoot(request.rollback_package_path,
+      !nh::IsPathUnderRoot(request.rollback_package_path,
                                       update_root)) {
     failure = L"UPDATE_HELPER_REQUEST_INVALID";
     return request;
   }
   if (!request.snapshot_path.empty() &&
-      !update_helper::IsPathUnderRoot(request.snapshot_path, update_root)) {
+      !nh::IsPathUnderRoot(request.snapshot_path, update_root)) {
     failure = L"UPDATE_HELPER_REQUEST_INVALID";
     return request;
   }
@@ -596,8 +600,8 @@ struct HelperLock {
 // ── 子命令 ──────────────────────────────────────────────────────────────────
 
 int RunProbe() {
-  update_helper::PackageIdentity identity;
-  const bool packaged = update_helper::CurrentPackageIdentity(identity);
+  nh::PackageIdentity identity;
+  const bool packaged = nh::CurrentPackageIdentity(identity);
   JsonObject object;
   object.SetNamedValue(L"helperVersion",
                        JsonValue::CreateStringValue(kHelperVersion));
@@ -625,7 +629,7 @@ int RunProbe() {
 }
 
 int RunVerify(const std::wstring& path) {
-  const auto inspection = update_helper::InspectPackage(path, true);
+  const auto inspection = nh::InspectPackage(path, nh::SignatureCheck::TrustedChain);
   JsonObject object;
   object.SetNamedValue(L"ok",
                        JsonValue::CreateBooleanValue(inspection.ok));
@@ -652,7 +656,7 @@ int RunVerify(const std::wstring& path) {
         JsonValue::CreateStringValue(inspection.identity.VersionString()));
     object.SetNamedValue(L"identity", identity);
     std::vector<BYTE> digest;
-    if (update_helper::Sha256File(path, digest)) {
+    if (nh::Sha256File(path, digest)) {
       std::wstring hex;
       for (BYTE byte : digest) {
         wchar_t piece[3]{};
@@ -716,7 +720,7 @@ int RunApply(const std::wstring& request_path, bool dry_run = false) {
   }
 
   // 安装前独立二次验证（不信任主程序传入的任何"已验证"结论）。
-  const auto inspection = update_helper::InspectPackage(request.package_path, true);
+  const auto inspection = nh::InspectPackage(request.package_path, nh::SignatureCheck::TrustedChain);
   if (!inspection.ok) {
     WriteStatus(directory, request.transaction_id, L"failed",
                 inspection.failure_code);
@@ -744,7 +748,7 @@ int RunApply(const std::wstring& request_path, bool dry_run = false) {
     return 5;
   }
   std::vector<BYTE> digest;
-  if (!update_helper::Sha256File(request.package_path, digest)) {
+  if (!nh::Sha256File(request.package_path, digest)) {
     WriteStatus(directory, request.transaction_id, L"failed",
                 L"UPDATE_DOWNLOAD_HASH_MISMATCH");
     return 5;
@@ -807,13 +811,13 @@ int RunSelfTest() {
       ++failures;
     }
   };
-  check(update_helper::IsPathUnderRoot(
+  check(nh::IsPathUnderRoot(
             L"C:\\Updates\\1.9.1.0\\package.msix.ready", L"C:\\Updates"),
         "path under root");
-  check(!update_helper::IsPathUnderRoot(
+  check(!nh::IsPathUnderRoot(
             L"C:\\Updates\\..\\evil.msix.ready", L"C:\\Updates"),
         "path traversal rejected");
-  check(!update_helper::IsPathUnderRoot(L"C:\\Other\\package.msix.ready",
+  check(!nh::IsPathUnderRoot(L"C:\\Other\\package.msix.ready",
                                         L"C:\\Updates"),
         "other directory rejected");
   check(IsHex(L"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

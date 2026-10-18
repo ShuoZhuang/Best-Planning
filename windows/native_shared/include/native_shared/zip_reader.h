@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
-namespace update_helper {
+namespace planner::native {
 
 /// 读取 ZIP 中的一个条目。条目不存在、格式不支持或解压失败时返回 false。
 bool ReadZipEntry(const std::wstring& path, const std::string& entry_name,
                   std::vector<BYTE>& out);
 
-}  // namespace update_helper
+}  // namespace planner::native
