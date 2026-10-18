@@ -23,7 +23,7 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 
 | 产物 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BestPlanning_Setup_1.10.0_x64.exe` | 18,977,112 | `38a6306f808acde637998f6d315bc1ec4a43d8d4be7c027b7639b0810a786166` |
+| `BestPlanning_Setup_1.10.0_x64.exe` | 19,004,248 | `396a3b0879858d8a0807fc0cff64650b57fc3b9e46cca43b56d79f157d78946f` |
 | `BestPlanning_Portable_1.10.0_x64.zip` | 17,212,031 | `d04b0251632d626c1c670180e73071275ceddde7a5958a7ab02f4d579f6119a5` |
 | `BestPlanning_1.10.0.0_x64.msix` | 18,566,202 | `5b710d1c388a6db6adddc13337c5a8baa0444c81d75c49ebac6346b64a9905a5` |
 | `update-manifest.json` | 1,275 | `8f794c28d3df1dd5c60fb02a5ac9022cd1992094b6fe02f51543b4a8167e4154` |

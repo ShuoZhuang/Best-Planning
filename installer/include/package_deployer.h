@@ -41,10 +41,8 @@ bool QueryInstallState(const PayloadMetadata& metadata, InstallState& state,
 bool DeployPackage(const std::wstring& path, HRESULT& deployment_error,
                    ErrorCode& error, std::wstring& detail);
 
-// 同版本重新安装：覆盖已安装的同一版本，不先卸载（规格 §9.6）。
-bool ReinstallPackage(const std::wstring& path, HRESULT& deployment_error,
-                      ErrorCode& error, std::wstring& detail);
-
+// 同版本的"重新安装"：重新登记已安装的包（规格 §9.6 允许的修复方式）。
+// Windows 没有同版本覆盖文件的受支持接口，因此这里不声称会替换文件。
 bool RepairPackage(const planner::native::InstalledPackage& installed,
                    ErrorCode& error, std::wstring& detail);
 

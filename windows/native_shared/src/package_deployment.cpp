@@ -174,13 +174,6 @@ PackageDeploymentResult DeployPackage(const std::wstring& package_path) {
   return DeployWithOptions(package_path, DeploymentOptions::None);
 }
 
-PackageDeploymentResult ReinstallSameVersion(const std::wstring& package_path) {
-  // ForceUpdateFromAnyVersion 只在"同版本重新安装"时使用；版本比较由调用方先行把关，
-  // 普通升级路径绝不带这个选项（规格 §9.6、§9.7）。
-  return DeployWithOptions(package_path,
-                           DeploymentOptions::ForceUpdateFromAnyVersion);
-}
-
 PackageDeploymentResult RegisterInstalledPackage(
     const std::wstring& package_full_name) {
   PackageDeploymentResult result;

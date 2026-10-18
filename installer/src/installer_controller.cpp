@@ -425,9 +425,10 @@ UiDecision InstallerController::AskSameVersion() {
   model.subtitle = L"这台电脑上已经安装了 " + install_state_.package.version;
   model.mode = L"安装器版本：" + payload_.metadata.msix_version;
   model.details =
-      L"可以启动应用，或重新安装同一版本（不会先卸载，也不会删除数据）。";
+      L"可以启动应用，或修复安装：重新登记应用并保留全部数据。\n"
+      L"修复不会替换已安装的文件；文件损坏时需要先卸载再安装。";
   model.primary_button = L"启动优计主义";
-  model.secondary_button = L"重新安装";
+  model.secondary_button = L"修复安装";
   model.tertiary_button = L"退出";
   model.allow_close = true;
   return ui_.Ask(model);
@@ -526,7 +527,7 @@ int InstallerController::RunInteractive() {
     }
     repair = true;
     install_state_.action = InstallAction::Repair;
-    logger_.Line(L"same-version reinstall requested");
+    logger_.Line(L"same-version repair requested");
   }
 
   if (install_state_.installed && install_state_.running) {
@@ -603,13 +604,19 @@ int InstallerController::RunInteractive() {
       !MoveTo(State::DeployingPackage)) {
     return Fail(ErrorCode::Internal, L"state");
   }
-  ShowProgress(L"正在安装优计主义…", -1, true, false);
-  logger_.Line(repair ? L"deploying (same-version reinstall)"
+  ShowProgress(L"正在修复安装…", -1, true, false);
+  logger_.Line(repair ? L"repairing registration (same version)"
                       : L"deploying package");
   HRESULT deployment_error = S_OK;
-  const bool deployed =
-      repair ? ReinstallPackage(payload_path_, deployment_error, error, detail)
-             : DeployPackage(payload_path_, deployment_error, error, detail);
+  bool deployed = false;
+  if (repair) {
+    // Windows 没有"同版本覆盖已安装文件"的受支持接口；同版本的重新安装只能是
+    // **重新登记注册关系**（规格 §9.6 允许的"重新登记或修复方式"）。它不删除数据，
+    // 也不会把应用置于"已卸载"状态。文件损坏需要用户先卸载再安装。
+    deployed = RepairPackage(install_state_.package, error, detail);
+  } else {
+    deployed = DeployPackage(payload_path_, deployment_error, error, detail);
+  }
   if (!deployed) {
     logger_.Line(L"deployment failed detail " + detail);
     std::wstring verify_detail;

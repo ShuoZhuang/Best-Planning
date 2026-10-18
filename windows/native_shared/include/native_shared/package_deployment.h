@@ -40,10 +40,10 @@ std::vector<InstalledPackage> FindPackagesForIdentity(const std::wstring& identi
 // 以当前进程的用户身份部署（首次安装与原地升级都走这里）。
 PackageDeploymentResult DeployPackage(const std::wstring& package_path);
 
-// 同版本"重新安装"：覆盖已安装的同一版本，不先卸载（规格 §9.6）。
-PackageDeploymentResult ReinstallSameVersion(const std::wstring& package_path);
-
 // 重新登记已安装的同一版本（修复注册关系，不先卸载）。
+//
+// **不提供"同版本覆盖文件"的接口**：Windows 没有这样的受支持操作。调用方不要把
+// `RegisterInstalledPackage` 宣传成"重新安装文件"，它只修复注册关系（规格 §9.6）。
 PackageDeploymentResult RegisterInstalledPackage(const std::wstring& package_full_name);
 
 // 从实际登记结果解析 AUMID；解析失败时不猜测、不拼接。

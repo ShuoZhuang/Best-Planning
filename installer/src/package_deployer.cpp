@@ -95,21 +95,6 @@ bool DeployPackage(const std::wstring& path, HRESULT& deployment_error,
   return false;
 }
 
-bool ReinstallPackage(const std::wstring& path, HRESULT& deployment_error,
-                      ErrorCode& error, std::wstring& detail) {
-  const auto result = nh::ReinstallSameVersion(path);
-  deployment_error = result.error;
-  if (result.ok) {
-    error = ErrorCode::None;
-    return true;
-  }
-  error = MapDeploymentFailure(result.error);
-  wchar_t buffer[64]{};
-  swprintf_s(buffer, L"0x%08X", static_cast<unsigned int>(result.error));
-  detail = std::wstring(buffer) + L" " + result.error_text;
-  return false;
-}
-
 bool RepairPackage(const planner::native::InstalledPackage& installed,
                    ErrorCode& error, std::wstring& detail) {
   const auto result = nh::RegisterInstalledPackage(installed.full_name);

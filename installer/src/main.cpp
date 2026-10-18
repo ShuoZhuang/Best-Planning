@@ -104,7 +104,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int) {
     // 验收/CI：不显示界面，但预检、校验、一次 UAC、部署与验证全部照常执行。
     return ui.RunHeadless([&controller] { return controller.RunInteractive(); },
                           HasFlag(arguments, L"--launch"),
-                          HasFlag(arguments, L"--reinstall"));
+                          HasFlag(arguments, L"--reinstall") ||
+                              HasFlag(arguments, L"--repair"));
   }
 
   return ui.Run(instance, [&controller] { return controller.RunInteractive(); });

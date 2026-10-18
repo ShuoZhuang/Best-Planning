@@ -21,7 +21,7 @@
 | `src/package_verifier.cpp` | 长度 → SHA-256 → 清单身份 → 签名 → 签名者=固定证书 → （可选）链信任 |
 | `src/certificate_manager.cpp` | 指纹/公钥、`LocalMachine\TrustedPeople` 存在性与导入、安全回收判定 |
 | `src/elevation_broker.cpp` | 命名管道 + nonce + 有限命令协议；提权进程只写证书 |
-| `src/package_deployer.cpp` | 以当前用户部署、同版本重新安装、拒绝降级、登记验证 |
+| `src/package_deployer.cpp` | 以当前用户部署、同版本修复（重新登记）、拒绝降级、登记验证 |
 | `src/application_launcher.cpp` | 从实际登记结果解析 AUMID 并激活 |
 | `src/installer_state_machine.cpp` | 状态转换、取消点、关键段 |
 | `src/installer_ui.cpp` | Win32 对话框：准备 / 等待关闭 / 进度 / 完成 / 错误 |
@@ -64,7 +64,7 @@ installer\build\Release\installer_tests.exe     单元测试
 | `--plan` | 预检 + 校验 + 查询已安装状态，打印计划 JSON | 否 |
 | `--selftest` | 状态机/版本/元数据/证书/会话的自检 | 否 |
 | `--diagnose` | 打印临时目录与写入探测结果 | 只建一个临时目录并删除 |
-| `--install-unattended [--launch] [--reinstall]` | 验收/CI：不显示窗口，流程完全一致 | 是（校验通过后） |
+| `--install-unattended [--launch] [--repair]` | 验收/CI：不显示窗口，流程完全一致 | 是（校验通过后） |
 | `--elevated-session` | 提权辅助进程（由安装器自己拉起，不要手动运行） | 只写证书 |
 
 ## 可重复验收
@@ -78,7 +78,7 @@ installer\build\Release\installer_tests.exe     单元测试
 "位于仓库内的进程"写入系统临时目录，直接运行会得到与安装器无关的 `ACCESS_DENIED`。
 两个脚本都已经这样做（暂存目录在仓库之外，如 `%TEMP%\BestPlanningSetup\...`）。
 
-## 安全边界
+## 同版本"重新安装"的真实语义\n\nWindows 没有"同版本覆盖已安装文件"的受支持接口。因此同版本时安装器提供的是**修复安装**：\n用 `RegisterPackageByFullNameAsync` 重新登记注册关系，保留数据、不先卸载，但**不会替换已安装文件**。\n文件损坏时只有卸载后重装才能替换（这条限制在界面与验收记录里都写明）。\n\n## 安全边界
 
 - 不做在线下载，不调用 PowerShell/cmd/批处理，不执行任意命令行。
 - 载荷未全部验证前绝不导入证书、绝不部署。
