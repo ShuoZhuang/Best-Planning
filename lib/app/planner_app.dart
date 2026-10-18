@@ -26,8 +26,8 @@ import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_check_scheduler.dart';
-import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/update/update_check_scheduler.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
@@ -122,8 +122,8 @@ final class PlannerApp extends StatefulWidget {
     /// 为空即该入口不显示（测试与未装配排程时）——与 [pendingMoves] 同一口径。
     this.pendingSkips,
 
-    /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。为空时设置入口页不显示「检查更新」。
-    this.updateService,
+    /// 更新控制器（2026-10-18 自更新规格）。为空时设置入口页不显示「更新」，/settings/update 只说明未装配。
+    this.updateController,
 
     /// 启动约 10 秒后的那一次自动检查（§3.6）。
     ///
@@ -278,8 +278,8 @@ final class PlannerApp extends StatefulWidget {
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingSkipDrafts? pendingSkips;
 
-  /// 更新检查（§3.6）。为空时设置页不显示该入口，直达路由会说明服务未装配。
-  final UpdateService? updateService;
+  /// 更新控制器。为空时设置页不显示该入口，直达路由会说明服务未装配。
+  final UpdateController? updateController;
 
   /// 周期目标的生成、结算与进度（M6）。
   final RecurringTaskService? recurringTasks;
@@ -525,7 +525,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
-      updateService: widget.updateService,
+      updateController: widget.updateController,
       recurringTasks: widget.recurringTasks,
     );
     // ── M8：启动后的自动更新检查（§3.6）──────────────────────────────────────
@@ -568,7 +568,7 @@ final class _PlannerAppState extends State<PlannerApp> {
     if (listener != null) widget.replanOutcome?.removeListener(listener);
     // 先释放调度器再拆别的：它是唯一持有**定时器**的东西，晚一步释放就意味着"应用已经在关了，
     // 那一发请求还在路上"。`dispose()` 是幂等的，重复释放不会出错。
-    widget.updateCheckScheduler?.dispose();
+    unawaited(widget.updateCheckScheduler?.dispose() ?? Future<void>.value());
     // 日历失效总线同样跟着应用释放（唯一的 app-scoped 实例，计划 §2.6）：
     // 之后到达的 `notify()` 会被安全忽略，不再产生"controller 已关闭"的未捕获异常。
     // 它的 `dispose()` 是幂等的；这里不 await——释放时机对关闭路径没有意义。
@@ -1007,3 +1007,4 @@ final class _ResumeOnboardingPrompt extends StatelessWidget {
     ),
   );
 }
+

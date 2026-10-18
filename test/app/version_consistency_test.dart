@@ -17,7 +17,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
-import 'package:personal_planner/domain/models/app_update.dart';
+import 'package:personal_planner/domain/models/app_version.dart';
 
 /// 在 pubspec.yaml 里按行取一个标量。用"整行匹配"而不是全局搜，避免命中同名键或注释。
 String? _scalar(List<String> lines, RegExp pattern) {
@@ -195,3 +195,4 @@ void main() {
     });
   });
 }
+

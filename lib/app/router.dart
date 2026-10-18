@@ -28,7 +28,7 @@ import 'package:personal_planner/application/week_view_preference_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -75,12 +75,14 @@ import 'package:personal_planner/features/settings/data/backup_page.dart';
 import 'package:personal_planner/features/settings/window/window_background_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
+import 'package:personal_planner/platform/update/url_launcher_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_reopen_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/settings/update/update_page.dart';
+import 'package:personal_planner/features/shell/update_indicator.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
@@ -431,11 +433,11 @@ GoRouter createPlannerRouter({
   /// 与"不给点了没反应的入口"同一口径：它不会假装同步过。
   Future<void> Function()? reconcileNotifications,
 
-  /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。
+  /// 更新控制器（2026-10-18 原生自更新规格 §11）。
   ///
-  /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
+  /// **为空时设置入口页不显示「更新」**，直达 `/settings/update` 也只会说明服务未装配——
   /// 与本仓库既有的"不给一个点了才知道没装的入口"同一条约定。
-  UpdateService? updateService,
+  UpdateController? updateController,
 
   /// 周期目标的生成、结算与进度（M4～M6，路线图 §3.3）。
   ///
@@ -451,6 +453,7 @@ GoRouter createPlannerRouter({
       ShellRoute(
         builder: (context, state, child) => _PlannerShell(
           location: state.uri.path,
+          updateController: updateController,
           onGeneratePlan: planningService == null
               ? null
               : (shellContext) => _generatePlan(
@@ -1491,23 +1494,19 @@ GoRouter createPlannerRouter({
                     subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
                     onOpen: () => context.go('/settings/backup'),
                   ),
-                // M8（路线图 §3.6）：更新检查的入口。
+                // 2026-10-18 原生自更新：更新入口与诊断页。
                 //
                 // **放在「通知与隐私」这一组**：它是本应用唯一会联网的功能，用户想知道"这个程序
-                // 什么时候会联网"时应该在这一组里找得到它，而不是埋在数据备份旁边。
-                //
-                // 入口右侧展示自动检查的开关状态（§12「每个入口展示一项当前关键值」）：用户不点
-                // 进去就能看出"它到底会不会自己联网"——而这正是这一项最需要被一眼看到的信息。
-                if (updateService != null)
+                // 什么时候会联网"时应该在这一组里找得到它。
+                if (updateController != null)
                   SettingsHubEntry(
                     key: const ValueKey<String>('settings-update'),
-                    title: '检查更新',
+                    title: '更新',
                     group: SettingsGroup.notification,
-                    subtitle: '查看当前版本，手动检查或关闭自动检查（只请求版本信息）',
-                    currentValue: () async =>
-                        (await updateService.loadSettings()).autoCheckEnabled
-                        ? '自动检查已开启'
-                        : '自动检查已关闭',
+                    subtitle: '查看更新状态、手动检查，或关闭自动检查与下载（只请求签名清单）',
+                    currentValue: () async => updateController.autoUpdateEnabled
+                        ? '自动更新已开启'
+                        : '自动更新已关闭',
                     onOpen: () => context.go('/settings/update'),
                   ),
                 // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
@@ -1666,27 +1665,24 @@ GoRouter createPlannerRouter({
             ),
           ),
           GoRoute(
-            // M8（路线图 §3.6 / Task 11）：更新设置页。
+            // 更新状态与诊断页（2026-10-18 规格 §11.6）。
             //
             // 未装配时给出说明而不是空白页：深链接（通知 payload、用户手改地址）可能直接落在这里。
             path: '/settings/update',
             builder: (context, state) {
-              final service = updateService;
-              if (service == null) {
+              final controller = updateController;
+              if (controller == null) {
                 return const _UnavailablePage(
-                  title: '检查更新',
+                  title: '更新',
                   message: '更新服务未装配，暂无法检查更新。',
                 );
               }
               return UpdatePage(
-                // **控制器在这里建、在这里交给页面**：页面只认 `UpdatePageController`
-                // （见 `update_page.dart` 的说明），因此六种状态都能脱离真服务测试。
-                //
-                // 每进入一次新建一个：控制器是有状态的（上次结论、最后一次是谁触发的），
-                // 复用同一个实例会让"上一次的失败原因"出现在这一次的页面上。既然是在这里 new 的，
-                // 释放也交给页面（`disposeController`）——这一层没有别的持有者。
-                controller: ServiceUpdatePageController.production(service),
-                disposeController: true,
+                controller: controller,
+                // 只打开**已验证清单里的** Release 页面；页面本身不做地址拼接。
+                openUrl: openUpdateUrlExternally,
+                readLogs: controller.readLogs,
+                clearLogs: controller.clearLogs,
               );
             },
           ),
@@ -2283,12 +2279,16 @@ final class _PlannerShell extends StatelessWidget {
   const _PlannerShell({
     required this.location,
     required this.child,
+    this.updateController,
     this.onGeneratePlan,
     this.onSpecialDay,
   });
 
   final String location;
   final Widget child;
+
+  /// 左下角更新入口的数据源。为空时（测试/未装配）不显示入口。
+  final UpdateController? updateController;
   final Future<void> Function(BuildContext context)? onGeneratePlan;
 
   /// 特殊日与恢复保护的入口。为空时不显示该动作——未装配恢复服务时不留死按钮。
@@ -2384,50 +2384,62 @@ final class _PlannerShell extends StatelessWidget {
       body: Row(
         children: [
           PlannerGlassChrome(
-            child: NavigationRail(
-              extended: true,
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                context.go(switch (index) {
-                  1 => '/tasks',
-                  2 => '/workspace',
-                  3 => '/calendar',
-                  4 => '/analytics',
-                  5 => '/settings',
-                  _ => '/today',
-                });
-              },
-              destinations: const [
-                NavigationRailDestination(
-                  icon: Icon(Icons.today_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.today),
-                  label: Text('今日'),
+            child: Column(
+              children: [
+                Expanded(
+                  child: NavigationRail(
+                    extended: true,
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: (index) {
+                      context.go(switch (index) {
+                        1 => '/tasks',
+                        2 => '/workspace',
+                        3 => '/calendar',
+                        4 => '/analytics',
+                        5 => '/settings',
+                        _ => '/today',
+                      });
+                    },
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.today_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.today),
+                        label: Text('今日'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.checklist_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.checklist),
+                        label: Text('任务'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.account_tree_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.account_tree),
+                        label: Text('领域'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.calendar_view_week_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
+                        label: Text('日历'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.insights_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.insights),
+                        label: Text('统计'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.tune_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.tune),
+                        label: Text('设置'),
+                      ),
+                    ],
+                  ),
                 ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.checklist_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.checklist),
-                  label: Text('任务'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.account_tree_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.account_tree),
-                  label: Text('领域'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.calendar_view_week_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
-                  label: Text('日历'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.insights_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.insights),
-                  label: Text('统计'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.tune_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.tune),
-                  label: Text('设置'),
-                ),
+                // 规格 §11.1：更新入口固定在主导航左下角，页面切换时位置与状态不变。
+                if (updateController case final controller?)
+                  UpdateIndicator(
+                    controller: controller,
+                    onOpenDetails: () => context.go('/settings/update'),
+                  ),
               ],
             ),
           ),

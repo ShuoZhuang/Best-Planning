@@ -32,8 +32,19 @@ import 'package:personal_planner/application/repository_recurring_cycle_reader.d
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_check_scheduler.dart';
-import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/update/update_check_scheduler.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/application/update/update_orchestrator.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
+import 'package:personal_planner/domain/update/update_settings.dart';
+import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
+import 'package:personal_planner/infrastructure/update/file_update_manifest_cache.dart';
+import 'package:personal_planner/infrastructure/update/file_update_state_store.dart';
+import 'package:personal_planner/infrastructure/update/http_update_manifest_repository.dart';
+import 'package:personal_planner/infrastructure/update/resumable_package_downloader.dart';
+import 'package:personal_planner/infrastructure/update/update_log_store.dart';
+import 'package:personal_planner/infrastructure/update/update_package_verifier.dart';
+import 'package:personal_planner/infrastructure/update/update_storage_layout.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -71,7 +82,10 @@ import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
 import 'package:personal_planner/platform/notifications/diagnostic_notification_port.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/ocr/windows_timetable_ocr.dart';
-import 'package:personal_planner/platform/update/github_release_client.dart';
+import 'package:personal_planner/platform/update/network_status_monitor.dart';
+import 'package:personal_planner/platform/update/windows_disk_space_probe.dart';
+import 'package:personal_planner/platform/update/windows_package_info.dart';
+import 'package:personal_planner/platform/update/windows_update_helper.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -273,23 +287,50 @@ Future<void> main() async {
   final planRepository = DriftPlanRepository(database, clock: clock);
   final settingsRepository = DriftSettingsRepository(database, clock);
 
-  // ── 更新检查（M8，路线图 §3.6 / Task 10／11）────────────────────────────────
+  // ── 原生自更新（2026-10-18 设计规格 §5 / §7 / §8）──────────────────────────
   //
-  // **这是本应用唯一的出网口**（见 `github_release_client.dart` 与
-  // `test/architecture/update_network_boundary_test.dart`）。三件事在此定下：
-  //   ① 版本来源是**安装包元数据**（`appVersions`），不是 `backup_assembly.dart` 的手写常量；
-  //   ② 自动检查由 `UpdateCheckScheduler` 在**启动约 10 秒后**跑一次，生命周期跟着
-  //      `PlannerApp`（`start()`／`dispose()`），**不建计划任务、不建常驻服务**；
-  //   ③ GitHub 匿名额度按 IP 共用，因此 10 秒延迟 + 24 小时窗口是必要的克制。
-  final updateService = UpdateService(
-    client: GithubReleaseClientImpl(),
-    clock: clock,
-    settings: settingsRepository,
-    versions: appVersions,
+  // 装配顺序固定：目录 → 清单来源（验签 + 缓存）→ 状态/日志 → 编排器 → 界面控制器。
+  // 更新目录之外的业务数据不参与，也不允许被这条链读写。
+  final updateLayout = UpdateStorageLayout.localAppData();
+  final updateManifestVerifier = Ed25519ManifestVerifier();
+  final updateMainHelper = WindowsUpdateHelper(layout: updateLayout);
+  final updateInstalledPackages = WindowsInstalledPackageProvider(updateMainHelper);
+  final updateManifestCache = FileUpdateManifestCache(
+    directory: updateLayout.root,
+    verifier: updateManifestVerifier,
   );
-  final updateCheckScheduler = UpdateCheckScheduler(
-    service: updateService,
+  final updateManifestSource = HttpUpdateManifestRepository(
+    cache: updateManifestCache,
+    verifier: updateManifestVerifier,
+  );
+  final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
+  final updateSafety = InMemoryUpdateSafetyCoordinator();
+  final updateOrchestrator = UpdateOrchestrator(
+    manifestSource: updateManifestSource,
+    stateStore: FileUpdateStateStore(file: updateLayout.stateFile),
+    installedPackages: updateInstalledPackages,
+    downloader: ResumablePackageDownloader(),
+    // 主程序侧的三层校验：大小、SHA-256、包身份；签名由助手再做一次（§10.2）。
+    verifier: ZipUpdatePackageVerifier(helper: updateMainHelper),
+    layout: updateLayout,
+    safety: updateSafety,
+    log: updateLog,
     clock: clock,
+    diskSpace: WindowsDiskSpaceProbe(),
+    windowsBuild: const WindowsBuildProbe().current,
+    helper: updateMainHelper,
+  );
+  final updateController = UpdateController(
+    orchestrator: updateOrchestrator,
+    settings: JsonUpdateSettingsStore(settings: settingsRepository),
+    safety: updateSafety,
+  );
+  // 启动恢复只读状态文件与包身份，不发网络请求；失败也不阻止应用启动。
+  await updateController.initialize();
+  final updateCheckScheduler = UpdateCheckScheduler(
+    controller: updateController,
+    clock: clock,
+    networkMonitor: NetworkInterfaceStatusMonitor(),
   );
 
   // 规划规则（作息／保护时间规则／按日例外）会改变日历上的保护时间区间，因此成功保存后
@@ -834,7 +875,7 @@ Future<void> main() async {
         backups: backups,
         erasure: erasure,
         // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
-        updateService: updateService,
+        updateController: updateController,
         // M6：周期目标的生成、结算与三条路由（§3.3）。
         recurringTasks: recurringTasks,
         updateCheckScheduler: updateCheckScheduler,
@@ -876,3 +917,4 @@ Future<void> main() async {
     ),
   );
 }
+
