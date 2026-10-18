@@ -23,10 +23,10 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 
 | 产物 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `BestPlanning_Setup_1.10.0_x64.exe` | 18,954,584 | `101e842211efad824e920d0d4d61686fa13943b370bff123de04058c1405b3c7` |
-| `BestPlanning_Portable_1.10.0_x64.zip` | 17,195,722 | `94a38951223abd46ff33bcb4c3b7842768e3052f52bd37bb0fe2b591e67b975f` |
-| `BestPlanning_1.10.0.0_x64.msix` | 18,543,445 | `bc25798f9467cbac4fb7edee039a775b42a9341aaf8d1865e50026e464e955c7` |
-| `update-manifest.json` | 1,275 | `4fe1065744d96d0c2a27fe9a0e5095bc091d585a63ed12e5c03acb8853bb1458` |
+| `BestPlanning_Setup_1.10.0_x64.exe` | 18,977,112 | `38a6306f808acde637998f6d315bc1ec4a43d8d4be7c027b7639b0810a786166` |
+| `BestPlanning_Portable_1.10.0_x64.zip` | 17,212,031 | `d04b0251632d626c1c670180e73071275ceddde7a5958a7ab02f4d579f6119a5` |
+| `BestPlanning_1.10.0.0_x64.msix` | 18,566,202 | `5b710d1c388a6db6adddc13337c5a8baa0444c81d75c49ebac6346b64a9905a5` |
+| `update-manifest.json` | 1,275 | `8f794c28d3df1dd5c60fb02a5ac9022cd1992094b6fe02f51543b4a8167e4154` |
 
 - Setup 的 Authenticode 状态为 `Valid`，时间戳为 `DigiCert SHA256 RSA4096 Timestamp Responder 2026 1`。
 - 先嵌入资源、后签名；签名之后文件未再被修改（§8.7）。
@@ -77,7 +77,7 @@ Windows 10 与干净虚拟机矩阵、标准账户输入管理员凭据、以及
 
 ### 4.2 原位升级 `1.9.0.0 → 1.10.0.0`
 
-`--install-unattended`（同一控制器与状态机，仅不显示窗口）退出码 `0`，日志节选：
+`--install-unattended`（同一控制器与状态机，仅不显示窗口）退出码 `0`，日志节选（来自 P0 落盘修复**之前**的构建；表 2 的哈希是最终产物，两者行为路径相同）：
 
 ```text
 state INITIALIZING -> PREFLIGHT_CHECK

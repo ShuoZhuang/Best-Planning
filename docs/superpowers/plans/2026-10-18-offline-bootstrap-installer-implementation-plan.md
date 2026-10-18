@@ -3,7 +3,7 @@
 日期：2026-10-18
 依据：`docs/superpowers/specs/2026-10-18-offline-bootstrap-installer-design.md`（下称"规格"）
 分支：`feature/native-implementation`
-状态：**代码完成、发布验收未完成**（规格 §18）。自动化测试、真实构建、签名、发布门禁与一次真实 `1.9.0.0 → 1.10.0.0` 原位升级已完成；Windows 10 与干净虚拟机矩阵、标准账户凭据场景、故障注入矩阵尚未执行。证据见 `docs/testing/offline-installer-acceptance.md`。
+状态：**代码完成、发布验收未完成**（规格 §18）。离线 Setup 的自动化测试、真实构建、签名、发布门禁与一次真实 `1.9.0.0 → 1.10.0.0` 原位升级已完成；§9 的 P0 更新落盘修复已完成并在真实安装态通过（`docs/testing/v1.10.0-packaged-update-storage-acceptance.md`）。Windows 10 与干净虚拟机矩阵、标准账户凭据场景、故障注入矩阵、`1.9.0 → 1.10.0 → 回退` 演练尚未执行。
 
 > **发布阻断补充（P0，2026-10-18）：** 本计划除离线 Setup 外，还必须修复已在真实
 > MSIX 安装环境复现的应用内更新落盘故障：安装包已经完整下载并通过长度与 SHA-256
@@ -307,7 +307,26 @@ integration_test/
 任何一项不满足，只能声明“离线安装器完成、应用内更新修复未完成”，不得发布
 `v1.10.0`，也不得向用户宣称更新问题已经解决。
 
-## 9. 实施结果（2026-10-18）
+### 9.8 实施结果（2026-10-18）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| Task A：失败边界测试（TDD） | 完成 | `atomic_file_test.dart`（5）、`update_store_test.dart`（新增覆盖失败）、`resumable_package_downloader_test.dart`（新增 3 个落盘/恢复用例） |
+| Task B：包身份感知的缓存根 | 完成 | `windows/runner/update_storage_channel.*`、`lib/platform/update/windows_update_storage.dart`、`main.dart` 装配；`windows_update_storage_test.dart`（6）、`update_storage_layout_test.dart`（4） |
+| Task C：保留可恢复文件与真实诊断 | 完成 | `atomic_file.dart` 的 `AtomicFileException`（操作名/脱敏路径/OS 错误码）、`_promote` 保留 `.partial`、编排器 `stateWriteFailed` 带详情 |
+| Task D：真实安装态回归与门禁 | 完成（部分 NOT RUN） | 安装态自检 PASS：`docs/testing/v1.10.0-packaged-update-storage-acceptance.md`；门禁新增验收记录检查；`tool/update_e2e.ps1` 增加安装态自检步骤；`1.9.0 → 1.10.0 → 回退` 与 Windows 10 仍为 `NOT RUN` |
+
+§9.7 的六条完成条件逐项对照：
+
+1. 已打包生产装配不再使用 `UpdateStorageLayout.localAppData()`（`main.dart` 只通过
+   `WindowsUpdateStorage.resolveRoot()` 得到根；`localAppData` 仅保留给便携版/测试）。
+2. 真实安装态全链路成功（见验收记录第 3 节报告）。
+3. 覆盖写入、文件占用、权限失败、重启恢复均有自动化用例。
+4. 日志记录 `op=…` 与真实 `osError.errorCode`；详情只保留"父目录/文件名"，不含完整用户目录。
+5. Setup 内嵌的 MSIX 与应用内更新使用同一份 `1.10.0.0` 字节（发布门禁校验哈希一致）。
+6. 验收记录 `结论：PASS`；`verify_release_assets.ps1` 在缺少记录或不是 PASS 时失败。
+
+## 10. 离线安装器实施结果（2026-10-18）
 
 ### 9.1 已交付
 
