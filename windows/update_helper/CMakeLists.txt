@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(update_helper
   main.cpp
   package_inspector.cpp
+  zip_reader.cpp
 )
 
 target_compile_options(update_helper PRIVATE /EHsc /W4 /permissive- /utf-8)

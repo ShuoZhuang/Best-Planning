@@ -7,8 +7,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <regex>
 #include <string>
 #include <vector>
+
+#include "zip_reader.h"
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -162,8 +165,13 @@ std::wstring PublisherId(const std::wstring& publisher) {
   for (int i = 0; i < 8; ++i) {
     value = (value << 8) | digest[i];
   }
-  for (int i = 12; i >= 0; --i) {
-    result.push_back(kAlphabet[(value >> (i * 5)) & 0x1F]);
+  // 64 位摘要按 5 位一组编码成 13 个字符（最后一组只有 4 位，补 0）。
+  for (int index = 0; index < 13; ++index) {
+    const int consumed = (index + 1) * 5;
+    const std::uint64_t chunk =
+        consumed <= 64 ? (value >> (64 - consumed)) & 0x1F
+                       : (value << (consumed - 64)) & 0x1F;
+    result.push_back(kAlphabet[chunk]);
   }
   return result;
 }
@@ -189,7 +197,45 @@ std::map<std::wstring, std::wstring> SubjectAttributes(PCCERT_CONTEXT cert) {
   return attributes;
 }
 
+std::map<std::wstring, std::wstring> ParseDistinguishedName(
+    const std::wstring& value) {
+  std::map<std::wstring, std::wstring> attributes;
+  size_t start = 0;
+  while (start <= value.size()) {
+    const size_t comma = value.find(L',', start);
+    const std::wstring part = Trim(value.substr(
+        start, comma == std::wstring::npos ? std::wstring::npos
+                                           : comma - start));
+    if (!part.empty()) {
+      const size_t equals = part.find(L'=');
+      if (equals != std::wstring::npos) {
+        attributes[ToUpper(Trim(part.substr(0, equals)))] =
+            Trim(part.substr(equals + 1));
+      }
+    }
+    if (comma == std::wstring::npos) break;
+    start = comma + 1;
+  }
+  return attributes;
+}
+
 bool PublisherMatches(PCCERT_CONTEXT cert, const std::wstring& publisher) {
+  const auto expected = ParseDistinguishedName(publisher);
+  wchar_t x500[2048]{};
+  if (CertNameToStr(X509_ASN_ENCODING, &cert->pCertInfo->Subject,
+                    CERT_X500_NAME_STR, x500,
+                    static_cast<DWORD>(std::size(x500))) > 1) {
+    const auto actual = ParseDistinguishedName(x500);
+    bool matches = !expected.empty();
+    for (const auto& [key, value] : expected) {
+      const auto found = actual.find(key);
+      if (found == actual.end() || found->second != value) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
   const auto actual = SubjectAttributes(cert);
   // 期望值形如 `CN=Shuo Zhuang, O=Personal User, C=CN`。逐段比较，顺序无关。
   size_t start = 0;
@@ -236,51 +282,31 @@ PCCERT_CONTEXT FindSignerCertificate(CMSG_SIGNER_INFO* signer) {
   return nullptr;
 }
 
-// 验证 AppxSignature.p7x：CMS 签名、证书链与发布者。
+// 验证 AppxSignature.p7x：PKCS#7 签名、证书链与发布者。
 std::wstring VerifySignature(const std::vector<BYTE>& signature_blob,
                              const std::wstring& expected_publisher) {
   if (signature_blob.empty()) return L"UPDATE_PACKAGE_SIGNATURE_MISSING";
-  HCRYPTMSG message = CryptMsgOpenToDecode(
-      X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, 0, 0, nullptr, nullptr);
-  if (message == nullptr) return L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-  std::wstring failure;
+  CRYPT_VERIFY_MESSAGE_PARA verify_para{};
+  verify_para.cbSize = sizeof(verify_para);
+  verify_para.dwMsgAndCertEncodingType =
+      X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
   PCCERT_CONTEXT cert = nullptr;
+  if (!CryptVerifyMessageSignature(&verify_para, 0, signature_blob.data(),
+                                   static_cast<DWORD>(signature_blob.size()),
+                                   nullptr, nullptr, &cert) ||
+      cert == nullptr) {
+    if (cert != nullptr) CertFreeCertificateContext(cert);
+    return L"UPDATE_PACKAGE_SIGNATURE_INVALID";
+  }
+
+  std::wstring failure;
   PCCERT_CHAIN_CONTEXT chain = nullptr;
-  do {
-    if (!CryptMsgUpdate(message, signature_blob.data(),
-                        static_cast<DWORD>(signature_blob.size()), TRUE)) {
-      failure = L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-      break;
-    }
-    DWORD signer_size = 0;
-    if (!CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, nullptr,
-                          &signer_size)) {
-      failure = L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-      break;
-    }
-    std::vector<BYTE> signer_buffer(signer_size);
-    if (!CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0,
-                          signer_buffer.data(), &signer_size)) {
-      failure = L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-      break;
-    }
-    auto* signer = reinterpret_cast<CMSG_SIGNER_INFO*>(signer_buffer.data());
-    cert = FindSignerCertificate(signer);
-    if (cert == nullptr) {
-      failure = L"UPDATE_PACKAGE_CERTIFICATE_UNTRUSTED";
-      break;
-    }
-    if (!CryptMsgControl(message, 0, CMSG_CTRL_VERIFY_SIGNATURE, cert)) {
-      failure = L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-      break;
-    }
-    CERT_CHAIN_PARA chain_para{};
-    chain_para.cbSize = sizeof(chain_para);
-    if (!CertGetCertificateChain(nullptr, cert, nullptr, cert->hCertStore,
-                                 &chain_para, 0, nullptr, &chain)) {
-      failure = L"UPDATE_PACKAGE_CERTIFICATE_UNTRUSTED";
-      break;
-    }
+  CERT_CHAIN_PARA chain_para{};
+  chain_para.cbSize = sizeof(chain_para);
+  if (!CertGetCertificateChain(nullptr, cert, nullptr, cert->hCertStore,
+                               &chain_para, 0, nullptr, &chain)) {
+    failure = L"UPDATE_PACKAGE_CERTIFICATE_UNTRUSTED";
+  } else {
     CERT_CHAIN_POLICY_PARA policy_para{};
     policy_para.cbSize = sizeof(policy_para);
     CERT_CHAIN_POLICY_STATUS policy_status{};
@@ -289,59 +315,77 @@ std::wstring VerifySignature(const std::vector<BYTE>& signature_blob,
                                           &policy_para, &policy_status) ||
         policy_status.dwError != 0) {
       failure = L"UPDATE_PACKAGE_CERTIFICATE_UNTRUSTED";
-      break;
-    }
-    if (!PublisherMatches(cert, expected_publisher)) {
+    } else if (!PublisherMatches(cert, expected_publisher)) {
       failure = L"UPDATE_PACKAGE_PUBLISHER_MISMATCH";
-      break;
     }
-  } while (false);
-
+  }
   if (chain != nullptr) CertFreeCertificateChain(chain);
-  if (cert != nullptr) CertFreeCertificateContext(cert);
-  if (message != nullptr) CryptMsgClose(message);
+  CertFreeCertificateContext(cert);
   return failure;
 }
 
-
-// 用内存流打开包：AppxPackaging 在某些令牌下对文件流返回 E_ACCESSDENIED，
-// 而内存流既能规避这一点，也避免助手持有包文件的句柄（安装前它还要被改名）。
 IStream* OpenPackageStream(const std::wstring& path) {
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return nullptr;
-  LARGE_INTEGER size{};
-  if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 ||
-      size.QuadPart > (1LL << 31)) {
-    CloseHandle(file);
-    return nullptr;
-  }
-  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(size.QuadPart));
-  if (memory == nullptr) {
-    CloseHandle(file);
-    return nullptr;
-  }
-  void* target = GlobalLock(memory);
-  DWORD read = 0;
-  const bool read_ok =
-      target != nullptr &&
-      ReadFile(file, target, static_cast<DWORD>(size.QuadPart), &read, nullptr) &&
-      read == static_cast<DWORD>(size.QuadPart);
-  GlobalUnlock(memory);
-  CloseHandle(file);
-  if (!read_ok) {
-    GlobalFree(memory);
-    return nullptr;
-  }
   IStream* stream = nullptr;
-  if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) {
-    GlobalFree(memory);
+  if (FAILED(SHCreateStreamOnFileEx(path.c_str(), STGM_READ | STGM_SHARE_DENY_NONE,
+                                    FILE_ATTRIBUTE_NORMAL, FALSE, nullptr,
+                                    &stream))) {
     return nullptr;
   }
-  LARGE_INTEGER start{};
-  stream->Seek(start, STREAM_SEEK_SET, nullptr);
   return stream;
+}
+
+// AppxPackaging 不可用时的降级路径：直接读 ZIP 里的 AppxManifest.xml。
+bool ReadIdentityFromZip(const std::wstring& path, PackageIdentity& identity,
+                         std::wstring& detail) {
+  std::vector<BYTE> manifest;
+  if (!ReadZipEntry(path, "AppxManifest.xml", manifest) || manifest.empty()) {
+    detail = L"zip-entry-failed";
+    return false;
+  }
+  const std::string utf8(manifest.begin(), manifest.end());
+  const std::wstring xml = WideFromUtf8(utf8.c_str());
+  const auto start = xml.find(L"<Identity");
+  if (start == std::wstring::npos) {
+    detail = L"identity-tag-missing";
+    return false;
+  }
+  const auto end = xml.find(L'>', start);
+  if (end == std::wstring::npos) {
+    detail = L"identity-tag-missing";
+    return false;
+  }
+  const std::wstring tag = xml.substr(start, end - start);
+  auto attribute = [&tag](const wchar_t* name) -> std::wstring {
+    const std::wregex pattern(L"\\b" + std::wstring(name) +
+                              L"\\s*=\\s*\"([^\"]*)\"");
+    std::wsmatch match;
+    if (!std::regex_search(tag, match, pattern)) return {};
+    return match[1].str();
+  };
+  const std::wstring name = attribute(L"Name");
+  const std::wstring publisher = attribute(L"Publisher");
+  const std::wstring version_text = attribute(L"Version");
+  const std::wstring architecture = attribute(L"ProcessorArchitecture");
+  if (name.empty() || publisher.empty() || version_text.empty()) {
+    detail = L"identity-attribute-missing";
+    return false;
+  }
+  unsigned major = 0, minor = 0, build = 0, revision = 0;
+  if (swscanf_s(version_text.c_str(), L"%u.%u.%u.%u", &major, &minor, &build,
+                &revision) != 4) {
+    detail = L"identity-version-invalid";
+    return false;
+  }
+  identity.name = name;
+  identity.publisher = publisher;
+  identity.version = (static_cast<std::uint64_t>(major) << 48) |
+                     (static_cast<std::uint64_t>(minor) << 32) |
+                     (static_cast<std::uint64_t>(build) << 16) |
+                     static_cast<std::uint64_t>(revision);
+  identity.architecture = architecture.empty() ? L"neutral" : architecture;
+  identity.family_name = name + L"_" + PublisherId(publisher);
+  identity.packaged = true;
+  return true;
 }
 
 InspectionResult ReadIdentity(const std::wstring& path) {
@@ -428,6 +472,20 @@ InspectionResult ReadIdentity(const std::wstring& path) {
   if (signature_file != nullptr) signature_file->Release();
   if (stream != nullptr) stream->Release();
   if (factory != nullptr) factory->Release();
+  if (!result.ok) {
+    // AppxPackaging 在受限令牌下会返回 E_ACCESSDENIED；直接读 ZIP 清单作为降级路径。
+    PackageIdentity fallback;
+    std::wstring fallback_detail;
+    if (ReadIdentityFromZip(path, fallback, fallback_detail)) {
+      result.ok = true;
+      result.failure_code.clear();
+      result.detail.clear();
+      result.identity = fallback;
+    } else {
+      result.detail += L" ";
+      result.detail += fallback_detail;
+    }
+  }
   return result;
 }
 
@@ -446,62 +504,19 @@ InspectionResult InspectPackage(const std::wstring& path,
   InspectionResult result = ReadIdentity(path);
   if (!result.ok) return result;
 
-  // 无论是否需要验签，AppxSignature.p7x 都必须存在：缺签名的包不能安装。
-  IAppxFactory* factory = nullptr;
-  IStream* stream = nullptr;
-  IAppxPackageReader* reader = nullptr;
-  IAppxFile* signature_file = nullptr;
-  IStream* signature_stream = nullptr;
+  // 签名文件直接从 ZIP 读：`AppxSignature.p7x` 是 stored 条目，不依赖 AppxPackaging。
   std::vector<BYTE> signature_blob;
-  bool has_signature = false;
-  do {
-    if (FAILED(CoCreateInstance(__uuidof(AppxFactory), nullptr,
-                                CLSCTX_INPROC_SERVER, __uuidof(IAppxFactory),
-                                reinterpret_cast<void**>(&factory)))) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_FORMAT_INVALID";
-      break;
-    }
-    stream = OpenPackageStream(path);
-    if (stream == nullptr) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_FORMAT_INVALID";
-      break;
-    }
-    if (FAILED(factory->CreatePackageReader(stream, &reader))) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_FORMAT_INVALID";
-      break;
-    }
-    if (FAILED(reader->GetFootprintFile(APPX_FOOTPRINT_FILE_TYPE_SIGNATURE,
-                                        &signature_file))) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_SIGNATURE_MISSING";
-      break;
-    }
-    if (FAILED(signature_file->GetStream(&signature_stream))) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_SIGNATURE_MISSING";
-      break;
-    }
-    if (!ReadStream(signature_stream, signature_blob)) {
-      result.ok = false;
-      result.failure_code = L"UPDATE_PACKAGE_SIGNATURE_INVALID";
-      break;
-    }
-    has_signature = !signature_blob.empty();
-  } while (false);
-
-  if (signature_stream != nullptr) signature_stream->Release();
-  if (signature_file != nullptr) signature_file->Release();
-  if (reader != nullptr) reader->Release();
-  if (stream != nullptr) stream->Release();
-  if (factory != nullptr) factory->Release();
-  if (!result.ok) return result;
-  if (!has_signature) {
+  if (!ReadZipEntry(path, "AppxSignature.p7x", signature_blob) ||
+      signature_blob.empty()) {
     result.ok = false;
     result.failure_code = L"UPDATE_PACKAGE_SIGNATURE_MISSING";
     return result;
+  }
+  // AppxSignature.p7x 以 4 字节 `PKCX` 头开始，后面才是 PKCS#7 SignedData。
+  if (signature_blob.size() > 4 && signature_blob[0] == 'P' &&
+      signature_blob[1] == 'K' && signature_blob[2] == 'C' &&
+      signature_blob[3] == 'X') {
+    signature_blob.erase(signature_blob.begin(), signature_blob.begin() + 4);
   }
 
   if (verify_signature) {

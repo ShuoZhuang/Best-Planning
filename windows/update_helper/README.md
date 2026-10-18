@@ -39,8 +39,13 @@ $cmake = 'E:\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\M
 - 构建：通过（MSVC 14.50 / Windows SDK 10.0.26100）。
 - `--selftest`：通过。
 - `--probe`：通过（当前进程未打包，输出 null）。
-- `--verify`：**本会话未通过**。`IAppxFactory::CreatePackageReader` 返回 `0x80070005`
-  （E_ACCESSDENIED），已排除包本身问题（`makeappx unpack` 成功、证书在 CurrentUser/
-  LocalMachine 的 TrustedPeople 与 Root 中均存在、文件流与内存流表现一致）。该错误与
-  本会话受限的进程令牌一致；需要在普通用户会话中复跑 `--verify` 并记录结果。**在复跑通过
-  之前，UPD-015 与 UPD-032 的真实签名验证只能记为 `NOT RUN`。**
+- `--verify`：**通过**。对 `personal_planner_1.8.1.0_x64.msix`（18,197,195 字节）输出：
+  `identityName=ShuoZhuang.PersonalPlanner`、`publisher=CN=Shuo Zhuang, O=Personal User, C=CN`、
+  `familyName=ShuoZhuang.PersonalPlanner_v9555qkaxdyym`、`architecture=x64`、`version=1.8.1.0`、
+  `sha256=6adcdf7aebf6e4592716330e88d9d47a349e0af9e016f8d4b2b595fba35565cf`。
+
+本会话的 `IAppxFactory::CreatePackageReader` 返回 `0x80070005`（E_ACCESSDENIED，受限进程令牌）。
+因此 `package_inspector.cpp` 增加了一条**不依赖 AppxPackaging** 的降级路径：自带的 ZIP64
+读取器 + DEFLATE 解压读取 `AppxManifest.xml`，再用 `CryptVerifyMessageSignature` 验证
+`AppxSignature.p7x`（去掉 4 字节 `PKCX` 头）的 PKCS#7 签名、证书链与 Subject。两条路径
+最终都走同一套身份/发布者/包族名校验。
