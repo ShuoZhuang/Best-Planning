@@ -5,6 +5,7 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 
@@ -20,6 +21,7 @@ final class TaskEditorPage extends StatefulWidget {
     required this.onCancel,
     this.workspace,
     this.taskId,
+    this.updateSafety,
     super.key,
   });
   final TaskService service;
@@ -29,6 +31,9 @@ final class TaskEditorPage extends StatefulWidget {
   final String timeZoneId;
   final DateTime nowUtc;
   final String? taskId;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
   final ValueChanged<PlannerTask> onSaved;
   final VoidCallback onCancel;
 
@@ -62,10 +67,38 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
   String? _clearedProjectName;
   bool _loading = true;
   bool _saving = false;
+  bool _dirty = false;
+
+  void _markDirty() {
+    if (_loading || _dirty) return;
+    _dirty = true;
+    setState(() {});
+  }
+
+  void _attachDirtyListeners() {
+    for (final controller in [
+      _title,
+      _minutes,
+      _notes,
+      _minChunk,
+      _maxChunk,
+      _window,
+    ]) {
+      // 只在**文本**变化时算脏：`TextEditingController` 也会因光标/选区变化通知，
+      // 那只是"正在看这一页"，不是未保存的编辑。
+      var previous = controller.text;
+      controller.addListener(() {
+        if (controller.text == previous) return;
+        previous = controller.text;
+        _markDirty();
+      });
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _attachDirtyListeners();
     _load();
   }
 
@@ -119,6 +152,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
             ? ''
             : '${_minute(window.startMinute)}-${_minute(window.endMinute)}';
         _loading = false;
+        _dirty = false;
       });
     } on Object catch (error) {
       if (mounted) {
@@ -132,6 +166,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
     for (final controller in [
       _title,
       _minutes,
@@ -164,15 +199,16 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           : TimeOfDay.fromDateTime(_dueLocal!),
     );
     if (time != null && mounted) {
-      setState(
-        () => _dueLocal = DateTime(
+      setState(() {
+        _dirty = true;
+        _dueLocal = DateTime(
           date.year,
           date.month,
           date.day,
           time.hour,
           time.minute,
-        ),
-      );
+        );
+      });
     }
   }
 
@@ -182,7 +218,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
       fallbackTime: const TimeOfDay(hour: 8, minute: 0),
     );
     if (value != null && mounted) {
-      setState(() => _availableFromLocal = value);
+      setState(() {
+        _dirty = true;
+        _availableFromLocal = value;
+      });
     }
   }
 
@@ -234,6 +273,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
         _clearedProjectName = null;
       }
       _projectCreationError = null;
+      _dirty = true;
     });
   }
 
@@ -257,6 +297,7 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
       _projectId = created.id;
       _newProjectName.clear();
       _projectCreationError = null;
+      _dirty = true;
     });
   }
 
@@ -336,6 +377,8 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           : await widget.service.updateDraft(widget.taskId!, draft);
       if (!mounted) return;
       if (result.task case final task?) {
+        _dirty = false;
+        widget.updateSafety?.setUnsavedChanges(false);
         widget.onSaved(task);
       } else {
         setState(() => _errors = result.fieldErrors);
@@ -350,6 +393,9 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
+    });
     // **M3（路线图 §7）信息层级**：滚动区只放表单本体，保存区挪到固定底栏。
     // 这样做的直接原因是 §7 的退出条件之一——"保存按钮在 100% 和 150% 缩放下始终可见"。
     // 保存按钮原本是滚动树的最后一个 `Wrap`，用户滚到"期望时段"一带就看不到它了，
@@ -492,7 +538,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
             ],
             onChanged: _saving || _areaId == null
                 ? null
-                : (value) => setState(() => _projectId = value),
+                : (value) => setState(() {
+                        _dirty = true;
+                        _projectId = value;
+                      }),
           ),
         ),
         if (_clearedProjectName != null) ...[
@@ -526,7 +575,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           buttonKey: 'task-available-from-button',
           error: _errors['availableFromUtc'],
           onPick: _pickAvailableFrom,
-          onClear: () => setState(() => _availableFromLocal = null),
+          onClear: () => setState(() {
+            _dirty = true;
+            _availableFromLocal = null;
+          }),
         ),
         const SizedBox(height: 20),
         _dateTimeField(
@@ -537,7 +589,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           buttonKey: 'task-due-at-button',
           error: _errors['dueAtUtc'],
           onPick: _pickDue,
-          onClear: () => setState(() => _dueLocal = null),
+          onClear: () => setState(() {
+            _dirty = true;
+            _dueLocal = null;
+          }),
         ),
         const SizedBox(height: 20),
         DropdownButtonFormField<TaskSplitMode>(
@@ -556,7 +611,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           ],
           onChanged: _saving
               ? null
-              : (value) => setState(() => _split = value!),
+              : (value) => setState(() {
+                  _dirty = true;
+                  _split = value!;
+                }),
         ),
         const SizedBox(height: 10),
         Text(
@@ -596,7 +654,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           ],
           onChanged: _saving
               ? null
-              : (value) => setState(() => _priority = value!),
+              : (value) => setState(() {
+                  _dirty = true;
+                  _priority = value!;
+                }),
         ),
         const SizedBox(height: 20),
         DropdownButtonFormField<TaskEnergyLevel>(
@@ -612,7 +673,10 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
           ],
           onChanged: _saving
               ? null
-              : (value) => setState(() => _energy = value!),
+              : (value) => setState(() {
+                  _dirty = true;
+                  _energy = value!;
+                }),
         ),
         const SizedBox(height: 20),
         if (_split == TaskSplitMode.splittable) ...[
@@ -886,3 +950,5 @@ String _minute(int minute) =>
 String _formatLocal(DateTime value) =>
     '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
     '${_minute(value.hour * 60 + value.minute)}';
+
+

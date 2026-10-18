@@ -131,7 +131,12 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _weekdays = {start.weekday};
     // 预填标题（可能为空串）：带默认值而不是可空，表单因此不必在渲染时判空。
     _titleController.text = widget.initialTitle;
-    _titleController.addListener(_markDirty);
+    var previousTitle = _titleController.text;
+    _titleController.addListener(() {
+      if (_titleController.text == previousTitle) return;
+      previousTitle = _titleController.text;
+      _markDirty();
+    });
     // **时间用类型化字段承载，不再用文本框**（1.8.0，规范 §2.7／§8.1）：
     // 此前这里是四个 `TextEditingController`，用户得自己敲 `YYYY-MM-DD` 与 `HH:mm`，
     // 而项目里早就有 `plannerPickerBuilder`。日期与时间现在由选择器给出，

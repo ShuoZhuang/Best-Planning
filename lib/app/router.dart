@@ -732,6 +732,7 @@ GoRouter createPlannerRouter({
               onSaved: (task) => context.go('/tasks/${task.id}'),
               // 规范 §7.1：返回按钮回到**发起入口**，而不是回到一个中间页。
               onCancel: () => context.go('/new'),
+              updateSafety: updateController?.safety,
             ),
           ),
           if (recurringTasks != null) ...[
@@ -790,6 +791,7 @@ GoRouter createPlannerRouter({
               onSaved: (task) => context.go('/tasks/${task.id}'),
               onCancel: () =>
                   context.go('/tasks/${state.pathParameters['taskId']}'),
+              updateSafety: updateController?.safety,
             ),
           ),
           GoRoute(

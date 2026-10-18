@@ -159,8 +159,18 @@ final class _ProtectedTimeEditorPageState
     _notesController = TextEditingController(
       text: series?.notes ?? widget.initialNotes,
     );
-    _titleController.addListener(_markDirty);
-    _notesController.addListener(_markDirty);
+    var previousTitle = _titleController.text;
+    _titleController.addListener(() {
+      if (_titleController.text == previousTitle) return;
+      previousTitle = _titleController.text;
+      _markDirty();
+    });
+    var previousNotes = _notesController.text;
+    _notesController.addListener(() {
+      if (_notesController.text == previousNotes) return;
+      previousNotes = _notesController.text;
+      _markDirty();
+    });
     _range = LocalDateRangeController(
       startDate: localStartDate,
       startTime: startTime,
