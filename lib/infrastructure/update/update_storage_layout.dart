@@ -11,7 +11,18 @@ import 'package:personal_planner/domain/update/update_version.dart';
 final class UpdateStorageLayout {
   UpdateStorageLayout({required this.root});
 
+  /// 由 `WindowsUpdateStorage` 解析出的根构造。
+  ///
+  /// [resolvedRoot] 已经包含一次 `BestPlanning\Updates`，这里**不再追加**，避免出现
+  /// `Updates\BestPlanning\Updates` 这样的双层目录。
+  factory UpdateStorageLayout.fromResolvedRoot(String resolvedRoot) =>
+      UpdateStorageLayout(root: Directory(resolvedRoot));
+
   /// `%LOCALAPPDATA%\BestPlanning\Updates\`。
+  ///
+  /// **只用于未打包的便携版、纯 Dart 测试与旧目录迁移**。已安装的 MSIX 必须走
+  /// `WindowsUpdateStorage.resolveRoot()`，否则写入会被文件系统重定向到受保护目录
+  /// （实施计划 §9.2.1）。
   factory UpdateStorageLayout.localAppData({
     String? localAppData,
     String productDirectory = 'BestPlanning',

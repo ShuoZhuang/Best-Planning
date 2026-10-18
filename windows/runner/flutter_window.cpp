@@ -5,6 +5,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 #include "timetable_ocr_channel.h"
+#include "update_storage_channel.h"
 #include "window_channel.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -30,6 +31,8 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   RegisterTimetableOcrChannel(flutter_controller_->engine()->messenger());
   RegisterWindowChannel(flutter_controller_->engine()->messenger(), this);
+  // 更新器的缓存根必须来自包身份，而不是被重定向的 %LOCALAPPDATA%（规格 §9.2.1）。
+  RegisterUpdateStorageChannel(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // The tray icon exists for the whole process lifetime: it is the only way back to a

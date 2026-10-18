@@ -283,6 +283,90 @@ void main() {
       UpdateFailureCode.manifestSourceNotAllowed,
     );
   });
+
+  // ── 落盘失败与恢复（实施计划 §9.3 / §9.5）─────────────────────────────────
+
+  test('完整且哈希正确的 .partial 提升失败：保留分段、报告细节、不重新下载', () async {
+    final body = _bytes(4096);
+    server.body = body;
+    final target = targetFor(body);
+    final partial = await partialPath(target);
+    await File(partial).writeAsBytes(body);
+    // `.ready` 位置被目录占住 → 提升必然失败。
+    await Directory(readyPath(target)).create();
+
+    final outcome = await downloader().download(
+      target: target,
+      partialPath: partial,
+      readyPath: readyPath(target),
+      shouldCancel: () => false,
+      onProgress: (_, _) {},
+    );
+
+    expect(outcome.isSuccess, isFalse);
+    expect(outcome.failure!.code, UpdateFailureCode.downloadPromotionFailed);
+    expect(outcome.failure!.detail, contains('op=promote'));
+    expect(outcome.failure!.windowsResultCode, isNotNull);
+    expect(await File(partial).readAsBytes(), body, reason: '已验证的字节不能被删除');
+    expect(
+      server.requests,
+      isEmpty,
+      reason: '提升失败不是重新下载的理由（下一次启动再试）',
+    );
+  });
+
+  test('重启后只用 .partial 完成提升，不发起任何 HTTP 请求', () async {
+    final body = _bytes(2048);
+    server.body = body;
+    final target = targetFor(body);
+    final partial = await partialPath(target);
+    await File(partial).writeAsBytes(body);
+
+    final outcome = await downloader().download(
+      target: target,
+      partialPath: partial,
+      readyPath: readyPath(target),
+      shouldCancel: () => false,
+      onProgress: (_, _) {},
+    );
+
+    expect(outcome.isSuccess, isTrue, reason: '${outcome.failure?.code}');
+    expect(await File(partial).exists(), isFalse);
+    expect(await File(readyPath(target)).readAsBytes(), body);
+    expect(server.requests, isEmpty);
+  });
+
+  test('解除占用后无需重新下载即可恢复', () async {
+    final body = _bytes(1024);
+    server.body = body;
+    final target = targetFor(body);
+    final partial = await partialPath(target);
+    await File(partial).writeAsBytes(body);
+    final blocked = Directory(readyPath(target));
+    await blocked.create();
+
+    final first = await downloader().download(
+      target: target,
+      partialPath: partial,
+      readyPath: readyPath(target),
+      shouldCancel: () => false,
+      onProgress: (_, _) {},
+    );
+    expect(first.failure!.code, UpdateFailureCode.downloadPromotionFailed);
+    expect(await File(partial).exists(), isTrue);
+
+    await blocked.delete();
+    final second = await downloader().download(
+      target: target,
+      partialPath: partial,
+      readyPath: readyPath(target),
+      shouldCancel: () => false,
+      onProgress: (_, _) {},
+    );
+    expect(second.isSuccess, isTrue, reason: '${second.failure?.code}');
+    expect(await File(readyPath(target)).readAsBytes(), body);
+    expect(server.requests, isEmpty);
+  });
 }
 
 List<int> _bytes(int length) =>

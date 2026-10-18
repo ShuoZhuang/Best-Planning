@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
+import 'package:personal_planner/infrastructure/update/atomic_file.dart';
 import 'package:personal_planner/infrastructure/update/file_update_state_store.dart';
 import 'package:personal_planner/infrastructure/update/update_log_store.dart';
 
@@ -70,6 +71,38 @@ void main() {
       await store.reset();
       expect(await file.exists(), isFalse);
       expect((await store.load()).phase, UpdatePhase.idle);
+    });
+
+    test('覆盖失败时保留最后一份有效状态，并抛出带细节的落盘错误', () async {
+      final file = File('${directory.path}${Platform.pathSeparator}state.json');
+      final store = FileUpdateStateStore(file: file);
+      await store.save(const UpdateState(phase: UpdatePhase.ready));
+      final before = await file.readAsString();
+
+      // 占住目标文件：保存必须失败，但不能损坏旧内容。
+      final handle = await file.open(mode: FileMode.append);
+      try {
+        await expectLater(
+          store.save(const UpdateState(phase: UpdatePhase.updateAvailable)),
+          throwsA(isA<AtomicFileException>()),
+        );
+      } finally {
+        await handle.close();
+      }
+
+      expect(await file.readAsString(), before);
+      expect(
+        directory
+            .listSync()
+            .whereType<File>()
+            .where((entry) => entry.path.endsWith('.tmp'))
+            .toList(),
+        isEmpty,
+      );
+
+      // 解除占用后保存成功。
+      await store.save(const UpdateState(phase: UpdatePhase.ready));
+      expect((await store.load()).phase, UpdatePhase.ready);
     });
   });
 

@@ -21,7 +21,8 @@ param(
   [string]$SigningThumbprint = '9E157ECE535D16A224593CA39C084705A4FD3C13',
   [switch]$SkipHelperBuild,
   [switch]$SkipFlutterBuild,
-  [switch]$SkipSign
+  [switch]$SkipSign,
+  [switch]$SkipUpdateStorageAcceptance
 )
 
 $ErrorActionPreference = 'Stop'
@@ -154,6 +155,7 @@ try {
     MsixVersion = $MsixVersion
   }
   if (-not $SkipSign -and $SigningThumbprint) { $gateParams.RequireSignature = $true }
+  if ($SkipUpdateStorageAcceptance) { $gateParams.SkipUpdateStorageAcceptance = $true }
   & (Join-Path $PSScriptRoot 'verify_release_assets.ps1') @gateParams
   if ($LASTEXITCODE -ne 0) { throw '发布门禁未通过' }
 

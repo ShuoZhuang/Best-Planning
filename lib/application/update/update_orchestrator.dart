@@ -19,6 +19,7 @@ import 'package:personal_planner/domain/update/update_ports.dart';
 import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
+import 'package:personal_planner/infrastructure/update/atomic_file.dart';
 import 'package:personal_planner/infrastructure/update/update_storage_layout.dart';
 
 /// 下载前/安装前的磁盘安全余量：至少 `max(500 MB, 安装包大小 × 2)`（规格 §8.5）。
@@ -950,6 +951,26 @@ final class UpdateOrchestrator {
   Future<void> _persist() async {
     try {
       await stateStore.save(_state);
+    } on AtomicFileException catch (error) {
+      // 状态写不进去时**不能只留一个错误码**：日志要能看出是哪个文件、哪一步、
+      // 什么 Windows 错误；界面仍然只显示稳定文案（规格 §9.2.6）。
+      log.write(
+        UpdateFailure(
+          UpdateFailureCode.stateWriteFailed,
+          detail: error.diagnosticDetail,
+          windowsResultCode: error.osErrorCode,
+          occurredAtUtc: clock.nowUtc(),
+        ),
+      );
+    } on FileSystemException catch (error) {
+      log.write(
+        UpdateFailure(
+          UpdateFailureCode.stateWriteFailed,
+          detail: 'op=write state.json os=${error.osError?.errorCode ?? 0}',
+          windowsResultCode: error.osError?.errorCode,
+          occurredAtUtc: clock.nowUtc(),
+        ),
+      );
     } on Object {
       log.write(
         UpdateFailure(

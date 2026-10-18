@@ -107,6 +107,35 @@ try {
   $record.dataPreserved = ($record.dataBefore -eq $record.dataAfter)
   Add-Step '数据指纹对比' $(if ($record.dataPreserved) { 'PASS' } else { 'FAIL' })
 
+  # 安装态更新存储自检（实施计划 §9.6）：以包身份跑真实的 state.json 覆盖写与
+  # `.partial → .ready` 提升，证明缓存根不在被重定向的 %LOCALAPPDATA% 下。
+  $installedPackage = Get-AppxPackage -PackageTypeFilter Main |
+    Where-Object { $_.PackageFamilyName -eq $packageFamily }
+  if ($installedPackage -and $installedPackage.InstallLocation) {
+    $exe = Join-Path $installedPackage.InstallLocation 'personal_planner.exe'
+    if (Test-Path $exe) {
+      $reportPath = Join-Path $OutputDirectory 'update-storage-selftest.json'
+      if (Test-Path $reportPath) { Remove-Item $reportPath -Force }
+      $env:PLANNER_UPDATE_STORAGE_SELFTEST = $reportPath
+      try {
+        $selfTest = Start-Process -FilePath $exe -Wait -PassThru
+        if (Test-Path $reportPath) {
+          $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Add-Step '安装态更新存储自检' $(if ($report.ok) { 'PASS' } else { 'FAIL' }) $report.root
+          $record.updateStorage = $report
+        } else {
+          Add-Step '安装态更新存储自检' 'FAIL' "没有生成报告（exit $($selfTest.ExitCode)）"
+        }
+      } finally {
+        Remove-Item Env:PLANNER_UPDATE_STORAGE_SELFTEST -ErrorAction SilentlyContinue
+      }
+    } else {
+      Add-Step '安装态更新存储自检' 'NOT RUN' "找不到 $exe"
+    }
+  } else {
+    Add-Step '安装态更新存储自检' 'NOT RUN' '没有已安装的包'
+  }
+
   # 启动新版：由人确认主界面可用后，再运行应用的"检查更新"页确认健康。
   Add-Step '启动并检查界面' 'MANUAL' '请手动启动应用，确认主界面、任务、日历可用'
 }

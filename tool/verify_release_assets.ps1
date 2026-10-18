@@ -8,7 +8,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Version,
   [Parameter(Mandatory = $true)][int]$Build,
   [string]$MsixVersion = '',
-  [switch]$RequireSignature
+  [switch]$RequireSignature,
+  [string]$UpdateStorageAcceptance = 'docs/testing/v1.10.0-packaged-update-storage-acceptance.md',
+  [switch]$SkipUpdateStorageAcceptance
 )
 
 $ErrorActionPreference = 'Stop'
@@ -136,6 +138,23 @@ if ($RequireSignature) {
   $signature = Get-AuthenticodeSignature -LiteralPath $setupPath
   Assert ($signature.Status -eq 'Valid') "Setup 签名状态是 $($signature.Status)"
   Assert ($null -ne $signature.TimeStamperCertificate) 'Setup 签名缺少可信时间戳'
+}
+
+# ── 安装态更新存储验收（实施计划 §9.6）：缺证据或不是 PASS 时阻止发布 ──────
+if (-not $SkipUpdateStorageAcceptance) {
+  $acceptancePath = if ([System.IO.Path]::IsPathRooted($UpdateStorageAcceptance)) {
+    $UpdateStorageAcceptance
+  } else {
+    Join-Path $root $UpdateStorageAcceptance
+  }
+  if (-not (Test-Path $acceptancePath)) {
+    Add-Problem "缺少安装态更新存储验收记录：$UpdateStorageAcceptance"
+  } else {
+    $acceptance = Get-Content -LiteralPath $acceptancePath -Raw -Encoding UTF8
+    if ($acceptance -notmatch '(?m)^结论：PASS\s*$') {
+      Add-Problem '安装态更新存储验收记录不是 PASS（结论：PASS）'
+    }
+  }
 }
 
 $result = [ordered]@{

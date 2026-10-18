@@ -94,6 +94,8 @@ import 'package:personal_planner/platform/update/windows_disk_space_probe.dart';
 import 'package:personal_planner/platform/update/windows_package_info.dart';
 import 'package:personal_planner/platform/update/windows_process_probe.dart';
 import 'package:personal_planner/platform/update/windows_update_helper.dart';
+import 'package:personal_planner/platform/update/update_storage_selftest.dart';
+import 'package:personal_planner/platform/update/windows_update_storage.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -110,6 +112,15 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 /// `EmptyScheduleViewSource`，因此排程链路在真实运行中完全不可达（偏差 W1–W2）。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 已安装 MSIX 内的更新落盘自检（实施计划 §9.6）：只在设置了报告路径时运行，
+  // 跑完直接退出，不进入界面。正式用户环境不会触发。
+  final updateStorageSelfTestReport =
+      Platform.environment[updateStorageSelfTestEnvironmentKey];
+  if (updateStorageSelfTestReport != null &&
+      updateStorageSelfTestReport.isNotEmpty) {
+    exit(await runPackagedUpdateStorageSelfTest(updateStorageSelfTestReport));
+  }
 
   final appUserModelId = currentApplicationUserModelId(
     onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
@@ -300,9 +311,39 @@ Future<void> main() async {
 
   // ── 原生自更新（2026-10-18 设计规格 §5 / §7 / §8）──────────────────────────
   //
-  // 装配顺序固定：目录 → 清单来源（验签 + 缓存）→ 状态/日志 → 编排器 → 界面控制器。
+  // 装配顺序固定：缓存根 → 目录 → 清单来源（验签 + 缓存）→ 状态/日志 → 编排器 → 界面控制器。
   // 更新目录之外的业务数据不参与，也不允许被这条链读写。
-  final updateLayout = UpdateStorageLayout.localAppData();
+  //
+  // **缓存根必须先按包身份解析**（实施计划 §9.2.1）：已安装的 MSIX 下 `%LOCALAPPDATA%`
+  // 会被文件系统重定向到受保护目录，`.partial → .ready` 与 `state.json` 替换都会被拒绝。
+  // 已打包但原生解析失败时**不回退**：本次启动关闭应用内更新，并留下诊断。
+  ResolvedUpdateRoot? resolvedUpdateRoot;
+  UpdateStorageException? updateStorageFailure;
+  try {
+    resolvedUpdateRoot = await WindowsUpdateStorage().resolveRoot();
+  } on UpdateStorageException catch (error) {
+    updateStorageFailure = error;
+  }
+  final nativeUpdaterAvailable =
+      nativeUpdaterEnabled && resolvedUpdateRoot != null;
+  diagnostics.write(
+    resolvedUpdateRoot != null
+        ? '更新目录：root=${resolvedUpdateRoot.path} '
+              'source=${resolvedUpdateRoot.source}'
+              '${resolvedUpdateRoot.reason.isEmpty ? '' : ' reason=${resolvedUpdateRoot.reason}'}'
+        : '更新目录不可用：${updateStorageFailure?.diagnostic}（应用内更新本次不启用）',
+  );
+  final updateLayout = UpdateStorageLayout(
+    root: Directory(
+      resolvedUpdateRoot?.path ??
+          [
+            Directory.systemTemp.path,
+            'BestPlanning',
+            'Updates',
+            'disabled',
+          ].join(Platform.pathSeparator),
+    ),
+  );
   final updateManifestVerifier = Ed25519ManifestVerifier();
   final updateMainHelper = WindowsUpdateHelper(layout: updateLayout);
   final updateInstalledPackages = WindowsInstalledPackageProvider(updateMainHelper);
@@ -378,12 +419,16 @@ Future<void> main() async {
     safety: updateSafety,
   );
   // 启动恢复只读状态文件与包身份，不发网络请求；失败也不阻止应用启动。
-  await updateController.initialize();
+  // 缓存根解析失败时不初始化：宁可这次不检查更新，也不写进一个会被重定向的目录。
+  if (nativeUpdaterAvailable) {
+    await updateController.initialize();
+  }
   // 如果这次启动正是"助手装完新版后拉起来"的那一次，写健康确认（规格 §13.2）。
   final recoveredState = updateController.state;
   final recoveredTarget = recoveredState.target;
   final recoveredTransaction = recoveredState.transactionId;
-  if (recoveredTarget != null &&
+  if (nativeUpdaterAvailable &&
+      recoveredTarget != null &&
       recoveredTransaction != null &&
       updateController.installed?.version == recoveredTarget.msixVersion &&
       (recoveredState.phase == UpdatePhase.installing ||
@@ -395,7 +440,7 @@ Future<void> main() async {
     );
   }
   // 后台建立回退基线（规格 §13.3）：基线完成前禁止安装，但允许下载新版本。
-  if (nativeUpdaterEnabled && updateController.autoUpdateEnabled) {
+  if (nativeUpdaterAvailable && updateController.autoUpdateEnabled) {
     unawaited(updateController.ensureBaseline());
   }
 
@@ -950,10 +995,10 @@ Future<void> main() async {
         backups: backups,
         erasure: erasure,
         // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
-        updateController: nativeUpdaterEnabled ? updateController : null,
+        updateController: nativeUpdaterAvailable ? updateController : null,
         // M6：周期目标的生成、结算与三条路由（§3.3）。
         recurringTasks: recurringTasks,
-        updateCheckScheduler: nativeUpdaterEnabled ? updateCheckScheduler : null,
+        updateCheckScheduler: nativeUpdaterAvailable ? updateCheckScheduler : null,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),

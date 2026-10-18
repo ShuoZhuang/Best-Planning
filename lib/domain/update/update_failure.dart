@@ -69,6 +69,9 @@ enum UpdateFailureCode {
   downloadPermissionDenied(
       'UPDATE_DOWNLOAD_PERMISSION_DENIED', UpdateStage.download,
       retryable: false, message: '没有权限写入更新文件'),
+  downloadPromotionFailed(
+      'UPDATE_DOWNLOAD_PROMOTION_FAILED', UpdateStage.download,
+      retryable: true, message: '更新包已经下载完成，正在等待完成落盘'),
   downloadRangeRejected('UPDATE_DOWNLOAD_RANGE_REJECTED', UpdateStage.download,
       retryable: true, message: '断点续传被服务器拒绝'),
   downloadRemoteChanged('UPDATE_DOWNLOAD_REMOTE_CHANGED', UpdateStage.download,
