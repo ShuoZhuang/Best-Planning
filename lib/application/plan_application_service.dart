@@ -2,6 +2,7 @@ import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -16,6 +17,7 @@ final class PlanApplicationService {
     required TimeZoneDatabase zones,
     this.snapshots = const InputSnapshotBuilder(),
     this.onPlanChanged,
+    this.updateSafety,
   }) : _validator = PlanValidator(zones);
 
   final ScheduleProblemSource source;
@@ -29,6 +31,9 @@ final class PlanApplicationService {
   /// `syncNextSevenDays()`），因此**应用开着的时候新建任务、改计划都不会重排提醒**——已排的
   /// 提醒会与当前计划不一致。组合根用它来重新同步。
   final Future<void> Function()? onPlanChanged;
+
+  /// 计划应用期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   /// 应用一份提案（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
   ///
@@ -49,6 +54,18 @@ final class PlanApplicationService {
   /// 被写进用户计划的一类。`allowPartial` 只适用于"装不下"，不适用于"排程器自己没排好"，
   /// 因此这里对 `proposal.conflicts` 的检查**在任何模式下都不可绕过**。
   Future<ApplyPlanResult> apply(
+    ScheduleProposal proposal, {
+    PlanApplyMode mode = PlanApplyMode.completeOnly,
+  }) async {
+    final lease = updateSafety?.begin(UpdateBlocker.planApplying);
+    try {
+      return await _apply(proposal, mode: mode);
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<ApplyPlanResult> _apply(
     ScheduleProposal proposal, {
     PlanApplyMode mode = PlanApplyMode.completeOnly,
   }) async {

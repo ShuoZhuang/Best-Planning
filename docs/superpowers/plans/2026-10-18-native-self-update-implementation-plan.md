@@ -229,6 +229,7 @@ tool/verify_update_manifest.dart 下载后复验
 - UPD-021：主程序侧（文件锁 + 同进程互斥 + PID/启动时间记录）与助手侧锁均已实现，并有自动测试。
 - UPD-026：已加静态门禁 `test/architecture/update_no_popup_test.dart`（更新相关代码不得出现 showDialog/底部弹层/ScaffoldMessenger/系统通知/直接 launchUrl），设置页打开说明失败改为行内文本，不再用 SnackBar。
 - UPD-028：规划规则页、课程编辑页、固定日程编辑器、保护时间编辑器、任务编辑器、周期目标编辑器与任务详情页内联草稿（期望时段/剩余分钟）已接入（帧后汇报，保存/离开时清除；文本监听只在文本变化时算脏，光标/选区变化不误报；纯查看有测试）。设置页为即时保存或模态对话框，不产生页面级未保存状态。
+- UPD-029：`UpdateSafetyCoordinator.begin()` 提供**引用计数租约**（`UpdateBlockerLease`），重叠操作全部释放后才解除。生产接线在服务层：`PlanApplicationService.apply`、`PlanUndoService.undoLastAppliedPlan`（planApplying）、`TimetableImportService.commit/rollback`（importRunning）、`BackupService.create/restore` 与 `createPreMigrationSnapshotIfNeeded`（backupRunning）、`DataErasureService.eraseAll`（databaseTransaction）；组合根把同一个 `InMemoryUpdateSafetyCoordinator` 传给它们。安装器在启动助手前**再次读取**安全状态，覆盖“检查通过后事务才开始”的竞态。测试覆盖每条入口的阻塞/成功/异常/取消解除、两个重叠导入、阻塞期间不启动助手、解除后直接重试、以及组合根实例一致性。
 - UPD-034、038、040：AUMID 启动、自动回退与最小恢复窗口的代码路径已写，回退基线的建立与校验有自动测试；`--apply --dry-run` 只覆盖部署前，真实部署/启动/回退演练未执行。
 - UPD-036：迁移本身在 drift 事务中执行且既有迁移测试覆盖；本期未新增"迁移失败 → 回退"的端到端证据。
 - UPD-039：已实现——同一目标连续三次下载/验证失败后改为 `UPDATE_DOWNLOAD_RETRY_EXHAUSTED`（不可重试、无下次时间）；回退过的版本写入 `pausedTargetVersion`，再次检查不会自动下载，只有用户显式重试才恢复。
@@ -282,7 +283,7 @@ tool/verify_update_manifest.dart 下载后复验
 | UPD-026 | `update_no_popup_test`：`正常流程无弹窗/通知/浏览器跳转` | 界面/架构 | 待实现 |
 | UPD-027 | `update_safety_coordinator_test`：`未保存编辑禁用安装且不丢内容` | 单元/界面 | 待实现 |
 | UPD-028 | `update_safety_coordinator_test`：`纯查看不误判为脏` | 单元/界面 | 待实现 |
-| UPD-029 | `update_safety_coordinator_test`：`业务事务结束后自动解除阻塞` | 单元 | 待实现 |
+| UPD-029 | `update_safety_test` 的租约重叠、各服务阻塞/解除测试、`update_orchestrator_test` 的二次检查 | 单元/集成 | PASS（2026-10-18 接线） |
 | UPD-030 | `update_safety_coordinator_test`：`专注状态不参与阻塞` | 单元 | 待实现 |
 | UPD-031 | `update_helper_request_test`：`过期/重放/越界路径/令牌错误被拒绝` | 单元/原生 | 待实现 |
 | UPD-032 | `update_package_verifier_test`：`助手安装前独立二次验证` | 原生 | 待实现 |
@@ -368,6 +369,7 @@ tool/verify_update_manifest.dart 下载后复验
 - 旧 GitHub Releases API 链路已删除（UPD-048）。
 - 正常流程无弹窗、无系统通知、无浏览器跳转。
 - 安装失败保留旧版本；启动失败按 §13.4 回退（真实环境记录）。
+
 
 
 

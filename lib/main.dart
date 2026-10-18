@@ -171,10 +171,12 @@ Future<void> main() async {
   //
   // 失败时**直接中止启动**（异常带可操作的中文提示）：迁移前的那份库是用户唯一的
   // 一份数据，宁可这次打不开，也不要带病迁过去。
+  final updateSafety = InMemoryUpdateSafetyCoordinator();
   try {
     final snapshot = await createPreMigrationSnapshotIfNeeded(
       databasePath,
       plannerSchemaVersion,
+      updateSafety: updateSafety,
     );
     diagnostics.write(
       snapshot == null
@@ -223,6 +225,7 @@ Future<void> main() async {
   final appVersions = const PackageInfoAppVersionProvider();
   final backups = await buildBackupService(
     database: database,
+    updateSafety: updateSafety,
     clock: clock,
     databasePath: databasePath,
     versions: () async {
@@ -312,7 +315,6 @@ Future<void> main() async {
     verifier: updateManifestVerifier,
   );
   final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
-  final updateSafety = InMemoryUpdateSafetyCoordinator();
   final updateHealth = UpdateHealthService(layout: updateLayout, clock: clock);
   final updateSnapshotService = UpdateSnapshotService(
     layout: updateLayout,
@@ -608,6 +610,7 @@ Future<void> main() async {
   );
   final timetableImport = TimetableImportService(
     calendarRepository: calendarRepository,
+    updateSafety: updateSafety,
     zones: zones,
     importRepository: DriftTimetableImportRepository(
       database,
@@ -646,6 +649,7 @@ Future<void> main() async {
   // 因此界面必须如实说"重启后生效"。
   final erasure = buildDataErasureService(
     database: database,
+    updateSafety: updateSafety,
     databasePath: databasePath,
     notifications: notifications,
     credentials: SettingsAppLockCredentialStore(settingsRepository),
@@ -764,6 +768,7 @@ Future<void> main() async {
   // 与顶栏"生成计划"按钮走的是同一个应用入口，"信任自动调整"的两条路径因此不会各写一份。
   final planApplication = PlanApplicationService(
     source: problemSource,
+    updateSafety: updateSafety,
     repository: planRepository,
     zones: zones,
     // B5：计划被真的改变后重新同步提醒。

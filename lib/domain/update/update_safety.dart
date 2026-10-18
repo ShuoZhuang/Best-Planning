@@ -88,6 +88,14 @@ final class UpdateSafetyStatus {
       'UpdateSafetyStatus(${blockers.map((b) => b.name).join(',')})';
 }
 
+/// 一次"正在发生"的阻塞租约。调用方在 `finally` 里释放；重复释放无副作用。
+///
+/// 用租约而不是布尔值：两个并发的导入/备份各持一份租约，第一个结束时计数只减一，
+/// 阻塞仍然存在，直到最后一个也结束。
+abstract interface class UpdateBlockerLease {
+  void release();
+}
+
 /// 业务层向更新子系统报告"现在有什么正在发生"的端口。
 ///
 /// 刻意只有一组布尔事实，没有 `String` 原因：界面文案由 [UpdateBlocker] 统一给出，
@@ -98,6 +106,12 @@ abstract interface class UpdateSafetyCoordinator {
 
   /// 状态变化流；界面用它刷新左下角入口与状态卡片。
   Stream<UpdateSafetyStatus> get changes;
+
+  /// 申请一份阻塞租约。适用于可能重叠的异步操作：每个操作各持一份，全部释放后才解除。
+  ///
+  /// 调用方必须用 `try/finally` 释放；重复调用同一个租约的 [UpdateBlockerLease.release]
+  /// 不会多减计数。
+  UpdateBlockerLease begin(UpdateBlocker blocker);
 
   /// 报告未保存编辑是否处于激活状态（任务、周期目标、固定日程、课程、设置等表单）。
   void setUnsavedChanges(bool active);
@@ -127,10 +141,16 @@ abstract interface class UpdateSafetyCoordinator {
 }
 
 /// 可测试的安全协调器：纯内存、同步通知。
+///
+/// 手工布尔（表单未保存、安装器占用、磁盘空间）与租约计数**分开维护**：表单反复调用
+/// `setUnsavedChanges(true/false)` 不会泄漏计数；服务层的重叠操作则用 [begin] 租约。
 final class InMemoryUpdateSafetyCoordinator implements UpdateSafetyCoordinator {
   final StreamController<UpdateSafetyStatus> _controller =
       StreamController<UpdateSafetyStatus>.broadcast();
+  final Set<UpdateBlocker> _manual = <UpdateBlocker>{};
+  final Map<UpdateBlocker, int> _leaseCounts = <UpdateBlocker, int>{};
   UpdateSafetyStatus _status = const UpdateSafetyStatus.safe();
+  bool _disposed = false;
 
   @override
   UpdateSafetyStatus get status => _status;
@@ -139,45 +159,91 @@ final class InMemoryUpdateSafetyCoordinator implements UpdateSafetyCoordinator {
   Stream<UpdateSafetyStatus> get changes => _controller.stream;
 
   @override
+  UpdateBlockerLease begin(UpdateBlocker blocker) {
+    _leaseCounts[blocker] = (_leaseCounts[blocker] ?? 0) + 1;
+    _recompute();
+    return _Lease(this, blocker);
+  }
+
+  @override
   void setUnsavedChanges(bool active) =>
-      _set(UpdateBlocker.unsavedChanges, active);
+      _setManual(UpdateBlocker.unsavedChanges, active);
 
   @override
   void setDatabaseTransaction(bool active) =>
-      _set(UpdateBlocker.databaseTransaction, active);
+      _setManual(UpdateBlocker.databaseTransaction, active);
 
   @override
   void setPlanApplying(bool active) =>
-      _set(UpdateBlocker.planApplying, active);
+      _setManual(UpdateBlocker.planApplying, active);
 
   @override
-  void setImportRunning(bool active) => _set(UpdateBlocker.importRunning, active);
+  void setImportRunning(bool active) =>
+      _setManual(UpdateBlocker.importRunning, active);
 
   @override
-  void setBackupRunning(bool active) => _set(UpdateBlocker.backupRunning, active);
+  void setBackupRunning(bool active) =>
+      _setManual(UpdateBlocker.backupRunning, active);
 
   @override
-  void setInstallerBusy(bool active) => _set(UpdateBlocker.installerBusy, active);
+  void setInstallerBusy(bool active) =>
+      _setManual(UpdateBlocker.installerBusy, active);
 
   @override
   void setRollbackNotReady(bool active) =>
-      _set(UpdateBlocker.rollbackNotReady, active);
+      _setManual(UpdateBlocker.rollbackNotReady, active);
 
   @override
-  void setDiskSpaceLow(bool active) => _set(UpdateBlocker.diskSpaceLow, active);
+  void setDiskSpaceLow(bool active) =>
+      _setManual(UpdateBlocker.diskSpaceLow, active);
 
-  void _set(UpdateBlocker blocker, bool active) {
-    final next = _status.withBlocker(blocker, active: active);
-    if (_setEquals(next.blockers, _status.blockers)) return;
+  void _setManual(UpdateBlocker blocker, bool active) {
+    final changed = active ? _manual.add(blocker) : _manual.remove(blocker);
+    if (changed) _recompute();
+  }
+
+  void _releaseLease(UpdateBlocker blocker) {
+    final count = _leaseCounts[blocker];
+    if (count == null || count <= 1) {
+      _leaseCounts.remove(blocker);
+    } else {
+      _leaseCounts[blocker] = count - 1;
+    }
+    _recompute();
+  }
+
+  void _recompute() {
+    final next = UpdateSafetyStatus(
+      blockers: Set.unmodifiable({..._manual, ..._leaseCounts.keys}),
+    );
+    if (next.blockers.length == _status.blockers.length &&
+        next.blockers.containsAll(_status.blockers)) {
+      return;
+    }
     _status = next;
-    _controller.add(next);
+    if (!_disposed) _controller.add(next);
   }
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _controller.close();
   }
 }
 
-bool _setEquals<T>(Set<T> a, Set<T> b) =>
-    a.length == b.length && a.containsAll(b);
+final class _Lease implements UpdateBlockerLease {
+  _Lease(this._owner, this._blocker);
+
+  final InMemoryUpdateSafetyCoordinator _owner;
+  final UpdateBlocker _blocker;
+  bool _released = false;
+
+  @override
+  void release() {
+    if (_released) return;
+    _released = true;
+    _owner._releaseLease(_blocker);
+  }
+}
+

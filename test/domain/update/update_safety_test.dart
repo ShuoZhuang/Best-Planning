@@ -88,4 +88,35 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(coordinator.status.canInstall, isTrue);
   });
+
+  test('重叠租约：全部释放后才解除阻塞（UPD-029）', () {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final first = safety.begin(UpdateBlocker.importRunning);
+    expect(safety.status.blockers, contains(UpdateBlocker.importRunning));
+
+    final second = safety.begin(UpdateBlocker.importRunning);
+    first.release();
+    expect(
+      safety.status.blockers,
+      contains(UpdateBlocker.importRunning),
+      reason: '第一个操作结束不应解除第二个操作的阻塞',
+    );
+
+    second.release();
+    expect(safety.status.canInstall, isTrue);
+  });
+
+  test('租约重复释放不会多减计数，手工阻塞与租约可以叠加', () {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final lease = safety.begin(UpdateBlocker.backupRunning);
+    safety.setUnsavedChanges(true);
+    lease.release();
+    lease.release();
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+    expect(safety.status.blockers, isNot(contains(UpdateBlocker.backupRunning)));
+    safety.setUnsavedChanges(false);
+    expect(safety.status.canInstall, isTrue);
+  });
 }

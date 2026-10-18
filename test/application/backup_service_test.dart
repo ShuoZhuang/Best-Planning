@@ -15,6 +15,7 @@ import 'package:personal_planner/data/database/app_database.dart'
 import 'package:personal_planner/data/repositories/drift_calendar_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/calendar_event_edit.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 void main() {
   late Directory workspace;
@@ -163,6 +164,38 @@ void main() {
           .toList(),
       isEmpty,
     );
+  });
+
+  test('备份与恢复运行期间阻塞更新，结束后解除（UPD-029）', () async {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final guarded = BackupService(
+      database: database,
+      archives: const BackupArchiveAdapter(),
+      hashes: const Sha256FileHashAdapter(),
+      clock: const _FixedClock(),
+      appVersion: '1.0.0',
+      settingsJson: () async => '{}',
+      updateSafety: safety,
+    );
+    final path = '${workspace.path}${Platform.pathSeparator}blocking.zip';
+    final creating = guarded.create(path);
+    expect(safety.status.blockers, contains(UpdateBlocker.backupRunning));
+    await creating;
+    expect(safety.status.canInstall, isTrue);
+
+    final restoring = guarded.restore(path);
+    expect(safety.status.blockers, contains(UpdateBlocker.backupRunning));
+    await restoring;
+    expect(safety.status.canInstall, isTrue);
+
+    final blocker = File('${workspace.path}${Platform.pathSeparator}not-a-directory');
+    await blocker.writeAsString('x');
+    await expectLater(
+      guarded.create('${blocker.path}${Platform.pathSeparator}backup.zip'),
+      throwsA(anything),
+    );
+    expect(safety.status.canInstall, isTrue, reason: '异常也必须解除阻塞');
   });
 }
 
@@ -445,3 +478,6 @@ final class _FixedClock implements Clock {
   @override
   DateTime nowUtc() => DateTime.utc(2026, 10, 2, 9);
 }
+
+
+

@@ -848,6 +848,20 @@ final class UpdateOrchestrator {
     await _persist();
     _emit();
 
+    // 第二次检查：从进入安装到真正启动助手之间，用户可能刚好开始了一个计划应用/
+    // 导入/备份。只检查一次会留下"检查通过后事务才开始"的竞态，因此这里必须再读一次。
+    final preLaunchSafety = safety.status;
+    if (!preLaunchSafety.canInstall) {
+      await _releaseUpdateLock();
+      await _go(UpdatePhase.ready);
+      final blockedFailure = preLaunchSafety.failure;
+      _state = _state.copyWith(lastFailure: blockedFailure);
+      if (blockedFailure != null) log.write(blockedFailure);
+      await _persist();
+      _emit();
+      return;
+    }
+
     final outcome = await coordinator.prepareAndLaunch(
       target: target,
       state: _state,

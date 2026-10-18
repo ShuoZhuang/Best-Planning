@@ -12,6 +12,7 @@ import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -408,6 +409,40 @@ void main() {
       expect(result.status, ApplyPlanStatus.invalidProposal);
       expect(calls, 0);
     });
+  });
+
+  test('计划应用期间阻塞更新，成功或异常后解除（UPD-029）', () async {
+    final problem = _applyProblem();
+    const snapshots = InputSnapshotBuilder();
+    final hash = snapshots.hash(InputSnapshot(problem: problem));
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final service = PlanApplicationService(
+      source: _ProblemSource(problem),
+      repository: repository,
+      zones: TimeZoneDatabase(),
+      snapshots: snapshots,
+      updateSafety: safety,
+    );
+    final applying = service.apply(
+      _applyProposal(
+        inputHash: hash,
+        algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
+      ),
+    );
+    expect(safety.status.blockers, contains(UpdateBlocker.planApplying));
+    final result = await applying;
+    expect(result.status, ApplyPlanStatus.applied);
+    expect(safety.status.canInstall, isTrue);
+
+    final stale = await service.apply(
+      _applyProposal(
+        inputHash: hash,
+        algorithmVersion: 'algorithm-from-an-older-release',
+      ),
+    );
+    expect(stale.status, ApplyPlanStatus.staleProposal);
+    expect(safety.status.canInstall, isTrue, reason: '被拒绝也必须解除阻塞');
   });
 }
 

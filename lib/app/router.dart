@@ -29,6 +29,7 @@ import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
 import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
@@ -1839,6 +1840,7 @@ GoRouter createPlannerRouter({
               // （计划 §2.8：路由未装配则不显示该动作）。
               protectedTimeRouteWired:
                   calendarService != null && protectedTimeSeries != null,
+              updateSafety: updateController?.safety,
             ),
           ),
         ],
@@ -2575,6 +2577,7 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.taskTitles,
     this.onRememberUndo,
     this.protectedTimeRouteWired = false,
+    this.updateSafety,
     super.key,
   });
 
@@ -2605,6 +2608,9 @@ final class _PlanPreviewLoader extends StatefulWidget {
 
   /// 保护时间管理页这次是否真的接线（写入服务 ＋ 系列读模型都在）。
   final bool protectedTimeRouteWired;
+
+  /// 撤销计划时的更新阻塞端口（UPD-029）。
+  final UpdateSafetyCoordinator? updateSafety;
 
   @override
   State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
@@ -2856,6 +2862,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
                     // main→PlannerApp→router 的参数链——上一行注释就是这条先例（那要多 4 处装配），
                     // 而且两处要做的本来就是同一件事。
                     onPlanChanged: widget.application?.onPlanChanged,
+                    updateSafety: widget.updateSafety,
                   ).undoLastAppliedPlan();
                   return true;
                 } on StateError {
@@ -3040,6 +3047,8 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
+
+
 
 
 

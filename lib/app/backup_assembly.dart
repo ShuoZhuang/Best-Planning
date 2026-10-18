@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:personal_planner/application/backup_service.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/data/database/app_database.dart';
@@ -87,6 +88,24 @@ final class PlannerPreMigrationBackupException implements Exception {
 /// **文件名包含原 schema 版本与 UTC 时间**：前者回答"这份快照能不能直接换回去"（换回去
 /// 就是旧版本的库），后者让同一台机器上多次失败的升级各自留下证据，而不是互相覆盖。
 Future<String?> createPreMigrationSnapshotIfNeeded(
+  String databasePath,
+  int targetSchemaVersion, {
+  Future<Directory> Function()? snapshotDirectory,
+  UpdateSafetyCoordinator? updateSafety,
+}) async {
+  final lease = updateSafety?.begin(UpdateBlocker.backupRunning);
+  try {
+    return await _createPreMigrationSnapshotIfNeeded(
+      databasePath,
+      targetSchemaVersion,
+      snapshotDirectory: snapshotDirectory,
+    );
+  } finally {
+    lease?.release();
+  }
+}
+
+Future<String?> _createPreMigrationSnapshotIfNeeded(
   String databasePath,
   int targetSchemaVersion, {
   Future<Directory> Function()? snapshotDirectory,
@@ -397,6 +416,7 @@ Future<BackupService> buildBackupService({
   required Clock clock,
   required String databasePath,
   Future<String> Function()? versions,
+  UpdateSafetyCoordinator? updateSafety,
 }) async {
   return BackupService(
     database: _DeferredLifecycle(
@@ -407,6 +427,7 @@ Future<BackupService> buildBackupService({
     hashes: const Sha256FileHashAdapter(),
     clock: clock,
     appVersion: await _resolveAppVersion(versions),
+    updateSafety: updateSafety,
     // "全部设置序列化"：设置表本身就是 key → JSON 字符串，因此直接导出整表。逐键枚举会随
     // 新增设置**静默漏键**，而备份恰恰是"以后要能读回来"的东西。
     settingsJson: () async {
@@ -501,6 +522,7 @@ DataErasureService buildDataErasureService({
   required String databasePath,
   required NotificationPort notifications,
   required AppLockCredentialStore credentials,
+  UpdateSafetyCoordinator? updateSafety,
 }) => DataErasureService(
   database: _DeferredLifecycle(
     databasePath: databasePath,
@@ -508,4 +530,5 @@ DataErasureService buildDataErasureService({
   ),
   notifications: notifications,
   credentials: credentials,
+  updateSafety: updateSafety,
 );

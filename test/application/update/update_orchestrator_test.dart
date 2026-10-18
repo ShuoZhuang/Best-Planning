@@ -49,6 +49,7 @@ void main() {
     UpdateInstallCoordinator? installCoordinator,
     UpdateLock? updateLock,
     ProcessIdentityProbe? processProbe,
+    UpdateSafetyCoordinator? safetyOverride,
   }) => UpdateOrchestrator(
     manifestSource: FakeManifestSource(fetchResult),
     stateStore: store,
@@ -56,7 +57,7 @@ void main() {
     downloader: packageDownloader ?? downloader,
     verifier: packageVerifier ?? verifier,
     layout: layout,
-    safety: safety,
+    safety: safetyOverride ?? safety,
     log: log,
     clock: clock,
     diskSpace: FakeDiskSpace(availableBytes ?? 50 * 1024 * 1024 * 1024),
@@ -522,7 +523,106 @@ void main() {
     );
     expect(result.isConfirmedUpToDate, isFalse);
   });
+
+  test('检查通过后才开始的业务事务会阻止启动助手（二次检查，UPD-029）', () async {
+    final coordinator = FakeInstallCoordinator();
+    final verified = await verifiedManifestFixture();
+    final sequenced = _SequencedSafety(safety);
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      installCoordinator: coordinator,
+      safetyOverride: sequenced,
+    );
+    await orchestrator.check(manual: false, autoDownload: true);
+    expect(orchestrator.state.phase, UpdatePhase.ready);
+
+    await orchestrator.install();
+
+    expect(coordinator.prepareCalls, 0, reason: '第二次检查必须挡住启动');
+    expect(orchestrator.state.phase, UpdatePhase.ready);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.blockedPlanApplying,
+    );
+
+    // 阻塞解除后直接重试即可，不需要重新检查清单或重新下载。
+    await orchestrator.install();
+    expect(coordinator.prepareCalls, 1);
+    expect(orchestrator.state.phase, UpdatePhase.waitingForExit);
+  });
+
+  test('阻塞期间点击安装不启动助手，解除后入口自动恢复（UPD-029）', () async {
+    final coordinator = FakeInstallCoordinator();
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      installCoordinator: coordinator,
+    );
+    await orchestrator.check(manual: false, autoDownload: true);
+    final lease = safety.begin(UpdateBlocker.importRunning);
+
+    await orchestrator.install();
+    expect(coordinator.prepareCalls, 0);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.blockedImportRunning,
+    );
+
+    lease.release();
+    await orchestrator.install();
+    expect(coordinator.prepareCalls, 1);
+  });
 }
 
+final class _SequencedSafety implements UpdateSafetyCoordinator {
+  _SequencedSafety(this._delegate);
 
+  final InMemoryUpdateSafetyCoordinator _delegate;
+  int _reads = 0;
 
+  @override
+  UpdateSafetyStatus get status {
+    _reads++;
+    if (_reads == 2) {
+      return const UpdateSafetyStatus(
+        blockers: {UpdateBlocker.planApplying},
+      );
+    }
+    return _delegate.status;
+  }
+
+  @override
+  Stream<UpdateSafetyStatus> get changes => _delegate.changes;
+
+  @override
+  UpdateBlockerLease begin(UpdateBlocker blocker) => _delegate.begin(blocker);
+
+  @override
+  void setUnsavedChanges(bool active) => _delegate.setUnsavedChanges(active);
+
+  @override
+  void setDatabaseTransaction(bool active) =>
+      _delegate.setDatabaseTransaction(active);
+
+  @override
+  void setPlanApplying(bool active) => _delegate.setPlanApplying(active);
+
+  @override
+  void setImportRunning(bool active) => _delegate.setImportRunning(active);
+
+  @override
+  void setBackupRunning(bool active) => _delegate.setBackupRunning(active);
+
+  @override
+  void setInstallerBusy(bool active) => _delegate.setInstallerBusy(active);
+
+  @override
+  void setRollbackNotReady(bool active) =>
+      _delegate.setRollbackNotReady(active);
+
+  @override
+  void setDiskSpaceLow(bool active) => _delegate.setDiskSpaceLow(active);
+
+  @override
+  void dispose() {}
+}

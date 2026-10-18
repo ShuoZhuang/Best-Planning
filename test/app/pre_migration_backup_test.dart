@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// 升级前快照（路线图 §4.3）。
@@ -221,5 +223,37 @@ void main() {
       10,
       reason: 'v10 只扩充 timetable_import_batches.status 的 CHECK（计划 §2.7）',
     );
+  });
+
+  test('迁移前备份运行期间阻塞更新，成功或失败后解除（UPD-029）', () async {
+    final path = await writeDatabaseAtVersion(6);
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final gate = Completer<void>();
+    final pending = createPreMigrationSnapshotIfNeeded(
+      path,
+      plannerSchemaVersion,
+      updateSafety: safety,
+      snapshotDirectory: () async {
+        await gate.future;
+        return snapshots;
+      },
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(safety.status.blockers, contains(UpdateBlocker.backupRunning));
+    gate.complete();
+    await pending;
+    expect(safety.status.canInstall, isTrue);
+
+    await expectLater(
+      createPreMigrationSnapshotIfNeeded(
+        path,
+        plannerSchemaVersion,
+        updateSafety: safety,
+        snapshotDirectory: () async => throw StateError('no disk'),
+      ),
+      throwsA(anything),
+    );
+    expect(safety.status.canInstall, isTrue, reason: '失败也必须解除阻塞');
   });
 }

@@ -60,7 +60,13 @@
 - 023/024 入口状态与无二次确认：`test/features/shell/update_indicator_test.dart`。
 - 025 未点击不安装：`update_orchestrator_test.dart`（安装只由 `install()` 触发）。
 - 026 无弹窗：`test/architecture/update_no_popup_test.dart`。
-- 027–030 未保存/纯查看/事务/专注：`update_safety_test.dart`、规划规则/课程/固定日程/保护时间/任务/周期目标编辑器测试。
+- 027–030 未保存/纯查看/事务/专注：`update_safety_test.dart`、规划规则/课程/固定日程/保护时间/任务/周期目标编辑器测试；UPD-029 的业务事务租约与各生产入口见下条。
+- 029 业务事务阻塞：`update_safety_test` 的重叠租约；`plan_application_service_test`、
+  `plan_undo_service_test`、`timetable_import_commit_test`、`backup_service_test`、
+  `pre_migration_backup_test` 的阻塞/成功/异常解除；两个重叠导入的用例；
+  `update_orchestrator_test` 的“检查通过后才开始事务”与“阻塞解除后直接重试”；
+  `backup_version_provider_test` 的组合根实例一致性。生产接线位于各服务构造与
+  `lib/main.dart`，不在页面按钮处。
 - 031/033 请求与进程协调：`tool/update_helper_tests.ps1` 的 `--apply --dry-run`。
 - 035 快照：`update_snapshot_health_test.dart`。
 - 037 健康确认：同上。
