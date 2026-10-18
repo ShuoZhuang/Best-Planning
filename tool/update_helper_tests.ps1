@@ -11,7 +11,7 @@
 #   & tool\update_helper_tests.ps1
 #   & tool\update_helper_tests.ps1 -Msix build\windows\x64\runner\Release\personal_planner_1.8.1.0_x64.msix
 param(
-  [string]$Msix = 'build\windows\x64\runner\Release\personal_planner_1.8.1.0_x64.msix',
+  [string]$Msix = 'release-artifacts\1.10.0\BestPlanning_1.10.0.0_x64.msix',
   [string]$Helper = 'windows\update_helper\build\Release\update_helper.exe',
   [switch]$SkipBuild
 )
@@ -46,7 +46,7 @@ Write-Host "PASS verify $($verify.identity.version) sha256=$($verify.sha256)"
 
 # 用仓库内的临时目录：本会话的受限令牌会拒绝助手在系统 TEMP 下创建文件。
 $workRoot = Join-Path $root ('.tooling\helper-dryrun-' + [guid]::NewGuid().ToString('N'))
-$versionDir = Join-Path $workRoot '1.8.1.0'
+$versionDir = Join-Path $workRoot $verify.identity.version
 New-Item -ItemType Directory -Force -Path $versionDir | Out-Null
 try {
   $package = Join-Path $versionDir 'package.msix.ready'
@@ -57,8 +57,8 @@ try {
   $request = [ordered]@{
     schemaVersion = 1
     transactionId = 'dry-run-1'
-    fromVersion = '1.8.0.0'
-    toVersion = '1.8.1.0'
+    fromVersion = '1.0.0.0'
+    toVersion = $verify.identity.version
     packagePath = $package
     packageSizeBytes = $size
     packageSha256 = $sha

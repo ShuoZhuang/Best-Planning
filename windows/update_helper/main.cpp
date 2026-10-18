@@ -387,7 +387,7 @@ std::wstring FileUri(const std::wstring& path) {
 }
 
 bool DeployPackage(const std::wstring& path, int& hresult,
-                   std::wstring& detail) {
+                   std::wstring& detail, bool allow_downgrade = false) {
   using winrt::Windows::Foundation::Uri;
   using namespace winrt::Windows::Management::Deployment;
   try {
@@ -396,7 +396,10 @@ bool DeployPackage(const std::wstring& path, int& hresult,
         winrt::single_threaded_vector<winrt::Windows::Foundation::Uri>();
     const auto operation = manager.AddPackageAsync(
         Uri(winrt::hstring(FileUri(path))), dependencies,
-        DeploymentOptions::None);
+        allow_downgrade
+            ? (DeploymentOptions::ForceUpdateFromAnyVersion |
+               DeploymentOptions::ForceApplicationShutdown)
+            : DeploymentOptions::None);
     const auto result = operation.get();
     if (result.IsRegistered()) return true;
     hresult = result.ExtendedErrorCode();
@@ -512,7 +515,9 @@ bool RestoreSnapshot(const std::wstring& snapshot_path,
   }
 }
 
-bool RollBack(const Request& request, std::wstring& failure_code) {
+bool RollBack(const Request& request, std::wstring& failure_code,
+              int& rollback_hresult) {
+  rollback_hresult = 0;
   if (request.rollback_package_path.empty() ||
       request.snapshot_path.empty()) {
     failure_code = L"UPDATE_ROLLBACK_PACKAGE_MISSING";
@@ -524,8 +529,9 @@ bool RollBack(const Request& request, std::wstring& failure_code) {
   }
   int hresult = 0;
   std::wstring detail;
-  if (!DeployPackage(request.rollback_package_path, hresult, detail)) {
+  if (!DeployPackage(request.rollback_package_path, hresult, detail, true)) {
     failure_code = L"UPDATE_ROLLBACK_DEPLOYMENT_FAILED";
+    rollback_hresult = hresult;
     return false;
   }
   if (!RestoreSnapshot(request.snapshot_path, request.data_directory, detail)) {
@@ -784,9 +790,12 @@ int RunApply(const std::wstring& request_path, bool dry_run = false) {
   WriteStatus(directory, request.transaction_id, L"launchingNewVersion");
   if (!ActivateApp(new_process)) {
     std::wstring rollback_code = L"UPDATE_HEALTH_PROCESS_NOT_STARTED";
-    const bool rolled_back = RollBack(request, rollback_code);
+    int rollback_hresult = 0;
+    const bool rolled_back =
+        RollBack(request, rollback_code, rollback_hresult);
     WriteStatus(directory, request.transaction_id,
-                rolled_back ? L"rolledBack" : L"failed", rollback_code);
+                rolled_back ? L"rolledBack" : L"failed", rollback_code,
+                rollback_hresult);
     return 8;
   }
 
@@ -797,9 +806,11 @@ int RunApply(const std::wstring& request_path, bool dry_run = false) {
   }
 
   std::wstring rollback_code;
-  const bool rolled_back = RollBack(request, rollback_code);
+  int rollback_hresult = 0;
+  const bool rolled_back = RollBack(request, rollback_code, rollback_hresult);
   WriteStatus(directory, request.transaction_id,
-              rolled_back ? L"rolledBack" : L"failed", rollback_code);
+              rolled_back ? L"rolledBack" : L"failed", rollback_code,
+              rollback_hresult);
   return rolled_back ? 7 : 9;
 }
 
