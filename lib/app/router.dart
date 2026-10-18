@@ -812,6 +812,7 @@ GoRouter createPlannerRouter({
                         context.go('/focus/${state.pathParameters['taskId']!}'),
               taskId: state.pathParameters['taskId']!,
               nowUtc: nowUtc ?? todayStartUtc,
+              updateSafety: updateController?.safety,
               // FR-REPLAN-07 的"设置截止时间"。页面把**本地**日期与"当天第几分钟"交回，
               // 时区换算是这里的事——路由持有 `zones` 与 `timeZoneId`，页面两者都不需要。
               onSetDueDate: (localDate, minute) async {
@@ -3039,5 +3040,6 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
+
 
 
