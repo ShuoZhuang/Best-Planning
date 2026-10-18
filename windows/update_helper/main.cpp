@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "native_shared/package_inspector.h"
@@ -850,7 +851,54 @@ int RunSelfTest() {
 
 }  // namespace
 
+// 从已安装包内启动时，先把自身复制到包外再运行。
+//
+// 直接以 WindowsApps 里的镜像部署，会让助手自己占住包文件，Windows 返回
+// ERROR_PACKAGES_IN_USE (0x80073D02)。父进程只负责复制并拉起子进程，随后退出，
+// 子进程从 %TEMP% 运行，不再持有包内文件。
+bool RelocateOutOfPackageIfNeeded(int argc, wchar_t** argv) {
+  wchar_t module[MAX_PATH * 4]{};
+  if (GetModuleFileNameW(nullptr, module, MAX_PATH * 4) == 0) return false;
+  const std::wstring image(module);
+  if (image.find(L"\\WindowsApps\\") == std::wstring::npos) return false;
+
+  wchar_t temp[MAX_PATH * 2]{};
+  if (GetTempPathW(MAX_PATH * 2, temp) == 0) return false;
+  const std::wstring directory =
+      std::wstring(temp) + L"BestPlanningUpdateHelper\\self-" +
+      std::to_wstring(GetCurrentProcessId());
+  std::error_code ec;
+  std::filesystem::create_directories(directory, ec);
+  if (ec) return false;
+  const std::wstring target = directory + L"\\update_helper.exe";
+  {
+    std::ifstream source(image, std::ios::binary);
+    std::ofstream destination(target, std::ios::binary | std::ios::trunc);
+    if (!source || !destination) return false;
+    destination << source.rdbuf();
+    if (!destination.good()) return false;
+  }
+
+  std::wstring command = L"\"" + target + L"\"";
+  for (int index = 1; index < argc; ++index) {
+    command += L" \"";
+    command += argv[index];
+    command += L"\"";
+  }
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  const BOOL started = CreateProcessW(
+      target.c_str(), command.data(), nullptr, nullptr, FALSE,
+      CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+  if (!started) return false;
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
+  return true;
+}
+
 int wmain(int argc, wchar_t** argv) {
+  if (RelocateOutOfPackageIfNeeded(argc, argv)) return 0;
   SetConsoleOutputCP(CP_UTF8);
   winrt::init_apartment(winrt::apartment_type::single_threaded);
   if (argc < 2) {

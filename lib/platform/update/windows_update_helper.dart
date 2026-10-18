@@ -59,13 +59,21 @@ final class WindowsUpdateHelper implements UpdateHelper {
     final target = File(
       '${directory.path}${Platform.pathSeparator}update_helper.exe',
     );
-    await source.copy(target.path);
-    if (await target.length() != await source.length()) {
-      throw const FileSystemException('helper copy size mismatch');
+    try {
+      // WindowsApps 里的文件带加密属性：File.copy 会尝试保留加密而失败，
+      // 按字节读写可正常解密并写出普通文件。
+      final bytes = await source.readAsBytes();
+      await target.writeAsBytes(bytes, flush: true);
+      if (await target.length() != await source.length()) {
+        throw const FileSystemException('helper copy size mismatch');
+      }
+      _stagedHelper = target.path;
+      unawaited(_pruneStagedHelpers(parent, except: directory.path));
+      return target.path;
+    } on Object {
+      // 打包进程里复制仍可能被策略拒绝；回退到包内路径，由助手自身搬迁兜底。
+      return helperPath;
     }
-    _stagedHelper = target.path;
-    unawaited(_pruneStagedHelpers(parent, except: directory.path));
-    return target.path;
   }
 
   Future<void> _pruneStagedHelpers(
