@@ -9,6 +9,14 @@
 #pragma comment(lib, "comctl32.lib")
 
 namespace planner::installer {
+
+SecondaryClick ClassifySecondaryClick(UiPage page) {
+  // 只有"进度页"的次级按钮是取消；完成页同样显示 100% 进度条，但它的次级按钮是
+  // "完成"，必须解析（否则 worker 永远等不到决定，用户只能关窗口并得到退出码 99）。
+  return page == UiPage::Progress ? SecondaryClick::RequestCancel
+                                  : SecondaryClick::Resolve;
+}
+
 namespace {
 
 constexpr UINT kModelMessage = WM_APP + 1;
@@ -77,6 +85,9 @@ int InstallerUi::Run(HINSTANCE instance, std::function<int()> worker) {
     } catch (...) {
       code = 99;
     }
+    // 先落结果再通知界面：用户可能已经关掉窗口（dialog_ 为空），此时不能把工作线程
+    // 的真实退出码丢掉——否则"安装成功"会被报成 99（INSTALLER_INTERNAL_ERROR）。
+    worker_exit_code_.store(code);
     if (dialog_ != nullptr) {
       PostMessageW(dialog_, kWorkerDoneMessage, static_cast<WPARAM>(code), 0);
     }
@@ -89,7 +100,7 @@ int InstallerUi::Run(HINSTANCE instance, std::function<int()> worker) {
     DispatchMessageW(&message);
   }
   thread.join();
-  return worker_result_;
+  return worker_exit_code_.load();
 }
 
 void InstallerUi::Present(const UiModel& model) {
@@ -176,6 +187,7 @@ void InstallerUi::EndSession() {
 
 void InstallerUi::ApplyModel(const UiModel& model) {
   if (dialog_ == nullptr) return;
+  page_ = model.page;
   SetControlText(dialog_, IDC_HEADLINE, model.headline);
   SetControlText(dialog_, IDC_SUBTITLE, model.subtitle);
   SetControlText(dialog_, IDC_MODE, model.mode);
@@ -257,8 +269,9 @@ INT_PTR InstallerUi::HandleMessage(HWND dialog, UINT message, WPARAM wparam,
         return TRUE;
       }
       if (id == IDC_SECONDARY) {
-        // 进度页上的"取消"只登记请求；真正的取消点由状态机决定。
-        if (IsWindowVisible(GetDlgItem(dialog, IDC_PROGRESS))) {
+        // 只有进度页上的"取消"才登记请求；完成页/失败页上的次级按钮必须解析，
+        // 否则工作线程永远等不到决定（2026-10-18 实测：完成页只能关窗口，退出码 99）。
+        if (ClassifySecondaryClick(page_) == SecondaryClick::RequestCancel) {
           cancel_requested_ = true;
           EnableWindow(GetDlgItem(dialog, IDC_SECONDARY), FALSE);
           SetDlgItemTextW(dialog, IDC_STATUS, L"正在完成当前步骤，请稍候…");

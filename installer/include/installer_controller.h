@@ -24,6 +24,14 @@
 
 namespace planner::installer {
 
+// 提权结果 → 界面要呈现的错误码（纯函数，不发起 UAC、不写系统）。
+//
+// 规则（计划 Task 4 Step 3）：UAC 拒绝保留专用分支；资源/摘要不一致原样保留；
+// 真实证书写入失败与存储不可用各自保留专有含义；只有"ok=false 但 error 仍是
+// None"这种内部不变量破坏才降级为 ElevationFailed。**任何通信失败都不得被改写成
+// 证书写入失败**——那会让界面声称一件尚未发生的事。
+ErrorCode ControllerTrustError(const TrustOutcome& outcome);
+
 class InstallerController {
  public:
   InstallerController(InstallerUi& ui, std::wstring executable_path);

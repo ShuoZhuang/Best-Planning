@@ -1,14 +1,19 @@
 # 离线安装器组件测试（规格 §16.2）。
 #
-# 覆盖：内嵌资源提取、篡改字节、替换证书、错误身份、错误哈希、无效会话 nonce、
+# 覆盖：内嵌资源提取、篡改字节、替换证书、错误身份、错误哈希、
+# 提权会话参数与 nonce 强绑定（IPC-AUTO-01～03）、
+# 故障注入与协议绑定（IPC-AUTO-04～10，由 installer_tests 的同名用例证明）、
 # 未知子命令、普通流程不调用 PowerShell、--plan 不写系统。
 #
 # 所有被测 EXE 都复制到工作区之外再运行：开发机的文件沙箱会限制"位于仓库内的进程
 # 写系统临时目录"，那是环境限制，不是安装器缺陷（2026-10-18 实测）。
 #
-# 用法：
-#   & tool\installer_tests.ps1
-#   & tool\installer_tests.ps1 -Msix release-artifacts\1.10.0\BestPlanning_1.10.0.0_x64.msix
+# **必须用 PowerShell 7（`pwsh`）执行**：本文件是不带 BOM 的 UTF-8，Windows PowerShell 5.1
+# 会把中文按 ANSI 解码，表现为"缺少 }"一类的**解析错误**（不是脚本逻辑问题）。
+#
+# 用法（默认参数即可：会自动构建 Release，并使用 pubspec 对应的候选 MSIX）：
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File .\tool\installer_tests.ps1
+#   pwsh -NoProfile -File .\tool\installer_tests.ps1 -SkipBuild -Msix release-artifacts\1.10.2\BestPlanning_1.10.2.0_x64.msix
 param(
   [string]$Msix = '',
   [string]$Certificate = 'C:\Users\zs200\signing\personal_planner.cer',
@@ -123,6 +128,8 @@ $installerBuild = Join-Path $root 'installer\build\Release'
 Copy-Item (Join-Path $installerBuild 'BestPlanningSetup.exe') (Join-Path $staging 'stub.exe') -Force
 Copy-Item (Join-Path $installerBuild 'embed_payload.exe') (Join-Path $staging 'embed_payload.exe') -Force
 Copy-Item (Join-Path $installerBuild 'installer_tests.exe') (Join-Path $staging 'installer_tests.exe') -Force
+# IPC 用例通过 helper 驱动真实命名管道的错误分支；helper 必须与测试 EXE 同目录。
+Copy-Item (Join-Path $installerBuild 'elevation_test_helper.exe') (Join-Path $staging 'elevation_test_helper.exe') -Force
 Copy-Item $Msix (Join-Path $staging 'payload.msix') -Force
 Copy-Item $Certificate (Join-Path $staging 'signing.cer') -Force
 
@@ -132,10 +139,11 @@ $testCertificate = New-SelfSignedCertificate -DnsName 'best-planning-installer-t
 Export-Certificate -Cert $testCertificate -FilePath (Join-Path $staging 'other.cer') -Type CERT | Out-Null
 $otherCertificate = (Join-Path $staging 'other.cer')
 
-# ── 1. 单元测试（真实 MSIX + 两张证书） ────────────────────────────────────
+# ── 1. 单元测试（真实 MSIX + 两张证书 + IPC helper） ────────────────────────
 $unit = Start-Process -FilePath (Join-Path $staging 'installer_tests.exe') `
     -ArgumentList @('--msix', (Join-Path $staging 'payload.msix'), '--certificate', $Certificate,
-                    '--second-certificate', $otherCertificate) `
+                    '--second-certificate', $otherCertificate,
+                    '--helper', (Join-Path $staging 'elevation_test_helper.exe')) `
     -Wait -PassThru -RedirectStandardOutput (Join-Path $staging 'unit.txt')
 Write-Host (Get-Content (Join-Path $staging 'unit.txt') -Raw)
 Assert ($unit.ExitCode -eq 0) "installer_tests 失败（exit $($unit.ExitCode)）"
@@ -199,13 +207,66 @@ $badIdentitySetup = New-Setup 'setup-badidentity.exe' (Join-Path $staging 'paylo
 $badIdentity = Invoke-Setup $badIdentitySetup @('--verify-embedded')
 Assert ($badIdentity.exit -eq 30) "身份错误应返回 30，实际 $($badIdentity.exit)"
 
-# ── 8. 无效提权会话：nonce 不对必须被拒绝，且不得写证书 ────────────────────
-$nonce = ('a' * 64)
-$badSession = Invoke-Setup $validSetup @('--elevated-session', '--pipe', '\\.\pipe\BestPlanningSetup-test',
-                                         '--nonce', $nonce, '--parent', "$PID")
-Assert ($badSession.exit -ne 0) "无效会话应被拒绝，实际 exit $($badSession.exit)"
+# ── 8. 提权会话参数与 nonce 强绑定（IPC-AUTO-01～03） ───────────────────────
+#
+# 旧版的 `--parent` 用例已经失效：父 PID 不再参与任何判断。这里改为三个独立的
+# 参数用例，每个都记录运行前后的发布证书状态并断言**没有变化**——参数无效绝不能
+# 走到写证书的那一步。
+$releaseCertificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,
+    [System.IO.File]::ReadAllBytes($Certificate))
+$releaseThumbprint = $releaseCertificate.Thumbprint
+function Test-ReleaseCertificatePresent {
+  return (Test-Path -LiteralPath "Cert:\LocalMachine\TrustedPeople\$releaseThumbprint")
+}
+$certificateBefore = Test-ReleaseCertificatePresent
 
-# ── 9. 普通流程不得依赖 PowerShell ─────────────────────────────────────────
+$nonceA = ('a' * 64)
+$nonceB = ('b' * 64)
+$validPipeName = "\\.\pipe\BestPlanningSetup-$nonceA"
+$ipcScriptCases = @(
+  [ordered]@{
+    id        = 'IPC-AUTO-01'
+    label     = 'pipe 后缀与 nonce 不同'
+    arguments = @('--elevated-session', '--pipe', "\\.\pipe\BestPlanningSetup-$nonceB", '--nonce', $nonceA)
+  }
+  [ordered]@{
+    id        = 'IPC-AUTO-02'
+    label     = '重复 --nonce'
+    arguments = @('--elevated-session', '--pipe', $validPipeName, '--nonce', $nonceA, '--nonce', $nonceA)
+  }
+  [ordered]@{
+    id        = 'IPC-AUTO-03'
+    label     = '未知参数（已删除的 --parent）'
+    arguments = @('--elevated-session', '--pipe', $validPipeName, '--nonce', $nonceA, '--parent', "$PID")
+  }
+)
+foreach ($case in $ipcScriptCases) {
+  $result = Invoke-Setup $validSetup $case.arguments
+  $present = Test-ReleaseCertificatePresent
+  Assert ($result.exit -eq 2) "$($case.id) $($case.label)：helper 应退出 2，实际 $($result.exit)"
+  Assert ($present -eq $certificateBefore) "$($case.id) $($case.label)：发布证书状态发生了变化"
+  Write-Host "$($case.id) exit=$($result.exit) certificate=$present"
+}
+Assert ((Test-ReleaseCertificatePresent) -eq $certificateBefore) 'IPC 参数用例后发布证书状态发生了变化'
+
+# ── 9. 故障注入 IPC-AUTO-04～10（由 installer_tests 的同名用例证明） ─────────
+$unitLog = Get-Content (Join-Path $staging 'unit.txt') -Raw
+$ipcUnitMap = [ordered]@{
+  'IPC-AUTO-04' = 'elevation_channel_reports_child_exit_code'
+  'IPC-AUTO-05' = 'elevation_channel_rejects_unexpected_client_pid'
+  'IPC-AUTO-06' = 'elevation_channel_times_out_and_cancels_io'
+  'IPC-AUTO-07' = 'broker_rejects_handshake_protocol_mismatch'
+  'IPC-AUTO-08' = 'broker_rejects_handshake_digest_mismatch'
+  'IPC-AUTO-09' = 'elevation_channel_rejects_oversized_message'
+  'IPC-AUTO-10' = 'elevation_channel_reports_broken_pipe'
+}
+foreach ($id in $ipcUnitMap.Keys) {
+  $testName = $ipcUnitMap[$id]
+  Assert ($unitLog -match "(?m)^PASS $testName\b") "$id 依赖的单元用例未通过：$testName"
+  Write-Host "$id $testName"
+}
+
+# ── 10. 普通流程不得依赖 PowerShell ────────────────────────────────────────
 $binaryText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($validSetup))
 Assert (-not ($binaryText -match '(?i)powershell')) 'Setup 二进制里出现了 powershell'
 $sources = Get-ChildItem (Join-Path $root 'installer') -Recurse -Include *.cpp,*.h -File |
@@ -215,7 +276,7 @@ foreach ($source in $sources) {
   Assert (-not ($text -match '(?i)powershell|cmd\.exe')) "$($source.Name) 引用了 PowerShell 或 cmd"
 }
 
-# ── 10. 日志里不得出现业务数据路径（粗检） ─────────────────────────────────
+# ── 11. 日志里不得出现业务数据路径（粗检） ─────────────────────────────────
 $logRoot = Join-Path $env:LOCALAPPDATA 'BestPlanning\Setup'
 if (Test-Path $logRoot) {
   $latest = Get-ChildItem $logRoot -Filter 'setup-*.log' | Sort-Object LastWriteTime | Select-Object -Last 1
@@ -233,7 +294,8 @@ $summary = [ordered]@{
   failures    = @($failures)
   msix        = $Msix
   staging     = $staging
-  tests       = 10
+  # 原 10 组 + IPC-AUTO-01～03（本节脚本）+ IPC-AUTO-04～10（单元用例映射）
+  tests       = 20
 }
 $summary | ConvertTo-Json -Depth 4
 if ($failures.Count -gt 0) {

@@ -79,7 +79,40 @@ std::wstring ActionText(const InstallState& state,
   return {};
 }
 
+// 提权阶段的结构化日志（计划 Task 4 Step 4）。
+//
+// 只写 PID、退出码、稳定状态 token 与 Win32 错误码：不写 UAC 凭据、用户名、
+// 管道 nonce 全文或命令行。管道名连固定前缀也不写——只有状态 token 有意义。
+void LogTrustOutcome(InstallerLogger& logger, const TrustOutcome& trust) {
+  if (trust.launched_pid != 0) {
+    logger.Line(L"elevation launch succeeded pid=" +
+                std::to_wstring(trust.launched_pid));
+  }
+  if (trust.client_pid != 0) {
+    logger.Line(L"elevation channel connected clientPid=" +
+                std::to_wstring(trust.client_pid) + L" protocol=2");
+  }
+  if (trust.child_exit_code != STILL_ACTIVE) {
+    logger.Line(L"elevation helper exited code=" +
+                std::to_wstring(trust.child_exit_code));
+  }
+  if (!trust.ok && !trust.channel_status.empty()) {
+    logger.Line(L"elevation channel failed status=" + trust.channel_status +
+                L" win32=" + std::to_wstring(trust.win32_error));
+  }
+}
+
 }  // namespace
+
+ErrorCode ControllerTrustError(const TrustOutcome& outcome) {
+  if (outcome.ok) return ErrorCode::None;
+  if (outcome.declined) return ErrorCode::ElevationDeclined;
+  if (outcome.error == ErrorCode::None) {
+    // ok=false 却没有错误码：内部不变量已经破坏，只能报成授权阶段失败。
+    return ErrorCode::ElevationFailed;
+  }
+  return outcome.error;
+}
 
 InstallerController::InstallerController(InstallerUi& ui,
                                          std::wstring executable_path)
@@ -571,14 +604,11 @@ int InstallerController::RunInteractive() {
     const TrustOutcome trust = PerformElevation(
         {payload_.metadata.RawSha256(), payload_.metadata.package_sha256,
          certificate_.thumbprint});
+    LogTrustOutcome(logger_, trust);
     if (!trust.ok) {
-      if (trust.declined) {
-        return Fail(ErrorCode::ElevationDeclined, trust.detail);
-      }
-      if (trust.error == ErrorCode::ElevationResourceMismatch) {
-        return Fail(ErrorCode::ElevationResourceMismatch, trust.detail);
-      }
-      return Fail(ErrorCode::CertificateImportFailed, trust.detail);
+      // 不再把任何通信失败改写成"证书写入失败"：只有辅助进程真的尝试写存储并失败，
+      // TrustOutcome 才会带 CertificateImportFailed / CertificateStoreUnavailable。
+      return Fail(ControllerTrustError(trust), trust.detail);
     }
     certificate_trusted_ = true;
     certificate_added_ = !trust.already_present;

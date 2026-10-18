@@ -32,6 +32,7 @@ add_library(installer_core STATIC
   src/application_launcher.cpp
   src/certificate_manager.cpp
   src/elevation_broker.cpp
+  src/elevation_channel.cpp
   src/installer_controller.cpp
   src/installer_errors.cpp
   src/installer_log.cpp
@@ -74,9 +75,18 @@ add_executable(installer_tests
   tests/payload_verifier_test.cpp
   tests/certificate_policy_test.cpp
   tests/error_mapping_test.cpp
+  tests/elevation_channel_test.cpp
+  tests/installer_ui_test.cpp
 )
 target_link_libraries(installer_tests PRIVATE installer_core)
 target_compile_options(installer_tests PRIVATE /EHsc /W4 /permissive- /utf-8)
+
+# IPC 测试的"提权辅助进程"替身：只做连接、写一条消息、回显或立即退出。
+# 它**不**链接 installer_core（因此也不含证书写入代码），也不请求管理员权限。
+add_executable(elevation_test_helper tests/elevation_test_helper.cpp)
+target_compile_options(elevation_test_helper PRIVATE /EHsc /W4 /permissive- /utf-8)
+target_link_libraries(elevation_test_helper PRIVATE)
+set_target_properties(elevation_test_helper PROPERTIES OUTPUT_NAME "elevation_test_helper")
 
 # 发布工具：把最终 MSIX、公开证书与元数据写入 Setup EXE 的只读资源。
 add_executable(embed_payload tools/embed_payload.cpp)

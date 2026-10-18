@@ -10,7 +10,10 @@ param(
   [string]$MsixVersion = '',
   [switch]$RequireSignature,
   [string]$UpdateStorageAcceptance = 'docs/testing/v1.10.0-packaged-update-storage-acceptance.md',
-  [switch]$SkipUpdateStorageAcceptance
+  [switch]$SkipUpdateStorageAcceptance,
+  # 修复版 1.10.2 起：UAC broker 的 12 项真人验收必须与本次 Setup 哈希绑定。
+  [string]$InstallerUacAcceptance = 'docs/testing/evidence/offline-installer-uac-broker-1.10.2.json',
+  [switch]$SkipInstallerUacAcceptance
 )
 
 $ErrorActionPreference = 'Stop'
@@ -157,12 +160,54 @@ if (-not $SkipUpdateStorageAcceptance) {
   }
 }
 
+
+# ── UAC broker 真人验收证据门禁（修复计划 Task 7 Step 2） ───────────────────
+#
+# 本地非签名开发验证可以显式跳过；只要指定 -RequireSignature，跳过本身就是问题。
+# 正式发布命令没有跳过通道。校验规则在同目录的 verify_installer_uac_evidence.ps1，
+# 那里可以被负例测试直接驱动。
+$setupSha256 = (Get-Sha256 $setupPath)
+if ($SkipInstallerUacAcceptance) {
+  if ($RequireSignature) {
+    Add-Problem '-RequireSignature 时不允许 -SkipInstallerUacAcceptance（正式发布没有跳过通道）'
+  } else {
+    Write-Host '已跳过 UAC 验收证据门禁（仅限非签名开发验证，不得用于发布）。' -ForegroundColor Yellow
+  }
+} else {
+  $uacScript = Join-Path $PSScriptRoot 'verify_installer_uac_evidence.ps1'
+  if (-not (Test-Path -LiteralPath $uacScript)) {
+    Add-Problem '缺少 tool\verify_installer_uac_evidence.ps1，无法校验 UAC 验收证据'
+  } else {
+    $uacEvidencePath = if ([System.IO.Path]::IsPathRooted($InstallerUacAcceptance)) {
+      $InstallerUacAcceptance
+    } else {
+      Join-Path $root $InstallerUacAcceptance
+    }
+    $uacOutput = & $uacScript -EvidencePath $uacEvidencePath -SetupSha256 $setupSha256 `
+        -Version $Version -Build $Build -MsixVersion $MsixVersion
+    $uacExit = $LASTEXITCODE
+    $uacReport = $null
+    try { $uacReport = ($uacOutput | Out-String) | ConvertFrom-Json } catch { $uacReport = $null }
+    if ($null -eq $uacReport) {
+      Add-Problem "UAC 验收证据校验没有返回可解析结果（exit $uacExit）"
+    } else {
+      foreach ($problem in @($uacReport.problems)) {
+        if ($null -ne $problem -and -not [string]::IsNullOrWhiteSpace([string]$problem)) {
+          Add-Problem ([string]$problem)
+        }
+      }
+      if ($uacExit -ne 0 -and @($uacReport.problems).Count -eq 0) {
+        Add-Problem "UAC 验收证据校验失败（exit $uacExit）"
+      }
+    }
+  }
+}
 $result = [ordered]@{
   ok          = ($problems.Count -eq 0)
   version     = "$Version+$Build"
   msixVersion = $MsixVersion
   directory   = $directoryPath
-  setupSha256 = (Get-Sha256 $setupPath)
+  setupSha256 = $setupSha256
   msixSha256  = $verified.sha256
   problems    = @($problems)
 }

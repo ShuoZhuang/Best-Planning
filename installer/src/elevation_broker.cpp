@@ -3,7 +3,6 @@
 #include <bcrypt.h>
 #include <shellapi.h>
 #include <sddl.h>
-#include <tlhelp32.h>
 
 #include <winrt/Windows.Data.Json.h>
 
@@ -12,6 +11,7 @@
 #include <string>
 
 #include "certificate_manager.h"
+#include "elevation_channel.h"
 #include "native_shared/text.h"
 #include "package_verifier.h"
 #include "payload_reader.h"
@@ -29,10 +29,12 @@ namespace {
 
 namespace nh = planner::native;
 
-constexpr int kProtocolVersion = 1;
+// 协议版本从 1 提升到 2：父子进程来自同一 Setup EXE，因此不提供跨版本兼容模式。
+constexpr int kProtocolVersion = 2;
 constexpr wchar_t kCommandTrust[] = L"verify-and-trust-certificate";
-constexpr wchar_t kPipePrefix[] = L"\\\\.\\pipe\\BestPlanningSetup-";
-constexpr DWORD kMessageLimit = 64 * 1024;
+constexpr DWORD kHandshakeTimeoutMs = 30000;
+constexpr DWORD kResultTimeoutMs = 120000;
+constexpr DWORD kHelperConnectTimeoutMs = 20000;
 
 std::vector<BYTE> RandomBytes(size_t count) {
   std::vector<BYTE> bytes(count);
@@ -61,34 +63,6 @@ bool CurrentUserSid(std::wstring& sid) {
   }
   CloseHandle(token);
   return ok;
-}
-
-bool WriteMessage(HANDLE pipe, const std::string& payload) {
-  DWORD written = 0;
-  return WriteFile(pipe, payload.data(), static_cast<DWORD>(payload.size()),
-                   &written, nullptr) != FALSE &&
-         written == payload.size();
-}
-
-bool ReadMessage(HANDLE pipe, std::string& payload, DWORD timeout_ms) {
-  OVERLAPPED overlapped{};
-  overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (overlapped.hEvent == nullptr) return false;
-  std::vector<char> buffer(kMessageLimit);
-  DWORD read = 0;
-  BOOL ok = ReadFile(pipe, buffer.data(), kMessageLimit, &read, &overlapped);
-  if (!ok && GetLastError() == ERROR_IO_PENDING) {
-    if (WaitForSingleObject(overlapped.hEvent, timeout_ms) != WAIT_OBJECT_0) {
-      CancelIoEx(pipe, &overlapped);
-      CloseHandle(overlapped.hEvent);
-      return false;
-    }
-    ok = GetOverlappedResult(pipe, &overlapped, &read, FALSE);
-  }
-  CloseHandle(overlapped.hEvent);
-  if (!ok) return false;
-  payload.assign(buffer.data(), read);
-  return true;
 }
 
 bool ParseJson(const std::string& utf8, JsonObject& object) {
@@ -129,69 +103,145 @@ double NumberField(const JsonObject& object, const wchar_t* name, bool& valid) {
   }
 }
 
-bool ParentIsSameExecutable(DWORD expected_parent) {
-  DWORD parent = 0;
-  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if (snapshot == INVALID_HANDLE_VALUE) return false;
-  PROCESSENTRY32W entry{};
-  entry.dwSize = sizeof(entry);
-  if (Process32FirstW(snapshot, &entry)) {
-    do {
-      if (entry.th32ProcessID == GetCurrentProcessId()) {
-        parent = entry.th32ParentProcessID;
-        break;
-      }
-    } while (Process32NextW(snapshot, &entry));
-  }
-  CloseHandle(snapshot);
-  if (parent == 0 || parent != expected_parent) return false;
-
-  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, parent);
-  if (process == nullptr) return false;
-  wchar_t parent_path[MAX_PATH * 2]{};
-  DWORD parent_size = static_cast<DWORD>(std::size(parent_path));
-  const bool parent_ok =
-      QueryFullProcessImageNameW(process, 0, parent_path, &parent_size) != FALSE;
-  CloseHandle(process);
-  if (!parent_ok) return false;
-
-  wchar_t self_path[MAX_PATH * 2]{};
-  DWORD self_size = static_cast<DWORD>(std::size(self_path));
-  if (!QueryFullProcessImageNameW(GetCurrentProcess(), 0, self_path, &self_size)) {
+bool BooleanField(const JsonObject& object, const wchar_t* name, bool& valid) {
+  try {
+    const auto value = object.GetNamedValue(name);
+    if (value.ValueType() != JsonValueType::Boolean) {
+      valid = false;
+      return false;
+    }
+    return value.GetBoolean();
+  } catch (...) {
+    valid = false;
     return false;
   }
-  return _wcsicmp(parent_path, self_path) == 0;
 }
 
+// 客户端连接：overlapped + 只要求"识别"级别模拟，绝不让普通权限服务端拿到
+// 可用于模拟的管理员令牌（规格 §2.3）。
 HANDLE ConnectToPipe(const std::wstring& pipe_name, DWORD timeout_ms) {
   const ULONGLONG deadline = GetTickCount64() + timeout_ms;
   for (;;) {
     HANDLE pipe = CreateFileW(pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                              nullptr, OPEN_EXISTING, 0, nullptr);
-    if (pipe != INVALID_HANDLE_VALUE) return pipe;
+                              nullptr, OPEN_EXISTING,
+                              FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT |
+                                  SECURITY_IDENTIFICATION,
+                              nullptr);
+    if (pipe != INVALID_HANDLE_VALUE) {
+      // 消息读模式是客户端句柄自己的属性；失败只影响分帧，不影响身份判断。
+      DWORD mode = PIPE_READMODE_MESSAGE;
+      SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+      return pipe;
+    }
     if (GetLastError() != ERROR_PIPE_BUSY) return INVALID_HANDLE_VALUE;
     if (GetTickCount64() > deadline) return INVALID_HANDLE_VALUE;
     WaitNamedPipeW(pipe_name.c_str(), 1000);
   }
 }
 
-ErrorCode MapChildCode(const std::wstring& code) {
-  if (_wcsicmp(code.c_str(), L"INSTALLER_ELEVATION_RESOURCE_MISMATCH") == 0) {
+}  // namespace
+
+ElevationFailureDecision DecideElevationFailure(
+    const ElevationChannelResult& result, int timeout_ms) {
+  ElevationFailureDecision decision;
+  decision.detail = ElevationChannelDetail(
+      result, timeout_ms > 0 ? static_cast<DWORD>(timeout_ms) : 0);
+  switch (result.status) {
+    case ElevationChannelStatus::Connected:
+      // 不应被调用；保持保守，不终止进程。
+      decision.error = ErrorCode::None;
+      decision.terminate_helper = false;
+      break;
+    case ElevationChannelStatus::ChildExited:
+      // 进程已经退出：报告真实退出码，不得再 TerminateProcess。
+      decision.error = ErrorCode::ElevationFailed;
+      decision.terminate_helper = false;
+      break;
+    case ElevationChannelStatus::TimedOut:
+    case ElevationChannelStatus::ClientPidMismatch:
+    case ElevationChannelStatus::ClientPidUnavailable:
+    case ElevationChannelStatus::ConnectStartFailed:
+    case ElevationChannelStatus::WaitFailed:
+    case ElevationChannelStatus::EventCreationFailed:
+    case ElevationChannelStatus::IoFailed:
+    case ElevationChannelStatus::MessageTooLarge:
+      // 握手尚未 ACK（证书绝不可能已写）：允许回收仍存活的辅助进程。
+      decision.error = ErrorCode::ElevationFailed;
+      decision.terminate_helper = true;
+      break;
+  }
+  return decision;
+}
+
+ErrorCode MapElevatedResultCode(const std::wstring& stable_code) {
+  if (stable_code.empty()) return ErrorCode::ElevationFailed;
+  auto equals = [&stable_code](const wchar_t* candidate) {
+    return _wcsicmp(stable_code.c_str(), candidate) == 0;
+  };
+  if (equals(L"INSTALLER_ELEVATION_RESOURCE_MISMATCH")) {
     return ErrorCode::ElevationResourceMismatch;
   }
-  if (_wcsicmp(code.c_str(), L"INSTALLER_CERTIFICATE_IMPORT_FAILED") == 0 ||
-      _wcsicmp(code.c_str(), L"INSTALLER_CERTIFICATE_STORE_UNAVAILABLE") == 0) {
-    return ErrorCode::CertificateImportFailed;
+  if (equals(L"INSTALLER_ELEVATION_DECLINED")) {
+    return ErrorCode::ElevationDeclined;
   }
-  if (_wcsicmp(code.c_str(), L"INSTALLER_PAYLOAD_MISSING") == 0 ||
-      _wcsicmp(code.c_str(), L"INSTALLER_PACKAGE_SIGNATURE_INVALID") == 0 ||
-      _wcsicmp(code.c_str(), L"INSTALLER_PACKAGE_IDENTITY_MISMATCH") == 0) {
-    return ErrorCode::ElevationFailed;
+  if (equals(L"INSTALLER_CERTIFICATE_STORE_UNAVAILABLE")) {
+    return ErrorCode::CertificateStoreUnavailable;
+  }
+  if (equals(L"INSTALLER_CERTIFICATE_IMPORT_FAILED")) {
+    return ErrorCode::CertificateImportFailed;
   }
   return ErrorCode::ElevationFailed;
 }
 
-}  // namespace
+bool ValidateElevationHandshakeRequest(const std::string& payload,
+                                       const TrustRequest& expected,
+                                       const std::wstring& nonce_hex,
+                                       std::wstring& rejected_field) {
+  rejected_field.clear();
+  JsonObject object{nullptr};
+  if (!ParseJson(payload, object)) {
+    rejected_field = L"malformed";
+    return false;
+  }
+  bool valid = true;
+  const double protocol = NumberField(object, L"protocolVersion", valid);
+  const std::wstring nonce = StringField(object, L"nonce", valid);
+  const std::wstring command = StringField(object, L"command", valid);
+  const std::wstring metadata = StringField(object, L"metadataSha256", valid);
+  const std::wstring package = StringField(object, L"packageSha256", valid);
+  const std::wstring thumbprint =
+      StringField(object, L"certificateThumbprint", valid);
+  if (!valid) {
+    rejected_field = L"malformed";
+    return false;
+  }
+  if (static_cast<int>(protocol) != kProtocolVersion) {
+    rejected_field = L"protocolVersion";
+    return false;
+  }
+  if (_wcsicmp(nonce.c_str(), nonce_hex.c_str()) != 0) {
+    rejected_field = L"nonce";
+    return false;
+  }
+  if (_wcsicmp(command.c_str(), kCommandTrust) != 0) {
+    rejected_field = L"command";
+    return false;
+  }
+  if (_wcsicmp(metadata.c_str(), expected.metadata_sha256.c_str()) != 0) {
+    rejected_field = L"metadataSha256";
+    return false;
+  }
+  if (_wcsicmp(package.c_str(), expected.package_sha256.c_str()) != 0) {
+    rejected_field = L"packageSha256";
+    return false;
+  }
+  if (_wcsicmp(thumbprint.c_str(),
+               expected.certificate_thumbprint.c_str()) != 0) {
+    rejected_field = L"certificateThumbprint";
+    return false;
+  }
+  return true;
+}
 
 bool IsProcessElevated() {
   HANDLE token = nullptr;
@@ -217,13 +267,14 @@ bool ElevationBroker::CreateChannel(std::wstring& error) {
     return false;
   }
   nonce_hex_ = nh::HexEncode(nonce);
-  pipe_name_ = kPipePrefix + nonce_hex_;
+  pipe_name_ = std::wstring(kElevationPipePrefix) + nonce_hex_;
 
   std::wstring sid;
   if (!CurrentUserSid(sid)) {
     error = L"current-user-sid";
     return false;
   }
+  // 保留原始用户、SYSTEM、管理员三类主体；不扩大 ACL（规格 §2.3、§8.5）。
   const std::wstring sddl =
       L"D:(A;;GA;;;" + sid + L")(A;;GA;;;SY)(A;;GA;;;BA)";
   if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -235,13 +286,15 @@ bool ElevationBroker::CreateChannel(std::wstring& error) {
   security_.lpSecurityDescriptor = descriptor_;
   security_.bInheritHandle = FALSE;
 
+  // 三个标志缺一不可：双工、首实例（防抢占）、overlapped（等待/取消的契约）。
   pipe_ = CreateNamedPipeW(
       pipe_name_.c_str(),
-      PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
-      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 1, kMessageLimit,
-      kMessageLimit, 0, &security_);
+      PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT |
+          PIPE_REJECT_REMOTE_CLIENTS,
+      1, kElevationMessageLimit, kElevationMessageLimit, 0, &security_);
   if (pipe_ == INVALID_HANDLE_VALUE) {
-    error = L"create-pipe";
+    error = L"create-pipe win32=" + std::to_wstring(GetLastError());
     LocalFree(descriptor_);
     descriptor_ = nullptr;
     return false;
@@ -271,9 +324,9 @@ TrustOutcome ElevationBroker::RequestCertificateTrust(
     return outcome;
   }
 
-  const std::wstring parameters =
-      L"--elevated-session --pipe \"" + pipe_name_ + L"\" --nonce " +
-      nonce_hex_ + L" --parent " + std::to_wstring(GetCurrentProcessId());
+  // 命令行不再携带父 PID：身份来自返回的进程句柄与管道实际客户端 PID。
+  const std::wstring parameters = L"--elevated-session --pipe \"" + pipe_name_ +
+                                  L"\" --nonce " + nonce_hex_;
   SHELLEXECUTEINFOW execute{};
   execute.cbSize = sizeof(execute);
   execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
@@ -290,159 +343,158 @@ TrustOutcome ElevationBroker::RequestCertificateTrust(
       outcome.detail = L"uac-declined";
     } else {
       outcome.error = ErrorCode::ElevationFailed;
-      outcome.detail = L"runas " + std::to_wstring(status);
+      outcome.detail = L"runas win32=" + std::to_wstring(status);
+      outcome.win32_error = status;
     }
     return outcome;
   }
 
-  OVERLAPPED overlapped{};
-  overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  bool connected = false;
-  if (overlapped.hEvent != nullptr) {
-    const BOOL result = ConnectNamedPipe(pipe_, &overlapped);
-    DWORD status = result ? ERROR_SUCCESS : GetLastError();
-    if (status == ERROR_PIPE_CONNECTED) {
-      connected = true;
-    } else if (status == ERROR_IO_PENDING) {
-      if (WaitForSingleObject(overlapped.hEvent, static_cast<DWORD>(timeout_ms)) ==
-          WAIT_OBJECT_0) {
-        DWORD transferred = 0;
-        connected = GetOverlappedResult(pipe_, &overlapped, &transferred, FALSE) != FALSE;
-      } else {
-        CancelIoEx(pipe_, &overlapped);
-      }
-    }
-    CloseHandle(overlapped.hEvent);
-  }
-  if (!connected) {
+  // 没有进程句柄或 PID 时不等待管道、不读消息、不写证书：直接给出真实原因。
+  const DWORD launched_pid =
+      execute.hProcess != nullptr ? GetProcessId(execute.hProcess) : 0;
+  if (execute.hProcess == nullptr || launched_pid == 0) {
+    const DWORD status = GetLastError();
+    if (execute.hProcess != nullptr) CloseHandle(execute.hProcess);
+    CloseChannel();
     outcome.error = ErrorCode::ElevationFailed;
-    outcome.detail = L"pipe-connect-timeout";
-    if (execute.hProcess != nullptr) {
+    outcome.win32_error = status;
+    outcome.detail =
+        L"elevated-process-id-unavailable win32=" + std::to_wstring(status);
+    return outcome;
+  }
+  outcome.launched_pid = launched_pid;
+
+  const DWORD wait_ms = timeout_ms > 0 ? static_cast<DWORD>(timeout_ms) : 0;
+  const ElevationChannelResult channel = WaitForExpectedElevationClient(
+      pipe_, execute.hProcess, launched_pid, wait_ms);
+  outcome.channel_status = ElevationChannelToken(channel.status);
+  outcome.win32_error = channel.win32_error;
+  outcome.child_exit_code = channel.child_exit_code;
+  if (!channel.ok()) {
+    // 每条失败路径恰好一次 TerminateProcess（且只在 pre-ACK）与一次 CloseHandle。
+    const ElevationFailureDecision decision =
+        DecideElevationFailure(channel, timeout_ms);
+    if (decision.terminate_helper) {
       TerminateProcess(execute.hProcess, 3);
-      CloseHandle(execute.hProcess);
     }
+    WaitForSingleObject(execute.hProcess, 1000);
+    CloseHandle(execute.hProcess);
+    CloseChannel();
+    outcome.error = decision.error;
+    outcome.detail = decision.detail;
+    return outcome;
+  }
+  outcome.client_pid = channel.actual_client_pid;
+  outcome.child_exit_code = STILL_ACTIVE;
+
+  // 1) 核对协议版本、nonce、固定命令与三项资源指纹；任何一项不符都不回复 accepted。
+  std::string incoming;
+  const ElevationChannelResult request_read =
+      ReadElevationMessage(pipe_, incoming, kHandshakeTimeoutMs);
+  if (!request_read.ok()) {
+    // 连请求都没读到：这是安全通信失败，不是"资源不一致"，也不能谎报成超时。
+    // 此刻仍未 ACK，可以安全回收仍存活的辅助进程。
+    outcome.error = ErrorCode::ElevationFailed;
+    outcome.channel_status = ElevationChannelToken(request_read.status);
+    outcome.win32_error = request_read.win32_error;
+    outcome.detail = L"handshake-read-failed " +
+                     ElevationChannelDetail(request_read, kHandshakeTimeoutMs);
+    TerminateProcess(execute.hProcess, 3);
+    WaitForSingleObject(execute.hProcess, 1000);
+    CloseHandle(execute.hProcess);
     CloseChannel();
     return outcome;
   }
 
-  // 1) 读取提权进程的请求并核对 nonce / 协议 / 载荷摘要。
-  std::string incoming;
-  bool accepted = false;
-  if (ReadMessage(pipe_, incoming, 30000)) {
-    JsonObject object{nullptr};
-    bool valid = true;
-    if (ParseJson(incoming, object)) {
-      const double protocol = NumberField(object, L"protocolVersion", valid);
-      const std::wstring nonce = StringField(object, L"nonce", valid);
-      const std::wstring command = StringField(object, L"command", valid);
-      const std::wstring metadata = StringField(object, L"metadataSha256", valid);
-      const std::wstring package = StringField(object, L"packageSha256", valid);
-      const std::wstring thumbprint =
-          StringField(object, L"certificateThumbprint", valid);
-      accepted = valid && static_cast<int>(protocol) == kProtocolVersion &&
-                 _wcsicmp(nonce.c_str(), nonce_hex_.c_str()) == 0 &&
-                 _wcsicmp(command.c_str(), kCommandTrust) == 0 &&
-                 _wcsicmp(metadata.c_str(), request.metadata_sha256.c_str()) == 0 &&
-                 _wcsicmp(package.c_str(), request.package_sha256.c_str()) == 0 &&
-                 _wcsicmp(thumbprint.c_str(),
-                          request.certificate_thumbprint.c_str()) == 0;
-    }
-  }
+  std::wstring rejected_field;
+  const bool accepted = ValidateElevationHandshakeRequest(
+      incoming, request, nonce_hex_, rejected_field);
+
   JsonObject ack;
   ack.SetNamedValue(L"ok", JsonValue::CreateBooleanValue(accepted));
   if (accepted) {
     ack.SetNamedValue(L"command", JsonValue::CreateStringValue(L"accepted"));
   }
-  WriteMessage(pipe_, nh::Utf8FromWide(ack.Stringify().c_str()));
+  WriteElevationMessage(pipe_, nh::Utf8FromWide(ack.Stringify().c_str()),
+                        kHandshakeTimeoutMs);
   if (!accepted) {
-    outcome.error = ErrorCode::ElevationFailed;
-    outcome.detail = L"handshake-rejected";
-    if (execute.hProcess != nullptr) {
-      WaitForSingleObject(execute.hProcess, 10000);
-      CloseHandle(execute.hProcess);
-    }
+    outcome.error = ErrorCode::ElevationResourceMismatch;
+    outcome.detail = L"handshake-rejected field=" + rejected_field;
+    // 已明确拒绝（未 ACK accepted）：证书不可能被写。辅助进程读到 ok=false 会自行
+    // 以 5 退出，因此这里只等它退出，不替它决定生死。
+    WaitForSingleObject(execute.hProcess, 10000);
+    CloseHandle(execute.hProcess);
     CloseChannel();
     return outcome;
   }
 
-  // 2) 读取提权进程的处理结果。
-  bool replied = false;
-  if (ReadMessage(pipe_, incoming, 120000)) {
-    JsonObject object{nullptr};
-    bool valid = true;
-    if (ParseJson(incoming, object)) {
-      const bool ok = [&]() {
-        try {
-          return object.GetNamedBoolean(L"ok", false);
-        } catch (...) {
-          return false;
-        }
-      }();
-      const bool already = [&]() {
-        try {
-          return object.GetNamedBoolean(L"alreadyPresent", false);
-        } catch (...) {
-          return false;
-        }
-      }();
-      const std::wstring thumbprint = StringField(object, L"thumbprint", valid);
-      const std::wstring metadata = StringField(object, L"metadataSha256", valid);
-      const std::wstring package = StringField(object, L"packageSha256", valid);
-      const std::wstring error_code = StringField(object, L"errorCode", valid);
-      if (!valid || _wcsicmp(metadata.c_str(), request.metadata_sha256.c_str()) != 0 ||
-          _wcsicmp(package.c_str(), request.package_sha256.c_str()) != 0) {
-        outcome.error = ErrorCode::ElevationResourceMismatch;
-        outcome.detail = L"elevated-resource-mismatch";
-      } else if (!ok) {
-        outcome.error = MapChildCode(error_code);
-        outcome.detail = error_code;
-      } else if (_wcsicmp(thumbprint.c_str(),
-                          request.certificate_thumbprint.c_str()) != 0) {
-        outcome.error = ErrorCode::ElevationResourceMismatch;
-        outcome.detail = L"thumbprint-mismatch";
-      } else {
-        outcome.ok = true;
-        outcome.already_present = already;
-        outcome.thumbprint = thumbprint;
-        outcome.error = ErrorCode::None;
-        replied = true;
-      }
-    }
-  }
-  if (!replied && outcome.ok) outcome.ok = false;
-  if (!replied && outcome.error == ErrorCode::Internal) {
+  // 2) 已 ACK：从这里开始证书可能已被写入，因此不得再终止辅助进程。
+  std::string result_payload;
+  const ElevationChannelResult result_read =
+      ReadElevationMessage(pipe_, result_payload, kResultTimeoutMs);
+  if (!result_read.ok()) {
     outcome.error = ErrorCode::ElevationFailed;
-    outcome.detail = L"no-result";
+    outcome.channel_status = ElevationChannelToken(result_read.status);
+    outcome.win32_error = result_read.win32_error;
+    outcome.detail =
+        L"elevated-result-unavailable " +
+        ElevationChannelDetail(result_read, kResultTimeoutMs);
+    WaitForSingleObject(execute.hProcess, 10000);
+    CloseHandle(execute.hProcess);
+    CloseChannel();
+    return outcome;
+  }
+
+  JsonObject object{nullptr};
+  if (!ParseJson(result_payload, object)) {
+    outcome.error = ErrorCode::ElevationResourceMismatch;
+    outcome.detail = L"elevated-result-malformed";
+  } else {
+    bool valid = true;
+    const bool ok = BooleanField(object, L"ok", valid);
+    const bool already = BooleanField(object, L"alreadyPresent", valid);
+    const std::wstring thumbprint = StringField(object, L"thumbprint", valid);
+    const std::wstring metadata =
+        StringField(object, L"metadataSha256", valid);
+    const std::wstring package = StringField(object, L"packageSha256", valid);
+    const std::wstring error_code = StringField(object, L"errorCode", valid);
+    if (!valid ||
+        _wcsicmp(metadata.c_str(), request.metadata_sha256.c_str()) != 0 ||
+        _wcsicmp(package.c_str(), request.package_sha256.c_str()) != 0) {
+      outcome.error = ErrorCode::ElevationResourceMismatch;
+      outcome.detail = L"elevated-resource-mismatch";
+    } else if (!ok) {
+      outcome.error = MapElevatedResultCode(error_code);
+      outcome.detail =
+          error_code.empty() ? L"elevated-failure" : error_code;
+    } else if (_wcsicmp(thumbprint.c_str(),
+                        request.certificate_thumbprint.c_str()) != 0) {
+      outcome.error = ErrorCode::ElevationResourceMismatch;
+      outcome.detail = L"thumbprint-mismatch";
+    } else {
+      outcome.ok = true;
+      outcome.already_present = already;
+      outcome.thumbprint = thumbprint;
+      outcome.error = ErrorCode::None;
+    }
   }
 
   CloseChannel();
-  if (execute.hProcess != nullptr) {
-    WaitForSingleObject(execute.hProcess, 10000);
-    CloseHandle(execute.hProcess);
+  DWORD exit_code = STILL_ACTIVE;
+  WaitForSingleObject(execute.hProcess, 10000);
+  if (GetExitCodeProcess(execute.hProcess, &exit_code)) {
+    outcome.child_exit_code = exit_code;
   }
+  CloseHandle(execute.hProcess);
   return outcome;
 }
 
 int RunElevatedSession(const std::vector<std::wstring>& arguments) {
-  std::wstring pipe_name;
-  std::wstring nonce_hex;
-  DWORD parent = 0;
-  for (size_t index = 0; index < arguments.size(); ++index) {
-    if (_wcsicmp(arguments[index].c_str(), L"--pipe") == 0 &&
-        index + 1 < arguments.size()) {
-      pipe_name = arguments[++index];
-    } else if (_wcsicmp(arguments[index].c_str(), L"--nonce") == 0 &&
-               index + 1 < arguments.size()) {
-      nonce_hex = arguments[++index];
-    } else if (_wcsicmp(arguments[index].c_str(), L"--parent") == 0 &&
-               index + 1 < arguments.size()) {
-      parent = static_cast<DWORD>(_wtoi(arguments[++index].c_str()));
-    }
-  }
-  if (pipe_name.empty() || !nh::IsHex(nonce_hex, 64) || parent == 0) return 2;
-  if (!ParentIsSameExecutable(parent)) return 3;
+  const ElevatedSessionArguments parsed =
+      ParseElevatedSessionArguments(arguments);
+  if (!parsed.valid) return 2;
 
-  HANDLE pipe = ConnectToPipe(pipe_name, 20000);
+  HANDLE pipe = ConnectToPipe(parsed.pipe_name, kHelperConnectTimeoutMs);
   if (pipe == INVALID_HANDLE_VALUE) return 4;
 
   // 从**自己的**只读资源重读载荷并计算摘要；不采信命令行或主进程提供的路径。
@@ -451,13 +503,13 @@ int RunElevatedSession(const std::vector<std::wstring>& arguments) {
   std::wstring detail;
   if (!ReadEmbeddedPayload(payload, error, detail)) {
     CloseHandle(pipe);
-    return 5;
+    return 6;
   }
   CertificateInfo certificate;
   if (!VerifyCertificateMetadata(payload.metadata, payload.certificate,
                                  certificate, error, detail)) {
     CloseHandle(pipe);
-    return 5;
+    return 6;
   }
   const std::wstring metadata_sha = payload.metadata.RawSha256();
   const std::wstring package_sha = payload.metadata.package_sha256;
@@ -479,14 +531,15 @@ int RunElevatedSession(const std::vector<std::wstring>& arguments) {
                          JsonValue::CreateStringValue(result_metadata));
     object.SetNamedValue(L"packageSha256",
                          JsonValue::CreateStringValue(result_package));
-    WriteMessage(pipe, nh::Utf8FromWide(object.Stringify().c_str()));
+    WriteElevationMessage(pipe, nh::Utf8FromWide(object.Stringify().c_str()),
+                          kHandshakeTimeoutMs);
   };
 
-  // 1) 请求：nonce、协议版本、命令与载荷摘要。
+  // 1) 请求：协议版本、nonce、固定命令与载荷摘要。
   JsonObject request;
   request.SetNamedValue(L"protocolVersion",
                         JsonValue::CreateNumberValue(kProtocolVersion));
-  request.SetNamedValue(L"nonce", JsonValue::CreateStringValue(nonce_hex));
+  request.SetNamedValue(L"nonce", JsonValue::CreateStringValue(parsed.nonce_hex));
   request.SetNamedValue(L"command",
                         JsonValue::CreateStringValue(kCommandTrust));
   request.SetNamedValue(L"metadataSha256",
@@ -495,7 +548,9 @@ int RunElevatedSession(const std::vector<std::wstring>& arguments) {
                         JsonValue::CreateStringValue(package_sha));
   request.SetNamedValue(L"certificateThumbprint",
                         JsonValue::CreateStringValue(thumbprint));
-  if (!WriteMessage(pipe, nh::Utf8FromWide(request.Stringify().c_str()))) {
+  if (!WriteElevationMessage(pipe, nh::Utf8FromWide(request.Stringify().c_str()),
+                             kHandshakeTimeoutMs)
+           .ok()) {
     CloseHandle(pipe);
     return 4;
   }
@@ -503,14 +558,13 @@ int RunElevatedSession(const std::vector<std::wstring>& arguments) {
   // 2) 主进程确认后才允许写入证书存储；摘要不一致时这里必须停下。
   std::string incoming;
   bool accepted = false;
-  if (ReadMessage(pipe, incoming, 30000)) {
+  const ElevationChannelResult ack =
+      ReadElevationMessage(pipe, incoming, kHandshakeTimeoutMs);
+  if (ack.ok()) {
     JsonObject object{nullptr};
+    bool valid = true;
     if (ParseJson(incoming, object)) {
-      try {
-        accepted = object.GetNamedBoolean(L"ok", false);
-      } catch (...) {
-        accepted = false;
-      }
+      accepted = BooleanField(object, L"ok", valid) && valid;
     }
   }
   if (!accepted) {

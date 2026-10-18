@@ -31,6 +31,11 @@ extern std::wstring g_msix_path;
 extern std::wstring g_certificate_path;
 extern std::wstring g_second_certificate_path;
 
+// IPC 测试用的无提权 helper（`elevation_test_helper.exe`）。缺省指向与本测试
+// 可执行文件同目录的那一份；`--helper` 可覆盖（发布机把测试复制到工作区之外时用）。
+// 这不是生产开关：helper 只是测试二进制，不含任何证书写入代码。
+extern std::wstring g_helper_path;
+
 }  // namespace installer_tests
 
 #define TEST(name)                                                     \

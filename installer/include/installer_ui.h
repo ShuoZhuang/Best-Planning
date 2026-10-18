@@ -32,6 +32,22 @@ enum class UiDecision {
   Tertiary = 3,
 };
 
+// 次级按钮被点击时的语义（纯函数，便于单测）。
+//
+// 只有**进度页**上的次级按钮是"取消"：它只登记取消请求，真正的取消点由状态机决定，
+// 因此不解析界面等待。其余页面（同版本页、完成页、失败页、准备页）上的次级按钮都是
+// 一个确定的答复，必须解析，否则工作线程会永远等下去。
+//
+// 2026-10-18 实测缺陷：完成页也显示 100% 进度条，早先的实现用"进度条是否可见"判断，
+// 于是完成页的"完成"被当成"取消"、按钮被禁用、worker 永不返回，用户只能关窗口，
+// 而关窗口又把退出码变成 99（成功却报内部错误）。
+enum class SecondaryClick {
+  RequestCancel,
+  Resolve,
+};
+
+SecondaryClick ClassifySecondaryClick(UiPage page);
+
 struct UiModel {
   UiPage page = UiPage::Preparing;
   std::wstring headline;
@@ -102,6 +118,10 @@ class InstallerUi {
 
   int worker_result_ = 99;
   bool allow_close_model_ = false;
+  UiPage page_ = UiPage::Preparing;
+
+  // 工作线程写、界面线程在 join 之后读：用原子量避免"关闭窗口时吞掉真实退出码"。
+  std::atomic<int> worker_exit_code_{99};
 };
 
 }  // namespace planner::installer
