@@ -1,5 +1,25 @@
 # 离线单文件安装器验收记录
 
+> ## 历史记录更正（2026-10-18，追加于顶部）
+>
+> **本文是 `1.10.0+49` 的历史证据，不是 UAC broker 的验收证据，也不构成"可正式发布"的
+> 结论。** 后续跨设备日志证明：`1.10.0+49` 与 `1.10.1+50` 的单文件 Setup 在**证书尚未
+> 受信任**的设备上会以 `INSTALLER_CERTIFICATE_IMPORT_FAILED detail=pipe-connect-timeout`
+> 失败（详见 `docs/superpowers/plans/2026-10-18-offline-installer-uac-broker-repair.md`
+> §1.1）。缺陷位于普通权限主进程与提权辅助进程之间的命名管道通信。
+>
+> 因此，下面记录里所有"通过"项只证明以下三件事，**不包括**普通用户路径：
+>
+> 1. 已提权会话中的载荷释放、SHA-256 校验与 MSIX 部署；
+> 2. 一次真实的 `1.9.0.0 → 1.10.0.0` 原位升级；
+> 3. 签名、时间戳与发布门禁对产物结构的检查。
+>
+> 本记录中的"结论"一栏（"代码完成，发布验收未完成"）已不再适用：**该版本被判定为已知
+> 缺陷产物，条件满足时不应再用于首次安装。** 修复版为 `1.10.2+51`，其真实 Windows/UAC
+> 矩阵另见 `docs/testing/offline-installer-uac-broker-acceptance.md`。
+>
+> 原始记录保持原样：不改写当时的命令、哈希与结果，也不删除任何一行。
+
 日期：2026-10-18
 依据：`docs/superpowers/specs/2026-10-18-offline-bootstrap-installer-design.md`（下称"规格"）
 实施计划：`docs/superpowers/plans/2026-10-18-offline-bootstrap-installer-implementation-plan.md`

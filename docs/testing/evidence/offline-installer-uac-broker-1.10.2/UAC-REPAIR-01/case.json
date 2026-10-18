@@ -1,0 +1,15 @@
+{
+  "id": "UAC-REPAIR-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "repair-1.10.2",
+  "exitCode": 0,
+  "finalState": "Installed",
+  "note": "同版本选择修复：未卸载、未清数据、最终仍是 1.10.2.0；无 UAC 提示；退出码 0",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-REPAIR-01/setup.log",
+  "logSha256": "a4d733ca7804f73768e5e217213d21da7d30eaf8788ae0ae1a38ef4e43aa3e94",
+  "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-REPAIR-01/screenshot-after.png",
+  "screenshotSha256": "bf6ba4e2db1f9e65987b0e1a427209fa8546ea15262c361b2e22037d6fbc2e96"
+}

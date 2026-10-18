@@ -394,3 +394,29 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
   需要单独证书的管理员仍可从安装器资源中导出，或继续使用同 Publisher 的既有证书。
 - 第 8 节的其余要求（真实安装/覆盖安装/启动验证结果、SHA-256 记录）继续有效，
   另加一条：**发布门禁必须通过** `tool/verify_release_assets.ps1`（含 Setup 内嵌自检与签名时间戳）。
+## 10. 2026-10-18 起：`1.10.2+51` 的 UAC broker 修复批次
+
+修复计划：`docs/superpowers/plans/2026-10-18-offline-installer-uac-broker-repair.md`。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.10.2+51` |
+| MSIX 版本 | `1.10.2.0` |
+| Git 标签 | `v1.10.2` |
+| 正式产物 | `BestPlanning_Setup_1.10.2_x64.exe`、`BestPlanning_Portable_1.10.2_x64.zip`、`BestPlanning_1.10.2.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+- **抬第 3 段**（`1.10.0` → `1.10.2`）：纯修复，不改包身份、发布者与用户数据兼容性。
+  `1.10.1+50` 的候选号已经用掉，因此本批直接到 `1.10.2+51`，构建号继续全局单调递增。
+- **`1.10.0+49` 与 `1.10.1+50` 的单文件 Setup 判定为已知缺陷产物**：在签名证书尚未受信任的
+  设备上，一次 UAC 的主进程/辅助进程命名管道通信可能失败，表现为
+  `failure INSTALLER_CERTIFICATE_IMPORT_FAILED detail=pipe-connect-timeout`、
+  `finalState NotInstalled`。这不是证书本身的问题。
+- **不移动、不重写 `v1.10.0` / `v1.10.1` 标签，也不静默替换旧 Release 的附件**：
+  旧 Release 只在顶部追加已知缺陷说明并指向 `v1.10.2`，原有哈希记录保持不变。
+- 已经成功安装的 `1.10.0` / `1.10.1` 用户**不需要卸载**；应用内更新继续只使用 MSIX，
+  不下载 Setup。
+- **发布门禁新增 UAC 验收证据**：`tool/verify_release_assets.ps1` 会校验
+  `docs/testing/evidence/offline-installer-uac-broker-1.10.2.json` 的 12 个用例、
+  `setupSha256` 与日志/截图哈希；指定 `-RequireSignature` 时**不允许**跳过该项。
+- 真人验收模板与结论见 `docs/testing/offline-installer-uac-broker-acceptance.md`。
+  在 12 项全部 PASS 之前，本批只能写"自动化修复完成，发布验收未完成"。

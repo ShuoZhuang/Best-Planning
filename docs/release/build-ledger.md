@@ -5,12 +5,33 @@
 
 > **当前正式发布：`1.6.2+37` / MSIX `1.6.2.0`（2026-10-08，tag `v1.6.2-build37`）** —— 见下方 `1.6.2+37` 批次。
 > **线上最新发布：`1.9.1+47` / MSIX `1.9.1.0`（2026-10-18，tag `v1.9.1`）。**
-> **当前候选：`1.9.2+48` / MSIX `1.9.2.0`（待发布，前置助手修复）；`1.10.0+49` / MSIX `1.10.0.0`（发布验收未完成）。**
+> **当前候选：`1.10.2+51` / MSIX `1.10.2.0`（UAC broker 修复；自动化修复完成，发布验收未完成）。**
+> **撤回建议：`1.10.0+49` / MSIX `1.10.0.0` 与 `1.10.1+50` / MSIX `1.10.1.0` 的单文件 Setup 在证书尚未受信任的设备上存在 UAC 通信缺陷，不再推荐用于首次安装；已安装用户无需卸载。**
+> `1.9.2+48` / MSIX `1.9.2.0` 已发布，是 `1.9.2 → 1.10.x` 一跳的前置助手修复版。
 > `1.8.0+44` / MSIX `1.8.0.2` 已被 `1.8.1+45` 取代（产物仍在 `release\` 下留档）。
 > `1.8.0+44` / MSIX `1.8.0.1` 已被**同批次重打包**的 `1.8.0.2` 取代（前者是日历修复**之前**的构建；产物仍在 `release\` 下留档）。
 > `1.8.0+43` / MSIX `1.8.0.0` 已被 `1.8.0+44` 取代（其产物仍在 `release\` 下留档）。
 > `1.7.1+42` / MSIX `1.7.1.1` 已被 `1.8.0+43` 取代（其产物仍在 `release\` 下留档）。
 > `1.6.2+37` 之前的所有批次都保持"候选构建"状态，未对外发布。
+
+## 1.10.2+51 / MSIX 1.10.2.0 — 2026-10-18（离线安装器 UAC broker 修复批次）
+
+| 项目 | 结果 |
+| --- | --- |
+| 状态 | **候选构建（自动化修复完成，发布验收未完成）**——真人 UAC 矩阵为 `NOT RUN`，发布保持阻断 |
+| 变更范围 | 只修单文件 Setup 的 UAC 辅助进程通信：① 服务端管道改为真正的 `FILE_FLAG_OVERLAPPED` + `PIPE_REJECT_REMOTE_CLIENTS`，读写统一走有限的 overlapped 接口；② 删除 `--parent`、`ParentIsSameExecutable` 与 Toolhelp 父进程扫描，连接者身份改由 `ShellExecuteExW` 返回的进程句柄 + `GetNamedPipeClientProcessId` 共同确定；③ 同时等待"管道连接"与"提权进程退出"，子进程提前退出立即可诊断；④ 协议版本 `1` → `2`，`--pipe` 后缀必须与 `--nonce` 完全一致；⑤ 错误语义分层——只有真正等待超时才写 `pipe-connect-timeout`，通信失败不再被改写成证书写入失败；⑥ 发布门禁新增 12 项 UAC 验收证据校验；⑦ 验收中发现的界面缺陷一并修复——完成页「完成」按钮失效、以及 GUI 安装成功后退出码报 `99`（headless 验收此前未覆盖该路径） |
+| 版本段位 | `1.10.0+49` → **`1.10.2+51`**；MSIX **`1.10.2.0`**（`1.10.1+50` 的候选号已用掉，纯修复抬第 3 段） |
+| 计划 | `docs/superpowers/plans/2026-10-18-offline-installer-uac-broker-repair.md` |
+| 候选产物 | `release-artifacts/1.10.2/`（2026-10-18 本机构建，已签名，未发布） |
+| Setup | `BestPlanning_Setup_1.10.2_x64.exe` 19,020,120 字节 · `ec69dc9991bb487b14feb0eaef1f1fdc9a9381a3452fb1bb0a2a0f9b0d5746e6` · Authenticode `Valid`（DigiCert 时间戳） |
+| MSIX | `BestPlanning_1.10.2.0_x64.msix` 18,575,088 字节 · `de8af8f7ed05f78e60da36198b9276febd7841105c5983640814f9f5783791c9` · 身份 `ShuoZhuang.PersonalPlanner` x64 |
+| 便携版 | `BestPlanning_Portable_1.10.2_x64.zip` 17,220,697 字节 · `cd377259859d5713c612c03dab49c96313264ee367c4676a96cb33296d1c3834` |
+| 清单 | `update-manifest.json` 1,275 字节 · `0af0532ed4cf53660f24446fd997ec2a0fb3e4f744fdf2b7e59f04565deb6b54` |
+| 门禁 | 结构/版本/签名/哈希 **通过**（`ok=true`，`-SkipInstallerUacAcceptance`）；正式口径 `-RequireSignature` 只剩 12 项真人用例 `NOT RUN`，**发布阻断** |
+| 自动化 | 原生单元测试 Debug/Release：`62 tests, 0 failures`（含 `elevation_channel_*` 七项、`elevated_args_*` 七项、`broker_*` 七项）；组件测试 `tests=20`、`ok=true`；`flutter analyze` 与 `flutter test`（2933 项）通过 |
+| 真人验收 | 12 项（`UAC-ADMIN-01/02`、`UAC-STD-01/02`、`UAC-CANCEL-01/02`、`UAC-OFFLINE-01`、`UAC-TRUSTED-01`、`UAC-UPGRADE-01/02`、`UAC-REPAIR-01`、`UAC-UI-01`）**全部 NOT RUN** |
+| 证据 | `docs/testing/evidence/offline-installer-uac-broker-1.10.2.json`（`setupSha256` 为空，门禁必然拦截） |
+| 结论 | 自动化修复完成，**发布验收未完成**；在 12 项 PASS 之前不得创建 `v1.10.2` 正式 Tag |
 
 ## 1.8.1+45 / MSIX 1.8.1.0 — 2026-10-17（`1.8` 发布线 · 容量感知分层排程修复批次）
 

@@ -127,31 +127,31 @@ void main() {
   // **这条测试的存在意义**：让"静默改号"无法通过。抬版本时**故意**改这一段就是流程本身，
   // 必须与 `docs/release/version-policy.md` 第 4 节、`docs/release/build-ledger.md`
   // 的新条目一起改。
-  test('当前候选批次是 1.10.0+49 / MSIX 1.10.0.0（离线单文件安装器）', () {
+  test('当前候选批次是 1.10.2+51 / MSIX 1.10.2.0（离线安装器 UAC 修复）', () {
     expect(
       pubspecVersion(),
-      '1.10.0+49',
+      '1.10.2+51',
       reason:
-          '**2026-10-18：`1.9.2+48` → `1.10.0+49`，抬第 2 段。**'
-          '这一批是"离线单文件安装器"与更新落盘/回退修复（设计 '
-          '`2026-10-18-offline-bootstrap-installer-design.md`）：新增原生 Setup、'
-          '一次 UAC 的双进程权限隔离、证书信任链、新的发布产物结构与共享原生验证库。'
-          '按版本策略第 2 节判据，这是用户可感知的新交付方式，包身份、发布者和数据兼容，'
-          '因此抬第 2 段而不是 2.0.0；`v1.9.2` 已使用 `+48`，构建号继续单调递增到 `+49`。',
+          '**2026-10-18：`1.10.0+49` → `1.10.2+51`，抬第 3 段（跳过 1.10.1+50 的候选号）。**'
+          '这一批只修一个缺陷：单文件 Setup 在证书尚未受信任的设备上无法完成 UAC 辅助进程'
+          '的命名管道通信（`pipe-connect-timeout`），根因是管道未使用 overlapped 模式、'
+          '辅助进程依赖直接父 PID、错误被统一映射成证书导入失败。'
+          '按版本策略第 2 节判据，这是纯修复（不改包身份、发布者、数据兼容），因此抬第 3 段；'
+          '构建号继续全局单调递增到 `+51`（`+49` 已用于 1.10.0，`+50` 已用于 1.10.1）。',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}msix_version:\s*(\S+)\s*$')),
-      '1.10.0.0',
+      '1.10.2.0',
       reason:
-          'MSIX 前三段必须与 version 一致。第四段**归零为 `0`**：'
-          '只有"同一批代码重新打包、代码一字未改"才抬第四段，本批改了代码。',
+          'MSIX 前三段必须与 version 一致。第四段**归零为 `0`**：本批改了代码（安装器），'
+          '不是"同一批代码重新打包"。',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}output_name:\s*(\S+)\s*$')),
-      'personal_planner_1.10.0.0_x64',
+      'personal_planner_1.10.2.0_x64',
       reason: '产物名沿用既有格式，旧版本片段必须一起换掉',
     );
-    expect(appVersion, '1.10.0+49', reason: '这一项会写进备份清单，必须与 version 一字不差');
+    expect(appVersion, '1.10.2+51', reason: '这一项会写进备份清单，必须与 version 一字不差');
   });
 
   // ── 1.7 新增（路线图 §3.6 / Task 10）────────────────────────────────────────────
@@ -178,17 +178,17 @@ void main() {
       // 它是一段字符串。因此把常量塞回更新判断必须先经过解析，而解析这一步本身就要求
       // 有人显式选择"用手写值"。这条断言把那个类型契约钉住。
       const AppVersionProvider provider = FixedAppVersionProvider(
-        AppVersion(1, 10, 0, build: 49),
+        AppVersion(1, 10, 2, build: 51),
       );
       expect(
         provider.currentVersion(),
-        completion(AppVersion.parse('1.10.0+49')),
+        completion(AppVersion.parse('1.10.2+51')),
       );
       // 常量此刻恰好也是这个值（上一条测试守着它），但**更新服务拿不到它**：
       // `UpdateService` 的构造参数里没有 `appVersion`，只有 `versions`。
       // 换句话说这条用例证明的是"来源是端口"，而不是"两者相等"——它们可以不一致，
       // 因为常量只是构建期抄下的一行。
-      expect(appVersion, '1.10.0+49');
+      expect(appVersion, '1.10.2+51');
     });
   });
 }

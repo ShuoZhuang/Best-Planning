@@ -1,0 +1,21 @@
+{
+  "whoami": "zs的asusrog\\zs200",
+  "isAdmin": true,
+  "integrity": "medium",
+  "osBuild": "26200",
+  "package": {
+    "version": "1.10.2.0",
+    "status": "Ok",
+    "fullName": "ShuoZhuang.PersonalPlanner_1.10.2.0_x64__v9555qkaxdyym"
+  },
+  "trustedPeople": "9E157ECE535D16A224593CA39C084705A4FD3C13",
+  "exitCode": 0,
+  "capturedAt": "2026-10-18T21:57:27+08:00",
+  "finalState": "Installed",
+  "lastFailure": null,
+  "channelLines": [
+    "2026-10-18T13:56:49Z elevation launch succeeded pid=21908",
+    "2026-10-18T13:56:49Z elevation channel connected clientPid=21908 protocol=2",
+    "2026-10-18T13:56:49Z elevation helper exited code=0"
+  ]
+}

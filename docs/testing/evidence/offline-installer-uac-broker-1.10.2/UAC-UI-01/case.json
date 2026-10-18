@@ -1,0 +1,15 @@
+{
+  "id": "UAC-UI-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "filtered-admin",
+  "exitCode": 31,
+  "finalState": "NotInstalled",
+  "note": "故障注入候选（辅助进程连接前 exit 4）：立刻诊断出 elevated-child-exited exit=4、未等超时、未误报 pipe-connect-timeout；界面为 INSTALLER_ELEVATION_FAILED（非证书写入失败）；证书与包都不存在",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UI-01/setup.log",
+  "logSha256": "0d811ed605a89c3462511c9e8edf2c8bf46e3e639019b495ad744d086bf6c43b",
+  "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UI-01/screenshot-after.png",
+  "screenshotSha256": "daeedc6afa0d93e65b879525f871d504ebd1e657fb9ddac4a08b490313b053b4"
+}
