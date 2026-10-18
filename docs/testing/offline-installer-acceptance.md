@@ -177,6 +177,7 @@ installed 1.10.0.0
 | 待重启判定过宽 | 本机有 14,814 条 `PendingFileRenameOperations`，安装被误判为"需要重启"（exit 42） | 只认 CBS `RebootPending` 与 WU `RebootRequired` |
 | 开发机文件沙箱 | 仓库内的进程无法在系统临时目录建目录，测试出现假失败 | 所有验收脚本把被测 EXE 暂存到仓库外再运行 |
 | 会话令牌可被重复签发清空 | 第二次 `IssueToken` 清掉已签发的令牌 | 已签发时直接返回空，不再清空 |
+| 同版本"重新安装"名不副实 | `ForceUpdateFromAnyVersion` 返回成功但**不替换**已安装文件 | 改为**修复安装**（`RegisterPackageByFullNameAsync` 重新登记），界面与 README 写明不替换文件；真实安装态验证退出码 0、版本与文件均不变 |
 
 ## 6. 未执行项（`NOT RUN`）
 
