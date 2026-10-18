@@ -22,6 +22,7 @@ import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/features/tasks/recurring/recurring_task_editor_page.dart';
 
 final _now = DateTime.utc(2026, 10, 7, 4); // 本地 2026-10-07（周三）
@@ -133,6 +134,7 @@ void main() {
     WidgetTester tester, {
     String? templateId,
     List<RecurringTaskTemplate> saved = const [],
+    UpdateSafetyCoordinator? updateSafety,
   }) async {
     RecurringTaskTemplate? result;
     await tester.binding.setSurfaceSize(const Size(1280, 900));
@@ -149,6 +151,7 @@ void main() {
             templateId: templateId,
             onSaved: (template) => result = template,
             onCancel: () {},
+            updateSafety: updateSafety,
           ),
         ),
       ),
@@ -438,6 +441,23 @@ void main() {
       await tapSave(tester);
       expect(savedCount, 1, reason: '$scale 倍缩放下必须能保存');
     }
+  });
+
+  testWidgets('编辑周期目标时报告未保存，保存后清除（UPD-028）', (tester) async {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    await pump(tester, updateSafety: safety);
+    expect(safety.status.canInstall, isTrue, reason: '纯查看不应阻塞更新');
+
+    await tester.enterText(
+      find.byKey(const Key('recurring-title')),
+      '每周英语',
+    );
+    await tester.pumpAndSettle();
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+
+    await tapSave(tester);
+    expect(safety.status.canInstall, isTrue);
   });
 }
 

@@ -747,6 +747,7 @@ GoRouter createPlannerRouter({
                 onSaved: (template) =>
                     context.go('/tasks/recurring/${template.id}'),
                 onCancel: () => context.go('/new'),
+                updateSafety: updateController?.safety,
               ),
             ),
             GoRoute(
@@ -763,6 +764,7 @@ GoRouter createPlannerRouter({
                 onCancel: () => context.go(
                   '/tasks/recurring/${state.pathParameters['templateId']}',
                 ),
+                updateSafety: updateController?.safety,
               ),
             ),
             GoRoute(
