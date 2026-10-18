@@ -314,7 +314,7 @@ integration_test/
 | Task A：失败边界测试（TDD） | 完成 | `atomic_file_test.dart`（5）、`update_store_test.dart`（新增覆盖失败）、`resumable_package_downloader_test.dart`（新增 3 个落盘/恢复用例） |
 | Task B：包身份感知的缓存根 | 完成 | `windows/runner/update_storage_channel.*`、`lib/platform/update/windows_update_storage.dart`、`main.dart` 装配；`windows_update_storage_test.dart`（6）、`update_storage_layout_test.dart`（4） |
 | Task C：保留可恢复文件与真实诊断 | 完成 | `atomic_file.dart` 的 `AtomicFileException`（操作名/脱敏路径/OS 错误码）、`_promote` 保留 `.partial`、编排器 `stateWriteFailed` 带详情 |
-| Task D：真实安装态回归与门禁 | 完成（部分 NOT RUN） | 安装态自检 PASS：`docs/testing/v1.10.0-packaged-update-storage-acceptance.md`；门禁新增验收记录检查；`tool/update_e2e.ps1` 增加安装态自检步骤；`1.9.0 → 1.10.0 → 回退` 与 Windows 10 仍为 `NOT RUN` |
+| Task D：真实安装态回归与门禁 | 完成（部分 NOT RUN） | 安装态自检 PASS：`docs/testing/v1.10.0-packaged-update-storage-acceptance.md`；回退演练 PASS（修复后）：`docs/testing/v1.10.0-update-rollback-acceptance.md`；门禁新增验收记录检查；`tool/update_e2e.ps1` 增加安装态自检步骤；Windows 10 / 干净 Win11 / 普通账户 / 故障注入 / 界面截图仍为 `NOT RUN` |
 
 §9.7 的六条完成条件逐项对照：
 
@@ -329,8 +329,17 @@ integration_test/
 补充（2026-10-18 本轮）：同版本"重新安装"原先调用 `ForceUpdateFromAnyVersion`，实测返回成功
 但**不替换**已安装文件。已改为**修复安装**（`RegisterPackageByFullNameAsync` 重新登记），
 界面与 README 写明"不替换文件、文件损坏需先卸载再安装"；安装态验证退出码 0、版本与文件不变。
-`1.9.0 → 1.10.0 → 回退 1.9.0`、Windows 10 与干净 Windows 11 环境、普通账户凭据、故障注入、
-五类界面截图仍为 `NOT RUN`，因此 `1.10.0` 仍是"发布验收未完成"。
+**回退演练（2026-10-18 本机）**：真实执行"安装 1.9.0 → 升级 1.10.0 → 健康确认超时 → 回退"。
+首次失败：回退部署用 `DeploymentOptions::None`，Windows 拒绝降级，且新版本仍在运行；
+`helper-status` 报 `UPDATE_ROLLBACK_DEPLOYMENT_FAILED`、退出码 9。已修复为
+`ForceUpdateFromAnyVersion | ForceApplicationShutdown`，并把回退 HRESULT 写入状态文件；
+再次执行退出码 7、`rolledBack`、回到 `1.9.0.0` 并重新拉起旧版，数据库表与行数完整。
+证据：`docs/testing/v1.10.0-update-rollback-acceptance.md`。**残留发布限制**：已发布的
+`1.9.0` 内置旧助手，真实用户从 `1.9.0` 应用内升级失败时仍不会自动回退；需要先发一个
+只含助手修复的 `1.9.x`，或在 Release 说明中给出人工恢复步骤，或暂缓 `1.9.0` 的自动升级。
+
+Windows 10 与干净 Windows 11 环境、普通账户凭据、故障注入、五类界面截图仍为 `NOT RUN`；
+`1.9.0` 的第一跳自动回退还受上述限制。因此 `1.10.0` 仍是"发布验收未完成"。
 
 ## 10. 离线安装器实施结果（2026-10-18）
 
