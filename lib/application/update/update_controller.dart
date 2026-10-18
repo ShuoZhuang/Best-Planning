@@ -130,6 +130,8 @@ final class UpdateController extends ChangeNotifier {
   /// 手动模式下的"开始下载"（自动更新关闭但用户主动要求）。
   Future<void> downloadManually() => startDownload();
 
+  Future<void> ensureBaseline() => orchestrator.ensureRollbackBaseline();
+
   Future<List<String>> readLogs({int maxLines = 200}) =>
       orchestrator.readLogs(maxLines: maxLines);
 
@@ -149,5 +151,6 @@ final class UpdateController extends ChangeNotifier {
     super.dispose();
   }
 }
+
 
 

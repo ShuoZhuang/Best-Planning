@@ -32,6 +32,7 @@ import 'package:personal_planner/application/repository_recurring_cycle_reader.d
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
+import 'package:personal_planner/application/update/update_baseline_service.dart';
 import 'package:personal_planner/application/update/update_check_scheduler.dart';
 import 'package:personal_planner/application/update/update_health_service.dart';
 import 'package:personal_planner/application/update/update_install_service.dart';
@@ -334,13 +335,22 @@ Future<void> main() async {
       exit(0);
     },
   );
+  final updateDownloader = ResumablePackageDownloader();
+  // 主程序侧的三层校验：大小、SHA-256、包身份；签名由助手再做一次（§10.2）。
+  final updatePackageVerifier = ZipUpdatePackageVerifier(helper: updateMainHelper);
+  final updateBaselineService = UpdateBaselineService(
+    layout: updateLayout,
+    manifestSource: updateManifestSource,
+    downloader: updateDownloader,
+    verifier: updatePackageVerifier,
+    clock: clock,
+  );
   final updateOrchestrator = UpdateOrchestrator(
     manifestSource: updateManifestSource,
     stateStore: FileUpdateStateStore(file: updateLayout.stateFile),
     installedPackages: updateInstalledPackages,
-    downloader: ResumablePackageDownloader(),
-    // 主程序侧的三层校验：大小、SHA-256、包身份；签名由助手再做一次（§10.2）。
-    verifier: ZipUpdatePackageVerifier(helper: updateMainHelper),
+    downloader: updateDownloader,
+    verifier: updatePackageVerifier,
     layout: updateLayout,
     safety: updateSafety,
     log: updateLog,
@@ -349,6 +359,7 @@ Future<void> main() async {
     windowsBuild: const WindowsBuildProbe().current,
     helper: updateMainHelper,
     installCoordinator: updateInstallService,
+    baselineService: updateBaselineService,
   );
   final updateController = UpdateController(
     orchestrator: updateOrchestrator,
@@ -372,6 +383,11 @@ Future<void> main() async {
       version: recoveredTarget.msixVersion,
     );
   }
+  // 后台建立回退基线（规格 §13.3）：基线完成前禁止安装，但允许下载新版本。
+  if (updateController.autoUpdateEnabled) {
+    unawaited(updateController.ensureBaseline());
+  }
+
   final updateCheckScheduler = UpdateCheckScheduler(
     controller: updateController,
     clock: clock,
@@ -962,5 +978,7 @@ Future<void> main() async {
     ),
   );
 }
+
+
 
 

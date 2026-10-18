@@ -7,7 +7,9 @@
 //
 // 它不直接接触 Windows API：包身份、签名验证与安装都由端口实现（`platform/update`）。
 import 'dart:async';
+import 'dart:io';
 
+import 'package:personal_planner/application/update/update_baseline_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/domain/update/package_identity.dart';
 import 'package:personal_planner/domain/update/update_check_result.dart';
@@ -61,6 +63,7 @@ final class UpdateOrchestrator {
     this.windowsBuild,
     this.helper,
     this.installCoordinator,
+    this.baselineService,
   });
 
   final UpdateManifestSource manifestSource;
@@ -81,6 +84,9 @@ final class UpdateOrchestrator {
 
   /// 安装准备（快照、一次性请求、助手握手、退出）。为空时点击就绪入口会明确报告"助手缺失"。
   final UpdateInstallCoordinator? installCoordinator;
+
+  /// 回退基线服务。为空时不尝试建立基线（测试/未装配）。
+  final UpdateBaselineService? baselineService;
 
   final StreamController<UpdateState> _states =
       StreamController<UpdateState>.broadcast();
@@ -640,6 +646,40 @@ final class UpdateOrchestrator {
     }
   }
 
+  /// 后台建立回退基线（规格 §13.3）。失败不改变当前版本，也不阻止下载新版本。
+  Future<void> ensureRollbackBaseline() async {
+    final service = baselineService;
+    final installed = _installed;
+    if (service == null || installed == null) return;
+    final existing = _state.baseline;
+    if (existing != null) {
+      try {
+        final file = File(existing.packagePath);
+        if (await file.exists() && await file.length() == existing.sizeBytes) {
+          return;
+        }
+      } on FileSystemException {
+        // 继续重建。
+      }
+    }
+    safety.setRollbackNotReady(true);
+    _emit();
+    final result = await service.ensureBaseline(
+      installed: installed,
+      state: _state,
+    );
+    final baseline = result.baseline;
+    if (baseline == null) {
+      log.writeLine('baseline failed code=');
+      _emit();
+      return;
+    }
+    _state = _state.copyWith(baseline: baseline);
+    safety.setRollbackNotReady(false);
+    log.writeLine('baseline ready version=');
+    await _persist();
+    _emit();
+  }
   /// 用户点击就绪入口后的安装请求（规格 §12.3 的前半段在这里）。
   ///
   /// 在原生安装链装配之前，它只做两件事：检查安全阻塞、记录明确原因。**不弹二次确认**，
@@ -664,6 +704,33 @@ final class UpdateOrchestrator {
       log.write(failure!);
       _emit();
       await _persist();
+      return;
+    }
+
+    final baseline = _state.baseline;
+    var baselineUsable = true;
+    // 只有在装配了基线服务时才把基线作为安装前置条件；测试/未装配环境不强制。
+    if (baselineService != null) {
+      baselineUsable = false;
+      if (baseline != null) {
+        try {
+          final file = File(baseline.packagePath);
+          baselineUsable = await file.exists() &&
+              await file.length() == baseline.sizeBytes;
+        } on FileSystemException {
+          baselineUsable = false;
+        }
+      }
+    }
+    if (!baselineUsable) {
+      safety.setRollbackNotReady(true);
+      final failure = const UpdateFailure(
+        UpdateFailureCode.blockedRollbackNotReady,
+      );
+      _state = _state.copyWith(lastFailure: failure);
+      log.write(failure);
+      await _persist();
+      _emit();
       return;
     }
 
@@ -783,4 +850,6 @@ final class UpdateOrchestrator {
     await _states.close();
   }
 }
+
+
 
