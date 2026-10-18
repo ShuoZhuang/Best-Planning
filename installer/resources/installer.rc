@@ -1,0 +1,52 @@
+﻿#include <windows.h>
+
+#include "installer_ui_ids.h"
+#include "version_generated.h"
+
+1 RT_MANIFEST "installer.manifest"
+
+IDD_INSTALLER DIALOGEX 0, 0, 300, 186
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "安装优计主义"
+FONT 9, "Microsoft YaHei UI", 400, 0, 0x86
+BEGIN
+    LTEXT           "", IDC_HEADLINE, 12, 12, 276, 16
+    LTEXT           "", IDC_SUBTITLE, 12, 30, 276, 22
+    LTEXT           "", IDC_MODE, 12, 56, 276, 14
+    LTEXT           "", IDC_DETAILS, 12, 72, 276, 40
+    CONTROL         "", IDC_PROGRESS, "msctls_progress32", PBS_SMOOTH | WS_BORDER, 12, 116, 276, 10
+    LTEXT           "", IDC_STATUS, 12, 130, 276, 14
+    LTEXT           "", IDC_CODE, 12, 144, 276, 12
+    CONTROL         "安装后启动优计主义", IDC_CHECK_LAUNCH, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 12, 158, 200, 12
+    PUSHBUTTON      "安装", IDC_PRIMARY, 12, 172, 96, 14
+    PUSHBUTTON      "取消", IDC_SECONDARY, 116, 172, 96, 14
+    PUSHBUTTON      "", IDC_TERTIARY, 220, 172, 68, 14
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APPSETUP_FILE_VERSION
+ PRODUCTVERSION APPSETUP_FILE_VERSION
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Shuo Zhuang"
+            VALUE "FileDescription", "优计主义离线安装器"
+            VALUE "FileVersion", APPSETUP_VERSION_TEXT
+            VALUE "InternalName", "BestPlanningSetup"
+            VALUE "OriginalFilename", "BestPlanning_Setup_x64.exe"
+            VALUE "ProductName", "优计主义"
+            VALUE "ProductVersion", APPSETUP_VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

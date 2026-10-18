@@ -5,6 +5,7 @@ import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/domain/models/tag.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 
@@ -30,6 +31,7 @@ final class TaskDetailPage extends StatefulWidget {
     this.onDeferTask,
     this.onCreateEvent,
     this.onRecomputeFromFocus,
+    this.updateSafety,
     super.key,
   });
 
@@ -37,6 +39,9 @@ final class TaskDetailPage extends StatefulWidget {
   final VoidCallback? onEdit;
   final String taskId;
   final DateTime nowUtc;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   /// 领域与项目服务。为空时不显示项目选择——其余部分照常可用。
   final WorkspaceService? workspace;
@@ -101,6 +106,24 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   Set<String> _taskTagNames = const {};
   String? _newProjectAreaId;
   bool _loading = true;
+  bool _dirty = false;
+
+  void _markDirty() {
+    if (_loading || _dirty) return;
+    _dirty = true;
+    setState(() {});
+  }
+
+  void _attachDirtyListeners() {
+    for (final controller in [_window, _remaining]) {
+      var previous = controller.text;
+      controller.addListener(() {
+        if (controller.text == previous) return;
+        previous = controller.text;
+        _markDirty();
+      });
+    }
+  }
   bool _saving = false;
   bool _tagSaving = false;
   String? _message;
@@ -108,11 +131,13 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   @override
   void initState() {
     super.initState();
+    _attachDirtyListeners();
     _load();
   }
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
     _remaining.dispose();
     _newProjectName.dispose();
     _window.dispose();
@@ -153,6 +178,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           ? _newProjectAreaId
           : (areas.isEmpty ? null : areas.first.id);
       _loading = false;
+      _dirty = false;
       if (task != null) _remaining.text = '${task.remainingMinutes}';
       _window.text = _editableWindow(task?.preferredWindow);
     });
@@ -245,7 +271,11 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           ? '剩余时长已修正，并已记录修正历史'
           : result.fieldErrors.values.join('；');
     });
-    if (result.isSuccess) await _load();
+    if (result.isSuccess) {
+      _dirty = false;
+      widget.updateSafety?.setUnsavedChanges(false);
+      await _load();
+    }
   }
 
   /// 保存期望时段；留空即清除偏好。
@@ -274,7 +304,11 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
           ? '期望时段已保存。它是软约束，排程仍可能落在区间外，只是分数更低。'
           : '期望时段无效（需起点早于终点且在一日之内），未保存';
     });
-    if (saved) await _load();
+    if (saved) {
+      _dirty = false;
+      widget.updateSafety?.setUnsavedChanges(false);
+      await _load();
+    }
   }
 
   /// 切换某个已有标签在当前任务上的有无。
@@ -340,6 +374,9 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
+    });
 
     final task = _task;
     if (task == null) {

@@ -5,6 +5,7 @@ import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
 import 'package:personal_planner/domain/models/day_exception.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/extension_day_policy.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
@@ -22,6 +23,7 @@ final class PlanApplicationService {
     this.onPlanChanged,
     this.preferenceEvidence,
     this.areaIdForTask,
+    this.updateSafety,
   }) : _validator = PlanValidator(zones);
 
   final ScheduleProblemSource source;
@@ -41,6 +43,9 @@ final class PlanApplicationService {
   /// `syncNextSevenDays()`），因此**应用开着的时候新建任务、改计划都不会重排提醒**——已排的
   /// 提醒会与当前计划不一致。组合根用它来重新同步。
   final Future<void> Function()? onPlanChanged;
+
+  /// 计划应用期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   /// 应用一份提案（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
   ///
@@ -83,6 +88,27 @@ final class PlanApplicationService {
   );
 
   Future<ApplyPlanResult> _applyInternal(
+    ScheduleProposal proposal, {
+    PlanApplyMode mode = PlanApplyMode.completeOnly,
+    DayException? dayException,
+    RecoveryCommitEffect? recoveryEffect,
+  }) async {
+    final lease = updateSafety?.begin(UpdateBlocker.planApplying);
+    try {
+      // 特殊日事实与恢复效果必须一路传到写入点：主线的原子提交端口
+      // （`PlanningCommitRepository`）要把它们和计划写进同一个事务。
+      return await _apply(
+        proposal,
+        mode: mode,
+        dayException: dayException,
+        recoveryEffect: recoveryEffect,
+      );
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<ApplyPlanResult> _apply(
     ScheduleProposal proposal, {
     PlanApplyMode mode = PlanApplyMode.completeOnly,
     DayException? dayException,

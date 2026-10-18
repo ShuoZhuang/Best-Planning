@@ -5,6 +5,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/protected_time_overlap.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/features/settings/notifications/notification_preferences_section.dart';
 
 final class PlanningRulesPage extends StatefulWidget {
@@ -13,12 +14,16 @@ final class PlanningRulesPage extends StatefulWidget {
     this.localDate,
     this.autoAdjustStore,
     this.reconcileNotifications,
+    this.updateSafety,
     super.key,
   });
 
   final SettingsService service;
   final DateTime? localDate;
   final AutoAdjustStore? autoAdjustStore;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   /// 「保存设置」保存完通知偏好之后的对账入口（1.8.0，设计规范 §5.2）。
   ///
@@ -128,6 +133,7 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -402,6 +408,11 @@ final class _PlanningRulesPageState extends State<PlanningRulesPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    // 未保存状态由输入控制器与行草稿算出，build 是唯一**每次变化都必然经过**的地方；
+    // 在帧后汇报，避免在构建期间修改更新协调器。协调器对重复值天然去重。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_hasUnsavedChanges);
+    });
     // **离开时确认未保存的修改**（M8，§12："所有子页面……也不静默丢弃未保存内容"）。
     //
     // 这一页此前**没有任何拦截**：改动只在点「保存」时落库，而返回、点侧边导航或关窗口

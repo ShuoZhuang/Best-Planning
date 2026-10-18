@@ -4,6 +4,7 @@ import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/design/planner_date_time_fields.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 final class EventEditorForm extends StatefulWidget {
   const EventEditorForm({
@@ -18,6 +19,7 @@ final class EventEditorForm extends StatefulWidget {
     this.initialAreaId,
     this.initialProjectId,
     this.onSaved,
+    this.updateSafety,
     super.key,
   });
 
@@ -53,6 +55,9 @@ final class EventEditorForm extends StatefulWidget {
 
   final VoidCallback? onSaved;
 
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
+
   @override
   State<EventEditorForm> createState() => _EventEditorFormState();
 }
@@ -72,6 +77,12 @@ final class _EventEditorFormState extends State<EventEditorForm> {
   List<PlannerProject> _projects = const [];
   String? _areaId;
   String? _projectId;
+  bool _dirty = false;
+
+  void _markDirty() {
+    if (!mounted) return;
+    setState(() => _dirty = true);
+  }
 
   /// 当前领域下可选的项目。
   ///
@@ -105,6 +116,7 @@ final class _EventEditorFormState extends State<EventEditorForm> {
             (project) => project.id == _projectId && project.areaId == areaId,
           );
       if (!belongs) _projectId = null;
+      _dirty = true;
     });
   }
 
@@ -119,6 +131,12 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     _weekdays = {start.weekday};
     // 预填标题（可能为空串）：带默认值而不是可空，表单因此不必在渲染时判空。
     _titleController.text = widget.initialTitle;
+    var previousTitle = _titleController.text;
+    _titleController.addListener(() {
+      if (_titleController.text == previousTitle) return;
+      previousTitle = _titleController.text;
+      _markDirty();
+    });
     // **时间用类型化字段承载，不再用文本框**（1.8.0，规范 §2.7／§8.1）：
     // 此前这里是四个 `TextEditingController`，用户得自己敲 `YYYY-MM-DD` 与 `HH:mm`，
     // 而项目里早就有 `plannerPickerBuilder`。日期与时间现在由选择器给出，
@@ -137,11 +155,17 @@ final class _EventEditorFormState extends State<EventEditorForm> {
 
   /// 时长联动改动之后重建一次：字段值来自 [_range]，不重建就看不到新值。
   void _onRangeChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        _dirty = true;
+      });
+    }
   }
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
+    _titleController.removeListener(_markDirty);
     _titleController.dispose();
     _range
       ..removeListener(_onRangeChanged)
@@ -194,12 +218,19 @@ final class _EventEditorFormState extends State<EventEditorForm> {
     setState(() {
       _errors = result.fieldErrors;
       _status = result.isSuccess ? '日程已保存' : null;
+      if (result.isSuccess) _dirty = false;
     });
-    if (result.isSuccess) widget.onSaved?.call();
+    if (result.isSuccess) {
+      widget.updateSafety?.setUnsavedChanges(false);
+      widget.onSaved?.call();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
+    });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -254,7 +285,10 @@ final class _EventEditorFormState extends State<EventEditorForm> {
               ],
               onChanged: _areaId == null
                   ? null
-                  : (value) => setState(() => _projectId = value),
+                  : (value) => setState(() {
+                        _projectId = value;
+                        _dirty = true;
+                      }),
             ),
           ),
           const SizedBox(height: 12),
@@ -371,13 +405,19 @@ final class _EventEditorFormState extends State<EventEditorForm> {
                   boxKey: const Key('event-recurrence-end-date-box'),
                   value: _recurrenceEnd ?? _range.startDate,
                   label: '重复结束日期（可选）',
-                  onChanged: (value) => setState(() => _recurrenceEnd = value),
+                  onChanged: (value) => setState(() {
+                        _recurrenceEnd = value;
+                        _dirty = true;
+                      }),
                 ),
               ),
               if (_recurrenceEnd != null)
                 TextButton(
                   key: const Key('event-recurrence-end-clear'),
-                  onPressed: () => setState(() => _recurrenceEnd = null),
+                  onPressed: () => setState(() {
+                        _recurrenceEnd = null;
+                        _dirty = true;
+                      }),
                   child: const Text('不设结束日期'),
                 ),
               if (_recurrenceEnd == null)
@@ -449,7 +489,10 @@ final class _EventEditorFormState extends State<EventEditorForm> {
             ],
             selected: {_scope},
             onSelectionChanged: (selection) =>
-                setState(() => _scope = selection.single),
+                setState(() {
+                  _scope = selection.single;
+                  _dirty = true;
+                }),
           ),
         const SizedBox(height: 12),
         FilledButton(onPressed: _save, child: const Text('保存日程')),

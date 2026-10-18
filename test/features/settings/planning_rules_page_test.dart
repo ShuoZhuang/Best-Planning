@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 
 /// 触发一次"返回"。
@@ -501,5 +502,39 @@ void main() {
       isEmpty,
       reason: '被拦下的保存是**零写入**',
     );
+  });
+
+  testWidgets('编辑规则时报告未保存编辑，保存后清除（UPD-027 / UPD-028）', (tester) async {
+    final service = SettingsService(repository: MemorySettingsRepository());
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlanningRulesPage(
+            service: service,
+            localDate: DateTime(2026, 10, 2),
+            updateSafety: safety,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 只是查看：不能误判成"有未保存编辑"。
+    expect(safety.status.canInstall, isTrue);
+
+    final field = find.byKey(const Key('weekday-daily-limit'));
+    await tester.ensureVisible(field);
+    await tester.enterText(field, '300');
+    await tester.pumpAndSettle();
+
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+    expect(safety.status.canInstall, isFalse);
+
+    await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+
+    expect(safety.status.canInstall, isTrue);
   });
 }

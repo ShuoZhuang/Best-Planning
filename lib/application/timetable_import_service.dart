@@ -7,6 +7,7 @@ import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/timetable_import.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/timetable_import_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/services/recurrence_expander.dart';
 
 enum TimetableDuplicateKind {
@@ -77,6 +78,7 @@ final class TimetableImportService {
     this.conflictDetector = const TimetableConflictDetector(),
     this.importRepository,
     this.onScheduleInputChanged,
+    this.updateSafety,
   }) : _zones = zones,
        _expander = RecurrenceExpander(zones);
 
@@ -87,7 +89,19 @@ final class TimetableImportService {
   final TimetableImportRepository? importRepository;
   final void Function(ScheduleInputChange change)? onScheduleInputChanged;
 
+  /// 课表导入/回滚期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
+
   Future<TimetableImportBatch> commit(TimetableImportCommit request) async {
+    final lease = updateSafety?.begin(UpdateBlocker.importRunning);
+    try {
+      return await _commit(request);
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<TimetableImportBatch> _commit(TimetableImportCommit request) async {
     final repository = importRepository;
     if (repository == null) {
       throw StateError('Timetable import persistence is not configured.');
@@ -111,6 +125,18 @@ final class TimetableImportService {
   }
 
   Future<RollbackResult> rollback(
+    String batchId, {
+    Set<String> forceEventIds = const {},
+  }) async {
+    final lease = updateSafety?.begin(UpdateBlocker.importRunning);
+    try {
+      return await _rollback(batchId, forceEventIds: forceEventIds);
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<RollbackResult> _rollback(
     String batchId, {
     Set<String> forceEventIds = const {},
   }) async {

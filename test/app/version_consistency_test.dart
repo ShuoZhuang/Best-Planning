@@ -17,7 +17,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
-import 'package:personal_planner/domain/models/app_update.dart';
+import 'package:personal_planner/domain/models/app_version.dart';
 
 /// 在 pubspec.yaml 里按行取一个标量。用"整行匹配"而不是全局搜，避免命中同名键或注释。
 String? _scalar(List<String> lines, RegExp pattern) {
@@ -127,34 +127,31 @@ void main() {
   // **这条测试的存在意义**：让"静默改号"无法通过。抬版本时**故意**改这一段就是流程本身，
   // 必须与 `docs/release/version-policy.md` 第 4 节、`docs/release/build-ledger.md`
   // 的新条目一起改。
-  test('当前候选批次是 1.8.1+45 / MSIX 1.8.1.0（容量感知排程修复批次）', () {
+  test('当前候选批次是 1.10.2+51 / MSIX 1.10.2.0（离线安装器 UAC 修复）', () {
     expect(
       pubspecVersion(),
-      '1.8.1+45',
+      '1.10.2+51',
       reason:
-          '**2026-10-17：`1.8.0+44` → `1.8.1+45`，MSIX 第四段归零。**'
-          '这一批是"容量感知分层排程修复"（计划 '
-          '`2026-10-16-capacity-aware-hierarchical-scheduler-repair.md`）：'
-          '逐日规则、单一容量账本、方案级字典序目标、全局跨日分配、引擎日内接线、'
-          '方案级改进闸门、既有块身份（ID 族），算法 **16 → 19**。'
-          '按版本策略第 2 节判据，这批**全是修复**（没有新增用户可感知的功能），'
-          '因此抬第 3 段而不是第 2 段；构建号全局单调递增且**不随版本号归零**。',
+          '**2026-10-18：`1.10.0+49` → `1.10.2+51`，抬第 3 段（跳过 1.10.1+50 的候选号）。**'
+          '这一批只修一个缺陷：单文件 Setup 在证书尚未受信任的设备上无法完成 UAC 辅助进程'
+          '的命名管道通信（`pipe-connect-timeout`），根因是管道未使用 overlapped 模式、'
+          '辅助进程依赖直接父 PID、错误被统一映射成证书导入失败。'
+          '按版本策略第 2 节判据，这是纯修复（不改包身份、发布者、数据兼容），因此抬第 3 段；'
+          '构建号继续全局单调递增到 `+51`（`+49` 已用于 1.10.0，`+50` 已用于 1.10.1）。',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}msix_version:\s*(\S+)\s*$')),
-      '1.8.1.0',
+      '1.10.2.0',
       reason:
-          'MSIX 前三段必须与 version 一致。第四段**归零为 `0`**：'
-          '`1.8.0.2` 的第四段之所以是 `2`，是因为当时在"同一批代码重打包"；'
-          '本批**改了代码**（算法 16 → 19），按版本策略第 4 段规则，'
-          '"只有重新打包且代码一字未改才抬第四段"，因此这里必须归零。',
+          'MSIX 前三段必须与 version 一致。第四段**归零为 `0`**：本批改了代码（安装器），'
+          '不是"同一批代码重新打包"。',
     );
     expect(
       _scalar(lines, RegExp(r'^\s{2}output_name:\s*(\S+)\s*$')),
-      'personal_planner_1.8.1.0_x64',
+      'personal_planner_1.10.2.0_x64',
       reason: '产物名沿用既有格式，旧版本片段必须一起换掉',
     );
-    expect(appVersion, '1.8.1+45', reason: '这一项会写进备份清单，必须与 version 一字不差');
+    expect(appVersion, '1.10.2+51', reason: '这一项会写进备份清单，必须与 version 一字不差');
   });
 
   // ── 1.7 新增（路线图 §3.6 / Task 10）────────────────────────────────────────────
@@ -181,17 +178,18 @@ void main() {
       // 它是一段字符串。因此把常量塞回更新判断必须先经过解析，而解析这一步本身就要求
       // 有人显式选择"用手写值"。这条断言把那个类型契约钉住。
       const AppVersionProvider provider = FixedAppVersionProvider(
-        AppVersion(1, 8, 1, build: 45),
+        AppVersion(1, 10, 2, build: 51),
       );
       expect(
         provider.currentVersion(),
-        completion(AppVersion.parse('1.8.1+45')),
+        completion(AppVersion.parse('1.10.2+51')),
       );
       // 常量此刻恰好也是这个值（上一条测试守着它），但**更新服务拿不到它**：
       // `UpdateService` 的构造参数里没有 `appVersion`，只有 `versions`。
       // 换句话说这条用例证明的是"来源是端口"，而不是"两者相等"——它们可以不一致，
       // 因为常量只是构建期抄下的一行。
-      expect(appVersion, '1.8.1+45');
+      expect(appVersion, '1.10.2+51');
     });
   });
 }
+

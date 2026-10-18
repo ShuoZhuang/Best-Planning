@@ -16,6 +16,7 @@ import 'package:personal_planner/data/repositories/drift_workspace_repository.da
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
 
 void main() {
@@ -541,6 +542,68 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     }
+  });
+
+  testWidgets('编辑任务时报告未保存，保存后清除（UPD-028）', (tester) async {
+    tester.view.physicalSize = const Size(1100, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+    final settings = SettingsService(repository: MemorySettingsRepository());
+    await settings.saveUserRules(
+      const UserPlanningRules(
+        common: PlanningRulesPatch(
+          defaultFocusMinutes: 55,
+          minChunkMinutes: 20,
+          maxChunkMinutes: 65,
+        ),
+      ),
+    );
+    final workspaceRepository = DriftWorkspaceRepository(database);
+    final workspace = WorkspaceService(
+      repository: workspaceRepository,
+      clock: _Clock(),
+      idGenerator: _AreaIds(),
+    );
+    await workspace.ensureDefaultAreas();
+    final service = TaskService(
+      repository: DriftTaskRepository(database.taskDao),
+      workspace: workspaceRepository,
+      clock: _Clock(),
+      idGenerator: _Ids(),
+      onScheduleInputChanged: (_) {},
+    );
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TaskEditorPage(
+            service: service,
+            settings: settings,
+            workspace: workspace,
+            zones: TimeZoneDatabase(),
+            timeZoneId: 'Asia/Shanghai',
+            nowUtc: DateTime.utc(2026, 10, 5),
+            updateSafety: safety,
+            onSaved: (_) {},
+            onCancel: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(safety.status.canInstall, isTrue, reason: '纯查看不应阻塞更新');
+
+    await tester.enterText(find.byKey(const Key('task-title')), '写周报');
+    await tester.pumpAndSettle();
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+
+    await tester.tap(find.text('保存任务'));
+    await tester.pumpAndSettle();
+    expect(safety.status.canInstall, isTrue);
   });
 }
 

@@ -1,0 +1,15 @@
+{
+  "id": "UAC-UPGRADE-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "upgrade-from-1.10.0",
+  "exitCode": 0,
+  "finalState": "Installed",
+  "note": "1.10.0.0 原位升级到 1.10.2.0：一次 UAC（日志 protocol=2、clientPid 匹配）、证书写入、数据文件仍 569,344 字节、退出码 0",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-01/setup.log",
+  "logSha256": "a675745593e6be9cc2630506bc4c67c7a380163d9a782e408ce2a7bb46f55aec",
+  "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-01/screenshot-after.png",
+  "screenshotSha256": "dd6f3458053371beb42a3544b9db1c4443ef992d7a61e85bff41377e0e05d950"
+}

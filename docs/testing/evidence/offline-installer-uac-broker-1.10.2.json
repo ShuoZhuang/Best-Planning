@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "releaseVersion": "1.10.2+51",
+  "msixVersion": "1.10.2.0",
+  "setupSha256": "ec69dc9991bb487b14feb0eaef1f1fdc9a9381a3452fb1bb0a2a0f9b0d5746e6",
+  "candidate": {
+    "setupFileName": "BestPlanning_Setup_1.10.2_x64.exe",
+    "setupBytes": 19020120,
+    "authenticodeStatus": "Valid",
+    "timestampCertificate": "CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1, O=\"DigiCert, Inc.\", C=US",
+    "embeddedMsixSha256": "de8af8f7ed05f78e60da36198b9276febd7841105c5983640814f9f5783791c9",
+    "targetVersion": "1.10.2+51",
+    "recordedAt": "2026-10-18T22:31:17+08:00"
+  },
+  "cases": [
+    {
+      "id": "UAC-ADMIN-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "filtered-admin",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-ADMIN-01/setup.log",
+      "logSha256": "8c4fcc8a0d5f5fc078fb5695058cac073257c2fc94e386bba55406756c649a02",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-ADMIN-01/screenshot-after.png",
+      "screenshotSha256": "fa3fa13ffe4b9392b4f60547768357ca2d15dddcc2d24190e2ff0977f637c946"
+    },
+    {
+      "id": "UAC-ADMIN-02",
+      "status": "NOT RUN",
+      "osBuild": "",
+      "accountMode": "filtered-admin",
+      "logPath": "",
+      "logSha256": "",
+      "screenshotPath": "",
+      "screenshotSha256": ""
+    },
+    {
+      "id": "UAC-CANCEL-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "filtered-admin",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-CANCEL-01/setup.log",
+      "logSha256": "08755995656f22e711b60190c692df8ffeba4e856409118e1079830a526beb18",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-CANCEL-01/screenshot-after.png",
+      "screenshotSha256": "cf1571ee21df44dd27e1a09c7af44568fe3e1ae9d4fad35f754fc599b442744f"
+    },
+    {
+      "id": "UAC-CANCEL-02",
+      "status": "NOT RUN",
+      "osBuild": "",
+      "accountMode": "standard",
+      "logPath": "",
+      "logSha256": "",
+      "screenshotPath": "",
+      "screenshotSha256": ""
+    },
+    {
+      "id": "UAC-OFFLINE-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "filtered-admin",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-OFFLINE-01/setup.log",
+      "logSha256": "9c662d700d8aaddfa977b4574439b1bd30477669fa7945efda3d4b84848f293b",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-OFFLINE-01/screenshot-after.png",
+      "screenshotSha256": "b689b65554bcf66b4604a7674325309e3b23b98b5d86b94efd4a687757d991b8"
+    },
+    {
+      "id": "UAC-REPAIR-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "repair-1.10.2",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-REPAIR-01/setup.log",
+      "logSha256": "a4d733ca7804f73768e5e217213d21da7d30eaf8788ae0ae1a38ef4e43aa3e94",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-REPAIR-01/screenshot-after.png",
+      "screenshotSha256": "bf6ba4e2db1f9e65987b0e1a427209fa8546ea15262c361b2e22037d6fbc2e96"
+    },
+    {
+      "id": "UAC-STD-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "standard",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-STD-01/setup.log",
+      "logSha256": "ea03e70493a2e8aaadeefa91b5c4d2c7c3c76cb6f7349df409e9b4ad7750ccb8",
+      "screenshotPath": "",
+      "screenshotSha256": ""
+    },
+    {
+      "id": "UAC-STD-02",
+      "status": "NOT RUN",
+      "osBuild": "",
+      "accountMode": "standard",
+      "logPath": "",
+      "logSha256": "",
+      "screenshotPath": "",
+      "screenshotSha256": ""
+    },
+    {
+      "id": "UAC-TRUSTED-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "original-user",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-TRUSTED-01/setup.log",
+      "logSha256": "2004b30b9cdceb00f23975c516927eaf8afd265e213653a6f5be8eda05d779de",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-TRUSTED-01/screenshot-after.png",
+      "screenshotSha256": "aa1ca21a2b4aafd75ac2cda2d2bafaca9da22bbd5c9a22fd1ce83b464f7662b8"
+    },
+    {
+      "id": "UAC-UI-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "filtered-admin",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UI-01/setup.log",
+      "logSha256": "0d811ed605a89c3462511c9e8edf2c8bf46e3e639019b495ad744d086bf6c43b",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UI-01/screenshot-after.png",
+      "screenshotSha256": "daeedc6afa0d93e65b879525f871d504ebd1e657fb9ddac4a08b490313b053b4"
+    },
+    {
+      "id": "UAC-UPGRADE-01",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "upgrade-from-1.10.0",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-01/setup.log",
+      "logSha256": "a675745593e6be9cc2630506bc4c67c7a380163d9a782e408ce2a7bb46f55aec",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-01/screenshot-after.png",
+      "screenshotSha256": "dd6f3458053371beb42a3544b9db1c4443ef992d7a61e85bff41377e0e05d950"
+    },
+    {
+      "id": "UAC-UPGRADE-02",
+      "status": "PASS",
+      "osBuild": "26200",
+      "accountMode": "upgrade-from-1.10.1",
+      "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-02/setup.log",
+      "logSha256": "014fcdb76ab28eee139b540b476ed6cfe34c4df102c70fbbf72f506e86703edc",
+      "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-UPGRADE-02/screenshot-after.png",
+      "screenshotSha256": "1c2e4a2f027ddc55ffa766f9b72a87f26f6dd815c73cb964e373f15d84ba7a3a"
+    }
+  ]
+}

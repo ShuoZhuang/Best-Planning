@@ -363,3 +363,60 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
 从 `1.4.1+21` 起，每个交给用户体验的版本必须同时包含：便携目录、ZIP、已签名 MSIX、签名公钥
 证书和使用说明。发布台账必须记录 EXE、ZIP、MSIX 的 SHA-256，以及 MSIX 签名、覆盖安装和启动
 验证结果。任一产物或验证缺失时，只能记为内部构建，不能作为可体验版本交付。
+## 9. 2026-10-18 起：离线单文件安装器的交付口径（补充第 8 节）
+
+`1.10.0` 起，面向普通新用户的入口改为**单文件离线安装器**，依据
+`docs/superpowers/specs/2026-10-18-offline-bootstrap-installer-design.md` 第 3、6 节：
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.10.0+49` |
+| MSIX 版本 | `1.10.0.0` |
+| Git 标签 | `v1.10.0` |
+| 正式产物 | `BestPlanning_Setup_1.10.0_x64.exe`、`BestPlanning_Portable_1.10.0_x64.zip`、`BestPlanning_1.10.0.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+**前置修复版 `1.9.2+48`（2026-10-18）**：只修更新助手——回退时允许降级部署并强制关闭占用进程，
+没有界面或业务变更。它先于 `1.10.0` 发布，使 `1.9.2 → 1.10.0` 的一跳具备自动回退能力。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.9.2+48` |
+| MSIX 版本 | `1.9.2.0` |
+| Git 标签 | `v1.9.2` |
+| 正式产物 | `PersonalPlanner-1.9.2-build48-windows-x64-20261018.zip`、`BestPlanning_1.9.2.0_x64.msix`、`update-manifest.json`、`PersonalPlanner-signing-cert.cer`、`SHA-256.txt`（与 `1.9.0`/`1.9.1` 相同的交付形态） |
+
+- 不是 `1.9.x`：`1.10.0` 新增了单文件安装器、权限隔离、证书信任链与新的产物结构；
+  也不是 `2.0.0`：包身份、发布者、用户数据兼容性没有破坏性变化。
+- 构建号 `+49`：公开的 `v1.9.1` 已使用 `+47`、本批前置的 `v1.9.2` 使用 `+48`，
+  全局构建号继续单调递增。
+- **公开证书不再单独作为 Release 资产**：它已内嵌在 Setup EXE 的只读资源里，由安装器按固定
+  指纹校验后写入 `LocalMachine\TrustedPeople`。第 8 节"必须包含签名公钥证书"由这一点满足；
+  需要单独证书的管理员仍可从安装器资源中导出，或继续使用同 Publisher 的既有证书。
+- 第 8 节的其余要求（真实安装/覆盖安装/启动验证结果、SHA-256 记录）继续有效，
+  另加一条：**发布门禁必须通过** `tool/verify_release_assets.ps1`（含 Setup 内嵌自检与签名时间戳）。
+## 10. 2026-10-18 起：`1.10.2+51` 的 UAC broker 修复批次
+
+修复计划：`docs/superpowers/plans/2026-10-18-offline-installer-uac-broker-repair.md`。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.10.2+51` |
+| MSIX 版本 | `1.10.2.0` |
+| Git 标签 | `v1.10.2` |
+| 正式产物 | `BestPlanning_Setup_1.10.2_x64.exe`、`BestPlanning_Portable_1.10.2_x64.zip`、`BestPlanning_1.10.2.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+- **抬第 3 段**（`1.10.0` → `1.10.2`）：纯修复，不改包身份、发布者与用户数据兼容性。
+  `1.10.1+50` 的候选号已经用掉，因此本批直接到 `1.10.2+51`，构建号继续全局单调递增。
+- **`1.10.0+49` 与 `1.10.1+50` 的单文件 Setup 判定为已知缺陷产物**：在签名证书尚未受信任的
+  设备上，一次 UAC 的主进程/辅助进程命名管道通信可能失败，表现为
+  `failure INSTALLER_CERTIFICATE_IMPORT_FAILED detail=pipe-connect-timeout`、
+  `finalState NotInstalled`。这不是证书本身的问题。
+- **不移动、不重写 `v1.10.0` / `v1.10.1` 标签，也不静默替换旧 Release 的附件**：
+  旧 Release 只在顶部追加已知缺陷说明并指向 `v1.10.2`，原有哈希记录保持不变。
+- 已经成功安装的 `1.10.0` / `1.10.1` 用户**不需要卸载**；应用内更新继续只使用 MSIX，
+  不下载 Setup。
+- **发布门禁新增 UAC 验收证据**：`tool/verify_release_assets.ps1` 会校验
+  `docs/testing/evidence/offline-installer-uac-broker-1.10.2.json` 的 12 个用例、
+  `setupSha256` 与日志/截图哈希；指定 `-RequireSignature` 时**不允许**跳过该项。
+- 真人验收模板与结论见 `docs/testing/offline-installer-uac-broker-acceptance.md`。
+  在 12 项全部 PASS 之前，本批只能写"自动化修复完成，发布验收未完成"。

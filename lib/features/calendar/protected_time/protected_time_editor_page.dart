@@ -7,6 +7,7 @@ import 'package:personal_planner/design/planner_date_time_fields.dart';
 import 'package:personal_planner/design/planner_editor_scaffold.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/protected_time_series.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 /// 新建／编辑一条**自定义保护时间**（1.8.0，设计规范 §9.2）。
 ///
@@ -33,6 +34,7 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
     this.onUpdateSeries,
     this.onSaved,
     this.onCancel,
+    this.updateSafety,
     super.key,
   });
 
@@ -92,6 +94,9 @@ final class ProtectedTimeEditorPage extends StatefulWidget {
   onUpdateSeries;
 
   final VoidCallback? onSaved;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
   final VoidCallback? onCancel;
 
   @override
@@ -108,6 +113,12 @@ final class _ProtectedTimeEditorPageState
   bool _weekly = false;
   late Set<int> _weekdays;
   DateTime? _recurrenceEnd;
+  bool _dirty = false;
+
+  void _markDirty() {
+    if (!mounted) return;
+    setState(() => _dirty = true);
+  }
 
   @override
   void initState() {
@@ -148,6 +159,18 @@ final class _ProtectedTimeEditorPageState
     _notesController = TextEditingController(
       text: series?.notes ?? widget.initialNotes,
     );
+    var previousTitle = _titleController.text;
+    _titleController.addListener(() {
+      if (_titleController.text == previousTitle) return;
+      previousTitle = _titleController.text;
+      _markDirty();
+    });
+    var previousNotes = _notesController.text;
+    _notesController.addListener(() {
+      if (_notesController.text == previousNotes) return;
+      previousNotes = _notesController.text;
+      _markDirty();
+    });
     _range = LocalDateRangeController(
       startDate: localStartDate,
       startTime: startTime,
@@ -162,11 +185,14 @@ final class _ProtectedTimeEditorPageState
   }
 
   void _onRangeChanged() {
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _dirty = true);
   }
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
+    _titleController.removeListener(_markDirty);
+    _notesController.removeListener(_markDirty);
     _titleController.dispose();
     _notesController.dispose();
     _range
@@ -221,6 +247,8 @@ final class _ProtectedTimeEditorPageState
         setState(() => _errors = {'title': message});
         return;
       }
+      setState(() => _dirty = false);
+      widget.updateSafety?.setUnsavedChanges(false);
       widget.onSaved?.call();
       return;
     }
@@ -239,12 +267,22 @@ final class _ProtectedTimeEditorPageState
       ),
     );
     if (!mounted) return;
-    setState(() => _errors = result.fieldErrors);
-    if (result.isSuccess) widget.onSaved?.call();
+    setState(() {
+      _errors = result.fieldErrors;
+      if (result.isSuccess) _dirty = false;
+    });
+    if (result.isSuccess) {
+      widget.updateSafety?.setUnsavedChanges(false);
+      widget.onSaved?.call();
+    }
   }
 
   @override
-  Widget build(BuildContext context) => PlannerEditorScaffold(
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
+    });
+    return PlannerEditorScaffold(
     // 规范 §7.2：所有编辑器共用同一骨架的标题区、返回行为、底部保存栏与错误摘要。
     //
     // **两个模式的标题必须不同**（计划 Task 8 Step 1）：共用"新建保护时间"
@@ -382,13 +420,19 @@ final class _ProtectedTimeEditorPageState
                   boxKey: const Key('protected-recurrence-end-date-box'),
                   value: _recurrenceEnd ?? _range.startDate,
                   label: '重复结束日期（可选）',
-                  onChanged: (value) => setState(() => _recurrenceEnd = value),
+                  onChanged: (value) => setState(() {
+                        _recurrenceEnd = value;
+                        _dirty = true;
+                      }),
                 ),
               ),
               if (_recurrenceEnd != null)
                 TextButton(
                   key: const Key('protected-recurrence-end-clear'),
-                  onPressed: () => setState(() => _recurrenceEnd = null),
+                  onPressed: () => setState(() {
+                        _recurrenceEnd = null;
+                        _dirty = true;
+                      }),
                   child: const Text('不设结束日期'),
                 ),
             ],
@@ -402,6 +446,7 @@ final class _ProtectedTimeEditorPageState
       ],
     ),
   );
+  }
 }
 
 String _weekdayLabel(int weekday) => switch (weekday) {

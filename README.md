@@ -18,23 +18,28 @@ Download the latest Windows release here:
 [https://github.com/ShuoZhuang/Best-Planning/releases](https://github.com/ShuoZhuang/Best-Planning/releases)
 
 > [!TIP]
-> 推荐下载名称中包含 `windows-x64` 的完整 ZIP，完整解压后双击 `安装.cmd`。
+> 新用户只需下载 **`BestPlanning_Setup_1.10.0_x64.exe`**，双击后同意一次管理员授权即可完成安装。
+> 安装器内含完整 MSIX 与公开证书，**断网也能安装**，不需要 PowerShell、证书管理器或单独的 `.msix`。
 >
-> **当前候选 `1.7.1+42`**（MSIX `1.7.1.1`）：产物名
-> `PersonalPlanner-1.7.1-build42-windows-x64-20261008.zip`；同目录的 `.msix`
-> 与 `.cer` 一一对应，校验值见包内 `SHA-256.txt`。
-> ZIP 已包含 MSIX、签名公钥证书、安装脚本、安装说明和便携版文件，无需安装 Flutter 或配置开发环境。
+> **当前版本 `1.10.0+49`**（MSIX `1.10.0.0`），同一次 Release 发布五个文件：
 >
-> **已发布版本仍是 `1.6.2+37`**（MSIX `1.6.2.0`，产物名
-> `PersonalPlanner-1.6.2-build37-windows-x64-20261007.zip`）。`1.7.0` 的这套产物**已构建但尚未发布**——
-> 它要等人工验收与 GitHub Release 之后才成为当前版本，见
-> [构建与发布台账](docs/release/build-ledger.md)。
+> | 文件 | 用途 |
+> | --- | --- |
+> | `BestPlanning_Setup_1.10.0_x64.exe` | 普通新用户：单文件离线安装 |
+> | `BestPlanning_Portable_1.10.0_x64.zip` | 不安装 / 无管理员权限：解压即用 |
+> | `BestPlanning_1.10.0.0_x64.msix` | 已安装用户或管理员手动部署 |
+> | `update-manifest.json` | 应用内更新使用的签名清单 |
+> | `SHA256SUMS.txt` | 四个产物的 SHA-256 |
+>
+> 若 Windows SmartScreen 提示未知发布者，请核对下载来源后选择“更多信息 → 仍要运行”；
+> 安装器不会修改任何系统安全策略来绕过它。旧式的“证书 + MSIX + `安装.cmd`”压缩包
+> 已不再作为推荐入口。
 
 ---
 
 ## Documentation / 使用文档
 
-- [最新版使用教程](docs/release/1.7.1-build42-user-guide.md)
+- [1.10.0 发布说明](docs/release/1.10.0-github-release-body.md)
 - [Windows 安装与发布说明](docs/release/windows-release.md)
 - [版本号规则](版本号规则.md)
 - [提交问题](https://github.com/ShuoZhuang/Best-Planning/issues)
@@ -63,7 +68,7 @@ Download the latest Windows release here:
 | Android | Planned / 计划中 | - | - |
 | iOS | Planned / 计划中 | - | - |
 
-当前可下载版本为 Windows x64。具体安装要求请查看对应 Release 中的 `安装说明.txt`。
+当前可下载版本为 Windows x64。新用户下载 `BestPlanning_Setup_1.10.0_x64.exe` 即可；不安装时可使用便携版 ZIP。
 
 ---
 

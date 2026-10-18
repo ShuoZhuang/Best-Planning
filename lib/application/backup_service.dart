@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:personal_planner/core/clock.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 final class DatabaseInspection {
   const DatabaseInspection({
@@ -121,6 +122,7 @@ final class BackupService {
     required this.clock,
     required this.appVersion,
     required this.settingsJson,
+    this.updateSafety,
   });
 
   static const formatVersion = 1;
@@ -132,7 +134,19 @@ final class BackupService {
   final String appVersion;
   final Future<String> Function() settingsJson;
 
+  /// 备份/恢复期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
+
   Future<BackupManifest> create(String destination) async {
+    final lease = updateSafety?.begin(UpdateBlocker.backupRunning);
+    try {
+      return await _create(destination);
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<BackupManifest> _create(String destination) async {
     final parent = File(destination).parent;
     await parent.create(recursive: true);
     final temporary = await parent.createTemp('planner-backup-create-');
@@ -175,6 +189,15 @@ final class BackupService {
   }
 
   Future<BackupManifest> restore(String source) async {
+    final lease = updateSafety?.begin(UpdateBlocker.backupRunning);
+    try {
+      return await _restore(source);
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<BackupManifest> _restore(String source) async {
     final staged = await _stageAndValidate(source);
     try {
       await database.replaceWith(staged.$1.databasePath);

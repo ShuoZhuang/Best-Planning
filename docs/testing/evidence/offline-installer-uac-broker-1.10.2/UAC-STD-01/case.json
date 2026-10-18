@@ -1,0 +1,21 @@
+{
+  "id": "UAC-STD-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "standard",
+  "exitCode": 0,
+  "finalState": "Installed",
+  "note": "标准账户 StandardTest 发起安装、UAC 输入 AdminTest 凭据：包只登记给 StandardTest（1.10.2.0 Ok），AdminTest 与 zs200 均无新增；证书机器级写入、HasPrivateKey=False。注意：该会话未运行取证脚本，因此没有 before.json 与截图，screenshotPath 为空 —— 发布门禁会据此拒绝通过，需在最终矩阵重采。",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-STD-01/setup.log",
+  "logSha256": "ea03e70493a2e8aaadeefa91b5c4d2c7c3c76cb6f7349df409e9b4ad7750ccb8",
+  "screenshotPath": "",
+  "screenshotSha256": "",
+  "supporting": {
+    "ownershipPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-STD-01/ownership.json",
+    "ownershipSha256": "2cb25c7f18753e204d922e069d309450482135cdfac4b9ec5a02c1ac11178224",
+    "ownershipResult": "StandardTest=1.10.2.0 Ok; AdminTest=[]; zs200=[]; TrustedPeople=9E157ECE… HasPrivateKey=False",
+    "credentialDelaySeconds": 21
+  }
+}

@@ -19,6 +19,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/application/plan_undo_service.dart';
+import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 final class _FixedClock implements Clock {
   const _FixedClock();
@@ -95,4 +98,36 @@ void main() {
     );
     expect(manifest['appVersion'], appVersion);
   });
+
+  test('组合根把同一个安全协调器交给备份服务与撤销服务（UPD-029）', () async {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final backups = await buildBackupService(
+      database: database,
+      clock: const _FixedClock(),
+      databasePath: databasePath,
+      updateSafety: safety,
+    );
+    expect(identical(backups.updateSafety, safety), isTrue);
+
+    final undo = PlanUndoService(
+      repository: _NoPlanHistory(),
+      updateSafety: safety,
+    );
+    expect(identical(undo.updateSafety, safety), isTrue);
+  });
+}
+
+final class _NoPlanHistory implements PlanHistoryRepository {
+  @override
+  Future<ConfirmedPlan?> current() async => null;
+
+  @override
+  Future<ConfirmedPlan?> previous() async => null;
+
+  @override
+  Future<ConfirmedPlan> restoreAsNewVersion({
+    required ConfirmedPlan source,
+    required ConfirmedPlan replaced,
+  }) => throw UnimplementedError();
 }
