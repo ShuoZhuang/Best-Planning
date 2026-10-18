@@ -1267,6 +1267,7 @@ GoRouter createPlannerRouter({
                 workspace: workspaceService,
                 onSaved: () => context.go(destination),
                 onCancel: () => context.go(destination),
+                updateSafety: updateController?.safety,
               );
             },
           ),
@@ -3034,4 +3035,5 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
+
 

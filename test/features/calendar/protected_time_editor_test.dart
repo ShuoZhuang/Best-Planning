@@ -23,6 +23,7 @@ import 'package:personal_planner/features/calendar/protected_time/protected_time
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/features/calendar/protected_time/protected_time_editor_page.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 void main() {
   late _MemoryCalendarRepository repository;
@@ -43,6 +44,7 @@ void main() {
   Future<void> pumpEditor(
     WidgetTester tester, {
     String initialNotes = '',
+    UpdateSafetyCoordinator? safety,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1280, 1000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -57,6 +59,7 @@ void main() {
             timeZoneId: 'Asia/Shanghai',
             zones: TimeZoneDatabase(),
             initialNotes: initialNotes,
+            updateSafety: safety,
           ),
         ),
       ),
@@ -435,6 +438,21 @@ void main() {
     );
     expect(repository.saved, isEmpty);
   });
+
+  testWidgets('编辑保护时间时报告未保存，保存后清除（UPD-028）', (tester) async {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    await pumpEditor(tester, safety: safety);
+    expect(safety.status.canInstall, isTrue, reason: '纯查看不应阻塞更新');
+
+    await tester.enterText(find.byKey(const Key('protected-title')), '深度工作');
+    await tester.pumpAndSettle();
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+
+    await tester.tap(find.byKey(const Key('save-protected-time')));
+    await tester.pumpAndSettle();
+    expect(safety.status.canInstall, isTrue);
+  });
 }
 
 /// 一个只有一条（或没有）系列的读模型替身。
@@ -589,3 +607,4 @@ final class _Ids implements IdGenerator {
   @override
   String next() => 'id-${_next++}';
 }
+
