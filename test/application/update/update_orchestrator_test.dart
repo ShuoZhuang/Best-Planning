@@ -47,6 +47,8 @@ void main() {
     UpdatePackageVerifier? packageVerifier,
     int? availableBytes,
     UpdateInstallCoordinator? installCoordinator,
+    UpdateLock? updateLock,
+    ProcessIdentityProbe? processProbe,
   }) => UpdateOrchestrator(
     manifestSource: FakeManifestSource(fetchResult),
     stateStore: store,
@@ -59,6 +61,8 @@ void main() {
     clock: clock,
     diskSpace: FakeDiskSpace(availableBytes ?? 50 * 1024 * 1024 * 1024),
     installCoordinator: installCoordinator,
+    updateLock: updateLock,
+    processProbe: processProbe,
   );
 
   test('验证通过且版本更高：进入 updateAvailable，四类结论里只有它不是 upToDate', () async {
@@ -216,6 +220,42 @@ void main() {
     );
   });
 
+  test('另一个进程持有更新锁时不再下载（UPD-021）', () async {
+    final lock = FakeUpdateLock(allow: false);
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      updateLock: lock,
+      processProbe: FakeProcessProbe(),
+    );
+
+    await orchestrator.check(manual: false, autoDownload: true);
+
+    expect(lock.acquires, 1);
+    expect(downloader.calls, 0);
+    expect(orchestrator.state.phase, UpdatePhase.temporarilyBlocked);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.blockedInstallerBusy,
+    );
+    expect(lock.releases, 0);
+  });
+
+  test('下载成功后释放更新锁', () async {
+    final lock = FakeUpdateLock();
+    final verified = await verifiedManifestFixture();
+    final orchestrator = build(
+      fetchResult: ManifestFetchResult.verified(verified),
+      updateLock: lock,
+      processProbe: FakeProcessProbe(),
+    );
+
+    await orchestrator.check(manual: false, autoDownload: true);
+
+    expect(orchestrator.state.phase, UpdatePhase.ready);
+    expect(lock.acquires, 1);
+    expect(lock.releases, 1);
+  });
   test('磁盘空间不足时暂停并给出可重试的阻塞原因', () async {
     final verified = await verifiedManifestFixture();
     final orchestrator = build(
@@ -426,5 +466,6 @@ void main() {
     expect(result.isConfirmedUpToDate, isFalse);
   });
 }
+
 
 

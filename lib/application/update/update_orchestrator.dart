@@ -64,6 +64,8 @@ final class UpdateOrchestrator {
     this.helper,
     this.installCoordinator,
     this.baselineService,
+    this.updateLock,
+    this.processProbe,
   });
 
   final UpdateManifestSource manifestSource;
@@ -87,6 +89,12 @@ final class UpdateOrchestrator {
 
   /// 回退基线服务。为空时不尝试建立基线（测试/未装配）。
   final UpdateBaselineService? baselineService;
+
+  /// 跨进程锁；为空时（测试）不做跨进程互斥。
+  final UpdateLock? updateLock;
+
+  /// 进程身份探测：记录锁持有者的 PID 与启动时间。
+  final ProcessIdentityProbe? processProbe;
 
   final StreamController<UpdateState> _states =
       StreamController<UpdateState>.broadcast();
@@ -481,7 +489,22 @@ final class UpdateOrchestrator {
     }
     _installed = installed;
 
-    if (!await _go(UpdatePhase.downloading)) return;
+    // 同一个时间只能有一个更新事务（规格 §15.1）。
+    if (!await _acquireUpdateLock('download', target.msixVersion.value)) {
+      if (await _go(UpdatePhase.temporarilyBlocked)) {
+        _state = _state.copyWith(
+          lastFailure: const UpdateFailure(
+            UpdateFailureCode.blockedInstallerBusy,
+          ),
+        );
+        await _persist();
+        _emit();
+      }
+      return;
+    }
+
+    try {
+      if (!await _go(UpdatePhase.downloading)) return;
     _state = _state.copyWith(
       receivedBytes: 0,
       totalBytes: target.sizeBytes,
@@ -557,6 +580,9 @@ final class UpdateOrchestrator {
     );
     await _persist();
     _emit();
+    } finally {
+      await _releaseUpdateLock();
+    }
   }
 
   /// `ready` 状态的包在崩溃/重启后必须再次验证（规格 §9.5）。
@@ -646,6 +672,41 @@ final class UpdateOrchestrator {
     }
   }
 
+  Future<bool> _acquireUpdateLock(String operation, String targetVersion) async {
+    final lock = updateLock;
+    final probe = processProbe;
+    if (lock == null || probe == null) return true;
+    try {
+      final process = await probe.current();
+      return await lock.acquire(
+        transactionId:
+            '-',
+        pid: process.pid,
+        processStartedAtUtc: process.startedAtUtc,
+        token: _lockToken(),
+        operation: operation,
+        targetVersion: targetVersion,
+      );
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _releaseUpdateLock() async {
+    try {
+      await updateLock?.release();
+    } on Object {
+      // 释放失败由 OS 在进程退出时兜底。
+    }
+  }
+
+  static String _lockToken() {
+    final seed = DateTime.now().microsecondsSinceEpoch;
+    return List<String>.generate(32, (index) {
+      final value = (seed * (index + 31) + index * 7919) & 0xFF;
+      return value.toRadixString(16).padLeft(2, '0');
+    }).join();
+  }
   /// 后台建立回退基线（规格 §13.3）。失败不改变当前版本，也不阻止下载新版本。
   Future<void> ensureRollbackBaseline() async {
     final service = baselineService;
@@ -743,7 +804,21 @@ final class UpdateOrchestrator {
       return;
     }
 
-    if (!await _go(UpdatePhase.preparingInstall)) return;
+    if (!await _acquireUpdateLock('install', target.msixVersion.value)) {
+      final failure = const UpdateFailure(
+        UpdateFailureCode.blockedInstallerBusy,
+      );
+      _state = _state.copyWith(lastFailure: failure);
+      log.write(failure);
+      await _persist();
+      _emit();
+      return;
+    }
+
+    if (!await _go(UpdatePhase.preparingInstall)) {
+      await _releaseUpdateLock();
+      return;
+    }
     await _persist();
     _emit();
 
@@ -754,6 +829,7 @@ final class UpdateOrchestrator {
     );
     final failure = outcome.failure;
     if (!outcome.launched || failure != null) {
+      await _releaseUpdateLock();
       // 助手没有确认之前不得退出：退回到就绪，保留包，等待用户重试。
       await _go(UpdatePhase.ready);
       _state = _state.copyWith(
@@ -850,6 +926,8 @@ final class UpdateOrchestrator {
     await _states.close();
   }
 }
+
+
 
 
 

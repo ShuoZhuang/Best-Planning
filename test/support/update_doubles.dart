@@ -334,3 +334,33 @@ final class FakeInstallCoordinator implements UpdateInstallCoordinator {
     exitCalls++;
   }
 }
+
+final class FakeUpdateLock implements UpdateLock {
+  FakeUpdateLock({this.allow = true});
+
+  bool allow;
+  int acquires = 0;
+  int releases = 0;
+  LockInspection inspection = const LockInspection.free();
+
+  @override
+  Future<bool> acquire({
+    required String transactionId,
+    required int pid,
+    required DateTime processStartedAtUtc,
+    required String token,
+    required String operation,
+    required String targetVersion,
+  }) async {
+    acquires++;
+    return allow;
+  }
+
+  @override
+  Future<void> release() async {
+    releases++;
+  }
+
+  @override
+  Future<LockInspection> inspect() async => inspection;
+}

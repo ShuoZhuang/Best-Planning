@@ -44,6 +44,7 @@ import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_settings.dart';
 import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
 import 'package:personal_planner/infrastructure/update/file_update_manifest_cache.dart';
+import 'package:personal_planner/infrastructure/update/file_update_lock.dart';
 import 'package:personal_planner/infrastructure/update/file_update_state_store.dart';
 import 'package:personal_planner/infrastructure/update/http_update_manifest_repository.dart';
 import 'package:personal_planner/infrastructure/update/resumable_package_downloader.dart';
@@ -322,11 +323,16 @@ Future<void> main() async {
     // 冻结写入后的检查点：把 WAL 落盘，快照才是一致状态（规格 §13.1）。
     checkpoint: () => database.customStatement('PRAGMA wal_checkpoint(TRUNCATE)'),
   );
+  final updateProcessProbe = WindowsProcessIdentityProbe();
+  final updateLock = FileUpdateLock(
+    file: File('${updateLayout.root.path}${Platform.pathSeparator}update.lock'),
+    processProbe: updateProcessProbe,
+  );
   final updateInstallService = UpdateInstallService(
     layout: updateLayout,
     helper: updateMainHelper,
     snapshotService: updateSnapshotService,
-    processProbe: WindowsProcessIdentityProbe(),
+    processProbe: updateProcessProbe,
     clock: clock,
     dataDirectory: dataDirectoryFor(databasePath),
     onRequestExit: () async {
@@ -360,6 +366,8 @@ Future<void> main() async {
     helper: updateMainHelper,
     installCoordinator: updateInstallService,
     baselineService: updateBaselineService,
+    updateLock: updateLock,
+    processProbe: updateProcessProbe,
   );
   final updateController = UpdateController(
     orchestrator: updateOrchestrator,
@@ -978,6 +986,7 @@ Future<void> main() async {
     ),
   );
 }
+
 
 
 
