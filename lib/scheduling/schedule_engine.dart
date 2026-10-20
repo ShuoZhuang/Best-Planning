@@ -137,7 +137,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
   ///
   /// 它不改变块的**位置或时长**，但改变**落库的字段值**——而每条解释都是用户
   /// 判断"该不该接受这份安排"的依据。历史计划要复现当时的解释，就必须能区分。
-  static const String algorithmVersion = '19';
+  static const String algorithmVersion = '20';
   static const int localImprovementOperationBudget = 200;
 
   final TimeZoneDatabase _zones;
@@ -1862,3 +1862,4 @@ int _gapMinutes(TimeRange a, TimeRange b) {
   }
   return a.startUtc.difference(b.endUtc).inMinutes;
 }
+

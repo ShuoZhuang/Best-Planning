@@ -40,7 +40,7 @@
     }
   ],
   "expected": {
-    "algorithmVersion": "19",
+    "algorithmVersion": "20",
     "totalScheduledMinutes": 150,
     "shortageMinutes": 0,
     "usedWeekend": true,
@@ -53,3 +53,4 @@
     ]
   }
 }
+
