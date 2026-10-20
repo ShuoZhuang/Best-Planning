@@ -2,6 +2,7 @@
 //
 // 这些用例在**真实内存 Drift 库**上运行：回执、预览状态、计划版本、块、outbox 与
 // 撤销快照都必须在同一个事务里出现或一起消失。
+import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/data/repositories/drift_pending_plan_preview_repository.dart';
 import 'package:personal_planner/data/repositories/drift_plan_adjustment_repository.dart';
@@ -283,8 +284,26 @@ void main() {
       expect(receipt.status, AdjustmentApplyStatus.applied);
     }
 
-    test('未开始时撤销恢复基线块，并保留历史版本', () async {
+    test('未开始时撤销恢复基线块、关联与历史版本', () async {
       await apply();
+      // 一个**未开始**的 occurrence 及其块关联：撤销后应新增指向恢复版本的行，
+      // 旧行保留（历史证据不删除）。
+      await harness.database.customInsert(
+        "INSERT INTO execution_occurrences ("
+        "id, task_id, origin_plan_version_id, baseline_start_utc, "
+        "baseline_end_utc, baseline_time_zone_id, baseline_local_date, "
+        "baseline_planned_duration_micros, current_plan_version_id, "
+        "allocated_micros, remaining_allocation_micros, lifecycle_state, "
+        "privacy_state, created_at_utc) VALUES ('occ-2', 'task-1', "
+        "'adj-prop-1', 0, 1, 'UTC', '2026-10-19', 5400000000, 'adj-prop-1', "
+        "5400000000, 5400000000, 'planned', 'linked', 0)",
+      );
+      await harness.database.customInsert(
+        "INSERT INTO execution_block_links (data_epoch, plan_version_id, "
+        "block_id, occurrence_id, source_block_id, reserved_micros, "
+        "created_at_utc) VALUES ('e1', 'adj-prop-1', 'adj-prop-1:block-1', "
+        "'occ-2', NULL, 5400000000, 0)",
+      );
 
       final undo = await plans.undoAdjustment(
         adjustmentId: 'adj-1',
@@ -303,6 +322,21 @@ void main() {
           )
           .getSingle();
       expect(undoRow.read<String>('state'), 'completed');
+      final restoredLinks = await harness.database
+          .customSelect(
+            'SELECT COUNT(*) AS c FROM execution_block_links '
+            'WHERE plan_version_id = ?',
+            variables: [Variable.withString(restored.id)],
+          )
+          .getSingle();
+      expect(restoredLinks.read<int>('c'), 1, reason: '未开始的关联要指向恢复版本');
+      final appliedLinks = await harness.database
+          .customSelect(
+            "SELECT COUNT(*) AS c FROM execution_block_links "
+            "WHERE plan_version_id = 'adj-prop-1'",
+          )
+          .getSingle();
+      expect(appliedLinks.read<int>('c'), 1, reason: '旧版本的关联行保留，不删除执行证据');
     });
 
     test('重复撤销返回 alreadyUndone，不创建第二个恢复版本', () async {

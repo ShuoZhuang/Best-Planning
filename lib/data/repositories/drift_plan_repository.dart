@@ -664,6 +664,47 @@ final class DriftPlanRepository
           .write(
             ExecutionFragmentsCompanion(planVersionId: Value(restored.id)),
           );
+      // 未开始 occurrence 的块关联也要指向恢复版本：旧行**保留**（历史证据），
+      // 新版本新增一行。能走到这里说明该 occurrence 没有任何开始证据，
+      // 因此"新增关联"不会篡改执行事实。
+      final appliedLinks =
+          await (_database.select(_database.executionBlockLinks)..where(
+                (row) => row.planVersionId.equals(undoRow.appliedPlanVersionId),
+              ))
+              .get();
+      for (final link in appliedLinks) {
+        final occurrence = await (_database.select(
+          _database.executionOccurrences,
+        )..where((row) => row.id.equals(link.occurrenceId))).getSingleOrNull();
+        final taskId = occurrence?.taskId;
+        if (taskId == null) continue;
+        PlannedBlock? mapped;
+        for (final block in restored.blocks) {
+          if (block.taskId != taskId) continue;
+          if (occurrence != null &&
+              block.startUtc.microsecondsSinceEpoch ==
+                  occurrence.baselineStartUtc) {
+            mapped = block;
+            break;
+          }
+          mapped ??= block;
+        }
+        if (mapped == null) continue;
+        await _database
+            .into(_database.executionBlockLinks)
+            .insert(
+              ExecutionBlockLinksCompanion.insert(
+                dataEpoch: link.dataEpoch,
+                planVersionId: restored.id,
+                blockId: mapped.id,
+                occurrenceId: link.occurrenceId,
+                sourceBlockId: Value(link.sourceBlockId),
+                reservedMicros: link.reservedMicros,
+                createdAtUtc: nowMicros,
+                fragmentId: Value(link.fragmentId),
+              ),
+            );
+      }
       await (_database.update(
         _database.planAdjustmentUndoReceipts,
       )..where((row) => row.receiptId.equals(undoRow.receiptId))).write(
