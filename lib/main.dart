@@ -26,6 +26,8 @@ import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/defer_time_policy.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
@@ -84,6 +86,9 @@ import 'package:personal_planner/data/repositories/drift_analytics_event_log.dar
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
+import 'package:personal_planner/data/repositories/drift_adjustment_execution_evidence.dart';
+import 'package:personal_planner/data/repositories/drift_pending_plan_preview_repository.dart';
+import 'package:personal_planner/data/repositories/drift_plan_adjustment_repository.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart'
@@ -522,6 +527,15 @@ Future<void> main() async {
     onScheduleInputChanged: (change) => onScheduleInputChange(change),
   );
 
+  final adjustmentRepository = DriftPlanAdjustmentRepository(
+    database,
+    clock: clock,
+  );
+  final planPreviewRepository = DriftPendingPlanPreviewRepository(
+    database,
+    clock: clock,
+  );
+
   final problemSource = RepositoryScheduleProblemSource(
     tasks: taskRepository,
     lifeAreas: DriftLifeAreaLookup(database),
@@ -533,6 +547,8 @@ Future<void> main() async {
     zones: zones,
     pendingMoves: pendingMoves,
     pendingSkips: pendingSkips,
+    // 1.11.0：`loadForAdjustment` 要按调整自己的基线读取计划与目标块。
+    adjustments: adjustmentRepository,
     // M6（§3.4）：周期实例以"本周视角"进排程（截止＝本周末、只送剩余、允许星期）。
     recurring: recurringTasks,
     recurringSnapshots: recurringExecutionRepository,
@@ -945,6 +961,29 @@ Future<void> main() async {
     onPlanChanged: invalidation.planAfter(resyncNotifications),
   );
 
+  // 1.11.0：「延后本次」的持久服务。生成、确认、撤销与重启恢复都走它；
+  // 今日页只在装配了它时才显示"持久预览"入口（否则退回 1.8.0 内存路径）。
+  final planAdjustmentService = PlanAdjustmentService(
+    plans: planRepository,
+    tasks: taskRepository,
+    adjustments: adjustmentRepository,
+    previews: planPreviewRepository,
+    source: problemSource,
+    engine: DeterministicScheduleEngine(zones),
+    policy: DeferTimePolicy(zones),
+    clock: clock,
+    ids: UuidIdGenerator(),
+    // 粒度只能从**规则服务**读取：写死 5 分钟会让"周末 10 分钟"在延后路径上失效。
+    granularityForDate: (localDate) async =>
+        (await settingsService.resolveForDate(localDate))
+            .rules
+            .granularityMinutes,
+    zones: zones,
+    applier: planRepository,
+    executionEvidence: DriftAdjustmentExecutionEvidence(database),
+    timeZoneId: timeZoneId,
+  );
+
   final pendingPreviewService = PendingPlanPreviewService(
     repository: recurringExecutionRepository,
     plans: planRepository,
@@ -1159,6 +1198,8 @@ Future<void> main() async {
         pendingMoves: pendingMoves,
         // M4「跳过本次」：同样与排程输入来源共用同一实例。
         pendingSkips: pendingSkips,
+        // 1.11.0：持久化「延后本次」服务（确认、撤销、重启恢复都由它提供）。
+        adjustmentService: planAdjustmentService,
         analytics: AnalyticsService(
           // 固定日程的展开与例外处理复用同一个日历仓储：统计层的「领域时间分配」必须把课表算进去，
           // 而展开规则（重复、跨午夜例外、"这一次被删除"的零长度标记）只应有一份实现。
