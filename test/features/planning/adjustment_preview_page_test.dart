@@ -181,6 +181,39 @@ void main() {
     expect(find.byKey(const Key('adjustment-cancel')), findsNothing);
   });
 
+  testWidgets('返回键先显式取消调整，再退出页面', (tester) async {
+    final port = _FakePort(view: view());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => AdjustmentPreviewPage(
+                    adjustmentId: 'adj-1',
+                    port: port,
+                    zones: zones,
+                    timeZoneId: 'Asia/Shanghai',
+                  ),
+                ),
+              ),
+              child: const Text('push'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('push'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('adjustment-confirm')), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(port.cancelCalls, 1);
+    expect(find.byType(AdjustmentPreviewPage), findsNothing);
+  });
   testWidgets('取消失败时保留页面并提示', (tester) async {
     final port = _FakePort(view: view());
     port.pendingCancel = Completer<bool>();

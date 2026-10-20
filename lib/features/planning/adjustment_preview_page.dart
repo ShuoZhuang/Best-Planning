@@ -42,6 +42,9 @@ final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
   String? _message;
   bool _failed = false;
 
+  /// 取消成功后放行返回：否则 `PopScope` 会把我们自己的 pop 再次拦下并再取消一次。
+  bool _allowPop = false;
+
   @override
   void initState() {
     super.initState();
@@ -115,7 +118,14 @@ final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
         });
         return;
       }
-      Navigator.of(context).maybePop();
+      if (!mounted) return;
+      setState(() {
+        _allowPop = true;
+        _busy = false;
+      });
+      // 程序化 pop 不经过 `PopScope.canPop` 判定；这里若用 `maybePop` 会被自己
+      // 的 PopScope 再次拦下，形成"取消→拦截→再取消"的循环（测试实测挂起）。
+      Navigator.of(context).pop();
     } on Exception {
       if (!mounted) return;
       setState(() {
@@ -175,14 +185,33 @@ final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('延后本次')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _view == null
-          ? _messageCard('找不到这次调整。')
-          : _content(_view!),
-      bottomNavigationBar: _view == null ? null : _actions(_view!),
+    final view = _view;
+    // 未应用且可取消时，返回键等价于"取消这次调整"：先显式 cancel，成功后再放行。
+    // 已应用/终态只导航；请求进行中阻止退出（计划 Task 9 Step 5）。
+    final blockPop = _busy || (view?.canCancel ?? false);
+    return PopScope(
+      canPop: _allowPop || !blockPop,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || _busy) return;
+        final current = _view;
+        if (current != null && current.canCancel) {
+          await _cancel();
+          return;
+        }
+        if (mounted) {
+          setState(() => _allowPop = true);
+          Navigator.of(context).maybePop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('延后本次')),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : view == null
+            ? _messageCard('找不到这次调整。')
+            : _content(view),
+        bottomNavigationBar: view == null ? null : _actions(view),
+      ),
     );
   }
 
