@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # 版本规则与历史回填见 docs/release/version-policy.md。这一行是**唯一数值来源**：
 # msix_config.msix_version 与 lib/app/backup_assembly.dart 的 appVersion 都由它派生，
 # 并由 test/app/version_consistency_test.dart 守着必须一致。
-version: 1.11.0+52
+version: 1.11.1+53
 
 environment:
   sdk: ^3.13.4
@@ -233,8 +233,8 @@ msix_config:
   # 能真正装进本机，按本文档自己那条规则把第四段 +1。**代码、`version`、包身份都没变**：
   # 判定是否真的换了内容要看已安装副本的 `data/app.so` 指纹（本批 = `C474317B…`），不看版本号。
   # 规则与历史回填见 docs/release/version-policy.md。
-  msix_version: 1.11.0.0
-  output_name: personal_planner_1.11.0.0_x64
+  msix_version: 1.11.1.0
+  output_name: personal_planner_1.11.1.0_x64
   # 通知点击的**激活器**（A②）。打包应用走的是**清单声明**，不是插件那套
   # `HKCU\Software\Classes\AppUserModelId\<aumid>` 注册表约定——这正是"点通知只把窗口带到
   # 前台、不跳转"的原因之一（实测证据见 `docs/testing/flow-verification.md` 第九节）。

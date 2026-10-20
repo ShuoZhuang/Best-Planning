@@ -226,3 +226,41 @@ dart run msix:create
 | 部分功能在界面上不可达 | 统计、专注、偏好设置、数据管理与特殊日页面尚无路由；应用锁不拦截启动；手动移动被禁用。详见技术设计文档 §13.0 |
 
 完整人工清单与当前候选界面验收完成前，版本保持“开发构建／待验收”，不得登记为正式发布。
+
+## 7. 发布资产不可变：工具拒绝覆盖已有 tag/资产（2026-10-20）
+
+**规则只有一条**：已发布的 tag 与它名下的资产都不可重写。发现目标 tag 已存在、或该 tag 下已有
+Release／同名资产时，发布工具**中止并要求一个新的版本号**；不提供“覆盖”或“只替换一个文件”的开关。
+
+### 7.1 工具位置与判定顺序
+
+- **判定（纯函数）**：`tool/update_pipeline.dart` → `releaseImmutabilityIssues`。输入是
+  `RemoteTagState`（tag 是否存在 / Release 是否存在 / 已有资产名）与本次要上传的两个文件名；
+  输出是阻断理由列表，空列表才允许发布。
+- **探测与拦截**：`tool/update_publisher.dart` → `UpdatePublisher.publish` 在**创建草稿之前**
+  执行 `_ensureReleaseTargetIsUnused`：
+  1. `gh api repos/<repo>/releases/tags/<tag>` 成功 → tag 与 Release 都存在，读取 `assets[].name`；
+  2. 返回 404 → 再查 `gh api repos/<repo>/git/ref/tags/<tag>`：成功 → 只有裸 tag，**同样拒绝**；
+  3. 两个都 404 → 新 tag，允许继续；
+  4. **其他任何失败**（网络、凭据、JSON 解析）→ 中止。查不到不等于不存在。
+- 拒绝时抛 `PublishException`，**不会**执行 `release create` / `release upload`；上传命令
+  也**不再带 `--clobber`**。
+
+### 7.2 被拒绝时怎么做
+
+1. **不要**删除、移动或强推已有 tag（`git push --force`、`gh release delete` 都不允许）；
+2. 按 `docs/release/version-policy.md` 第 2 节抬批次（修复抬第 3 段；只有“同一批代码重打包”
+   才抬 MSIX 第 4 段），并同步 `pubspec.yaml`、`lib/app/backup_assembly.dart`、
+   `test/app/version_consistency_test.dart`、`version-policy.md` 与 `build-ledger.md`；
+3. 用新 tag 重新走一遍第 4～5 节的构建与校验；
+4. 在旧 Release 上**只追加**“已知缺陷 / 指向新版本”的说明，不改动其附件与哈希。
+
+### 7.3 发布后复核（规格 §17 第 9～13 步）
+
+- 从 GitHub **重新下载**每个资产，复算大小与 SHA-256，与本地 `SHA256SUMS.txt` 及清单中的
+  `sizeBytes` / `sha256` 逐项核对；
+- 重新验签清单（Ed25519）并核对包身份、Publisher、架构、版本；
+- 确认 `latest` 指向新 tag。
+
+> 说明：本文第 1～6 节里的版本数字是**历史记录**（写于 1.4～1.6 时期）；当前候选与三处版本
+> 取值以 `pubspec.yaml`、`docs/release/version-policy.md` 与 `docs/release/build-ledger.md` 为准。

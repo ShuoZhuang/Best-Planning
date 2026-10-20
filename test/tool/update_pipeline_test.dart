@@ -154,6 +154,71 @@ void main() {
     });
   });
 
+  group('发布资产不可变门禁（UPD-INC-030）', () {
+    List<String> issues({
+      bool tagExists = false,
+      bool releaseExists = false,
+      List<String> assetNames = const [],
+    }) => releaseImmutabilityIssues(
+      tag: 'v1.11.1',
+      remote: RemoteTagState(
+        tagExists: tagExists,
+        releaseExists: releaseExists,
+        assetNames: assetNames,
+      ),
+      packageFileName: 'BestPlanning_1.11.1.0_x64.msix',
+      manifestFileName: 'update-manifest.json',
+    );
+
+    test('新 tag 且远端没有任何资产时允许', () {
+      expect(issues(), isEmpty);
+      expect(const RemoteTagState.absent().tagExists, isFalse);
+    });
+
+    test('同 tag 已有同名资产时拒绝并点名冲突文件', () {
+      final result = issues(
+        tagExists: true,
+        releaseExists: true,
+        assetNames: const ['BestPlanning_1.11.1.0_x64.msix'],
+      );
+      expect(result.join(), contains('同名资产'));
+      expect(result.join(), contains('BestPlanning_1.11.1.0_x64.msix'));
+      expect(result.join(), contains('新版本号'));
+    });
+
+    test('清单同名资产同样拒绝（不能只换一个文件）', () {
+      final result = issues(
+        tagExists: true,
+        releaseExists: true,
+        assetNames: const ['update-manifest.json'],
+      );
+      expect(result.join(), contains('update-manifest.json'));
+      expect(result.join(), contains('绝不覆盖'));
+    });
+
+    test('tag 已存在但没有同名资产时仍拒绝（不可变 tag）', () {
+      final result = issues(
+        tagExists: true,
+        releaseExists: true,
+        assetNames: const ['SHA256SUMS.txt'],
+      );
+      expect(result.join(), contains('tag v1.11.1 已存在'));
+      expect(result.join(), contains('不可变'));
+    });
+
+    test('只有裸 tag（无 Release）也拒绝', () {
+      final result = issues(tagExists: true);
+      expect(result, isNotEmpty);
+      expect(result.join(), contains('tag v1.11.1 已存在'));
+    });
+
+    test('已有 Release 但资产名不同也拒绝，不提供覆盖入口', () {
+      final result = issues(releaseExists: true);
+      expect(result.join(), contains('已存在 Release'));
+      expect(result.join(), contains('新版本号'));
+    });
+  });
+
   test('PKCS#8 私钥里的种子可以被读出（只取最后 32 字节）', () async {
     final seed = List<int>.generate(32, (index) => index);
     final der = [...List<int>.filled(16, 1), ...seed];

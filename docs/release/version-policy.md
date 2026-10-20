@@ -129,17 +129,19 @@
 - 回填是**判断，不是事实**。上表的作用是让"以后按什么规则走"有据可依，**不是**声称历史上有过
   这些版本。
 
-## 4. 当前取值：`1.6.2+37` / MSIX `1.6.2.0`（**已发布：`1.6` 线收口版本**）
+## 4. 当前取值：`1.11.1+53` / MSIX `1.11.1.0`（**当前候选，构建/签名/发布未执行**）
 
-- `pubspec.yaml` → `version: 1.6.2+37`
-- `pubspec.yaml` `msix_config.msix_version` → `1.6.2.0`，`output_name` → `personal_planner_1.6.2.0_x64`
-- `lib/app/backup_assembly.dart` → `appVersion = '1.6.2+37'`
+- `pubspec.yaml` → `version: 1.11.1+53`
+- `pubspec.yaml` `msix_config.msix_version` → `1.11.1.0`，`output_name` → `personal_planner_1.11.1.0_x64`
+- `lib/app/backup_assembly.dart` → `appVersion = '1.11.1+53'`
 
-> **`1.7` 开发期间这三处刻意保持不动。** 见文首的现行有效期例外：`1.7` 批次的 M1～M9 不各自发布，
-> 未完成的代码不得伪装成可交付的 `1.7.0`。三处改为 `1.7.0+N` / `1.7.0.R` 的动作属于
-> 路线图**任务 13 第 8 步**（发布准备），届时 `test/app/version_consistency_test.dart` 里那条
-> "钉住当前候选批次"的用例、本文第 4 节、工作区 `版本号规则.md` 的"当前值"和
-> `docs/release/build-ledger.md` 的新条目要**一起**改。
+> 本节只写**当前候选**。历史取值与抬段理由见 §3（`1.0.x`～`1.6.1`）、§9（`1.10.0`）、
+> §10（`1.10.2`）、§11（`1.11.1` 及其与已发布 `1.11.0` 的关系）以及
+> `docs/release/build-ledger.md` 的批次条目。`1.11.0+52` / `1.11.0.0` 已发布（tag `v1.11.0`），
+> 不再被本节的"当前"指代。
+>
+> 抬版本时，`test/app/version_consistency_test.dart` 里那条"钉住当前候选批次"的用例、本节、
+> 工作区 `版本号规则.md` 的"当前值"和 `docs/release/build-ledger.md` 的新条目要**一起**改。
 
 ### 4.02 `1.7` 批次对外的号怎么定（2026-10-08 决定，与文首例外同源）
 
@@ -332,15 +334,16 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
 
 | 位置 | 内容 | 谁改 |
 | --- | --- | --- |
-| `pubspec.yaml` `version` | `1.6.2+37` | **人工，唯一来源** |
-| `pubspec.yaml` `msix_config.msix_version` | `1.6.2.0` | 随前者同步 |
-| `lib/app/backup_assembly.dart` `appVersion` | `1.6.2+37`，写进备份清单 | 随前者同步 |
+| `pubspec.yaml` `version` | `1.11.1+53` | **人工，唯一来源** |
+| `pubspec.yaml` `msix_config.msix_version` | `1.11.1.0` | 随前者同步 |
+| `lib/app/backup_assembly.dart` `appVersion` | `1.11.1+53`，写进备份清单 | 随前者同步 |
 
-`test/app/version_consistency_test.dart` 守这些一致性，且**刻意不依赖任何运行时依赖**（本项目没有
-`package_info`，运行时读不到真实版本——这是已知的诚实下限）：改了 `pubspec.yaml` 忘了改另外两处，
-测试会红。该文件里还有一条**钉住当前候选批次**的用例（`1.6.2+37` / `1.6.2.0` / `1.6.2.0_x64`）：
-它让"静默改号"无法通过，抬版本时**故意**改那一行就是流程本身，必须与本文第 4 节、工作区
-`版本号规则.md` 的"当前值"以及 `docs/release/build-ledger.md` 的新条目一起改。
+`test/app/version_consistency_test.dart` 守这些一致性，且**刻意不依赖平台通道**（只读
+`pubspec.yaml` 与纯 Dart 类型；运行时的真实版本由 `package_info_plus` 单独提供）：改了
+`pubspec.yaml` 忘了改另外两处，测试会红。该文件里还有一条**钉住当前候选批次**的用例
+（`1.11.1+53` / `1.11.1.0` / `1.11.1.0_x64`）：它让"静默改号"无法通过，抬版本时**故意**改那一行
+就是流程本身，必须与本节、本文 §4、工作区 `版本号规则.md` 的"当前值"以及
+`docs/release/build-ledger.md` 的新条目一起改。
 
 > 未做且**刻意不做**的事：不改旧产物名（`release/`、`可运行程序/` 下的目录与 zip 保持原样）。
 > 那些包已经装过、可能已经发出去，改名只会破坏"包 ↔ 当时的号"这一条追溯链。回填只写在本文里。
@@ -420,3 +423,50 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
   `setupSha256` 与日志/截图哈希；指定 `-RequireSignature` 时**不允许**跳过该项。
 - 真人验收模板与结论见 `docs/testing/offline-installer-uac-broker-acceptance.md`。
   在 12 项全部 PASS 之前，本批只能写"自动化修复完成，发布验收未完成"。
+
+## 11. 2026-10-20 起：`1.11.1+53` 的更新清单缓存与回退基线修复批次
+
+修复计划：`docs/superpowers/plans/2026-10-20-v1.11.1-update-manifest-cache-and-baseline-recovery-repair.md`。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.11.1+53` |
+| MSIX 版本 | `1.11.1.0` |
+| Git 标签 | `v1.11.1` |
+| 前一已发布版本 | `1.11.0+52` / MSIX `1.11.0.0`（tag `v1.11.0`，2026-10-20） |
+| 正式产物 | `BestPlanning_Setup_1.11.1_x64.exe`、`BestPlanning_Portable_1.11.1_x64.zip`、`BestPlanning_1.11.1.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+**这次是 Patch 抬升，不是 MSIX Revision 抬升。** 本批修改了生产代码：
+
+- 最新的清单与 tag 历史清单曾写进同一个全局缓存文件，导致 `304` 把 `1.10.2` 当成最新、
+  已下载的 `1.11.0` 被降格成"已是最新版"；
+- 回退基线准备缺少 single-flight、可重试状态与严格校验，安装入口可能被永久阻塞；
+- 启动恢复只读状态文件，不收养磁盘上已经验证过的 `.ready` 包。
+
+按第 2 节判据"批次里只有修复 → 第 3 段 +1"，因此 `1.11.0` → `1.11.1`；MSIX 第 4 段归零为 `0`。
+
+**为什么不是 `1.11.0.1`**：第 4 段的定义是"**同一批次的重复打包**"（签名、清单或打包参数修正，
+**代码一字未改**）。本批代码变了，用第 4 段等于把"修过缺陷的构建"谎报成"同一批代码重新打包"；
+而且 `1.11.0.0` 已经装到用户机器上，`1.11.0.1` 会让"内容变了"这件事在版本号上完全看不出来。
+第 4 段只留给真正的重打包。
+
+### 11.1 与已发布 `v1.11.0` 的关系（不可改写）
+
+1. **不移动、不删除、不替换 `v1.11.0` 的 tag 与任何资产。** 旧 Release 只允许追加说明并指向
+   `v1.11.1`，原有哈希记录保持不变。
+2. 发布工具在创建草稿**之前**查询目标 tag 与它名下的资产（`tool/update_publisher.dart` 的
+   `UpdatePublisher.publish` 前置步骤，判定是 `tool/update_pipeline.dart` 的纯函数
+   `releaseImmutabilityIssues`）：
+   - tag 已存在（包括只有裸 tag、没有 Release）→ **中止**；
+   - 该 tag 下已有 Release，或已有同名资产 → **中止**；
+   - 只有"新 tag + 没有任何资产"才继续。
+   拒绝即要求**新的版本号**，绝不 `--clobber` 覆盖；探测失败（网络/凭据/无法解析）同样中止，
+   因为"查不到"不等于"不存在"。
+3. 构建号 `+53`：全局单调递增（`+52` 已用于 `1.11.0`），本批不复用任何旧构建号。
+4. 数据库 schema 仍为 `11`，排程算法版本仍为 `20`，包身份 / Publisher / PFN 均不变——
+   因此不抬第 1 段，也**不得**用这次修复冒充换包身份的大版本。
+5. 若发布前发现 `+53` 已被其他正式构建占用，改用下一个全局单调递增构建号，并把
+   `pubspec.yaml`、`lib/app/backup_assembly.dart`、`test/app/version_consistency_test.dart`、
+   本文件、`docs/release/build-ledger.md` 一并同步；**不得复用构建号**。
+6. 发布门禁记录见 `docs/testing/v1.11.1-release-gate.md`：签名安装、真实升级、回退等在
+   没有正式签名证书与安装环境时只能记 `NOT RUN`，**不得**写"已发布可用"。

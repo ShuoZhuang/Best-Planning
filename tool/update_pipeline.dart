@@ -11,6 +11,10 @@
 //
 // 上传与草稿 Release 的"回读后再发布"需要 GitHub 凭据，本文件把它留成一个显式的人工/CI
 // 步骤（`publish` 子命令只做前置检查），避免在本地脚本里藏一个能发布版本的开关。
+//
+// **发布资产不可变**（UPD-INC-030）：`publish` 真正执行时会先查询目标 tag 与它名下的资产，
+// 只要 tag 或任一资产已经存在就**中止并要求新版本号**，绝不覆盖。判定本身是本文件里的
+// [releaseImmutabilityIssues]（纯函数），因此可以直接断言"已存在就拒绝"，不需要真实网络。
 import 'dart:convert';
 import 'dart:io';
 
@@ -67,6 +71,7 @@ const String _usage = '''
   publish  --manifest <...> --msix <...> --tag v1.9.0 --title <标题> \\
            [--notes <文件>] [--workspace <目录>]
            # 设置 BEST_PLANNING_PUBLISH_CONFIRMED=1 才真正上传与发布
+           # 目标 tag 或其名下资产已存在时一律中止：必须换新版本号，绝不覆盖
 
 签名私钥：BEST_PLANNING_UPDATE_SIGNING_KEY=<ed25519-pkcs8.pem>
 签名密钥 ID：BEST_PLANNING_UPDATE_SIGNING_KEY_ID（默认 best-planning-2026-10）
@@ -159,8 +164,7 @@ Future<Map<String, Object?>> buildManifestPayload({
     },
     'package': {
       'fileName': fileName,
-      'downloadUrl':
-          '$updateRepositoryUrl/releases/download/$tag/$fileName',
+      'downloadUrl': '$updateRepositoryUrl/releases/download/$tag/$fileName',
       'sizeBytes': bytes.length,
       'sha256': digest,
     },
@@ -179,7 +183,8 @@ Future<void> _manifestCommand(Map<String, String> options) async {
   final payload = await buildManifestPayload(
     msix: File(msixPath),
     version: _required(options, 'version'),
-    buildNumber: int.tryParse(_required(options, 'build')) ??
+    buildNumber:
+        int.tryParse(_required(options, 'build')) ??
         (throw const PipelineException('--build 必须是整数')),
     msixVersion: _required(options, 'msix-version'),
     publishedAtUtc: options['published-at'],
@@ -196,7 +201,8 @@ Future<void> _manifestCommand(Map<String, String> options) async {
       '未设置 BEST_PLANNING_UPDATE_SIGNING_KEY（Ed25519 私钥 PEM 路径）',
     );
   }
-  final keyId = Platform.environment['BEST_PLANNING_UPDATE_SIGNING_KEY_ID'] ??
+  final keyId =
+      Platform.environment['BEST_PLANNING_UPDATE_SIGNING_KEY_ID'] ??
       'best-planning-2026-10';
   final seed = await readEd25519SeedFromPem(File(keyPath));
   final signer = await Ed25519ManifestSigner.fromSeedHex(seed, keyId: keyId);
@@ -213,8 +219,8 @@ Future<void> _manifestCommand(Map<String, String> options) async {
   );
   // 立即自检：流水线不允许产出自己都验不过的清单。
   await verifyManifestEnvelope(
-    envelope: UpdateManifestEnvelope.tryParse(envelope)
-        as UpdateManifestEnvelope,
+    envelope:
+        UpdateManifestEnvelope.tryParse(envelope) as UpdateManifestEnvelope,
     msix: File(msixPath),
     publicKeys: {keyId: await signer.publicKeyHex()},
   );
@@ -297,6 +303,68 @@ Future<void> verifyManifestEnvelope({
   }
 }
 
+/// 目标 tag 在远端的现状——发布资产不可变门禁的唯一输入。
+///
+/// 刻意做成"值对象 + 纯函数"：判定不碰网络、不认识 `gh`，因此"已存在就拒绝"这条规则
+/// 可以逐条断言，而不必依赖真实 GitHub（UPD-INC-030）。
+final class RemoteTagState {
+  const RemoteTagState({
+    required this.tagExists,
+    required this.releaseExists,
+    this.assetNames = const <String>[],
+  });
+
+  /// 远端既没有这个 tag，也没有对应 Release——**唯一允许发布的状态**。
+  const RemoteTagState.absent()
+    : tagExists = false,
+      releaseExists = false,
+      assetNames = const <String>[];
+
+  /// tag 是否已存在（包括只有裸 tag、还没建 Release 的情况）。
+  final bool tagExists;
+
+  /// 该 tag 下是否已有 Release（草稿或正式）。
+  final bool releaseExists;
+
+  /// 已有 Release 的资产文件名。没有 Release 时为空。
+  final List<String> assetNames;
+}
+
+/// 发布资产不可变门禁：**只允许"新 tag + 没有任何资产"**。
+///
+/// 已发布的 tag 与它名下的资产都必须永远对应同一份字节：`v1.11.0` 的包一旦被替换，
+/// 客户端的回退基线与发布记录就再也不能追溯到同一个东西。因此这里不区分"同名资产"与
+/// "别的资产"，也不提供任何 `--clobber` 式的例外：
+///
+/// 1. tag 已存在（哪怕它下面还没有 Release、也没有同名资产）→ 拒绝；
+/// 2. Release 已存在（哪怕资产名与本次不同）→ 拒绝；
+/// 3. 同名资产已存在 → 拒绝，并点名冲突的文件。
+///
+/// 每条拒绝理由都要求"换一个新的版本号"——这正是任务计划 §3.2 的规则：发现已有 tag/资产
+/// 时必须中止并要求新版本号，绝不覆盖。
+List<String> releaseImmutabilityIssues({
+  required String tag,
+  required RemoteTagState remote,
+  required String packageFileName,
+  required String manifestFileName,
+}) {
+  final issues = <String>[];
+  if (remote.tagExists) {
+    issues.add('tag $tag 已存在：发布 tag 不可变，不得复用或覆盖；请提升版本号后用新 tag 发布');
+  }
+  if (remote.releaseExists) {
+    issues.add('tag $tag 下已存在 Release：不得向已发布的 Release 追加或替换资产；请使用新版本号');
+  }
+  final conflicts = <String>[
+    if (remote.assetNames.contains(packageFileName)) packageFileName,
+    if (remote.assetNames.contains(manifestFileName)) manifestFileName,
+  ];
+  if (conflicts.isNotEmpty) {
+    issues.add('tag $tag 下已存在同名资产：${conflicts.join('、')}；绝不覆盖，必须使用新版本号');
+  }
+  return issues;
+}
+
 void _gateCommand(Map<String, String> options) {
   final issues = gateIssues(
     version: _required(options, 'version'),
@@ -332,9 +400,7 @@ List<String> gateIssues({
     issues.add('上一构建号不合法');
   }
   if (currentMsix == null) issues.add('新 MSIX 版本不是四段');
-  if (current != null &&
-      previous != null &&
-      current.compareTo(previous) <= 0) {
+  if (current != null && previous != null && current.compareTo(previous) <= 0) {
     issues.add('SemVer 未递增');
   }
   if (currentBuild != null &&
@@ -342,7 +408,8 @@ List<String> gateIssues({
       currentBuild <= previousBuildValue) {
     issues.add('构建号未递增');
   }
-  if (current != null && currentMsix != null &&
+  if (current != null &&
+      currentMsix != null &&
       currentMsix.semanticLabel != current.value) {
     issues.add('MSIX 版本与 SemVer 不一致');
   }
@@ -364,8 +431,9 @@ Future<void> _publishCommand(Map<String, String> options) async {
 
   if (Platform.environment['BEST_PLANNING_PUBLISH_CONFIRMED'] != '1') {
     stdout.writeln(
-      '发布前置检查通过，但未设置 BEST_PLANNING_PUBLISH_CONFIRMED=1。'
-      '设置后才会创建草稿、上传、从 GitHub 回读复核并发布。',
+      '发布前置检查通过（本地清单 / 成品 / tag 格式），但未设置 '
+      'BEST_PLANNING_PUBLISH_CONFIRMED=1。设置后才会查询远端 tag 与资产'
+      '（已存在即中止并要求新版本号）、创建草稿、上传、从 GitHub 回读复核并发布。',
     );
     return;
   }
@@ -415,7 +483,3 @@ Future<String> readEd25519SeedFromPem(File file) async {
 }
 
 String _sha256Hex(List<int> bytes) => sha256.convert(bytes).toString();
-
-
-
-
