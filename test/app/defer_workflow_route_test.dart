@@ -18,7 +18,6 @@ import 'package:personal_planner/data/repositories/drift_pending_plan_preview_re
 import 'package:personal_planner/data/repositories/drift_plan_adjustment_repository.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/defer_unit.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -36,17 +35,21 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import '../application/execution/execution_test_support.dart';
 
 final class _Tasks implements TaskRepository {
-  @override
-  Future<PlannerTask?> getById(String id) async => null;
+  _Tasks(this._inner);
+
+  final TaskRepository _inner;
 
   @override
-  Future<void> save(PlannerTask task) async {}
+  Future<PlannerTask?> getById(String id) => _inner.getById(id);
 
   @override
-  Stream<List<PlannerTask>> watchAllTasks() => Stream.value(const []);
+  Future<void> save(PlannerTask task) => _inner.save(task);
 
   @override
-  Stream<List<PlannerTask>> watchOpenTasks() => Stream.value(const []);
+  Stream<List<PlannerTask>> watchAllTasks() => _inner.watchAllTasks();
+
+  @override
+  Stream<List<PlannerTask>> watchOpenTasks() => _inner.watchOpenTasks();
 }
 
 final class _NoCalendar implements CalendarRepository {
@@ -77,8 +80,32 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
+/// 今日页看到的那一条"当前计划块"：id 前缀 `block:` 会被翻译成真实块 id。
+final class _DeferSource implements ScheduleViewSource {
+  const _DeferSource();
+
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      Stream.value([
+        ScheduleViewItem(
+          id: 'block:base-1:block-1',
+          title: '蓝桥杯竞赛课',
+          kind: ScheduleItemKind.task,
+          range: TimeRange(
+            startUtc: DateTime.utc(2026, 10, 19, 7),
+            endUtc: DateTime.utc(2026, 10, 19, 7, 45),
+          ),
+          categoryKey: 'area:study',
+          categoryLabel: '学业',
+          categoryColorArgb: 0xff456789,
+          categorySortOrder: 0,
+          taskId: 'task-1',
+        ),
+      ]);
+}
+
 void main() {
-  testWidgets('路由进入持久预览：确认后计划改变，撤销后恢复基线', (tester) async {
+  testWidgets('今日页菜单 → 持久预览 → 确认 → 撤销（真实 router）', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -88,7 +115,6 @@ void main() {
     late DriftPlanAdjustmentRepository adjustments;
     late DriftPendingPlanPreviewRepository previews;
     late PlanAdjustmentService service;
-    late String adjustmentId;
 
     await tester.runAsync(() async {
       harness = await ExecutionTestHarness.create();
@@ -159,27 +185,18 @@ void main() {
         (await plans.applyProposal(base, 'hash-base')).status,
         ApplyPlanStatus.applied,
       );
-      final begun = await service.beginDefer(
-        currentPlanVersionId: 'base-1',
-        targetBlockId: 'base-1:block-1',
-        amount: 10,
-        unit: DeferUnit.minutes,
-      );
-      adjustmentId = begun.adjustment!.adjustmentId;
-      final generated = await service.generate(adjustmentId);
-      expect(generated.status, GenerateAdjustmentPreviewStatus.previewReady);
     });
     addTearDown(() => tester.runAsync(harness.close));
 
     final router = createPlannerRouter(
       taskService: TaskService(
-        repository: _Tasks(),
+        repository: _Tasks(harness.taskRepository),
         clock: harness.clock,
         idGenerator: harness.ids,
       ),
       settingsService: SettingsService(repository: MemorySettingsRepository()),
       appearance: AppearanceService(MemorySettingsRepository()),
-      scheduleSource: const EmptyScheduleViewSource(),
+      scheduleSource: const _DeferSource(),
       moveController: const DisabledWeekMoveController(),
       autoAdjustStore: MemoryAutoAdjustStore(),
       adjustmentService: service,
@@ -192,7 +209,16 @@ void main() {
     addTearDown(router.dispose);
 
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-    router.go('/planning/adjustment/$adjustmentId');
+    router.go('/today');
+    await _settle(tester);
+    expect(find.byKey(const Key('today-more-block:base-1:block-1')), findsOneWidget, reason: '菜单入口');
+    await tester.tap(find.byKey(const Key('today-more-block:base-1:block-1')));
+    await _settle(tester);
+    expect(find.text('延后本次'), findsWidgets, reason: '菜单项');
+    await tester.tap(find.text('延后本次'));
+    await _settle(tester);
+    expect(find.text('延后当前计划'), findsOneWidget, reason: '对话框');
+    await tester.tap(find.byKey(const Key('defer-current-10-minutes')));
     await _settle(tester);
 
     expect(find.byType(AdjustmentPreviewPage), findsOneWidget);
@@ -219,3 +245,9 @@ void main() {
     expect(target.startUtc, DateTime.utc(2026, 10, 19, 7));
   });
 }
+
+
+
+
+
+
