@@ -26,6 +26,7 @@ final class WeekViewPage extends StatefulWidget {
     this.onProposalCreated,
     this.onOpenDay,
     this.onOpenItem,
+    this.onCompleteItem,
     this.onCreateEvent,
     this.onImportTimetable,
     this.onManageCourses,
@@ -50,6 +51,7 @@ final class WeekViewPage extends StatefulWidget {
   /// 与 [onOpenDay] 分开：点列头是"进入这一天"，点卡片是"进入这一条"。
   /// 紧凑模式下两者都进当天（既有行为，不回归）；时间轴模式下卡片有自己的去处。
   final ValueChanged<ScheduleViewItem>? onOpenItem;
+  final ValueChanged<ScheduleViewItem>? onCompleteItem;
 
   final VoidCallback? onCreateEvent;
   final VoidCallback? onImportTimetable;
@@ -275,6 +277,7 @@ final class _WeekViewPageState extends State<WeekViewPage> {
               isToday: index == 0,
               toLocal: widget.toLocal,
               onOpenDay: widget.onOpenDay,
+              onCompleteItem: widget.onCompleteItem,
               items: items.where((item) {
                 final day = widget.weekStart.add(Duration(days: index));
                 return item.range.startUtc.isBefore(
@@ -434,6 +437,7 @@ final class _DayColumn extends StatelessWidget {
     this.isToday = false,
     this.toLocal,
     this.onOpenDay,
+    this.onCompleteItem,
     super.key,
   });
 
@@ -442,6 +446,7 @@ final class _DayColumn extends StatelessWidget {
   final List<ScheduleViewItem> items;
   final ValueChanged<ScheduleViewItem> onMove;
   final ValueChanged<DateTime>? onOpenDay;
+  final ValueChanged<ScheduleViewItem>? onCompleteItem;
   final DateTime Function(DateTime)? toLocal;
 
   /// 列头第一行：`昨天` / `今天` / `周三`。为空时不显示那一行。
@@ -525,6 +530,9 @@ final class _DayColumn extends StatelessWidget {
                     item: items[index],
                     toLocal: toLocal,
                     onTap: onOpenDay == null ? null : () => onOpenDay!(day),
+                    onComplete: onCompleteItem == null
+                        ? null
+                        : () => onCompleteItem!(items[index]),
                   ),
                 ],
               ],
@@ -655,10 +663,16 @@ final class _MoveConfirmDialogState extends State<_MoveConfirmDialog> {
 }
 
 final class _DraggableScheduleCard extends StatelessWidget {
-  const _DraggableScheduleCard({required this.item, this.toLocal, this.onTap});
+  const _DraggableScheduleCard({
+    required this.item,
+    this.toLocal,
+    this.onTap,
+    this.onComplete,
+  });
   final ScheduleViewItem item;
   final DateTime Function(DateTime)? toLocal;
   final VoidCallback? onTap;
+  final VoidCallback? onComplete;
 
   @override
   Widget build(BuildContext context) {
@@ -715,6 +729,21 @@ final class _DraggableScheduleCard extends StatelessWidget {
                           key: ValueKey('week-schedule-completed-${item.id}'),
                           size: 14,
                           color: PlannerPalette.textMuted,
+                        ),
+                      if (item.recurringGoal != null &&
+                          !item.isCompleted &&
+                          onComplete != null)
+                        IconButton(
+                          key: ValueKey('week-complete-${item.id}'),
+                          tooltip: '完成本次',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 28,
+                            height: 28,
+                          ),
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.check_rounded, size: 16),
+                          onPressed: onComplete,
                         ),
                     ],
                   ),

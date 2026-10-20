@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/recurring_period.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
+import 'package:personal_planner/domain/execution/execution_fragment.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 
+import 'recurring_backfill_review_page.dart';
 import 'recurring_history_list.dart';
 
 /// 周期目标的详情页（路线图 §3.3、§11 Task 7 Step 3／5／6）。
@@ -25,10 +30,16 @@ final class RecurringTaskDetailPage extends StatefulWidget {
     this.onStartFocus,
     this.onEdit,
     this.onDelete,
+    this.recurringProgress,
+    this.recurringFragments,
+    this.executionOutbox,
     super.key,
   });
 
   final RecurringTaskService service;
+  final RecurringProgressService? recurringProgress;
+  final DriftRecurringExecutionRepository? recurringFragments;
+  final DriftExecutionRepository? executionOutbox;
 
   /// 模板 id。**页面自己按 id 读模板**，而不是由路由先读好再传进来：
   /// 暂停、归档、恢复都会改模板，而 `FutureBuilder` 的 future 不会自己重跑——
@@ -57,6 +68,7 @@ final class _RecurringTaskDetailPageState
   RecurringTaskTemplate? _template;
   RecurringTaskCycle? _cycle;
   RecurringProgress? _progress;
+  List<ExecutionFragment> _fragments = const [];
   List<RecurringHistoryEntry> _history = const [];
   int _segmentMinutes = 0;
   String? _failure;
@@ -92,11 +104,21 @@ final class _RecurringTaskDetailPageState
       );
       RecurringProgress? progress;
       var segment = 0;
+      var fragments = const <ExecutionFragment>[];
       if (cycle != null) {
         progress = await widget.service.progressForCycle(
           template.id,
           period.startLocalDate,
         );
+        final fragmentRepository = widget.recurringFragments;
+        if (fragmentRepository != null) {
+          final cycleId =
+              '${template.id}:${formatLocalDate(period.startLocalDate)}';
+          final snapshot = await fragmentRepository.findCycleSnapshot(cycleId);
+          if (snapshot != null) {
+            fragments = await fragmentRepository.fragmentsForCycle(cycleId);
+          }
+        }
         // "本段"＝本周最后记录的那一段。取"最后一段"而不是今天之和：用户问的是
         // "刚才这一段做了多少"，而"今天之和"会把早上那一段也算进来。
         final segments = await widget.service.repository
@@ -133,6 +155,7 @@ final class _RecurringTaskDetailPageState
         _template = template;
         _cycle = cycle;
         _progress = progress;
+        _fragments = fragments;
         _segmentMinutes = segment;
         _history = history;
         _loading = false;
@@ -192,6 +215,22 @@ final class _RecurringTaskDetailPageState
                 key: const Key('recurring-detail-title'),
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
+              if (widget.executionOutbox != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    key: const Key('recurring-backfill-review'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => RecurringBackfillReviewPage(
+                          repository: widget.executionOutbox!,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.fact_check_outlined),
+                    label: const Text('回填复核'),
+                  ),
+                ),
               const SizedBox(height: 8),
               Text(
                 '每周目标 ${template.targetMinutes} 分钟'
@@ -213,6 +252,10 @@ final class _RecurringTaskDetailPageState
                 )
               else
                 _progressCard(context, template, progress),
+              if (_fragments.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _fragmentsCard(context),
+              ],
               const SizedBox(height: 20),
               _actionsCard(context, template),
               const SizedBox(height: 20),
@@ -253,6 +296,82 @@ final class _RecurringTaskDetailPageState
       ),
     );
   }
+
+  String _fragmentTime(DateTime utc) {
+    final local = widget.service.zones.toLocal(utc, widget.service.timeZoneId);
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  Future<void> _completeFragment(ExecutionFragment fragment) async {
+    final progress = widget.recurringProgress;
+    if (progress == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final runtime = await progress.executionRepository.ensureRuntimeState();
+      await progress.completeFragment(
+        CompleteExecutionFragmentCommand(
+          operationId:
+              'fragment-complete:${fragment.fragmentId}:'
+              '${DateTime.now().microsecondsSinceEpoch}',
+          dataEpoch: runtime.dataEpoch,
+          fragmentId: fragment.fragmentId,
+          planVersionId: fragment.planVersionId,
+          blockId: fragment.blockId,
+          expectedFragmentRevision: fragment.revision,
+          occurredAtUtc: widget.nowUtc,
+        ),
+      );
+      await _load();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _fragmentsCard(BuildContext context) => Card(
+    key: const Key('recurring-detail-fragments'),
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('本周片段', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text('每个可见块独立完成，不联动同周其他片段。'),
+          const SizedBox(height: 8),
+          for (final fragment in _fragments)
+            ListTile(
+              key: Key('recurring-fragment-${fragment.fragmentId}'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                '${_fragmentTime(fragment.plannedStartUtc)}–'
+                '${_fragmentTime(fragment.plannedEndUtc)}',
+              ),
+              subtitle: Text(
+                '${fragment.completedMicros ~/ 60000000}/'
+                '${fragment.allocatedMicros ~/ 60000000} 分钟 · '
+                '${fragment.state.name}',
+              ),
+              trailing:
+                  fragment.state == ExecutionFragmentState.withdrawn ||
+                      fragment.state == ExecutionFragmentState.superseded
+                  ? const Text('已失效')
+                  : fragment.state == ExecutionFragmentState.completed
+                  ? const Icon(Icons.check_circle_outline)
+                  : OutlinedButton(
+                      key: Key(
+                        'recurring-fragment-complete-${fragment.fragmentId}',
+                      ),
+                      onPressed: widget.recurringProgress == null || _busy
+                          ? null
+                          : () => _completeFragment(fragment),
+                      child: const Text('完成本次'),
+                    ),
+            ),
+        ],
+      ),
+    ),
+  );
 
   Widget _progressCard(
     BuildContext context,
@@ -473,12 +592,50 @@ final class _RecurringTaskDetailPageState
       ),
     );
     if (minutes == null || minutes <= 0) return;
+    final localNow = widget.service.zones.toLocal(
+      widget.nowUtc,
+      widget.service.timeZoneId,
+    );
+    final today = DateTime(localNow.year, localNow.month, localNow.day);
+    if (!context.mounted) return;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: today,
+      firstDate: cycle.periodStartLocalDate,
+      lastDate: today,
+      helpText: '这次实际发生在哪一天？',
+    );
+    if (pickedDate == null) return;
+    if (!mounted) return;
     await _run(() async {
-      await widget.service.recordManualMinutes(
-        widget.templateId,
-        cycle.periodStartLocalDate,
-        minutes,
-      );
+      final progress = widget.recurringProgress;
+      if (progress != null) {
+        final end = pickedDate == today
+            ? widget.nowUtc
+            : widget.service.zones.localDateTimeToUtc(
+                pickedDate,
+                localNow.hour * 60 + localNow.minute,
+                widget.service.timeZoneId,
+              );
+        final runtime = await progress.executionRepository.ensureRuntimeState();
+        await progress.recordActivity(
+          RecordRecurringActivityCommand(
+            operationId:
+                'recurring-manual:${cycle.taskId}:'
+                '${DateTime.now().microsecondsSinceEpoch}',
+            dataEpoch: runtime.dataEpoch,
+            startUtc: end.subtract(Duration(minutes: minutes)),
+            endUtc: end,
+            occurredAtUtc: end,
+          ),
+        );
+      } else {
+        await widget.service.recordManualMinutes(
+          widget.templateId,
+          cycle.periodStartLocalDate,
+          minutes,
+        );
+      }
     });
   }
 

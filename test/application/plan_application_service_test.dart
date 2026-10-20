@@ -533,8 +533,10 @@ final class _ProblemSource implements ScheduleProblemSource {
   const _ProblemSource(this.problem);
   final ScheduleProblem problem;
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      problem;
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => problem;
 }
 
 /// 按传入的一次性覆盖重新装配规则，模拟生产用 `RepositoryScheduleProblemSource`
@@ -545,7 +547,10 @@ final class _OverrideAwareSource implements ScheduleProblemSource {
   ScheduleRuleOverride? received;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     received = override;
     if (override == null) return base;
     return _withRules(base, override.patch.applyTo(base.rules));

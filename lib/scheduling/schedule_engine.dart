@@ -472,6 +472,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
                           _temporaryBlock(task.id, candidate),
                         ], notBefore: _restReadyAt(problem, task, candidate)),
                       ),
+                  task.preferLater,
                 ),
               );
             }
@@ -1670,10 +1671,16 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
 }
 
 final class _RankedCandidate {
-  const _RankedCandidate(this.candidate, this.score, this.coverageMinutes);
+  const _RankedCandidate(
+    this.candidate,
+    this.score,
+    this.coverageMinutes,
+    this.preferLater,
+  );
   final SchedulingCandidate candidate;
   final int score;
   final int coverageMinutes;
+  final bool preferLater;
 }
 
 /// 候选级排序。**软约束总分是首键**，与设计 §5.2 第 7 步"选择最高分且不破坏
@@ -1687,7 +1694,9 @@ int _compareRankedCandidates(_RankedCandidate a, _RankedCandidate b) {
   if (scoreOrder != 0) return scoreOrder;
   final coverageOrder = b.coverageMinutes.compareTo(a.coverageMinutes);
   if (coverageOrder != 0) return coverageOrder;
-  final startOrder = a.candidate.startUtc.compareTo(b.candidate.startUtc);
+  final startOrder = a.preferLater
+      ? b.candidate.startUtc.compareTo(a.candidate.startUtc)
+      : a.candidate.startUtc.compareTo(b.candidate.startUtc);
   if (startOrder != 0) return startOrder;
   final taskOrder = a.candidate.taskId.compareTo(b.candidate.taskId);
   if (taskOrder != 0) return taskOrder;

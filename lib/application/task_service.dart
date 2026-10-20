@@ -1,8 +1,11 @@
 import 'dart:collection';
 
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart'
+    show isRecurringTransportTaskId;
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/task_correction_log.dart';
@@ -70,6 +73,7 @@ final class TaskService implements TaskTitleLookup {
     required IdGenerator idGenerator,
     TaskCorrectionLog? correctionLog,
     void Function(ScheduleInputChange change)? onScheduleInputChanged,
+    InternalTransportTaskGuard? transportGuard,
   }) : this._(
          repository,
          workspace,
@@ -77,6 +81,7 @@ final class TaskService implements TaskTitleLookup {
          idGenerator,
          correctionLog,
          onScheduleInputChanged,
+         transportGuard,
        );
 
   const TaskService._(
@@ -86,6 +91,7 @@ final class TaskService implements TaskTitleLookup {
     this._idGenerator,
     this._correctionLog,
     this._onScheduleInputChanged,
+    this._transportGuard,
   );
 
   final TaskRepository _repository;
@@ -101,6 +107,7 @@ final class TaskService implements TaskTitleLookup {
   final Clock _clock;
   final IdGenerator _idGenerator;
   final TaskCorrectionLog? _correctionLog;
+  final InternalTransportTaskGuard? _transportGuard;
 
   /// 任务的**排程输入发生变化**时的回调（FR-STAT-06 的"重排原因"来源）。
   ///
@@ -122,7 +129,12 @@ final class TaskService implements TaskTitleLookup {
   ///
   /// 与 [watchOpenTasks] 并列暴露，而不是把后者加宽：`watchOpenTasks` 仍是今日页、
   /// 周视图与排程输入的口径（"未结束"），任务清单则要看得到已完成与已取消的任务。
-  Stream<List<PlannerTask>> watchAllTasks() => _repository.watchAllTasks();
+  Stream<List<PlannerTask>> watchAllTasks() => _repository.watchAllTasks().map(
+    (tasks) => [
+      for (final task in tasks)
+        if (!isRecurringTransportTaskId(task.id)) task,
+    ],
+  );
 
   /// 按 id 读取单个任务，不存在时返回 `null`。
   ///
@@ -249,8 +261,18 @@ final class TaskService implements TaskTitleLookup {
     return TaskSaveResult.success(task);
   }
 
+  Future<TaskSaveResult?> _denyTransport(String taskId) async {
+    final denial = await _transportGuard?.check(taskId);
+    if (denial == null) return null;
+    return TaskSaveResult.invalid({
+      'taskId': '内部周期载体请从周期详情操作（${denial.route}）',
+    });
+  }
+
   /// 完整编辑一次保存，避免每个字段产生一份中间重排提案。
   Future<TaskSaveResult> updateDraft(String taskId, TaskDraft draft) async {
+    final denied = await _denyTransport(taskId);
+    if (denied != null) return denied;
     final existing = await _repository.getById(taskId);
     if (existing == null) return TaskSaveResult.invalid({'taskId': '任务不存在'});
     // 与 `saveDraft` 同一条规范化：缩短预计时长是这条规则最常见的触发场景，
@@ -347,6 +369,8 @@ final class TaskService implements TaskTitleLookup {
     String taskId,
     int remainingMinutes,
   ) async {
+    final denied = await _denyTransport(taskId);
+    if (denied != null) return denied;
     if (remainingMinutes < 0) {
       return TaskSaveResult.invalid({'remainingMinutes': '剩余时长不能为负数'});
     }
@@ -420,6 +444,8 @@ final class TaskService implements TaskTitleLookup {
   /// **必须传入 UTC 时刻**：本地日期到 UTC 的换算需要时区，而本服务不持有它，因此换算由
   /// 调用方（持有 `TimeZoneDatabase` 的界面层或组合根）负责，与 `TaskDraft` 的既有约定一致。
   Future<TaskSaveResult> setDueDate(String taskId, DateTime? dueAtUtc) async {
+    final denied = await _denyTransport(taskId);
+    if (denied != null) return denied;
     if (dueAtUtc != null && !dueAtUtc.isUtc) {
       return TaskSaveResult.invalid({'dueAtUtc': '截止时间必须转换为 UTC'});
     }
@@ -461,6 +487,8 @@ final class TaskService implements TaskTitleLookup {
     String taskId, {
     required Duration by,
   }) async {
+    final denied = await _denyTransport(taskId);
+    if (denied != null) return denied;
     if (by <= Duration.zero) {
       return TaskSaveResult.invalid({'by': '延后量必须为正'});
     }
@@ -496,6 +524,8 @@ final class TaskService implements TaskTitleLookup {
     String taskId,
     TaskPriority priority,
   ) async {
+    final denied = await _denyTransport(taskId);
+    if (denied != null) return denied;
     final existing = await _repository.getById(taskId);
     if (existing == null) {
       return TaskSaveResult.invalid({'taskId': '任务不存在'});
@@ -524,6 +554,7 @@ final class TaskService implements TaskTitleLookup {
   /// `PRAGMA foreign_keys`，因此不存在的项目会在写入时直接失败，不需要在服务层再维护
   /// 一份容易与库结构脱节的重复判断。界面侧的职责是只提供已存在的项目。
   Future<bool> assignProject(String taskId, String? projectId) async {
+    if (await _transportGuard?.isTransport(taskId) ?? false) return false;
     final existing = await _repository.getById(taskId);
     if (existing == null) return false;
     // 归属未变化时不写入：无变化的写入会把"最近修改"推到现在，让该字段失去意义。
@@ -545,6 +576,7 @@ final class TaskService implements TaskTitleLookup {
     int? startMinute,
     int? endMinute,
   }) async {
+    if (await _transportGuard?.isTransport(taskId) ?? false) return false;
     final existing = await _repository.getById(taskId);
     if (existing == null) return false;
 
@@ -575,6 +607,8 @@ final class TaskService implements TaskTitleLookup {
   }
 
   Future<bool> changeStatus(String taskId, TaskStatus status) async {
+    final denial = await _transportGuard?.check(taskId);
+    if (denial != null) return false;
     final existing = await _repository.getById(taskId);
     if (existing == null) return false;
     await _repository.save(

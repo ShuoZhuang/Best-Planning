@@ -131,6 +131,7 @@ final class _ProposalCreator implements ProposalCreator {
   @override
   Future<ScheduleProposal> createProposal({
     ScheduleRuleOverride? override,
+    TimeRange? window,
   }) async {
     calls++;
     receivedOverride = override;

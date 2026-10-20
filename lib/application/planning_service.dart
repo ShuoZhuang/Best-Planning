@@ -6,6 +6,7 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
+import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
 import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
@@ -18,7 +19,10 @@ abstract interface class ScheduleProblemSource {
   ///
   /// [override] 是一次性规则覆盖，用于"只影响本次生成、不写入设置"的场景
   /// （特殊日恢复）。为 null 时行为与不带该参数完全一致。
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override});
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  });
 }
 
 abstract interface class ProposalCreator {
@@ -26,7 +30,10 @@ abstract interface class ProposalCreator {
   ///
   /// [override] 必须原样传给 [ScheduleProblemSource.load]，并随返回的提案一起携带，
   /// 否则确认阶段重放不出同一个输入哈希。
-  Future<ScheduleProposal> createProposal({ScheduleRuleOverride? override});
+  Future<ScheduleProposal> createProposal({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  });
 }
 
 final class PlanningService implements ProposalCreator {
@@ -64,8 +71,9 @@ final class PlanningService implements ProposalCreator {
   @override
   Future<ScheduleProposal> createProposal({
     ScheduleRuleOverride? override,
+    TimeRange? window,
   }) async {
-    final rawProblem = await source.load(override: override);
+    final rawProblem = await source.load(override: override, window: window);
     final inputHash = snapshots.hash(InputSnapshot(problem: rawProblem));
     final problem = _withInputHash(rawProblem, inputHash);
     // Copy the engine into a local before creating the closure. Referencing the

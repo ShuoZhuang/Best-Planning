@@ -159,4 +159,27 @@ void main() {
       },
     );
   });
+
+  test('v10 非空模板数据迁移到 v11 后仍可见', () async {
+    final schema = await verifier.schemaAt(10);
+    schema.rawDatabase.execute(
+      'INSERT INTO recurring_task_templates ('
+      'id, title, target_minutes, priority, energy_level, split_mode, '
+      'min_chunk_minutes, max_chunk_minutes, pace, allowed_weekdays_mask, '
+      'carry_over_unfinished, starts_on_local_date, time_zone_id, status, '
+      'created_at_utc, updated_at_utc) VALUES ('
+      "'template-1', '迁移前目标', 180, 'medium', 'medium', 'splittable', "
+      "25, 90, 'even', 127, 0, '2026-10-05', 'Asia/Shanghai', 'active', "
+      '1, 1)',
+    );
+    final db = AppDatabase(schema.newConnection());
+    await verifier.migrateAndValidate(db, 11);
+    final rows = await db
+        .customSelect(
+          "SELECT title FROM recurring_task_templates WHERE id = 'template-1'",
+        )
+        .get();
+    expect(rows.single.read<String>('title'), '迁移前目标');
+    await db.close();
+  });
 }

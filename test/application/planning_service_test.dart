@@ -285,7 +285,10 @@ final class _MutableProblemSource implements ScheduleProblemSource {
   ScheduleProblem problem;
   ScheduleRuleOverride? lastOverride;
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     lastOverride = override;
     return problem;
   }
@@ -298,8 +301,10 @@ final class _UnsendableProblemSource implements ScheduleProblemSource {
   final ReceivePort _localResource = ReceivePort();
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      problem;
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => problem;
 
   void dispose() => _localResource.close();
 }

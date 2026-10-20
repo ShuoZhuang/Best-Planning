@@ -344,6 +344,22 @@ final class ScheduleProposal {
   /// 或在带要求的提案上再关联一次来源，就会静默丢掉用户延后要求"的陷阱，而丢掉的后果是
   /// 应用前那次兑现校验拿不到要求（`PlanApplicationService` 会以为"这次没有延后意图"）。
   /// 三个 `with*` 现在对它的处理完全一致。
+  ScheduleProposal withBlocks(List<PlannedBlock> value) => ScheduleProposal(
+    proposalId: proposalId,
+    inputHash: inputHash,
+    algorithmVersion: algorithmVersion,
+    planningWindow: planningWindow,
+    blocks: value,
+    unscheduled: unscheduled,
+    conflicts: conflicts,
+    explanations: explanations,
+    metrics: metrics,
+    placementDiagnostics: placementDiagnostics,
+    ruleOverride: ruleOverride,
+    adjustmentRequirement: adjustmentRequirement,
+    outcome: outcome,
+  );
+
   ScheduleProposal withLinkedBlocks(List<PlannedBlock> linked) =>
       ScheduleProposal(
         proposalId: proposalId,

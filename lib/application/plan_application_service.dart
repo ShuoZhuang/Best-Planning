@@ -18,12 +18,29 @@ final class PlanApplicationService {
     this.snapshots = const InputSnapshotBuilder(),
     this.onPlanChanged,
     this.updateSafety,
+    this.planTransactionApplier,
+    this.afterApplied,
   }) : _validator = PlanValidator(zones);
 
   final ScheduleProblemSource source;
   final PlanRepository repository;
   final PlanValidator _validator;
   final InputSnapshotBuilder snapshots;
+
+  /// 把"计划写入 + 执行来源关联"一次提交的端口（规范 §19.4）。
+  ///
+  /// 生产装配传入真实的 `DriftPlanRepository`；测试替身不实现它，因此仍走
+  /// [PlanRepository.applyProposal]，并在提交之后执行 [afterApplied]。
+  final PlanTransactionApplier? planTransactionApplier;
+
+  /// 计划真正写入后的执行来源关联。生产装配用它在**同一事务内**写入实例与块链接；
+  /// 没有事务端口时退化为提交后回调，仅用于测试替身。
+  final Future<void> Function(
+    ConfirmedPlan plan,
+    ScheduleProposal proposal,
+    ScheduleProblem current,
+  )?
+  afterApplied;
 
   /// 计划被**真正改变**之后的回调（B5）。
   ///
@@ -177,11 +194,33 @@ final class PlanApplicationService {
           ),
       ]);
     }
-    final result = await repository.applyProposal(proposal, current.inputHash);
+    final result = await _commitPlan(proposal, current);
     // **只在真的应用了之后**同步：过期与非法提案都没有改变当前计划，同步一次既是白跑，
     // 更糟的是会掩盖"这次确认其实失败了"。
     if (result.status == ApplyPlanStatus.applied) {
       await onPlanChanged?.call();
+    }
+    return result;
+  }
+
+  Future<ApplyPlanResult> _commitPlan(
+    ScheduleProposal proposal,
+    ScheduleProblem current,
+  ) async {
+    final hook = afterApplied;
+    final applier = planTransactionApplier;
+    if (applier != null) {
+      return applier.applyProposalWithSideEffects(
+        proposal,
+        current.inputHash,
+        onApplied: (plan) async {
+          if (hook != null) await hook(plan, proposal, current);
+        },
+      );
+    }
+    final result = await repository.applyProposal(proposal, current.inputHash);
+    if (result.status == ApplyPlanStatus.applied && hook != null) {
+      await hook(result.plan!, proposal, current);
     }
     return result;
   }

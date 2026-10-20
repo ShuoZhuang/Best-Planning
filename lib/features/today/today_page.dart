@@ -5,12 +5,19 @@ import 'package:personal_planner/design/planner_action_feedback.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/design/planner_theme.dart';
+import 'package:personal_planner/domain/execution/execution_models.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/features/calendar/schedule_category_card_style.dart';
 import 'package:personal_planner/features/calendar/schedule_category_legend.dart';
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/execution/execution_bar.dart';
+import 'package:personal_planner/features/execution/execution_card.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_record_editor.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_dialog.dart';
 
 final class TodayPage extends StatefulWidget {
   const TodayPage({
@@ -29,6 +36,8 @@ final class TodayPage extends StatefulWidget {
     this.dismissedProposalId,
     this.onDismissReplan,
     this.replanProposalId,
+    this.execution,
+    this.executionRecovery,
     super.key,
   });
 
@@ -100,6 +109,14 @@ final class TodayPage extends StatefulWidget {
   /// 当前待确认方案的 id；为空表示没有待确认方案，此时不显示提示。
   final String? replanProposalId;
 
+  /// 1.11.0 的执行卡与轻量执行条（规范 §7）。
+  ///
+  /// 为空时页面与本批次之前完全一致：测试与未装配环境不会出现一个点了没反应的入口。
+  final ExecutionController? execution;
+
+  /// 恢复预览的 UI 编排；为空时不显示"安排剩余"。
+  final ExecutionRecoveryController? executionRecovery;
+
   @override
   State<TodayPage> createState() => _TodayPageState();
 }
@@ -111,6 +128,7 @@ final class _TodayPageState extends State<TodayPage> {
   void initState() {
     super.initState();
     _subscribe();
+    widget.execution?.refresh(windowStartUtc: widget.day);
   }
 
   void _subscribe() {
@@ -153,6 +171,9 @@ final class _TodayPageState extends State<TodayPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.day != widget.day || oldWidget.source != widget.source) {
       _subscribe();
+      if (oldWidget.day != widget.day) {
+        widget.execution?.refresh(windowStartUtc: widget.day);
+      }
     }
   }
 
@@ -239,6 +260,15 @@ final class _TodayPageState extends State<TodayPage> {
                     ),
                     if (categorySummaries.isNotEmpty)
                       const SizedBox(height: 12),
+                    if (widget.execution case final execution?)
+                      _ExecutionSection(
+                        controller: execution,
+                        recovery: widget.executionRecovery,
+                        items: items,
+                        nowUtc: _effectiveNow,
+                        formatTime: formatTime,
+                        onAdjust: widget.onRequestAdjust,
+                      ),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
@@ -311,6 +341,135 @@ final class _TodayPageState extends State<TodayPage> {
         ],
       ),
     );
+  }
+}
+
+final class _ExecutionSection extends StatelessWidget {
+  const _ExecutionSection({
+    required this.controller,
+    required this.items,
+    required this.nowUtc,
+    required this.formatTime,
+    this.recovery,
+    this.onAdjust,
+  });
+
+  final ExecutionController controller;
+  final ExecutionRecoveryController? recovery;
+  final List<ScheduleViewItem> items;
+  final DateTime nowUtc;
+  final String Function(DateTime value) formatTime;
+  final ValueChanged<ScheduleViewItem>? onAdjust;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final active = controller.activeSession;
+        if (active != null) {
+          final title =
+              items
+                  .where((item) => item.taskId == active.taskId)
+                  .map((item) => item.title)
+                  .firstOrNull ??
+              '正在执行的任务';
+          final conflict = items
+              .where(
+                (item) =>
+                    item.taskId != null &&
+                    item.taskId != active.taskId &&
+                    !item.range.startUtc.isAfter(nowUtc) &&
+                    item.range.endUtc.isAfter(nowUtc),
+              )
+              .firstOrNull;
+          return ExecutionBar(
+            controller: controller,
+            title: title,
+            nowUtc: () => nowUtc,
+            conflictTitle: conflict?.title,
+          );
+        }
+        final item = _dueItem(items, nowUtc);
+        if (item == null) return const SizedBox.shrink();
+        final occurrence = controller.occurrenceForTask(item.taskId!);
+        return ExecutionCard(
+          controller: controller,
+          taskId: item.taskId!,
+          title: item.title,
+          planStartUtc: item.range.startUtc,
+          planEndUtc: item.range.endUtc,
+          formatTime: formatTime,
+          nowUtc: () => nowUtc,
+          onAdjust: onAdjust == null ? null : () => onAdjust!(item),
+          onRecoverRemaining: recovery == null || occurrence == null
+              ? null
+              : () =>
+                    _openRecovery(context, item, occurrence, holdToday: false),
+          onHoldToday: recovery == null || occurrence == null
+              ? null
+              : () => _openRecovery(context, item, occurrence, holdToday: true),
+          onRecord: () async {
+            final draft = await showExecutionRecordDialog(context);
+            if (draft == null) return;
+            await controller.recordManual(
+              taskId: item.taskId!,
+              duration: draft.duration,
+              occurrenceId: occurrence?.id,
+              note: draft.note,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openRecovery(
+    BuildContext context,
+    ScheduleViewItem item,
+    ExecutionOccurrence occurrence, {
+    required bool holdToday,
+  }) async {
+    final recovery = this.recovery;
+    if (recovery == null) return;
+    final generated = await recovery.request(
+      occurrenceId: occurrence.id,
+      holdToday: holdToday,
+    );
+    if (!context.mounted) return;
+    if (!generated) {
+      showPlannerMessage(context, message: recovery.message ?? '无法生成恢复预览');
+      return;
+    }
+    final applied = await showExecutionRecoveryDialog(
+      context,
+      controller: recovery,
+      title: item.title,
+      formatTime: formatTime,
+    );
+    if (applied == true && context.mounted) {
+      showPlannerMessage(context, message: '已应用恢复安排');
+    }
+  }
+
+  static ScheduleViewItem? _dueItem(
+    List<ScheduleViewItem> items,
+    DateTime nowUtc,
+  ) {
+    for (final item in items) {
+      if (item.taskId == null) continue;
+      if (item.isCompleted) continue;
+      if (item.kind != ScheduleItemKind.task &&
+          item.kind != ScheduleItemKind.life) {
+        continue;
+      }
+      if (item.range.startUtc.isAfter(nowUtc)) continue;
+      if (item.range.endUtc.add(const Duration(hours: 24)).isBefore(nowUtc)) {
+        continue;
+      }
+      return item;
+    }
+    return null;
   }
 }
 
@@ -428,6 +587,10 @@ final class _TimelinePanel extends StatelessWidget {
       nowUtc.isBefore(item.range.endUtc);
 }
 
+/// 周期块的完成动作只完成当前片段，文案必须明确说“本次”。
+String todayCompleteActionLabel(ScheduleViewItem item) =>
+    item.recurringGoal == null ? '完成' : '完成本次';
+
 final class _TimelineItem extends StatelessWidget {
   const _TimelineItem({
     required this.item,
@@ -484,7 +647,7 @@ final class _TimelineItem extends StatelessWidget {
         // 量出来的。M6 在状态行里加了周期进度之后，150%/200% 缩放下那一行会多占 8 像素并
         // 直接报 `RenderFlex overflowed`（实测）。用 `MediaQuery.textScaler` 只放大与文字
         // 有关的那部分（82 − 2×11 是文字区，上下各留 11），避免整行一起放大而浪费高度。
-        height: 22 + 60 * MediaQuery.textScalerOf(context).scale(1),
+        height: 22 + 74 * MediaQuery.textScalerOf(context).scale(1),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -691,7 +854,7 @@ final class _TimelineItem extends StatelessWidget {
           _CardAction(
             actionKey: Key('today-complete-${item.id}'),
             icon: Icons.check_rounded,
-            label: '完成',
+            label: todayCompleteActionLabel(item),
             onPressed: () => onComplete!(item),
           ),
         );

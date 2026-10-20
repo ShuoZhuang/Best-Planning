@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:personal_planner/application/analytics_service.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
 import 'package:personal_planner/application/feedback_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/execution/execution_metrics.dart';
 import 'package:personal_planner/domain/models/analytics.dart';
 import 'package:personal_planner/domain/models/area_period_matrix.dart';
 import 'package:personal_planner/domain/models/chart_kind.dart';
@@ -16,6 +18,7 @@ import 'package:personal_planner/features/analytics/recurring_goal_summary.dart'
 import 'package:personal_planner/features/analytics/analytics_rest_tab.dart';
 import 'package:personal_planner/features/analytics/analytics_time_allocation_tab.dart';
 import 'package:personal_planner/features/analytics/feedback_cards.dart';
+import 'package:personal_planner/features/execution/execution_metrics_summary.dart';
 
 final class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({
@@ -39,6 +42,7 @@ final class AnalyticsPage extends StatefulWidget {
     this.onOpenRecurringGoals,
     this.onGeneratePlan,
     this.onOpenRestRules,
+    this.executionMetrics,
     super.key,
   });
 
@@ -99,6 +103,9 @@ final class AnalyticsPage extends StatefulWidget {
   /// 比没有入口更糟（与这个应用其它端口同一口径）。
   final VoidCallback? onGeneratePlan;
   final VoidCallback? onOpenRestRules;
+
+  /// 1.11.0 执行指标查询。为空时不显示执行摘要卡。
+  final ExecutionMetricsQuery? executionMetrics;
 
   @override
   State<AnalyticsPage> createState() => _AnalyticsPageState();
@@ -220,6 +227,8 @@ final class _AnalyticsPageState extends State<AnalyticsPage>
   /// 用户选了「本月」时跨过午夜不需要动他的选择，只有"跟着今天走"的那三种预设（今天／本周／
   /// 本月）才要在日期变化后重算。
   DateTime _nowAnchor = DateTime(1970);
+  ExecutionMetrics? _executionMetrics;
+  ExecutionSourceBreakdown? _executionBreakdown;
 
   /// 读一次"现在"：[AnalyticsPage.clock] 优先，否则用构造时传入的 [AnalyticsPage.nowUtc]。
   DateTime _readNow() => widget.clock?.call() ?? widget.nowUtc;
@@ -331,10 +340,30 @@ final class _AnalyticsPageState extends State<AnalyticsPage>
       );
       final matrix = await _loadAreaPeriodMatrix();
       final report = await widget.analytics.query(_filter);
+      ExecutionMetrics? execution;
+      ExecutionSourceBreakdown? breakdown;
+      final executionQuery = widget.executionMetrics;
+      if (executionQuery != null) {
+        try {
+          execution = await executionQuery.metricsForWindow(
+            fromUtc: _filter.startUtc,
+            toUtc: _filter.endUtc,
+            asOfUtc: _readNow(),
+          );
+          breakdown = await executionQuery.sourceBreakdown(
+            fromUtc: _filter.startUtc,
+            toUtc: _filter.endUtc,
+          );
+        } on Object {
+          // 执行指标失败不能拖垮整个统计页；摘要卡保持上一次结果或隐藏。
+        }
+      }
       if (!mounted) return;
       setState(() {
         _report = report;
         _matrix = matrix;
+        _executionMetrics = execution;
+        _executionBreakdown = breakdown;
         _feedback = const FeedbackService().generate(report, previous);
       });
     } catch (error) {
@@ -527,6 +556,13 @@ final class _AnalyticsPageState extends State<AnalyticsPage>
                       selected: _filter.tags,
                       onToggle: _toggleTag,
                       onClear: () => _setTags(const {}),
+                    ),
+                  ],
+                  if (_executionMetrics case final metrics?) ...[
+                    const SizedBox(height: 16),
+                    ExecutionMetricsSummary(
+                      metrics: metrics,
+                      breakdown: _executionBreakdown,
                     ),
                   ],
                   if (_loading) ...[

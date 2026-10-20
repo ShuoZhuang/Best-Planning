@@ -8,7 +8,8 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
-final class DriftPlanRepository implements PlanStore, PlanBlockHistory {
+final class DriftPlanRepository
+    implements PlanStore, PlanBlockHistory, PlanTransactionApplier {
   DriftPlanRepository(this._database, {this.clock = const SystemClock()});
 
   final AppDatabase _database;
@@ -151,34 +152,76 @@ final class DriftPlanRepository implements PlanStore, PlanBlockHistory {
             OrderingTerm.asc(blocks.id),
           ]);
     final rows = await query.get();
+    final allVersions = await _database.select(versions).get();
+    final versionTimes = {
+      for (final version in allVersions) version.id: version.createdAtUtc,
+    };
+    final frozen = <String>{};
+    for (final fragment
+        in await _database.select(_database.executionFragments).get()) {
+      if (fragment.state == 'started' || fragment.state == 'completed') {
+        frozen.add('${fragment.planVersionId}|${fragment.blockId}');
+      }
+    }
+    DateTime? nextVersionInstant(String versionId) {
+      final current = versionTimes[versionId];
+      if (current == null) return null;
+      int? next;
+      for (final value in versionTimes.values) {
+        if (value > current && (next == null || value < next)) next = value;
+      }
+      return next == null
+          ? null
+          : DateTime.fromMicrosecondsSinceEpoch(next, isUtc: true);
+    }
+
     return [
       for (final row in rows)
         if (row.readTableOrNull(blocks) case final block?)
           if (row.readTableOrNull(versions) case final version?)
-            HistoricalPlanBlock(
-              versionId: version.id,
-              versionCreatedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
-                version.createdAtUtc,
-                isUtc: true,
-              ),
-              block: PlannedBlock(
-                id: block.id,
-                taskId: block.taskId,
-                range: TimeRange(
-                  startUtc: DateTime.fromMicrosecondsSinceEpoch(
-                    block.startAtUtc,
-                    isUtc: true,
-                  ),
-                  endUtc: DateTime.fromMicrosecondsSinceEpoch(
-                    block.endAtUtc,
-                    isUtc: true,
-                  ),
+            if (_keepHistoricalBlock(
+              block: block,
+              nextVersionUtc: nextVersionInstant(version.id),
+              frozen: frozen.contains('${version.id}|${block.id}'),
+            ))
+              HistoricalPlanBlock(
+                versionId: version.id,
+                versionCreatedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
+                  version.createdAtUtc,
+                  isUtc: true,
                 ),
-                explanationCode: block.explanationCode,
-                locked: block.locked,
+                block: PlannedBlock(
+                  id: block.id,
+                  taskId: block.taskId,
+                  range: TimeRange(
+                    startUtc: DateTime.fromMicrosecondsSinceEpoch(
+                      block.startAtUtc,
+                      isUtc: true,
+                    ),
+                    endUtc: DateTime.fromMicrosecondsSinceEpoch(
+                      block.endAtUtc,
+                      isUtc: true,
+                    ),
+                  ),
+                  explanationCode: block.explanationCode,
+                  locked: block.locked,
+                ),
               ),
-            ),
     ];
+  }
+
+  bool _keepHistoricalBlock({
+    required ScheduleBlock block,
+    required DateTime? nextVersionUtc,
+    required bool frozen,
+  }) {
+    if (frozen || nextVersionUtc == null) return true;
+    final endUtc = DateTime.fromMicrosecondsSinceEpoch(
+      block.endAtUtc,
+      isUtc: true,
+    );
+    // 新版本生效前已经结束的块是当时的历史事实；生效后才发生的旧块不保留。
+    return !endUtc.isAfter(nextVersionUtc);
   }
 
   Future<ConfirmedPlan> _loadVersion(PlanVersion version) async {
@@ -219,7 +262,18 @@ final class DriftPlanRepository implements PlanStore, PlanBlockHistory {
   Future<ApplyPlanResult> applyProposal(
     ScheduleProposal proposal,
     String expectedInputHash,
-  ) async {
+  ) => applyProposalWithSideEffects(
+    proposal,
+    expectedInputHash,
+    onApplied: (_) async {},
+  );
+
+  @override
+  Future<ApplyPlanResult> applyProposalWithSideEffects(
+    ScheduleProposal proposal,
+    String expectedInputHash, {
+    required Future<void> Function(ConfirmedPlan plan) onApplied,
+  }) async {
     if (proposal.inputHash != expectedInputHash) {
       return ApplyPlanResult.stale();
     }
@@ -308,6 +362,8 @@ final class DriftPlanRepository implements PlanStore, PlanBlockHistory {
         algorithmVersion: proposal.algorithmVersion,
         blocks: persistedBlocks,
       );
+      // 执行来源关联与计划写入同事务：关联失败时计划也必须回滚（规范 §19.4）。
+      await onApplied(plan);
       return ApplyPlanResult.applied(plan);
     });
   }

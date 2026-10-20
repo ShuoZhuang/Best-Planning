@@ -32,9 +32,11 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/data/database/daos/recurring_task_dao.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
@@ -85,6 +87,7 @@ final class _NoPlans implements PlanRepository {
 
 void main() {
   late db.AppDatabase database;
+  late DriftRecurringExecutionRepository snapshots;
   late RecurringTaskService recurring;
   late RepositoryScheduleProblemSource source;
 
@@ -92,6 +95,11 @@ void main() {
     database = db.AppDatabase.forTesting(
       NativeDatabase.memory(),
       enforceForeignKeys: false,
+    );
+    snapshots = DriftRecurringExecutionRepository(
+      database,
+      clock: const _Clock(),
+      idGenerator: _Ids(),
     );
     recurring = RecurringTaskService(
       repository: DriftRecurringTaskRepository(
@@ -103,6 +111,7 @@ void main() {
       zones: TimeZoneDatabase(),
       timeZoneId: 'Asia/Shanghai',
       tasks: DriftTaskRepository(database.taskDao),
+      snapshots: snapshots,
     );
     source = RepositoryScheduleProblemSource(
       tasks: DriftTaskRepository(database.taskDao),
@@ -114,6 +123,7 @@ void main() {
       timeZoneId: 'Asia/Shanghai',
       zones: TimeZoneDatabase(),
       recurring: recurring,
+      recurringSnapshots: snapshots,
     );
   });
 
@@ -183,6 +193,42 @@ void main() {
       TaskDistributionPolicy.even,
       reason: '这是生产映射真的设上了策略的**端到端**验证——夹具里手写策略不算数',
     );
+  });
+
+  test('排程输入读周实例快照的有效结束，不靠模板周期', () async {
+    final goal = await createWeeklyGoal();
+    await source.load();
+    final period = recurring.periodContaining(_now);
+    final cycleId =
+        '${goal.templateId}:${formatLocalDate(period.startLocalDate)}';
+    final snapshot = await snapshots.findCycleSnapshot(cycleId);
+    expect(snapshot, isNotNull);
+    final earlierEnd = TimeZoneDatabase().localMidnightToUtc(
+      DateTime(2026, 10, 9),
+      'Asia/Shanghai',
+    );
+    await snapshots.upsertCycleSnapshot(
+      snapshot!.copyWith(effectiveEndUtc: earlierEnd),
+    );
+    final problem = await source.load();
+    final task = problem.tasks.firstWhere((item) => item.id == goal.taskId);
+    expect(task.dueAtUtc, earlierEnd);
+  });
+
+  test('下一周的周期实例只承担可见窗口内的份额，不提前塞满整周', () async {
+    final goal = await createWeeklyGoal();
+    final problem = await source.load();
+    final nextWeek = problem.tasks.where(
+      (task) => task.id != goal.taskId && task.id.contains('recurring:'),
+    );
+    expect(nextWeek, isNotEmpty, reason: '滚动窗口应包含下周实例');
+    for (final task in nextWeek) {
+      expect(
+        task.requiredMinutes,
+        lessThan(180),
+        reason: '下周整周目标不应在可见窗口内被全部提前安排',
+      );
+    }
   });
 
   test('**幂等**：连续两次 load() 不会把同一周生成两份实例', () async {

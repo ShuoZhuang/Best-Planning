@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
+import 'package:personal_planner/domain/execution/execution_fragment.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/core/clock.dart';
@@ -45,6 +47,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
     required this.history,
     Clock? clock,
     this.recurring,
+    this.recurringFragments,
     this.invalidation,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        _clock = clock ?? const SystemClock();
@@ -61,6 +64,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
   /// 周期目标（M6）。为空时卡片照常渲染，只是没有那一行进度徽标——
   /// 与"这不是周期目标的条目"是同一种显示结果。
   final RecurringTaskService? recurring;
+  final DriftRecurringExecutionRepository? recurringFragments;
 
   /// 各写入服务的成功失效信号（计划 §2.6）。
   ///
@@ -373,6 +377,19 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
       final titles = {for (final task in openTasks) task.id: task.title};
       final areaIds = {for (final task in openTasks) task.id: task.areaId};
       final completedIds = <String>{};
+      final withdrawnBlockIds = <String>{};
+      final fragments = recurringFragments;
+      if (confirmed != null && fragments != null) {
+        for (final block in confirmed.blocks) {
+          final fragment = await fragments.findFragmentForBlock(
+            planVersionId: confirmed.id,
+            blockId: block.id,
+          );
+          if (fragment?.state == ExecutionFragmentState.withdrawn) {
+            withdrawnBlockIds.add(block.id);
+          }
+        }
+      }
 
       // **计划块可能指向已经完成（或被取消）的任务**：它们不在 `watchOpenTasks` 里，上面两张表就
       // 查不到，标题会回退成字面量「已安排任务」、领域退化成「无领域任务」——用户看到的是"勾完之后
@@ -429,6 +446,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
       }
 
       void addBlock(PlannedBlock block) {
+        if (withdrawnBlockIds.contains(block.id)) return;
         final areaId = areaIds[block.taskId];
         final category = colorCatalog.forAreaOrSpecial(
           areaId: areaId,

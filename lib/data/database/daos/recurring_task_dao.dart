@@ -63,6 +63,26 @@ class RecurringTaskDao extends DatabaseAccessor<AppDatabase>
     return query.get();
   }
 
+  /// 与 `[periodStart, periodEnd)` 有效区间相交的模板（1.11.0 设计 §5.1、Task 3）。
+  Future<List<RecurringTaskTemplate>> listTemplatesIntersecting({
+    required String periodStartLocalDate,
+    required String periodEndLocalDate,
+  }) {
+    final query = select(recurringTaskTemplates)
+      ..where(
+        (row) =>
+            row.status.equals('active') &
+            row.startsOnLocalDate.isSmallerThanValue(periodEndLocalDate) &
+            (row.endsOnLocalDate.isNull() |
+                row.endsOnLocalDate.isBiggerOrEqualValue(periodStartLocalDate)),
+      )
+      ..orderBy([
+        (row) => OrderingTerm.asc(row.createdAtUtc),
+        (row) => OrderingTerm.asc(row.id),
+      ]);
+    return query.get();
+  }
+
   Future<void> upsertTemplate(RecurringTaskTemplatesCompanion template) =>
       into(recurringTaskTemplates).insertOnConflictUpdate(template);
 

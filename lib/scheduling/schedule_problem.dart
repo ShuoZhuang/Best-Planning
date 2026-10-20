@@ -23,6 +23,7 @@ final class SchedulableTask {
     this.allowedWeekdaysMask = allWeekdaysMask,
     this.maxMinutesPerLocalDay,
     this.distributionPolicy = TaskDistributionPolicy.unconstrained,
+    this.preferLater = false,
   });
 
   final String id;
@@ -64,6 +65,9 @@ final class SchedulableTask {
   /// 默认 [TaskDistributionPolicy.unconstrained]，因此既有调用点无需改动，
   /// 而"周期目标的均匀分布"必须**显式**声明，不再依赖 `maxMinutesPerLocalDay` 是否为空。
   final TaskDistributionPolicy distributionPolicy;
+
+  /// 同分候选的平局顺序：为真时偏后，而不是默认的最早。
+  final bool preferLater;
 
   /// 该掩码是否允许某个本地星期（`DateTime.monday` … `DateTime.sunday`）。
   bool allowsWeekday(int weekday) =>

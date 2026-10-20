@@ -11,6 +11,7 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
@@ -21,7 +22,12 @@ import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/week_view_preference_service.dart';
@@ -65,6 +71,8 @@ import 'package:personal_planner/features/calendar/schedule_item_open_target.dar
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
@@ -202,10 +210,16 @@ Widget _recurringDetailRoute(
   RecurringTaskService service,
   String templateId,
   DateTime nowUtc,
+  RecurringProgressService? recurringProgress,
+  DriftRecurringExecutionRepository? recurringFragments,
+  DriftExecutionRepository? executionOutbox,
 ) => RecurringTaskDetailPage(
   service: service,
   templateId: templateId,
   nowUtc: nowUtc,
+  recurringProgress: recurringProgress,
+  recurringFragments: recurringFragments,
+  executionOutbox: executionOutbox,
   // 「开始专注」**刻意不接**：专心路由要 `FocusService`，而这里注入一个只会跳到
   // 任务详情的按钮，等于给了一个名不副实的入口。页面在端口为空时不渲染它。
   onStartFocus: null,
@@ -219,7 +233,7 @@ Widget _recurringDetailRoute(
   // 顺序是"**先删再导航**"，且导航放在删除之后：反过来会先离开页面，而删除还没发生，
   // 用户看到的是"回到列表、东西还在"。
   onDelete: (template) async {
-    await service.deleteTemplate(template.id);
+    await service.anonymizeTemplate(template.id);
     if (context.mounted) context.go('/tasks');
   },
 );
@@ -407,6 +421,21 @@ GoRouter createPlannerRouter({
   BackupService? backupService,
   DataErasureService? erasure,
   FocusService? focusService,
+
+  /// 1.11.0 今日页执行卡与轻量执行条（规范 §7）。为空时页面不显示执行入口。
+  ExecutionController? execution,
+
+  /// 1.11.0 局部恢复预览（规范 §9）。为空时不显示"安排剩余"。
+  ExecutionRecoveryController? executionRecovery,
+
+  /// 1.11.0 周期片段的“完成本次”入口；为空时退化为普通任务完成。
+  RecurringProgressService? recurringProgress,
+  DriftRecurringExecutionRepository? recurringFragments,
+  DriftExecutionRepository? executionOutbox,
+  InternalTransportTaskGuard? transportGuard,
+
+  /// 1.11.0 执行指标查询（规范 §14）。为空时统计页不显示执行摘要。
+  ExecutionMetricsQuery? executionMetrics,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   void Function(String action, String suggestionId)? onSuggestionAction,
   RecoveryPlanningService? recovery,
@@ -476,6 +505,8 @@ GoRouter createPlannerRouter({
               day: todayStartUtc,
               toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
               nowUtc: nowUtc ?? todayStartUtc,
+              execution: execution,
+              executionRecovery: executionRecovery,
               // ── M4（路线图 §8）今日页的执行动作 ──────────────────────────────────
               //
               // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
@@ -488,6 +519,33 @@ GoRouter createPlannerRouter({
                   ? null
                   : (item) => context.go('/focus/${item.taskId!}'),
               onComplete: (item) async {
+                // 周期块先走“完成本次”：只改当前 fragment，不联动同 occurrence 的兄弟块。
+                if (item.recurringGoal != null &&
+                    recurringProgress != null &&
+                    recurringFragments != null) {
+                  final blockId = movableTaskBlockId(item);
+                  if (blockId != null) {
+                    final fragment = await recurringFragments
+                        .findLatestFragmentForBlock(blockId);
+                    if (fragment?.cycleId != null) {
+                      final runtime = await recurringProgress
+                          .executionRepository
+                          .ensureRuntimeState();
+                      final result = await recurringProgress.completeFragment(
+                        CompleteExecutionFragmentCommand(
+                          operationId: UuidIdGenerator().next(),
+                          dataEpoch: runtime.dataEpoch,
+                          fragmentId: fragment!.fragmentId,
+                          planVersionId: fragment.planVersionId,
+                          blockId: fragment.blockId,
+                          expectedFragmentRevision: fragment.revision,
+                          occurredAtUtc: nowUtc ?? todayStartUtc,
+                        ),
+                      );
+                      if (result.isApplied) return;
+                    }
+                  }
+                }
                 // 与任务详情页的"完成"共用同一个服务方法，因此统计记录、重排原因标签
                 // 与别处完全一致——不在这一页另造一套状态变更。
                 final taskId = item.taskId;
@@ -778,6 +836,9 @@ GoRouter createPlannerRouter({
                 recurringTasks,
                 state.pathParameters['templateId'] ?? '',
                 nowUtc ?? todayStartUtc,
+                recurringProgress,
+                recurringFragments,
+                executionOutbox,
               ),
             ),
           ],
@@ -916,6 +977,31 @@ GoRouter createPlannerRouter({
                   timeZoneId,
                 );
                 _openScheduleItemDetail(context, item, day);
+              },
+              onCompleteItem: (item) async {
+                if (recurringProgress == null ||
+                    recurringFragments == null ||
+                    item.recurringGoal == null) {
+                  return;
+                }
+                final blockId = movableTaskBlockId(item);
+                if (blockId == null) return;
+                final fragment = await recurringFragments
+                    .findLatestFragmentForBlock(blockId);
+                if (fragment?.cycleId == null) return;
+                final runtime = await recurringProgress.executionRepository
+                    .ensureRuntimeState();
+                await recurringProgress.completeFragment(
+                  CompleteExecutionFragmentCommand(
+                    operationId: UuidIdGenerator().next(),
+                    dataEpoch: runtime.dataEpoch,
+                    fragmentId: fragment!.fragmentId,
+                    planVersionId: fragment.planVersionId,
+                    blockId: fragment.blockId,
+                    expectedFragmentRevision: fragment.revision,
+                    occurredAtUtc: nowUtc ?? todayStartUtc,
+                  ),
+                );
               },
               onProposalCreated: (proposalId) =>
                   context.go('/planning/preview/$proposalId'),
@@ -1751,6 +1837,7 @@ GoRouter createPlannerRouter({
                 // 选择只在本次会话内生效，而不是让整页不可用。
                 loadChartKinds: chartPreferences?.load,
                 saveChartKind: chartPreferences?.save,
+                executionMetrics: executionMetrics,
                 // 空状态的下一步动作（§11 Task 12 Step 3）。两个端口都只在对应服务装配时传，
                 // 页面据此决定是否渲染按钮——给一个点了没反应的入口比没有入口更糟。
                 onGeneratePlan: planningService == null
@@ -2429,7 +2516,9 @@ final class _PlannerShell extends StatelessWidget {
                       ),
                       NavigationRailDestination(
                         icon: Icon(Icons.calendar_view_week_outlined),
-                        selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
+                        selectedIcon: _SelectedNavIcon(
+                          Icons.calendar_view_week,
+                        ),
                         label: Text('日历'),
                       ),
                       NavigationRailDestination(
@@ -3047,8 +3136,3 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
-
-
-
-
-

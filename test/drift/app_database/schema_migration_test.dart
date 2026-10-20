@@ -54,10 +54,10 @@ void main() {
   });
 
   test(
-    'generated schema includes the partially deleted batch state version 10',
+    'generated schema includes the partially deleted batch state version 11',
     () {
-      expect(GeneratedHelper.versions.last, 10);
-      expect(plannerSchemaVersion, 10);
+      expect(GeneratedHelper.versions.last, 11);
+      expect(plannerSchemaVersion, 11);
     },
   );
 

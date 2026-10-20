@@ -1472,7 +1472,71 @@ void main() {
       handle.dispose();
     });
   });
+
+  testWidgets('周期块在周视图显示「完成本次」入口', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final start = DateTime.utc(2026, 10, 5);
+    var completed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekViewPage(
+            source: _Source(
+              Stream.value([
+                _scheduleItem(
+                  id: 'block:recurring-1',
+                  title: '每周阅读',
+                  kind: ScheduleItemKind.task,
+                  categoryKey: 'area:study',
+                  categoryLabel: '学业',
+                  categoryColorArgb: 0xff2f86ff,
+                  categorySortOrder: 0,
+                  start: start.add(const Duration(hours: 10)),
+                ),
+                ScheduleViewItem(
+                  id: 'block:recurring-2',
+                  title: '每周英语',
+                  kind: ScheduleItemKind.task,
+                  range: TimeRange(
+                    startUtc: _recurringStart,
+                    endUtc: _recurringEnd,
+                  ),
+                  categoryKey: 'area:study',
+                  categoryLabel: '学业',
+                  categoryColorArgb: 0xff2f86ff,
+                  categorySortOrder: 0,
+                  taskId: 'recurring:template:2026-10-05',
+                  recurringGoal: RecurringGoalBadge(
+                    templateId: 'template',
+                    title: '每周英语',
+                    recordedMinutes: 0,
+                    targetMinutes: 60,
+                  ),
+                ),
+              ]),
+            ),
+            weekStart: start,
+            moveController: _MoveController(),
+            onCompleteItem: (_) => completed = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('week-complete-block:recurring-2')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('week-complete-block:recurring-2')),
+    );
+    expect(completed, isTrue);
+  });
 }
+
+final _recurringStart = DateTime.utc(2026, 10, 7, 10);
+final _recurringEnd = DateTime.utc(2026, 10, 7, 11);
 
 ScheduleViewItem _scheduleItem({
   required String id,

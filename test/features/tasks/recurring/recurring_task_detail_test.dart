@@ -220,6 +220,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('recurring-record-confirm')));
     await tester.pumpAndSettle();
+    // 新增的“实际发生日期”确认：默认今天，直接确认。
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
 
     expect(
       find.text('本周已完成 50/180 分钟'),

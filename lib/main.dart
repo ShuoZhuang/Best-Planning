@@ -10,7 +10,17 @@ import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
+import 'package:personal_planner/application/execution/execution_availability.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
+import 'package:personal_planner/application/execution/execution_plan_linker.dart';
+import 'package:personal_planner/application/execution/execution_recovery_service.dart';
+import 'package:personal_planner/application/execution/execution_reminder_coordinator.dart';
+import 'package:personal_planner/application/execution/execution_service.dart';
+import 'package:personal_planner/application/execution/settings_execution_notifications.dart';
 import 'package:personal_planner/application/export_service.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
@@ -23,6 +33,11 @@ import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/recurring_notification_service.dart';
+import 'package:personal_planner/application/pending_plan_preview_service.dart';
+import 'package:personal_planner/application/recurring_cycle_maintenance_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
+import 'package:personal_planner/application/recurring_startup_coordinator.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
@@ -71,6 +86,9 @@ import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart'
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart'
+    show formatLocalDate;
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
@@ -346,7 +364,9 @@ Future<void> main() async {
   );
   final updateManifestVerifier = Ed25519ManifestVerifier();
   final updateMainHelper = WindowsUpdateHelper(layout: updateLayout);
-  final updateInstalledPackages = WindowsInstalledPackageProvider(updateMainHelper);
+  final updateInstalledPackages = WindowsInstalledPackageProvider(
+    updateMainHelper,
+  );
   final updateManifestCache = FileUpdateManifestCache(
     directory: updateLayout.root,
     verifier: updateManifestVerifier,
@@ -365,7 +385,8 @@ Future<void> main() async {
     ),
     clock: clock,
     // 冻结写入后的检查点：把 WAL 落盘，快照才是一致状态（规格 §13.1）。
-    checkpoint: () => database.customStatement('PRAGMA wal_checkpoint(TRUNCATE)'),
+    checkpoint: () =>
+        database.customStatement('PRAGMA wal_checkpoint(TRUNCATE)'),
   );
   final updateProcessProbe = WindowsProcessIdentityProbe();
   final updateLock = FileUpdateLock(
@@ -387,7 +408,9 @@ Future<void> main() async {
   );
   final updateDownloader = ResumablePackageDownloader();
   // 主程序侧的三层校验：大小、SHA-256、包身份；签名由助手再做一次（§10.2）。
-  final updatePackageVerifier = ZipUpdatePackageVerifier(helper: updateMainHelper);
+  final updatePackageVerifier = ZipUpdatePackageVerifier(
+    helper: updateMainHelper,
+  );
   final updateBaselineService = UpdateBaselineService(
     layout: updateLayout,
     manifestSource: updateManifestSource,
@@ -481,12 +504,18 @@ Future<void> main() async {
     database,
     RecurringTaskDao(database),
   );
+  final recurringExecutionRepository = DriftRecurringExecutionRepository(
+    database,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final recurringTasks = RecurringTaskService(
     repository: recurringTaskRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
     zones: zones,
     timeZoneId: timeZoneId,
+    snapshots: recurringExecutionRepository,
     // 与任务详情页共用同一个任务仓储：周期实例**就是**一件普通任务，它的剩余时长也是
     // 排程输入，因此必须是同一个写入口。
     tasks: taskRepository,
@@ -506,6 +535,7 @@ Future<void> main() async {
     pendingSkips: pendingSkips,
     // M6（§3.4）：周期实例以"本周视角"进排程（截止＝本周末、只送剩余、允许星期）。
     recurring: recurringTasks,
+    recurringSnapshots: recurringExecutionRepository,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -811,17 +841,128 @@ Future<void> main() async {
 
   // 计划应用（FR-REPLAN-05 的过期拒绝也在这里）。提成具名变量是因为**自动重排也要用它**：
   // 与顶栏"生成计划"按钮走的是同一个应用入口，"信任自动调整"的两条路径因此不会各写一份。
+  //
+  // 1.11.0：计划写入与执行实例/块关联在**同一个事务**里提交（规范 §19.4、§19.5）。
+  final executionRepository = DriftExecutionRepository(
+    database,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  final executionMetrics = ExecutionMetricsQuery(
+    repository: executionRepository,
+    clock: clock,
+  );
+  final executionLinker = ExecutionPlanLinker(
+    repository: executionRepository,
+    zones: zones,
+    idGenerator: UuidIdGenerator(),
+    clock: clock,
+    recurringRepository: recurringExecutionRepository,
+    cycleIdForTask: (taskId) async {
+      final cycle = await recurringTaskRepository.findCycleByTaskId(taskId);
+      if (cycle == null) return null;
+      return '${cycle.templateId}:'
+          '${formatLocalDate(cycle.periodStartLocalDate)}';
+    },
+  );
+  final executionNotifications = SettingsExecutionNotifications(
+    settings: settingsService,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+  final executionAvailability = ScheduleExecutionAvailability(
+    source: problemSource,
+    tasks: taskRepository,
+    clock: clock,
+  );
+  late final ExecutionReminderCoordinator executionReminders;
+  final executionService = DriftExecutionService(
+    repository: executionRepository,
+    tasks: taskRepository,
+    clock: clock,
+    monotonicClock: StopwatchMonotonicClock(),
+    idGenerator: UuidIdGenerator(),
+    availability: executionAvailability,
+    notificationSettings: executionNotifications,
+    updateSafety: updateSafety,
+    onChanged: () => unawaited(executionReminders.reconcile()),
+  );
+  executionReminders = ExecutionReminderCoordinator(
+    repository: executionRepository,
+    notifications: notifications,
+    clock: clock,
+    settings: executionNotifications,
+  );
+  final executionController = ExecutionController(
+    service: executionService,
+    tasks: taskRepository,
+    notifications: executionNotifications,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+    availability: executionAvailability,
+  );
+  final transportGuard = InternalTransportTaskGuard(recurringTaskRepository);
+  final recurringProgressService = RecurringProgressService(
+    repository: recurringExecutionRepository,
+    executionRepository: executionRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  final executionRecoveryController = ExecutionRecoveryController(
+    service: DriftExecutionRecoveryService(
+      repository: executionRepository,
+      tasks: taskRepository,
+      plans: planRepository,
+      baseSource: problemSource,
+      engine: DeterministicScheduleEngine(zones),
+      zones: zones,
+      timeZoneId: timeZoneId,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+      linker: executionLinker,
+    ),
+    repository: executionRepository,
+    tasks: taskRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final planApplication = PlanApplicationService(
     source: problemSource,
     updateSafety: updateSafety,
     repository: planRepository,
     zones: zones,
+    planTransactionApplier: planRepository,
+    afterApplied: (plan, proposal, current) => executionLinker.linkAppliedPlan(
+      plan: plan,
+      proposal: proposal,
+      timeZoneId: current.timeZoneId,
+    ),
     // B5：计划被真的改变后重新同步提醒。
     //
     // **先同步提醒，再发失效信号**（计划 §2.6）：提醒同步失败（它内部已经吞掉平台错误，
     // 但仓储层仍可能抛）**不得**让"计划已经落库"这件事在界面上变成没发生。
     // `try/finally` 保证信号一定发出去，页面因此读回真实的已提交结果。
     onPlanChanged: invalidation.planAfter(resyncNotifications),
+  );
+
+  final pendingPreviewService = PendingPlanPreviewService(
+    repository: recurringExecutionRepository,
+    plans: planRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+    application: planApplication,
+    titleForTask: (taskId) async =>
+        (await taskRepository.getById(taskId))?.title,
+  );
+  final recurringMaintenance = RecurringCycleMaintenanceService(
+    cycles: recurringTasks,
+    previews: pendingPreviewService,
+    plans: planRepository,
+    creator: planningService,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    clock: clock,
+    trustAutoAdjust: () => autoAdjustStore.enabled,
   );
 
   // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
@@ -859,27 +1000,8 @@ Future<void> main() async {
   // **不 await**：周期目标不是启动的必要条件，且它的生成会触发一次重排（走上面的 lambda）。
   // 但**必须记诊断**——"这周没有目标实例"是用户会报的现象，而 Release 里没有其它线索。
   //
-  // 窗口取滚动七天（与排程窗口同形），因此跨周不重启也会在下次生成计划时补齐；
-  // 幂等由 `(模板, 周)` 主键保证，重复启动不会重复生成。
-  unawaited(() async {
-    try {
-      final nowUtc = clock.nowUtc();
-      final run = await recurringTasks.ensureCycles(
-        TimeRange(
-          startUtc: nowUtc,
-          endUtc: nowUtc.add(const Duration(days: 7)),
-        ),
-        nowUtc,
-      );
-      diagnostics.write(
-        '周期目标：新建 ${run.createdCount} 个，结算 ${run.settledCount} 个，'
-        '窗口内共 ${run.cycles.length} 个',
-      );
-    } on Object catch (error, stackTrace) {
-      debugPrint('生成周期目标失败：$error');
-      diagnostics.write('生成周期目标失败：$error\n$stackTrace');
-    }
-  }());
+  // 实际执行已移入 `RecurringStartupCoordinator`（fragmentBackfill → creditCheck →
+  // horizonMaintenance → previewRefresh → reminderReconcile），保证顺序与 typed stage。
 
   // 启动时就把**已存的**关闭行为下发给宿主窗口。放在这里而不是等用户打开设置页：用户上次
   // 若选了"收进后台"，这次启动点关闭却直接退出，就等于设置没生效。
@@ -896,6 +1018,56 @@ Future<void> main() async {
     } catch (error) {
       diagnostics.write('窗口行为下发失败：$error');
     }
+  }());
+
+  // 1.11.0：启动时把上次未结束的实时会话标成"待确认"，不结算未知停机时长。
+  unawaited(executionController.recoverOnStart());
+
+  // 1.11.0 Task 17：启动/恢复按固定顺序执行 typed stage；任一阶段失败即停，
+  // 已提交阶段保持幂等，下次启动可继续。
+  final startupCoordinator = RecurringStartupCoordinator(
+    stages: {
+      RecurringStartupStage.fragmentBackfill: () async {
+        final currentPlan = await planRepository.current();
+        if (currentPlan != null) {
+          await executionLinker.backfillFragments(currentPlan.id);
+        }
+      },
+      RecurringStartupStage.creditCheck: () async {
+        final issues = await executionRepository.creditOverAllocations();
+        if (issues.isNotEmpty) {
+          throw StateError('信用超额分配：${issues.join(', ')}');
+        }
+      },
+      RecurringStartupStage.horizonMaintenance: () async {
+        final nowUtc = clock.nowUtc();
+        final run = await recurringTasks.ensureCycles(
+          TimeRange(
+            startUtc: nowUtc,
+            endUtc: nowUtc.add(const Duration(days: 7)),
+          ),
+          nowUtc,
+        );
+        diagnostics.write(
+          '周期目标：新建 ${run.createdCount} 个，结算 ${run.settledCount} 个，'
+          '窗口内共 ${run.cycles.length} 个',
+        );
+      },
+      RecurringStartupStage.previewRefresh: () async {
+        await recurringMaintenance.maintain();
+      },
+      RecurringStartupStage.reminderReconcile: () =>
+          executionReminders.reconcile(),
+    },
+  );
+  unawaited(() async {
+    final report = await startupCoordinator.run();
+    diagnostics.write(
+      report.succeeded
+          ? '启动编排完成：${report.completed.map((stage) => stage.name).join(' → ')}'
+          : '启动编排失败于 ${report.failedStage?.name}：${report.error}；'
+                '已完成 ${report.completed.map((stage) => stage.name).join(' → ')}',
+    );
   }());
 
   runApp(
@@ -926,6 +1098,14 @@ Future<void> main() async {
         exportService: exportService,
         // 任务详情页的"开始专注"入口与 /focus/:taskId 路由（FR-FOCUS-01）。
         focusService: focusService,
+        // 1.11.0：今日页执行卡与轻量执行条。
+        execution: executionController,
+        executionRecovery: executionRecoveryController,
+        recurringProgress: recurringProgressService,
+        recurringFragments: recurringExecutionRepository,
+        executionOutbox: executionRepository,
+        transportGuard: transportGuard,
+        executionMetrics: executionMetrics,
         // 偏好页的分析输入（FR-PREF-03 的样本积累靠历史证据，因此给一个足够长的窗口）。
         loadPreferenceEvidence: () => preferenceEvidence.since(
           clock.nowUtc().subtract(const Duration(days: 180)),
@@ -998,7 +1178,10 @@ Future<void> main() async {
         updateController: nativeUpdaterAvailable ? updateController : null,
         // M6：周期目标的生成、结算与三条路由（§3.3）。
         recurringTasks: recurringTasks,
-        updateCheckScheduler: nativeUpdaterAvailable ? updateCheckScheduler : null,
+        onAppResumed: () => recurringMaintenance.maintain(),
+        updateCheckScheduler: nativeUpdaterAvailable
+            ? updateCheckScheduler
+            : null,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),
@@ -1029,6 +1212,7 @@ Future<void> main() async {
           timeZoneId: timeZoneId,
           // M6（§3.3 最后一条）：卡片上那一行"本周已完成 x/y 分钟"。
           recurring: recurringTasks,
+          recurringFragments: recurringExecutionRepository,
           // **生产装配必须传**：不传就退回"只在任务流变化时重载"，固定日程、计划、
           // 规划规则、配色与领域的写入都不会刷新（那正是 R9 的形态）。
           invalidation: scheduleInvalidation,
@@ -1037,8 +1221,3 @@ Future<void> main() async {
     ),
   );
 }
-
-
-
-
-

@@ -10,6 +10,7 @@ import 'package:personal_planner/application/schedule_window_admission.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
@@ -27,6 +28,8 @@ import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/recurring_cycle_capacity.dart';
+import 'package:personal_planner/scheduling/recurring_pace_curve.dart';
 
 /// 生产用的排程输入来源：把持久化的事实数据装配成 `ScheduleProblem`。
 ///
@@ -63,6 +66,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.pendingMoves,
     this.pendingSkips,
     this.recurring,
+    this.recurringSnapshots,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
   final TaskRepository tasks;
@@ -90,11 +94,16 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   /// 周期目标的生成与进度（M6）。**为空时行为与从前完全一致**：周期实例仍会作为普通任务
   /// 参与排程（它本来就在 `tasks` 里），只是不带"本周视角"的截止时间与剩余量。
   final RecurringTaskService? recurring;
+  final DriftRecurringExecutionRepository? recurringSnapshots;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     final nowUtc = clock.nowUtc();
-    final startLocalDate = _dateOnly(zones.toLocal(nowUtc, timeZoneId));
+    final windowStartUtc = window?.startUtc ?? nowUtc;
+    final startLocalDate = _dateOnly(zones.toLocal(windowStartUtc, timeZoneId));
     // ── 窗口起点是"现在"，不是当天本地午夜（路线图 Task 12A Step 5）──────────────
     //
     // 引擎判断"现在"用的就是 `planningWindow.startUtc`（`_targetFor` 里
@@ -124,14 +133,18 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       override: override,
     );
     final dayStartUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
-    final startUtc = _ceilToGranularity(
-      nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
-      granularityMinutes: resolvedRules.granularityMinutes,
-    );
-    final endUtc = zones.localMidnightToUtc(
-      startLocalDate.add(Duration(days: days)),
-      timeZoneId,
-    );
+    final startUtc = window == null
+        ? _ceilToGranularity(
+            nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
+            granularityMinutes: resolvedRules.granularityMinutes,
+          )
+        : (window.startUtc.isAfter(nowUtc) ? window.startUtc : nowUtc);
+    final endUtc =
+        window?.endUtc ??
+        zones.localMidnightToUtc(
+          startLocalDate.add(Duration(days: days)),
+          timeZoneId,
+        );
 
     // ── 逐日规则与逐周生活配额（算法 17，计划 Task 2 Step 3）─────────────────────
     //
@@ -146,6 +159,9 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     final windowDates = dailyPoliciesResult.windowDates;
     final dailyPolicies = dailyPoliciesResult.policies;
     final weeklyLifeQuotaByWeekStart = dailyPoliciesResult.weeklyLifeQuota;
+
+    // **先维护周期、再读 open tasks**：否则库中尚无本周载体时，首次生成计划会漏掉它。
+    final recurringInputs = await _recurringInputs(nowUtc);
 
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
@@ -289,10 +305,28 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 不同 id、本次窗口根本不覆盖的幽灵任务 —— 预览因此显示两条一模一样的缺口。
     //
     // **过滤掉而不是重复添加**：同一个 id 出现两次会让引擎把同一份剩余时长安排两遍。
-    final recurringInputs = await _recurringInputs(nowUtc);
     if (recurringInputs.isNotEmpty) {
+      final capacityBusy = <TimeRange>[
+        for (final block in confirmed?.blocks ?? const <PlannedBlock>[])
+          block.range,
+        for (final occurrence in occurrences) occurrence.range,
+        for (final interval in protectedTimes.sleep(
+          rules: resolvedRules,
+          startUtc: nowUtc,
+          endUtc: endUtc,
+          timeZoneId: timeZoneId,
+        ))
+          interval.range,
+      ];
       for (final input in recurringInputs) {
-        final expanded = recurringSchedulableTasks(input: input, zones: zones);
+        final paced = _paceInput(
+          input,
+          capacityBusy,
+          nowUtc,
+          endUtc,
+          resolvedRules.dailyMovableTaskLimitMinutes,
+        );
+        final expanded = recurringSchedulableTasks(input: paced, zones: zones);
         for (final task in expanded) {
           // 只在与普通任务同 id 的那一份已经被移除后才加入；同时处理"同一 id 的多个窗口"
           // （selectedWeekdays）——它们**必须都留下**，否则只有第一天能被安排。
@@ -961,32 +995,65 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     if (templates.isEmpty) return const [];
     // 与排程窗口同形的滚动七天：跨周不重启也会在下次生成计划时补齐。
     // 结算排在生成之前（`ensureCycles` 内部保证顺序），因此结转读得到上一周的真实状态。
-    await service.ensureCycles(
+    final run = await service.ensureCycles(
       TimeRange(startUtc: nowUtc, endUtc: nowUtc.add(const Duration(days: 7))),
       nowUtc,
     );
-    final period = service.periodContaining(nowUtc);
     final inputs = <RecurringScheduleInput>[];
-    for (final template in templates) {
-      final cycle = await service.repository.findCycle(
-        template.id,
-        period.startLocalDate,
+    final templatesById = {
+      for (final template in templates) template.id: template,
+    };
+    for (final cycle in run.cycles) {
+      final template = templatesById[cycle.templateId];
+      if (template == null || cycle.status.isSettled) continue;
+      final period = WeeklyPeriod.startingAt(
+        cycle.periodStartLocalDate,
+        service.timeZoneId,
+        service.zones,
       );
-      if (cycle == null) continue;
       final progress = await service.progressForCycle(
         template.id,
         period.startLocalDate,
       );
       if (progress.remainingMinutes <= 0) continue;
+      final snapshot = await recurringSnapshots?.findCycleSnapshot(
+        '${template.id}:${formatLocalDate(period.startLocalDate)}',
+      );
+      final effectiveTemplate = snapshot == null
+          ? template
+          : template.copyWith(
+              title: snapshot.title,
+              targetMinutes: snapshot.targetMinutes,
+              priority: snapshot.priority,
+              energyLevel: snapshot.energyLevel,
+              splitMode: snapshot.splitMode,
+              minChunkMinutes: snapshot.minChunkMinutes,
+              maxChunkMinutes: snapshot.maxChunkMinutes,
+              preferredStartMinute: snapshot.preferredStartMinute,
+              preferredEndMinute: snapshot.preferredEndMinute,
+              pace: snapshot.pace,
+              allowedWeekdaysMask: snapshot.allowedWeekdaysMask,
+            );
+      final planningStart = [
+        nowUtc,
+        period.startUtc,
+        if (snapshot != null) snapshot.effectiveStartUtc,
+        if (template.pausedUntilLocalDate != null)
+          service.zones.localMidnightToUtc(
+            shiftLocalDate(template.pausedUntilLocalDate!, 1),
+            service.timeZoneId,
+          ),
+      ].reduce((a, b) => a.isAfter(b) ? a : b);
+      final deadline = snapshot?.effectiveEndUtc ?? period.endUtc;
+      if (!planningStart.isBefore(deadline)) continue;
       inputs.add(
         RecurringScheduleInput(
-          template: template,
+          template: effectiveTemplate,
           cycle: cycle,
           progress: progress,
           period: period,
-          planningStartUtc: nowUtc.isAfter(period.startUtc)
-              ? nowUtc
-              : period.startUtc,
+          planningStartUtc: planningStart,
+          effectiveEndUtc: snapshot?.effectiveEndUtc,
         ),
       );
     }
@@ -994,6 +1061,40 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 引擎内部的 `_compareTasks` 再排一次，两道都不依赖顺序。
     inputs.sort((a, b) => a.template.id.compareTo(b.template.id));
     return inputs;
+  }
+
+  /// 用周期剩余区间的硬约束容量计算 `targetNow`（Task 10）。
+  ///
+  /// `visibleWindow` 是当前计划窗口与周期剩余区间的交集；`C_after` 是交集之后到周期结束的
+  /// 合法容量。当前周通常 `C_after = 0`，因此退回整个剩余量；下周实例只先承担可见部分的份额。
+  RecurringScheduleInput _paceInput(
+    RecurringScheduleInput input,
+    List<TimeRange> busyIntervals,
+    DateTime nowUtc,
+    DateTime planningEndUtc,
+    int maxMinutesPerDay,
+  ) {
+    final cycleStart = input.planningStartUtc;
+    final cycleEnd = input.deadlineUtc;
+    if (!cycleEnd.isAfter(cycleStart)) return input;
+    final visibleStart = cycleStart.isAfter(nowUtc) ? cycleStart : nowUtc;
+    final visibleEnd = cycleEnd.isBefore(planningEndUtc)
+        ? cycleEnd
+        : planningEndUtc;
+    if (!visibleEnd.isAfter(visibleStart)) return input;
+    final curve = curveForPace(input.template.pace);
+    final decision = recurringPaceForCycle(
+      remainingMinutes: input.progress.remainingMinutes,
+      cycleRange: TimeRange(startUtc: cycleStart, endUtc: cycleEnd),
+      visibleWindow: TimeRange(startUtc: visibleStart, endUtc: visibleEnd),
+      busyIntervals: busyIntervals,
+      minChunkMinutes: input.template.minChunkMinutes,
+      curve: curve,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      maxMinutesPerDay: maxMinutesPerDay,
+    );
+    return input.withTargetNow(decision.targetNowMinutes);
   }
 }
 
@@ -1023,6 +1124,8 @@ final class RecurringScheduleInput {
     required this.progress,
     required this.period,
     required this.planningStartUtc,
+    this.effectiveEndUtc,
+    this.targetNowMinutes,
   });
 
   final RecurringTaskTemplate template;
@@ -1030,6 +1133,22 @@ final class RecurringScheduleInput {
   final RecurringProgress progress;
   final WeeklyPeriod period;
   final DateTime planningStartUtc;
+  final DateTime? effectiveEndUtc;
+
+  /// 按整周容量算出的“现在应完成”的累计分钟；为空时退回整个剩余量。
+  final int? targetNowMinutes;
+
+  RecurringScheduleInput withTargetNow(int? value) => RecurringScheduleInput(
+    template: template,
+    cycle: cycle,
+    progress: progress,
+    period: period,
+    planningStartUtc: planningStartUtc,
+    effectiveEndUtc: effectiveEndUtc,
+    targetNowMinutes: value,
+  );
+
+  DateTime get deadlineUtc => effectiveEndUtc ?? period.endUtc;
 }
 
 /// 把一个周期实例展开成排程输入（见 [RecurringScheduleInput] 的说明）。
@@ -1044,6 +1163,11 @@ List<SchedulableTask> recurringSchedulableTasks({
   if (remaining <= 0) return const [];
   // 已跳过的这一周**不产生任何排程输入**：跳过是"这周不想做"，继续安排会与用户的动作相悖。
   if (input.cycle.status == RecurringCycleStatus.skipped) return const [];
+  final targetNow = input.targetNowMinutes;
+  final required = targetNow == null
+      ? remaining
+      : (targetNow - input.progress.recordedMinutes).clamp(0, remaining);
+  if (required <= 0) return const [];
   final template = input.template;
 
   SchedulableTask base({
@@ -1066,6 +1190,7 @@ List<SchedulableTask> recurringSchedulableTasks({
     preferredWindow: template.preferredWindow,
     allowedWeekdaysMask: allowedWeekdaysMask,
     distributionPolicy: distributionPolicy,
+    preferLater: template.pace == RecurringPace.deadlineWeighted,
   );
 
   // ── 节奏 → 排程策略（1.7.1 计划 Task 5 Step 1/2）─────────────────────────────
@@ -1085,8 +1210,8 @@ List<SchedulableTask> recurringSchedulableTasks({
     case RecurringPace.even:
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
           availableFromUtc: null,
           distributionPolicy: TaskDistributionPolicy.even,
         ),
@@ -1094,21 +1219,21 @@ List<SchedulableTask> recurringSchedulableTasks({
     case RecurringPace.deadlineWeighted:
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
           availableFromUtc: null,
         ),
       ];
     case RecurringPace.early:
       // **尽早完成**：把截止时间提前到"本周开始 + 2 天"（不早于窗口终点时才提前），
       // 于是同一个 `PressureCalculator` 会算出更高的近期推进量。窗口不足两天时保持原样。
-      final earlyDue = input.period.startUtc.add(const Duration(days: 2));
+      final earlyDue = input.planningStartUtc.add(const Duration(days: 2));
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: earlyDue.isBefore(input.period.endUtc)
+          requiredMinutes: required,
+          dueAtUtc: earlyDue.isBefore(input.deadlineUtc)
               ? earlyDue
-              : input.period.endUtc,
+              : input.deadlineUtc,
           availableFromUtc: null,
         ),
       ];
@@ -1117,9 +1242,9 @@ List<SchedulableTask> recurringSchedulableTasks({
       final mask = weekdayMaskOf(weekdays);
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
-          availableFromUtc: input.period.startUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
+          availableFromUtc: input.planningStartUtc,
           allowedWeekdaysMask: mask,
           distributionPolicy: TaskDistributionPolicy.even,
         ),

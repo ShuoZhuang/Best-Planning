@@ -94,6 +94,19 @@ abstract interface class PlanRepository {
   );
 }
 
+/// 允许把"计划写入"与"执行来源关联"放进**同一个数据库事务**（规范 §19.4、§19.5）。
+///
+/// 只有真实的 Drift 仓储实现它；测试替身继续只实现 [PlanRepository]，因此加宽这个能力
+/// 不会一次性牵动全库的假实现。`onApplied` 在计划版本、块与变更日志写入之后、事务提交之前
+/// 执行；它抛错会让整个计划应用回滚。
+abstract interface class PlanTransactionApplier {
+  Future<ApplyPlanResult> applyProposalWithSideEffects(
+    ScheduleProposal proposal,
+    String expectedInputHash, {
+    required Future<void> Function(ConfirmedPlan plan) onApplied,
+  });
+}
+
 abstract interface class PlanHistoryRepository {
   Future<ConfirmedPlan?> current();
 

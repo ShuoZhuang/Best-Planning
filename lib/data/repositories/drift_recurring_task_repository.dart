@@ -46,6 +46,20 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
   }
 
   @override
+  Future<List<RecurringTaskTemplate>> listTemplatesIntersecting(
+    DateTime periodStartLocalDate,
+    DateTime periodEndLocalDate,
+  ) async {
+    final rows = await _dao.listTemplatesIntersecting(
+      periodStartLocalDate: formatLocalDate(
+        localDateOnly(periodStartLocalDate),
+      ),
+      periodEndLocalDate: formatLocalDate(localDateOnly(periodEndLocalDate)),
+    );
+    return rows.map(_templateToDomain).toList(growable: false);
+  }
+
+  @override
   Future<RecurringTaskCycle?> findCycle(
     String templateId,
     DateTime periodStartLocalDate,
@@ -157,40 +171,46 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     // Drift 的表达式层里直接写它会与聚合 `max` 混淆，而 `abs()` 又会把"暂停 100 分钟但
     // 只跑了 30 分钟"这种脏数据算成 +70。因此用 `CASE WHEN … THEN … ELSE 0 END`：语义
     // 与 `FocusSession.activeMinutes` 的"下界为 0"完全一致，读者不必猜。
-    final micros =
-        _database.timeEntries.endedAtUtc -
-        _database.timeEntries.startedAtUtc -
-        _database.timeEntries.pausedMinutes *
-            const Constant<int>(Duration.microsecondsPerMinute);
-    final clamped = CaseWhenExpression<int>(
-      cases: [CaseWhen(micros.isBiggerThanValue(0), then: micros)],
-      orElse: const Constant<int>(0),
-    );
-    final query = _database.selectOnly(_database.timeEntries)
-      ..addColumns([clamped])
+    return (await recordedMicrosForTask(
+          taskId,
+          periodStartUtc,
+          periodEndUtc,
+        )) ~/
+        Duration.microsecondsPerMinute;
+  }
+
+  /// 周期窗口内的有效微秒；先保留微秒，展示层再取整。
+  ///
+  /// 跨周记录按真实周界切分，每一微秒只进入一个窗口（1.12.0 设计 §4.2 第 5/6 条）。
+  Future<int> recordedMicrosForTask(
+    String taskId,
+    DateTime periodStartUtc,
+    DateTime periodEndUtc,
+  ) async {
+    final query = _database.select(_database.timeEntries)
       ..where(
-        _database.timeEntries.taskId.equals(taskId) &
-            _database.timeEntries.recoveryState.equals('confirmed') &
-            _database.timeEntries.endedAtUtc.isNotNull() &
-            _database.timeEntries.startedAtUtc.isBiggerOrEqualValue(
-              periodStartUtc.microsecondsSinceEpoch,
-            ) &
-            _database.timeEntries.startedAtUtc.isSmallerThanValue(
+        (row) =>
+            row.taskId.equals(taskId) &
+            row.recoveryState.equals('confirmed') &
+            row.endedAtUtc.isNotNull() &
+            row.startedAtUtc.isSmallerThanValue(
               periodEndUtc.microsecondsSinceEpoch,
+            ) &
+            row.endedAtUtc.isBiggerThanValue(
+              periodStartUtc.microsecondsSinceEpoch,
             ),
       );
     final rows = await query.get();
-    var total = 0;
+    var totalMicros = 0;
     for (final row in rows) {
-      final value = row.read<int>(clamped) ?? 0;
-      total += value ~/ Duration.microsecondsPerMinute;
+      totalMicros += _activeMicrosInWindow(row, periodStartUtc, periodEndUtc);
     }
-    return total;
+    return totalMicros;
   }
 
   /// 与 [recordedMinutesForTask] 同一批行的**逐条**时长（不求和），按开始时刻升序。
   ///
-  /// 复用同一段 SQL 口径（已确认、已结束、扣除暂停、下界为 0），因为"本段多少分钟"
+  /// 复用同一段口径（已确认、已结束、扣除暂停、下界为 0、按周裁剪），因为"本段多少分钟"
   /// 与"本周一共多少分钟"必须是同一批记录的两个视图；任何一处口径漂移都会让同一张卡片
   /// 自相矛盾。
   @override
@@ -199,37 +219,54 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
     DateTime startUtc,
     DateTime endUtc,
   ) async {
-    final micros =
-        _database.timeEntries.endedAtUtc -
-        _database.timeEntries.startedAtUtc -
-        _database.timeEntries.pausedMinutes *
-            const Constant<int>(Duration.microsecondsPerMinute);
-    final clamped = CaseWhenExpression<int>(
-      cases: [CaseWhen(micros.isBiggerThanValue(0), then: micros)],
-      orElse: const Constant<int>(0),
-    );
-    final query = _database.selectOnly(_database.timeEntries)
-      ..addColumns([clamped])
+    final query = _database.select(_database.timeEntries)
       ..where(
-        _database.timeEntries.taskId.equals(taskId) &
-            _database.timeEntries.recoveryState.equals('confirmed') &
-            _database.timeEntries.endedAtUtc.isNotNull() &
-            _database.timeEntries.startedAtUtc.isBiggerOrEqualValue(
-              startUtc.microsecondsSinceEpoch,
-            ) &
-            _database.timeEntries.startedAtUtc.isSmallerThanValue(
-              endUtc.microsecondsSinceEpoch,
-            ),
+        (row) =>
+            row.taskId.equals(taskId) &
+            row.recoveryState.equals('confirmed') &
+            row.endedAtUtc.isNotNull() &
+            row.startedAtUtc.isSmallerThanValue(endUtc.microsecondsSinceEpoch) &
+            row.endedAtUtc.isBiggerThanValue(startUtc.microsecondsSinceEpoch),
       )
       ..orderBy([
-        OrderingTerm.asc(_database.timeEntries.startedAtUtc),
-        OrderingTerm.asc(_database.timeEntries.id),
+        (row) => OrderingTerm.asc(row.startedAtUtc),
+        (row) => OrderingTerm.asc(row.id),
       ]);
     final rows = await query.get();
     return [
       for (final row in rows)
-        (row.read<int>(clamped) ?? 0) ~/ Duration.microsecondsPerMinute,
+        _activeMicrosInWindow(row, startUtc, endUtc) ~/
+            Duration.microsecondsPerMinute,
     ];
+  }
+
+  /// 一条计时记录落在 `[windowStart, windowEnd)` 内的有效微秒。
+  ///
+  /// 跨周边界的记录只把重叠部分计入当前周；暂停分钟按重叠比例分摊。先累计微秒、最后再
+  /// 取整，避免两段各 30 秒被分别丢成 0（规范 §10.1、§10.3）。
+  int _activeMicrosInWindow(
+    db.TimeEntry row,
+    DateTime windowStart,
+    DateTime windowEnd,
+  ) {
+    final started = DateTime.fromMicrosecondsSinceEpoch(
+      row.startedAtUtc,
+      isUtc: true,
+    );
+    final ended = DateTime.fromMicrosecondsSinceEpoch(
+      row.endedAtUtc!,
+      isUtc: true,
+    );
+    final fullMicros = ended.difference(started).inMicroseconds;
+    if (fullMicros <= 0) return 0;
+    final overlapStart = started.isBefore(windowStart) ? windowStart : started;
+    final overlapEnd = ended.isAfter(windowEnd) ? windowEnd : ended;
+    final overlapMicros = overlapEnd.difference(overlapStart).inMicroseconds;
+    if (overlapMicros <= 0) return 0;
+    final pausedMicros = row.pausedMinutes * Duration.microsecondsPerMinute;
+    final pausedInWindow = (pausedMicros * overlapMicros) ~/ fullMicros;
+    final active = overlapMicros - pausedInWindow;
+    return active > 0 ? active : 0;
   }
 
   /// 手动补记：写一条**已确认**的时间记录。
@@ -324,6 +361,23 @@ final class DriftRecurringTaskRepository implements RecurringTaskRepository {
       _database.tasks,
     )..where((row) => row.id.equals(cycle.taskId))).go();
   });
+
+  @override
+  Future<void> anonymizeTemplate({required String templateId}) async {
+    final now = DateTime.now().toUtc().microsecondsSinceEpoch;
+    await (_database.update(
+      _database.recurringTaskTemplates,
+    )..where((row) => row.id.equals(templateId))).write(
+      db.RecurringTaskTemplatesCompanion(
+        title: const Value('已删除的周期目标'),
+        notes: const Value(''),
+        areaId: const Value(null),
+        projectId: const Value(null),
+        status: const Value('archived'),
+        updatedAtUtc: Value(now),
+      ),
+    );
+  }
 
   @override
   Future<void> deleteTemplate({required String templateId}) =>

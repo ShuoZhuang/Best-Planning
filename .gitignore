@@ -34,3 +34,5 @@ __pycache__/
 # 同时保证任何 `git add -A` 都不会把它带进版本库。
 版本号规则.md
 release-artifacts/
+
+.tmphack/

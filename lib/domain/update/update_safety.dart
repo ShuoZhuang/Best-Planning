@@ -11,38 +11,24 @@ import 'package:personal_planner/domain/update/update_failure.dart';
 
 /// 阻止安装的原因。下载与检查**不受**它们影响（规格 §11.4）。
 enum UpdateBlocker {
-  unsavedChanges(
-    UpdateFailureCode.blockedUnsavedChanges,
-    '请先保存或取消当前编辑，再进行更新。',
-  ),
+  unsavedChanges(UpdateFailureCode.blockedUnsavedChanges, '请先保存或取消当前编辑，再进行更新。'),
   databaseTransaction(
     UpdateFailureCode.blockedDatabaseTransaction,
     '正在完成数据操作，完成后即可更新。',
   ),
-  planApplying(
-    UpdateFailureCode.blockedPlanApplying,
-    '正在完成数据操作，完成后即可更新。',
-  ),
-  importRunning(
-    UpdateFailureCode.blockedImportRunning,
-    '正在完成数据操作，完成后即可更新。',
-  ),
-  backupRunning(
-    UpdateFailureCode.blockedBackupRunning,
-    '正在完成数据操作，完成后即可更新。',
+  planApplying(UpdateFailureCode.blockedPlanApplying, '正在完成数据操作，完成后即可更新。'),
+  importRunning(UpdateFailureCode.blockedImportRunning, '正在完成数据操作，完成后即可更新。'),
+  backupRunning(UpdateFailureCode.blockedBackupRunning, '正在完成数据操作，完成后即可更新。'),
+  executionSession(
+    UpdateFailureCode.blockedExecutionSession,
+    '正在记录一次执行，请先暂停或结束本次会话再更新。',
   ),
   rollbackNotReady(
     UpdateFailureCode.blockedRollbackNotReady,
     '正在准备回退基线，完成后即可更新。',
   ),
-  diskSpaceLow(
-    UpdateFailureCode.blockedDiskSpaceLow,
-    '磁盘空间不足，暂时无法安装更新。',
-  ),
-  installerBusy(
-    UpdateFailureCode.blockedInstallerBusy,
-    '另一个更新操作正在进行。',
-  );
+  diskSpaceLow(UpdateFailureCode.blockedDiskSpaceLow, '磁盘空间不足，暂时无法安装更新。'),
+  installerBusy(UpdateFailureCode.blockedInstallerBusy, '另一个更新操作正在进行。');
 
   const UpdateBlocker(this.code, this.message);
 
@@ -63,17 +49,16 @@ final class UpdateSafetyStatus {
   /// 主阻塞项的文案。多个阻塞同时存在时按枚举顺序取第一个，界面只显示一句。
   String? get message => blockers.isEmpty
       ? null
-      : UpdateBlocker.values
-            .firstWhere(blockers.contains)
-            .message;
+      : UpdateBlocker.values.firstWhere(blockers.contains).message;
 
   UpdateFailure? get failure => blockers.isEmpty
       ? null
-      : UpdateFailure(
-          UpdateBlocker.values.firstWhere(blockers.contains).code,
-        );
+      : UpdateFailure(UpdateBlocker.values.firstWhere(blockers.contains).code);
 
-  UpdateSafetyStatus withBlocker(UpdateBlocker blocker, {required bool active}) {
+  UpdateSafetyStatus withBlocker(
+    UpdateBlocker blocker, {
+    required bool active,
+  }) {
     final next = {...blockers};
     if (active) {
       next.add(blocker);
@@ -246,4 +231,3 @@ final class _Lease implements UpdateBlockerLease {
     _owner._releaseLease(_blocker);
   }
 }
-

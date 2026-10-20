@@ -21,7 +21,11 @@ import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/task_service.dart';
@@ -50,7 +54,10 @@ import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/application/onboarding_progress.dart';
@@ -88,6 +95,15 @@ final class PlannerApp extends StatefulWidget {
     /// 永久清除服务（FR-DATA-04）。为空时备份页不显示该入口（不给一个点了不生效的按钮）。
     this.erasure,
     this.focusService,
+
+    /// 1.11.0 今日页执行卡与轻量执行条（规范 §7）。
+    this.execution,
+    this.executionRecovery,
+    this.recurringProgress,
+    this.recurringFragments,
+    this.executionOutbox,
+    this.transportGuard,
+    this.executionMetrics,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
 
@@ -138,6 +154,7 @@ final class PlannerApp extends StatefulWidget {
     /// **为空时 `/tasks/new` 不显示「周期目标」那张卡，三条周期路由也不注册**——
     /// 与 [updateService] 同一条约定：不给一个点了才知道没装的入口。
     this.recurringTasks,
+    this.onAppResumed,
 
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
@@ -216,6 +233,21 @@ final class PlannerApp extends StatefulWidget {
   /// 也会说明服务未装配。
   final FocusService? focusService;
 
+  /// 今日页执行卡与轻量执行条。为空时不显示执行入口。
+  final ExecutionController? execution;
+
+  /// 局部恢复预览。为空时不显示"安排剩余"。
+  final ExecutionRecoveryController? executionRecovery;
+
+  /// 1.11.0 周期片段“完成本次”服务与强身份查询。
+  final RecurringProgressService? recurringProgress;
+  final DriftRecurringExecutionRepository? recurringFragments;
+  final DriftExecutionRepository? executionOutbox;
+  final InternalTransportTaskGuard? transportGuard;
+
+  /// 执行指标查询；为空时统计页不显示执行摘要。
+  final ExecutionMetricsQuery? executionMetrics;
+
   /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
   final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
 
@@ -284,6 +316,9 @@ final class PlannerApp extends StatefulWidget {
   /// 周期目标的生成、结算与进度（M6）。
   final RecurringTaskService? recurringTasks;
 
+  /// 应用回到前台时补跑滚动维护（跨过本地日界时重新生成与预排）。
+  final Future<void> Function()? onAppResumed;
+
   /// 启动后的那一次自动检查。由组合根构造，**生命周期跟着这一层**。
   final UpdateCheckScheduler? updateCheckScheduler;
 
@@ -296,7 +331,8 @@ final class PlannerApp extends StatefulWidget {
   State<PlannerApp> createState() => _PlannerAppState();
 }
 
-final class _PlannerAppState extends State<PlannerApp> {
+final class _PlannerAppState extends State<PlannerApp>
+    with WidgetsBindingObserver {
   late final TaskRepository _repository;
   late final SettingsRepository _settingsRepository;
   late final AppearanceService _appearance;
@@ -373,6 +409,8 @@ final class _PlannerAppState extends State<PlannerApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startLocalDayWatch();
     final replanOutcome = widget.replanOutcome;
     if (replanOutcome != null) {
       _replanListener = _onReplanOutcomeChanged;
@@ -463,6 +501,7 @@ final class _PlannerAppState extends State<PlannerApp> {
         idGenerator: UuidIdGenerator(),
         correctionLog: widget.correctionLog,
         onScheduleInputChanged: widget.onScheduleInputChanged,
+        transportGuard: widget.transportGuard,
       ),
       settingsService: SettingsService(repository: _settingsRepository),
       appearance: _appearance,
@@ -513,6 +552,13 @@ final class _PlannerAppState extends State<PlannerApp> {
       backupService: widget.backups,
       erasure: widget.erasure,
       focusService: widget.focusService,
+      execution: widget.execution,
+      executionRecovery: widget.executionRecovery,
+      recurringProgress: widget.recurringProgress,
+      recurringFragments: widget.recurringFragments,
+      executionOutbox: widget.executionOutbox,
+      transportGuard: widget.transportGuard,
+      executionMetrics: widget.executionMetrics,
       loadPreferenceEvidence: widget.loadPreferenceEvidence,
       onSuggestionAction: widget.onSuggestionAction,
       recovery: widget.recovery,
@@ -563,7 +609,52 @@ final class _PlannerAppState extends State<PlannerApp> {
   }
 
   @override
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkLocalDay();
+      final callback = widget.onAppResumed;
+      if (callback != null) unawaited(callback());
+    }
+  }
+
+  Timer? _localDayTimer;
+  DateTime? _lastLocalDate;
+
+  DateTime _localDate() {
+    final zones = widget.zones;
+    final local = zones == null
+        ? DateTime.now()
+        : zones.toLocal(DateTime.now().toUtc(), widget.timeZoneId);
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  void _startLocalDayWatch() {
+    if (widget.onAppResumed == null) return;
+    _lastLocalDate = _localDate();
+    _localDayTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkLocalDay(),
+    );
+  }
+
+  void _checkLocalDay() {
+    final today = _localDate();
+    final previous = _lastLocalDate;
+    if (previous == null) {
+      _lastLocalDate = today;
+      return;
+    }
+    if (today == previous) return;
+    _lastLocalDate = today;
+    final callback = widget.onAppResumed;
+    if (callback != null) unawaited(callback());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _localDayTimer?.cancel();
     final listener = _replanListener;
     if (listener != null) widget.replanOutcome?.removeListener(listener);
     // 先释放调度器再拆别的：它是唯一持有**定时器**的东西，晚一步释放就意味着"应用已经在关了，
@@ -1007,4 +1098,3 @@ final class _ResumeOnboardingPrompt extends StatelessWidget {
     ),
   );
 }
-

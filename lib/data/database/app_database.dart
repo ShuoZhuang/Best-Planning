@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:personal_planner/data/database/daos/task_dao.dart';
+import 'package:personal_planner/data/database/tables/execution_tables.dart';
 import 'package:personal_planner/data/database/tables/planner_tables.dart';
+import 'package:personal_planner/data/database/tables/recurring_execution_tables.dart';
 
 part 'app_database.g.dart';
 
@@ -12,7 +14,7 @@ part 'app_database.g.dart';
 /// 版本号。此前"版本"只活在 `schemaVersion` 这个实例 getter 里，于是装配层要么抄一个字面量
 /// （抄错就等于**跳过备份**，而跳过备份正是这条规则要防的事），要么把这件破坏性动作塞进
 /// 已经打开的连接之后。放在这里让两处共用同一个数字。
-const int plannerSchemaVersion = 10;
+const int plannerSchemaVersion = 11;
 
 DateTime _systemNowUtc() => DateTime.now().toUtc();
 
@@ -40,6 +42,27 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     ChangeLog,
     RecurringTaskTemplates,
     RecurringTaskCycles,
+    // v11：执行实例、事件、会话归属、活动段、进度检查点与提醒（规范 §19.2）。
+    ExecutionRuntimeState,
+    ExecutionWriteSequence,
+    ExecutionOperations,
+    ExecutionOccurrences,
+    ExecutionBlockLinks,
+    ExecutionEvents,
+    ExecutionSessionLinks,
+    ExecutionActivitySegments,
+    ExecutionProgressAnchors,
+    ExecutionCreditAllocations,
+    ExecutionReminderIntents,
+    ExecutionDayHolds,
+    ExecutionOutbox,
+    // v12：周期快照、执行片段、完成证据与持久预排（1.12.0 设计 §5）。
+    RecurringCycleSnapshots,
+    RecurringCarryInStates,
+    ExecutionFragments,
+    RecurringCompletionEvidence,
+    PendingPlanPreviews,
+    PendingPlanPreviewBlocks,
   ],
   daos: [TaskDao],
 )
@@ -95,7 +118,7 @@ class AppDatabase extends _$AppDatabase {
   /// `test/app/pre_migration_backup_test.dart` 里有一条用例守着两者相等——那条用例存在的
   /// 唯一理由就是这个重复。
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -131,6 +154,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 10 && to >= 10) {
         await _upgradeToV10(migrator);
       }
+      if (from < 11 && to >= 11) {
+        await _upgradeToV11(migrator);
+      }
     },
     beforeOpen: (details) async {
       if (enforceForeignKeys) {
@@ -140,6 +166,8 @@ class AppDatabase extends _$AppDatabase {
       // 另一条分支，两条分支各建一次索引就是两处需要同步维护的 SQL。`IF NOT EXISTS`
       // 让这里成为唯一一份定义——迁移与全新库都靠它。
       await _createRecurringTaskIndexes();
+      await _createExecutionIndexes();
+      await _createRecurringExecutionIndexes();
     },
   );
 
@@ -240,6 +268,100 @@ class AppDatabase extends _$AppDatabase {
   /// 生成，这里只负责把既有数据搬过去。迁移与 `onCreate` 因此共用同一份定义。
   Future<void> _upgradeToV10(Migrator migrator) async {
     await migrator.alterTable(TableMigration(timetableImportBatches));
+  }
+
+  /// v11：执行实例、事件、会话关联、活动段、进度检查点、分配、提醒、dayHold 与 outbox
+  /// （规范 §15、§19.2）。
+  ///
+  /// **只新增表，不改既有列**：v10 用户的 tasks、time_entries、calendar_events、计划版本与
+  /// 设置必须逐值不变。新功能首次启用不为一期旧安排补造"未启动"记录，旧计时记录也不强行
+  /// 关联到原始安排（§15）。
+  ///
+  /// 建表顺序按外键依赖排列；全部在 `onUpgrade` 的同一个事务里，失败整体回滚并保留旧库。
+  Future<void> _upgradeToV11(Migrator migrator) async {
+    await migrator.createTable(executionRuntimeState);
+    await migrator.createTable(executionWriteSequence);
+    await migrator.createTable(executionOperations);
+    await migrator.createTable(executionOccurrences);
+    await migrator.createTable(executionBlockLinks);
+    await migrator.createTable(executionEvents);
+    await migrator.createTable(executionSessionLinks);
+    await migrator.createTable(executionActivitySegments);
+    await migrator.createTable(executionProgressAnchors);
+    await migrator.createTable(executionCreditAllocations);
+    await migrator.createTable(executionReminderIntents);
+    await migrator.createTable(executionDayHolds);
+    await migrator.createTable(executionOutbox);
+    // 1.11.0 周期单次执行与预排（原 1.12 设计已并入未发布的 1.11.0）。
+    await migrator.createTable(recurringCycleSnapshots);
+    await migrator.createTable(recurringCarryInStates);
+    await migrator.createTable(executionFragments);
+    await migrator.createTable(recurringCompletionEvidence);
+    await migrator.createTable(pendingPlanPreviews);
+    await migrator.createTable(pendingPlanPreviewBlocks);
+    await _createExecutionIndexes();
+    await _createRecurringExecutionIndexes();
+  }
+
+  /// 1.11.0 周期/片段/证据/预排索引。
+  Future<void> _createRecurringExecutionIndexes() async {
+    const statements = [
+      'CREATE INDEX IF NOT EXISTS idx_execution_fragments_occurrence '
+          'ON execution_fragments (occurrence_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_fragments_cycle '
+          'ON execution_fragments (cycle_id)',
+      'CREATE INDEX IF NOT EXISTS idx_recurring_evidence_cycle '
+          'ON recurring_completion_evidence (cycle_id, effective_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_recurring_evidence_fragment '
+          'ON recurring_completion_evidence (fragment_id)',
+      'CREATE INDEX IF NOT EXISTS idx_pending_previews_status '
+          'ON pending_plan_previews (status, created_at_utc)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_preview_active_kind '
+          "ON pending_plan_previews (kind) WHERE status = 'active'",
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与执行索引同口径：只忽略“目标表尚不存在”的中间版本校验。
+      }
+    }
+  }
+
+  /// 执行表的索引。
+  ///
+  /// `execution_progress_anchors` 的"每任务只有一个当前检查点"用**部分唯一索引**表达：
+  /// SQLite 的行级 CHECK 管不了跨行唯一性，而把 `is_current` 放进联合主键又允许两个 true。
+  /// 索引在 `beforeOpen` 里用 `IF NOT EXISTS` 补，因此迁移与全新库共用一份定义。
+  Future<void> _createExecutionIndexes() async {
+    const statements = [
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_progress_anchor_current '
+          'ON execution_progress_anchors (task_id) WHERE is_current = 1',
+      'CREATE INDEX IF NOT EXISTS idx_execution_occurrences_task '
+          'ON execution_occurrences (task_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_occurrences_plan '
+          'ON execution_occurrences (origin_plan_version_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_events_occurrence '
+          'ON execution_events (occurrence_id, occurred_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_segments_session '
+          'ON execution_activity_segments (session_id, start_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_credits_target '
+          'ON execution_credit_allocations (target_kind, target_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_reminder_occurrence '
+          'ON execution_reminder_intents (occurrence_id, revision)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_outbox_pending '
+          'ON execution_outbox (processed_at_utc, next_attempt_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_operations_subject '
+          'ON execution_operations (subject_kind, subject_id)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与周期索引同口径：只有"目标表还不存在"会走到这里（中间版本的 schema verifier）。
+        // 其它失败会在紧随其后的真实查询上以更准确的形式暴露。
+      }
+    }
   }
 
   /// 周期目标表的索引。

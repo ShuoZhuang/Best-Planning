@@ -304,8 +304,10 @@ final class _FixedSource implements ScheduleProblemSource {
   final ScheduleProblem problem;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      problem;
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => problem;
 }
 
 /// 记账用的计划仓储：**只数写入次数**，因为本文件关心的是"该不该写"。

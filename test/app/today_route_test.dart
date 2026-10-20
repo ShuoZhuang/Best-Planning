@@ -583,7 +583,10 @@ void main() {
 /// 那条路径用的是**真实**的 `RepositoryScheduleProblemSource`。
 final class _EmptyProblemSource implements ScheduleProblemSource {
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     final window = TimeRange(
       startUtc: _today,
       endUtc: _today.add(const Duration(days: 1)),

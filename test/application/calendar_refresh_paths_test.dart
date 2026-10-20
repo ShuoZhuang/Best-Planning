@@ -416,8 +416,10 @@ ScheduleProblem _problem() {
 
 final class _NoProblemSource implements ScheduleProblemSource {
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      _problem();
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => _problem();
 }
 
 /// 一份只有一个块的提案。`hash` 必须与仓储当前期望的输入哈希一致，
