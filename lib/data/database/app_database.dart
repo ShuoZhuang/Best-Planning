@@ -3,6 +3,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'package:personal_planner/data/database/daos/task_dao.dart';
 import 'package:personal_planner/data/database/tables/execution_tables.dart';
 import 'package:personal_planner/data/database/tables/plan_adjustment_tables.dart';
+import 'package:personal_planner/data/database/tables/plan_change_tables.dart';
 import 'package:personal_planner/data/database/tables/planner_tables.dart';
 import 'package:personal_planner/data/database/tables/recurring_execution_tables.dart';
 
@@ -67,6 +68,10 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     // v11：块级调整操作与状态审计（1.11.0「延后本次」事务化修复）。
     PlanAdjustments,
     PlanAdjustmentEvents,
+    // v11：应用回执、撤销快照与提交后 outbox（计划 Task 10/11）。
+    PlanAdjustmentApplyReceipts,
+    PlanAdjustmentUndoReceipts,
+    PlanChangeOutbox,
   ],
   daos: [TaskDao],
 )
@@ -311,6 +316,9 @@ class AppDatabase extends _$AppDatabase {
     await migrator.createTable(pendingPlanPreviewBlocks);
     await migrator.createTable(planAdjustments);
     await migrator.createTable(planAdjustmentEvents);
+    await migrator.createTable(planAdjustmentApplyReceipts);
+    await migrator.createTable(planAdjustmentUndoReceipts);
+    await migrator.createTable(planChangeOutbox);
     await _createExecutionIndexes();
     await _createRecurringExecutionIndexes();
     await _createPlanAdjustmentIndexes();
@@ -335,6 +343,8 @@ class AppDatabase extends _$AppDatabase {
           'WHERE applied_plan_version_id IS NOT NULL',
       'CREATE INDEX IF NOT EXISTS idx_plan_adjustment_events_time '
           'ON plan_adjustment_events (occurred_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_plan_change_outbox_pending '
+          'ON plan_change_outbox (completed_at_utc, next_attempt_at_utc)',
     ];
     for (final statement in statements) {
       try {

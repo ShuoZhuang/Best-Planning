@@ -27227,6 +27227,1676 @@ class PlanAdjustmentEventsCompanion
   }
 }
 
+class $PlanAdjustmentApplyReceiptsTable extends PlanAdjustmentApplyReceipts
+    with
+        TableInfo<
+          $PlanAdjustmentApplyReceiptsTable,
+          PlanAdjustmentApplyReceipt
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PlanAdjustmentApplyReceiptsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _receiptIdMeta = const VerificationMeta(
+    'receiptId',
+  );
+  @override
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _adjustmentIdMeta = const VerificationMeta(
+    'adjustmentId',
+  );
+  @override
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _tokenHashMeta = const VerificationMeta(
+    'tokenHash',
+  );
+  @override
+  late final GeneratedColumn<String> tokenHash = GeneratedColumn<String>(
+    'token_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _planVersionIdMeta = const VerificationMeta(
+    'planVersionId',
+  );
+  @override
+  late final GeneratedColumn<String> planVersionId = GeneratedColumn<String>(
+    'plan_version_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _undoReceiptIdMeta = const VerificationMeta(
+    'undoReceiptId',
+  );
+  @override
+  late final GeneratedColumn<String> undoReceiptId = GeneratedColumn<String>(
+    'undo_receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_apply_receipts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PlanAdjustmentApplyReceipt> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('receipt_id')) {
+      context.handle(
+        _receiptIdMeta,
+        receiptId.isAcceptableOrUnknown(data['receipt_id']!, _receiptIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_receiptIdMeta);
+    }
+    if (data.containsKey('adjustment_id')) {
+      context.handle(
+        _adjustmentIdMeta,
+        adjustmentId.isAcceptableOrUnknown(
+          data['adjustment_id']!,
+          _adjustmentIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_adjustmentIdMeta);
+    }
+    if (data.containsKey('token_hash')) {
+      context.handle(
+        _tokenHashMeta,
+        tokenHash.isAcceptableOrUnknown(data['token_hash']!, _tokenHashMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tokenHashMeta);
+    }
+    if (data.containsKey('plan_version_id')) {
+      context.handle(
+        _planVersionIdMeta,
+        planVersionId.isAcceptableOrUnknown(
+          data['plan_version_id']!,
+          _planVersionIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_planVersionIdMeta);
+    }
+    if (data.containsKey('undo_receipt_id')) {
+      context.handle(
+        _undoReceiptIdMeta,
+        undoReceiptId.isAcceptableOrUnknown(
+          data['undo_receipt_id']!,
+          _undoReceiptIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_undoReceiptIdMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentApplyReceipt map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentApplyReceipt(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      tokenHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}token_hash'],
+      )!,
+      planVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_version_id'],
+      )!,
+      undoReceiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}undo_receipt_id'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  $PlanAdjustmentApplyReceiptsTable createAlias(String alias) {
+    return $PlanAdjustmentApplyReceiptsTable(attachedDatabase, alias);
+  }
+}
+
+class PlanAdjustmentApplyReceipt extends DataClass
+    implements Insertable<PlanAdjustmentApplyReceipt> {
+  final String receiptId;
+  final String adjustmentId;
+  final String tokenHash;
+  final String planVersionId;
+  final String undoReceiptId;
+  final int createdAtUtc;
+  const PlanAdjustmentApplyReceipt({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.tokenHash,
+    required this.planVersionId,
+    required this.undoReceiptId,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['token_hash'] = Variable<String>(tokenHash);
+    map['plan_version_id'] = Variable<String>(planVersionId);
+    map['undo_receipt_id'] = Variable<String>(undoReceiptId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      tokenHash: Value(tokenHash),
+      planVersionId: Value(planVersionId),
+      undoReceiptId: Value(undoReceiptId),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentApplyReceipt.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentApplyReceipt(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      tokenHash: serializer.fromJson<String>(json['tokenHash']),
+      planVersionId: serializer.fromJson<String>(json['planVersionId']),
+      undoReceiptId: serializer.fromJson<String>(json['undoReceiptId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'tokenHash': serializer.toJson<String>(tokenHash),
+      'planVersionId': serializer.toJson<String>(planVersionId),
+      'undoReceiptId': serializer.toJson<String>(undoReceiptId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  PlanAdjustmentApplyReceipt copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? tokenHash,
+    String? planVersionId,
+    String? undoReceiptId,
+    int? createdAtUtc,
+  }) => PlanAdjustmentApplyReceipt(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    tokenHash: tokenHash ?? this.tokenHash,
+    planVersionId: planVersionId ?? this.planVersionId,
+    undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  PlanAdjustmentApplyReceipt copyWithCompanion(
+    PlanAdjustmentApplyReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentApplyReceipt(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      tokenHash: data.tokenHash.present ? data.tokenHash.value : this.tokenHash,
+      planVersionId: data.planVersionId.present
+          ? data.planVersionId.value
+          : this.planVersionId,
+      undoReceiptId: data.undoReceiptId.present
+          ? data.undoReceiptId.value
+          : this.undoReceiptId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceipt(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentApplyReceipt &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.tokenHash == this.tokenHash &&
+          other.planVersionId == this.planVersionId &&
+          other.undoReceiptId == this.undoReceiptId &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class PlanAdjustmentApplyReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentApplyReceipt> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> tokenHash;
+  final Value<String> planVersionId;
+  final Value<String> undoReceiptId;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentApplyReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.tokenHash = const Value.absent(),
+    this.planVersionId = const Value.absent(),
+    this.undoReceiptId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentApplyReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String tokenHash,
+    required String planVersionId,
+    required String undoReceiptId,
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       tokenHash = Value(tokenHash),
+       planVersionId = Value(planVersionId),
+       undoReceiptId = Value(undoReceiptId),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentApplyReceipt> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? tokenHash,
+    Expression<String>? planVersionId,
+    Expression<String>? undoReceiptId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (tokenHash != null) 'token_hash': tokenHash,
+      if (planVersionId != null) 'plan_version_id': planVersionId,
+      if (undoReceiptId != null) 'undo_receipt_id': undoReceiptId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? tokenHash,
+    Value<String>? planVersionId,
+    Value<String>? undoReceiptId,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      tokenHash: tokenHash ?? this.tokenHash,
+      planVersionId: planVersionId ?? this.planVersionId,
+      undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (tokenHash.present) {
+      map['token_hash'] = Variable<String>(tokenHash.value);
+    }
+    if (planVersionId.present) {
+      map['plan_version_id'] = Variable<String>(planVersionId.value);
+    }
+    if (undoReceiptId.present) {
+      map['undo_receipt_id'] = Variable<String>(undoReceiptId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PlanAdjustmentUndoReceiptsTable extends PlanAdjustmentUndoReceipts
+    with
+        TableInfo<$PlanAdjustmentUndoReceiptsTable, PlanAdjustmentUndoReceipt> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PlanAdjustmentUndoReceiptsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _receiptIdMeta = const VerificationMeta(
+    'receiptId',
+  );
+  @override
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _adjustmentIdMeta = const VerificationMeta(
+    'adjustmentId',
+  );
+  @override
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _baselinePlanVersionIdMeta =
+      const VerificationMeta('baselinePlanVersionId');
+  @override
+  late final GeneratedColumn<String> baselinePlanVersionId =
+      GeneratedColumn<String>(
+        'baseline_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _appliedPlanVersionIdMeta =
+      const VerificationMeta('appliedPlanVersionId');
+  @override
+  late final GeneratedColumn<String> appliedPlanVersionId =
+      GeneratedColumn<String>(
+        'applied_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _baselineBlocksJsonMeta =
+      const VerificationMeta('baselineBlocksJson');
+  @override
+  late final GeneratedColumn<String> baselineBlocksJson =
+      GeneratedColumn<String>(
+        'baseline_blocks_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _appliedBlockIdsJsonMeta =
+      const VerificationMeta('appliedBlockIdsJson');
+  @override
+  late final GeneratedColumn<String> appliedBlockIdsJson =
+      GeneratedColumn<String>(
+        'applied_block_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtUtcMeta = const VerificationMeta(
+    'completedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_undo_receipts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PlanAdjustmentUndoReceipt> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('receipt_id')) {
+      context.handle(
+        _receiptIdMeta,
+        receiptId.isAcceptableOrUnknown(data['receipt_id']!, _receiptIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_receiptIdMeta);
+    }
+    if (data.containsKey('adjustment_id')) {
+      context.handle(
+        _adjustmentIdMeta,
+        adjustmentId.isAcceptableOrUnknown(
+          data['adjustment_id']!,
+          _adjustmentIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_adjustmentIdMeta);
+    }
+    if (data.containsKey('baseline_plan_version_id')) {
+      context.handle(
+        _baselinePlanVersionIdMeta,
+        baselinePlanVersionId.isAcceptableOrUnknown(
+          data['baseline_plan_version_id']!,
+          _baselinePlanVersionIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_baselinePlanVersionIdMeta);
+    }
+    if (data.containsKey('applied_plan_version_id')) {
+      context.handle(
+        _appliedPlanVersionIdMeta,
+        appliedPlanVersionId.isAcceptableOrUnknown(
+          data['applied_plan_version_id']!,
+          _appliedPlanVersionIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_appliedPlanVersionIdMeta);
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+        _stateMeta,
+        state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_stateMeta);
+    }
+    if (data.containsKey('baseline_blocks_json')) {
+      context.handle(
+        _baselineBlocksJsonMeta,
+        baselineBlocksJson.isAcceptableOrUnknown(
+          data['baseline_blocks_json']!,
+          _baselineBlocksJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_baselineBlocksJsonMeta);
+    }
+    if (data.containsKey('applied_block_ids_json')) {
+      context.handle(
+        _appliedBlockIdsJsonMeta,
+        appliedBlockIdsJson.isAcceptableOrUnknown(
+          data['applied_block_ids_json']!,
+          _appliedBlockIdsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_appliedBlockIdsJsonMeta);
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('completed_at_utc')) {
+      context.handle(
+        _completedAtUtcMeta,
+        completedAtUtc.isAcceptableOrUnknown(
+          data['completed_at_utc']!,
+          _completedAtUtcMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentUndoReceipt map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentUndoReceipt(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      baselinePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_plan_version_id'],
+      )!,
+      appliedPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_plan_version_id'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      baselineBlocksJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_blocks_json'],
+      )!,
+      appliedBlockIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_block_ids_json'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  $PlanAdjustmentUndoReceiptsTable createAlias(String alias) {
+    return $PlanAdjustmentUndoReceiptsTable(attachedDatabase, alias);
+  }
+}
+
+class PlanAdjustmentUndoReceipt extends DataClass
+    implements Insertable<PlanAdjustmentUndoReceipt> {
+  final String receiptId;
+  final String adjustmentId;
+  final String baselinePlanVersionId;
+  final String appliedPlanVersionId;
+  final String state;
+  final String baselineBlocksJson;
+  final String appliedBlockIdsJson;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanAdjustmentUndoReceipt({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.baselinePlanVersionId,
+    required this.appliedPlanVersionId,
+    required this.state,
+    required this.baselineBlocksJson,
+    required this.appliedBlockIdsJson,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['baseline_plan_version_id'] = Variable<String>(baselinePlanVersionId);
+    map['applied_plan_version_id'] = Variable<String>(appliedPlanVersionId);
+    map['state'] = Variable<String>(state);
+    map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson);
+    map['applied_block_ids_json'] = Variable<String>(appliedBlockIdsJson);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    return map;
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      baselinePlanVersionId: Value(baselinePlanVersionId),
+      appliedPlanVersionId: Value(appliedPlanVersionId),
+      state: Value(state),
+      baselineBlocksJson: Value(baselineBlocksJson),
+      appliedBlockIdsJson: Value(appliedBlockIdsJson),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentUndoReceipt.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentUndoReceipt(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      baselinePlanVersionId: serializer.fromJson<String>(
+        json['baselinePlanVersionId'],
+      ),
+      appliedPlanVersionId: serializer.fromJson<String>(
+        json['appliedPlanVersionId'],
+      ),
+      state: serializer.fromJson<String>(json['state']),
+      baselineBlocksJson: serializer.fromJson<String>(
+        json['baselineBlocksJson'],
+      ),
+      appliedBlockIdsJson: serializer.fromJson<String>(
+        json['appliedBlockIdsJson'],
+      ),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'baselinePlanVersionId': serializer.toJson<String>(baselinePlanVersionId),
+      'appliedPlanVersionId': serializer.toJson<String>(appliedPlanVersionId),
+      'state': serializer.toJson<String>(state),
+      'baselineBlocksJson': serializer.toJson<String>(baselineBlocksJson),
+      'appliedBlockIdsJson': serializer.toJson<String>(appliedBlockIdsJson),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+    };
+  }
+
+  PlanAdjustmentUndoReceipt copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? baselinePlanVersionId,
+    String? appliedPlanVersionId,
+    String? state,
+    String? baselineBlocksJson,
+    String? appliedBlockIdsJson,
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanAdjustmentUndoReceipt(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    baselinePlanVersionId: baselinePlanVersionId ?? this.baselinePlanVersionId,
+    appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+    state: state ?? this.state,
+    baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+    appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+  );
+  PlanAdjustmentUndoReceipt copyWithCompanion(
+    PlanAdjustmentUndoReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentUndoReceipt(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      baselinePlanVersionId: data.baselinePlanVersionId.present
+          ? data.baselinePlanVersionId.value
+          : this.baselinePlanVersionId,
+      appliedPlanVersionId: data.appliedPlanVersionId.present
+          ? data.appliedPlanVersionId.value
+          : this.appliedPlanVersionId,
+      state: data.state.present ? data.state.value : this.state,
+      baselineBlocksJson: data.baselineBlocksJson.present
+          ? data.baselineBlocksJson.value
+          : this.baselineBlocksJson,
+      appliedBlockIdsJson: data.appliedBlockIdsJson.present
+          ? data.appliedBlockIdsJson.value
+          : this.appliedBlockIdsJson,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceipt(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentUndoReceipt &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.baselinePlanVersionId == this.baselinePlanVersionId &&
+          other.appliedPlanVersionId == this.appliedPlanVersionId &&
+          other.state == this.state &&
+          other.baselineBlocksJson == this.baselineBlocksJson &&
+          other.appliedBlockIdsJson == this.appliedBlockIdsJson &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc);
+}
+
+class PlanAdjustmentUndoReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentUndoReceipt> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> baselinePlanVersionId;
+  final Value<String> appliedPlanVersionId;
+  final Value<String> state;
+  final Value<String> baselineBlocksJson;
+  final Value<String> appliedBlockIdsJson;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentUndoReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.baselinePlanVersionId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.state = const Value.absent(),
+    this.baselineBlocksJson = const Value.absent(),
+    this.appliedBlockIdsJson = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentUndoReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String baselinePlanVersionId,
+    required String appliedPlanVersionId,
+    required String state,
+    required String baselineBlocksJson,
+    required String appliedBlockIdsJson,
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       baselinePlanVersionId = Value(baselinePlanVersionId),
+       appliedPlanVersionId = Value(appliedPlanVersionId),
+       state = Value(state),
+       baselineBlocksJson = Value(baselineBlocksJson),
+       appliedBlockIdsJson = Value(appliedBlockIdsJson),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentUndoReceipt> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? baselinePlanVersionId,
+    Expression<String>? appliedPlanVersionId,
+    Expression<String>? state,
+    Expression<String>? baselineBlocksJson,
+    Expression<String>? appliedBlockIdsJson,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (baselinePlanVersionId != null)
+        'baseline_plan_version_id': baselinePlanVersionId,
+      if (appliedPlanVersionId != null)
+        'applied_plan_version_id': appliedPlanVersionId,
+      if (state != null) 'state': state,
+      if (baselineBlocksJson != null)
+        'baseline_blocks_json': baselineBlocksJson,
+      if (appliedBlockIdsJson != null)
+        'applied_block_ids_json': appliedBlockIdsJson,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? baselinePlanVersionId,
+    Value<String>? appliedPlanVersionId,
+    Value<String>? state,
+    Value<String>? baselineBlocksJson,
+    Value<String>? appliedBlockIdsJson,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      baselinePlanVersionId:
+          baselinePlanVersionId ?? this.baselinePlanVersionId,
+      appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+      state: state ?? this.state,
+      baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+      appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (baselinePlanVersionId.present) {
+      map['baseline_plan_version_id'] = Variable<String>(
+        baselinePlanVersionId.value,
+      );
+    }
+    if (appliedPlanVersionId.present) {
+      map['applied_plan_version_id'] = Variable<String>(
+        appliedPlanVersionId.value,
+      );
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (baselineBlocksJson.present) {
+      map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson.value);
+    }
+    if (appliedBlockIdsJson.present) {
+      map['applied_block_ids_json'] = Variable<String>(
+        appliedBlockIdsJson.value,
+      );
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PlanChangeOutboxTable extends PlanChangeOutbox
+    with TableInfo<$PlanChangeOutboxTable, PlanChangeOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PlanChangeOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dedupeKeyMeta = const VerificationMeta(
+    'dedupeKey',
+  );
+  @override
+  late final GeneratedColumn<String> dedupeKey = GeneratedColumn<String>(
+    'dedupe_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _nextAttemptAtUtcMeta = const VerificationMeta(
+    'nextAttemptAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> nextAttemptAtUtc = GeneratedColumn<int>(
+    'next_attempt_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastErrorCodeMeta = const VerificationMeta(
+    'lastErrorCode',
+  );
+  @override
+  late final GeneratedColumn<String> lastErrorCode = GeneratedColumn<String>(
+    'last_error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtUtcMeta = const VerificationMeta(
+    'createdAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtUtcMeta = const VerificationMeta(
+    'completedAtUtc',
+  );
+  @override
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    dedupeKey,
+    kind,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_change_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PlanChangeOutboxData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('dedupe_key')) {
+      context.handle(
+        _dedupeKeyMeta,
+        dedupeKey.isAcceptableOrUnknown(data['dedupe_key']!, _dedupeKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dedupeKeyMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('next_attempt_at_utc')) {
+      context.handle(
+        _nextAttemptAtUtcMeta,
+        nextAttemptAtUtc.isAcceptableOrUnknown(
+          data['next_attempt_at_utc']!,
+          _nextAttemptAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_nextAttemptAtUtcMeta);
+    }
+    if (data.containsKey('last_error_code')) {
+      context.handle(
+        _lastErrorCodeMeta,
+        lastErrorCode.isAcceptableOrUnknown(
+          data['last_error_code']!,
+          _lastErrorCodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at_utc')) {
+      context.handle(
+        _createdAtUtcMeta,
+        createdAtUtc.isAcceptableOrUnknown(
+          data['created_at_utc']!,
+          _createdAtUtcMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtUtcMeta);
+    }
+    if (data.containsKey('completed_at_utc')) {
+      context.handle(
+        _completedAtUtcMeta,
+        completedAtUtc.isAcceptableOrUnknown(
+          data['completed_at_utc']!,
+          _completedAtUtcMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PlanChangeOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanChangeOutboxData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      dedupeKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dedupe_key'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at_utc'],
+      )!,
+      lastErrorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error_code'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  $PlanChangeOutboxTable createAlias(String alias) {
+    return $PlanChangeOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class PlanChangeOutboxData extends DataClass
+    implements Insertable<PlanChangeOutboxData> {
+  final String id;
+  final String dedupeKey;
+  final String kind;
+  final String payloadJson;
+  final int attempts;
+  final int nextAttemptAtUtc;
+  final String? lastErrorCode;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanChangeOutboxData({
+    required this.id,
+    required this.dedupeKey,
+    required this.kind,
+    required this.payloadJson,
+    required this.attempts,
+    required this.nextAttemptAtUtc,
+    this.lastErrorCode,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['dedupe_key'] = Variable<String>(dedupeKey);
+    map['kind'] = Variable<String>(kind);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['attempts'] = Variable<int>(attempts);
+    map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc);
+    if (!nullToAbsent || lastErrorCode != null) {
+      map['last_error_code'] = Variable<String>(lastErrorCode);
+    }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    return map;
+  }
+
+  PlanChangeOutboxCompanion toCompanion(bool nullToAbsent) {
+    return PlanChangeOutboxCompanion(
+      id: Value(id),
+      dedupeKey: Value(dedupeKey),
+      kind: Value(kind),
+      payloadJson: Value(payloadJson),
+      attempts: Value(attempts),
+      nextAttemptAtUtc: Value(nextAttemptAtUtc),
+      lastErrorCode: lastErrorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastErrorCode),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+    );
+  }
+
+  factory PlanChangeOutboxData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanChangeOutboxData(
+      id: serializer.fromJson<String>(json['id']),
+      dedupeKey: serializer.fromJson<String>(json['dedupeKey']),
+      kind: serializer.fromJson<String>(json['kind']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAtUtc: serializer.fromJson<int>(json['nextAttemptAtUtc']),
+      lastErrorCode: serializer.fromJson<String?>(json['lastErrorCode']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'dedupeKey': serializer.toJson<String>(dedupeKey),
+      'kind': serializer.toJson<String>(kind),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAtUtc': serializer.toJson<int>(nextAttemptAtUtc),
+      'lastErrorCode': serializer.toJson<String?>(lastErrorCode),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+    };
+  }
+
+  PlanChangeOutboxData copyWith({
+    String? id,
+    String? dedupeKey,
+    String? kind,
+    String? payloadJson,
+    int? attempts,
+    int? nextAttemptAtUtc,
+    Value<String?> lastErrorCode = const Value.absent(),
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanChangeOutboxData(
+    id: id ?? this.id,
+    dedupeKey: dedupeKey ?? this.dedupeKey,
+    kind: kind ?? this.kind,
+    payloadJson: payloadJson ?? this.payloadJson,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+    lastErrorCode: lastErrorCode.present
+        ? lastErrorCode.value
+        : this.lastErrorCode,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+  );
+  PlanChangeOutboxData copyWithCompanion(PlanChangeOutboxCompanion data) {
+    return PlanChangeOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      dedupeKey: data.dedupeKey.present ? data.dedupeKey.value : this.dedupeKey,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAtUtc: data.nextAttemptAtUtc.present
+          ? data.nextAttemptAtUtc.value
+          : this.nextAttemptAtUtc,
+      lastErrorCode: data.lastErrorCode.present
+          ? data.lastErrorCode.value
+          : this.lastErrorCode,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanChangeOutboxData(')
+          ..write('id: $id, ')
+          ..write('dedupeKey: $dedupeKey, ')
+          ..write('kind: $kind, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    dedupeKey,
+    kind,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
+    createdAtUtc,
+    completedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanChangeOutboxData &&
+          other.id == this.id &&
+          other.dedupeKey == this.dedupeKey &&
+          other.kind == this.kind &&
+          other.payloadJson == this.payloadJson &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAtUtc == this.nextAttemptAtUtc &&
+          other.lastErrorCode == this.lastErrorCode &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc);
+}
+
+class PlanChangeOutboxCompanion extends UpdateCompanion<PlanChangeOutboxData> {
+  final Value<String> id;
+  final Value<String> dedupeKey;
+  final Value<String> kind;
+  final Value<String> payloadJson;
+  final Value<int> attempts;
+  final Value<int> nextAttemptAtUtc;
+  final Value<String?> lastErrorCode;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> rowid;
+  const PlanChangeOutboxCompanion({
+    this.id = const Value.absent(),
+    this.dedupeKey = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAtUtc = const Value.absent(),
+    this.lastErrorCode = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanChangeOutboxCompanion.insert({
+    required String id,
+    required String dedupeKey,
+    required String kind,
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int nextAttemptAtUtc,
+    this.lastErrorCode = const Value.absent(),
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       dedupeKey = Value(dedupeKey),
+       kind = Value(kind),
+       nextAttemptAtUtc = Value(nextAttemptAtUtc),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanChangeOutboxData> custom({
+    Expression<String>? id,
+    Expression<String>? dedupeKey,
+    Expression<String>? kind,
+    Expression<String>? payloadJson,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAtUtc,
+    Expression<String>? lastErrorCode,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (dedupeKey != null) 'dedupe_key': dedupeKey,
+      if (kind != null) 'kind': kind,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAtUtc != null) 'next_attempt_at_utc': nextAttemptAtUtc,
+      if (lastErrorCode != null) 'last_error_code': lastErrorCode,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanChangeOutboxCompanion copyWith({
+    Value<String>? id,
+    Value<String>? dedupeKey,
+    Value<String>? kind,
+    Value<String>? payloadJson,
+    Value<int>? attempts,
+    Value<int>? nextAttemptAtUtc,
+    Value<String?>? lastErrorCode,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanChangeOutboxCompanion(
+      id: id ?? this.id,
+      dedupeKey: dedupeKey ?? this.dedupeKey,
+      kind: kind ?? this.kind,
+      payloadJson: payloadJson ?? this.payloadJson,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+      lastErrorCode: lastErrorCode ?? this.lastErrorCode,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (dedupeKey.present) {
+      map['dedupe_key'] = Variable<String>(dedupeKey.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAtUtc.present) {
+      map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc.value);
+    }
+    if (lastErrorCode.present) {
+      map['last_error_code'] = Variable<String>(lastErrorCode.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanChangeOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('dedupeKey: $dedupeKey, ')
+          ..write('kind: $kind, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -27310,6 +28980,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $PlanAdjustmentEventsTable planAdjustmentEvents =
       $PlanAdjustmentEventsTable(this);
+  late final $PlanAdjustmentApplyReceiptsTable planAdjustmentApplyReceipts =
+      $PlanAdjustmentApplyReceiptsTable(this);
+  late final $PlanAdjustmentUndoReceiptsTable planAdjustmentUndoReceipts =
+      $PlanAdjustmentUndoReceiptsTable(this);
+  late final $PlanChangeOutboxTable planChangeOutbox = $PlanChangeOutboxTable(
+    this,
+  );
   late final TaskDao taskDao = TaskDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -27359,6 +29036,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     pendingPlanPreviewBlocks,
     planAdjustments,
     planAdjustmentEvents,
+    planAdjustmentApplyReceipts,
+    planAdjustmentUndoReceipts,
+    planChangeOutbox,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -48539,6 +50219,892 @@ typedef $$PlanAdjustmentEventsTableProcessedTableManager =
       PlanAdjustmentEvent,
       PrefetchHooks Function({bool adjustmentId})
     >;
+typedef $$PlanAdjustmentApplyReceiptsTableCreateCompanionBuilder =
+    PlanAdjustmentApplyReceiptsCompanion Function({
+      required String receiptId,
+      required String adjustmentId,
+      required String tokenHash,
+      required String planVersionId,
+      required String undoReceiptId,
+      required int createdAtUtc,
+      Value<int> rowid,
+    });
+typedef $$PlanAdjustmentApplyReceiptsTableUpdateCompanionBuilder =
+    PlanAdjustmentApplyReceiptsCompanion Function({
+      Value<String> receiptId,
+      Value<String> adjustmentId,
+      Value<String> tokenHash,
+      Value<String> planVersionId,
+      Value<String> undoReceiptId,
+      Value<int> createdAtUtc,
+      Value<int> rowid,
+    });
+
+class $$PlanAdjustmentApplyReceiptsTableFilterComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentApplyReceiptsTable> {
+  $$PlanAdjustmentApplyReceiptsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get receiptId => $composableBuilder(
+    column: $table.receiptId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tokenHash => $composableBuilder(
+    column: $table.tokenHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get planVersionId => $composableBuilder(
+    column: $table.planVersionId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get undoReceiptId => $composableBuilder(
+    column: $table.undoReceiptId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PlanAdjustmentApplyReceiptsTableOrderingComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentApplyReceiptsTable> {
+  $$PlanAdjustmentApplyReceiptsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get receiptId => $composableBuilder(
+    column: $table.receiptId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tokenHash => $composableBuilder(
+    column: $table.tokenHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get planVersionId => $composableBuilder(
+    column: $table.planVersionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get undoReceiptId => $composableBuilder(
+    column: $table.undoReceiptId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PlanAdjustmentApplyReceiptsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentApplyReceiptsTable> {
+  $$PlanAdjustmentApplyReceiptsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get receiptId =>
+      $composableBuilder(column: $table.receiptId, builder: (column) => column);
+
+  GeneratedColumn<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get tokenHash =>
+      $composableBuilder(column: $table.tokenHash, builder: (column) => column);
+
+  GeneratedColumn<String> get planVersionId => $composableBuilder(
+    column: $table.planVersionId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get undoReceiptId => $composableBuilder(
+    column: $table.undoReceiptId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+}
+
+class $$PlanAdjustmentApplyReceiptsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PlanAdjustmentApplyReceiptsTable,
+          PlanAdjustmentApplyReceipt,
+          $$PlanAdjustmentApplyReceiptsTableFilterComposer,
+          $$PlanAdjustmentApplyReceiptsTableOrderingComposer,
+          $$PlanAdjustmentApplyReceiptsTableAnnotationComposer,
+          $$PlanAdjustmentApplyReceiptsTableCreateCompanionBuilder,
+          $$PlanAdjustmentApplyReceiptsTableUpdateCompanionBuilder,
+          (
+            PlanAdjustmentApplyReceipt,
+            BaseReferences<
+              _$AppDatabase,
+              $PlanAdjustmentApplyReceiptsTable,
+              PlanAdjustmentApplyReceipt
+            >,
+          ),
+          PlanAdjustmentApplyReceipt,
+          PrefetchHooks Function()
+        > {
+  $$PlanAdjustmentApplyReceiptsTableTableManager(
+    _$AppDatabase db,
+    $PlanAdjustmentApplyReceiptsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PlanAdjustmentApplyReceiptsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$PlanAdjustmentApplyReceiptsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$PlanAdjustmentApplyReceiptsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> receiptId = const Value.absent(),
+                Value<String> adjustmentId = const Value.absent(),
+                Value<String> tokenHash = const Value.absent(),
+                Value<String> planVersionId = const Value.absent(),
+                Value<String> undoReceiptId = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlanAdjustmentApplyReceiptsCompanion(
+                receiptId: receiptId,
+                adjustmentId: adjustmentId,
+                tokenHash: tokenHash,
+                planVersionId: planVersionId,
+                undoReceiptId: undoReceiptId,
+                createdAtUtc: createdAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String receiptId,
+                required String adjustmentId,
+                required String tokenHash,
+                required String planVersionId,
+                required String undoReceiptId,
+                required int createdAtUtc,
+                Value<int> rowid = const Value.absent(),
+              }) => PlanAdjustmentApplyReceiptsCompanion.insert(
+                receiptId: receiptId,
+                adjustmentId: adjustmentId,
+                tokenHash: tokenHash,
+                planVersionId: planVersionId,
+                undoReceiptId: undoReceiptId,
+                createdAtUtc: createdAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $PlanAdjustmentApplyReceiptsTable,
+                    PlanAdjustmentApplyReceipt
+                  >(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $PlanAdjustmentApplyReceiptsTable,
+                    PlanAdjustmentApplyReceipt
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PlanAdjustmentApplyReceiptsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PlanAdjustmentApplyReceiptsTable,
+      PlanAdjustmentApplyReceipt,
+      $$PlanAdjustmentApplyReceiptsTableFilterComposer,
+      $$PlanAdjustmentApplyReceiptsTableOrderingComposer,
+      $$PlanAdjustmentApplyReceiptsTableAnnotationComposer,
+      $$PlanAdjustmentApplyReceiptsTableCreateCompanionBuilder,
+      $$PlanAdjustmentApplyReceiptsTableUpdateCompanionBuilder,
+      (
+        PlanAdjustmentApplyReceipt,
+        BaseReferences<
+          _$AppDatabase,
+          $PlanAdjustmentApplyReceiptsTable,
+          PlanAdjustmentApplyReceipt
+        >,
+      ),
+      PlanAdjustmentApplyReceipt,
+      PrefetchHooks Function()
+    >;
+typedef $$PlanAdjustmentUndoReceiptsTableCreateCompanionBuilder =
+    PlanAdjustmentUndoReceiptsCompanion Function({
+      required String receiptId,
+      required String adjustmentId,
+      required String baselinePlanVersionId,
+      required String appliedPlanVersionId,
+      required String state,
+      required String baselineBlocksJson,
+      required String appliedBlockIdsJson,
+      required int createdAtUtc,
+      Value<int?> completedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$PlanAdjustmentUndoReceiptsTableUpdateCompanionBuilder =
+    PlanAdjustmentUndoReceiptsCompanion Function({
+      Value<String> receiptId,
+      Value<String> adjustmentId,
+      Value<String> baselinePlanVersionId,
+      Value<String> appliedPlanVersionId,
+      Value<String> state,
+      Value<String> baselineBlocksJson,
+      Value<String> appliedBlockIdsJson,
+      Value<int> createdAtUtc,
+      Value<int?> completedAtUtc,
+      Value<int> rowid,
+    });
+
+class $$PlanAdjustmentUndoReceiptsTableFilterComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentUndoReceiptsTable> {
+  $$PlanAdjustmentUndoReceiptsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get receiptId => $composableBuilder(
+    column: $table.receiptId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get baselinePlanVersionId => $composableBuilder(
+    column: $table.baselinePlanVersionId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get appliedPlanVersionId => $composableBuilder(
+    column: $table.appliedPlanVersionId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get baselineBlocksJson => $composableBuilder(
+    column: $table.baselineBlocksJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get appliedBlockIdsJson => $composableBuilder(
+    column: $table.appliedBlockIdsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PlanAdjustmentUndoReceiptsTableOrderingComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentUndoReceiptsTable> {
+  $$PlanAdjustmentUndoReceiptsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get receiptId => $composableBuilder(
+    column: $table.receiptId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get baselinePlanVersionId => $composableBuilder(
+    column: $table.baselinePlanVersionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get appliedPlanVersionId => $composableBuilder(
+    column: $table.appliedPlanVersionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get baselineBlocksJson => $composableBuilder(
+    column: $table.baselineBlocksJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get appliedBlockIdsJson => $composableBuilder(
+    column: $table.appliedBlockIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PlanAdjustmentUndoReceiptsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PlanAdjustmentUndoReceiptsTable> {
+  $$PlanAdjustmentUndoReceiptsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get receiptId =>
+      $composableBuilder(column: $table.receiptId, builder: (column) => column);
+
+  GeneratedColumn<String> get adjustmentId => $composableBuilder(
+    column: $table.adjustmentId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get baselinePlanVersionId => $composableBuilder(
+    column: $table.baselinePlanVersionId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get appliedPlanVersionId => $composableBuilder(
+    column: $table.appliedPlanVersionId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get baselineBlocksJson => $composableBuilder(
+    column: $table.baselineBlocksJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get appliedBlockIdsJson => $composableBuilder(
+    column: $table.appliedBlockIdsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => column,
+  );
+}
+
+class $$PlanAdjustmentUndoReceiptsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PlanAdjustmentUndoReceiptsTable,
+          PlanAdjustmentUndoReceipt,
+          $$PlanAdjustmentUndoReceiptsTableFilterComposer,
+          $$PlanAdjustmentUndoReceiptsTableOrderingComposer,
+          $$PlanAdjustmentUndoReceiptsTableAnnotationComposer,
+          $$PlanAdjustmentUndoReceiptsTableCreateCompanionBuilder,
+          $$PlanAdjustmentUndoReceiptsTableUpdateCompanionBuilder,
+          (
+            PlanAdjustmentUndoReceipt,
+            BaseReferences<
+              _$AppDatabase,
+              $PlanAdjustmentUndoReceiptsTable,
+              PlanAdjustmentUndoReceipt
+            >,
+          ),
+          PlanAdjustmentUndoReceipt,
+          PrefetchHooks Function()
+        > {
+  $$PlanAdjustmentUndoReceiptsTableTableManager(
+    _$AppDatabase db,
+    $PlanAdjustmentUndoReceiptsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PlanAdjustmentUndoReceiptsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$PlanAdjustmentUndoReceiptsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$PlanAdjustmentUndoReceiptsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> receiptId = const Value.absent(),
+                Value<String> adjustmentId = const Value.absent(),
+                Value<String> baselinePlanVersionId = const Value.absent(),
+                Value<String> appliedPlanVersionId = const Value.absent(),
+                Value<String> state = const Value.absent(),
+                Value<String> baselineBlocksJson = const Value.absent(),
+                Value<String> appliedBlockIdsJson = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int?> completedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlanAdjustmentUndoReceiptsCompanion(
+                receiptId: receiptId,
+                adjustmentId: adjustmentId,
+                baselinePlanVersionId: baselinePlanVersionId,
+                appliedPlanVersionId: appliedPlanVersionId,
+                state: state,
+                baselineBlocksJson: baselineBlocksJson,
+                appliedBlockIdsJson: appliedBlockIdsJson,
+                createdAtUtc: createdAtUtc,
+                completedAtUtc: completedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String receiptId,
+                required String adjustmentId,
+                required String baselinePlanVersionId,
+                required String appliedPlanVersionId,
+                required String state,
+                required String baselineBlocksJson,
+                required String appliedBlockIdsJson,
+                required int createdAtUtc,
+                Value<int?> completedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlanAdjustmentUndoReceiptsCompanion.insert(
+                receiptId: receiptId,
+                adjustmentId: adjustmentId,
+                baselinePlanVersionId: baselinePlanVersionId,
+                appliedPlanVersionId: appliedPlanVersionId,
+                state: state,
+                baselineBlocksJson: baselineBlocksJson,
+                appliedBlockIdsJson: appliedBlockIdsJson,
+                createdAtUtc: createdAtUtc,
+                completedAtUtc: completedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<
+                    $PlanAdjustmentUndoReceiptsTable,
+                    PlanAdjustmentUndoReceipt
+                  >(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $PlanAdjustmentUndoReceiptsTable,
+                    PlanAdjustmentUndoReceipt
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PlanAdjustmentUndoReceiptsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PlanAdjustmentUndoReceiptsTable,
+      PlanAdjustmentUndoReceipt,
+      $$PlanAdjustmentUndoReceiptsTableFilterComposer,
+      $$PlanAdjustmentUndoReceiptsTableOrderingComposer,
+      $$PlanAdjustmentUndoReceiptsTableAnnotationComposer,
+      $$PlanAdjustmentUndoReceiptsTableCreateCompanionBuilder,
+      $$PlanAdjustmentUndoReceiptsTableUpdateCompanionBuilder,
+      (
+        PlanAdjustmentUndoReceipt,
+        BaseReferences<
+          _$AppDatabase,
+          $PlanAdjustmentUndoReceiptsTable,
+          PlanAdjustmentUndoReceipt
+        >,
+      ),
+      PlanAdjustmentUndoReceipt,
+      PrefetchHooks Function()
+    >;
+typedef $$PlanChangeOutboxTableCreateCompanionBuilder =
+    PlanChangeOutboxCompanion Function({
+      required String id,
+      required String dedupeKey,
+      required String kind,
+      Value<String> payloadJson,
+      Value<int> attempts,
+      required int nextAttemptAtUtc,
+      Value<String?> lastErrorCode,
+      required int createdAtUtc,
+      Value<int?> completedAtUtc,
+      Value<int> rowid,
+    });
+typedef $$PlanChangeOutboxTableUpdateCompanionBuilder =
+    PlanChangeOutboxCompanion Function({
+      Value<String> id,
+      Value<String> dedupeKey,
+      Value<String> kind,
+      Value<String> payloadJson,
+      Value<int> attempts,
+      Value<int> nextAttemptAtUtc,
+      Value<String?> lastErrorCode,
+      Value<int> createdAtUtc,
+      Value<int?> completedAtUtc,
+      Value<int> rowid,
+    });
+
+class $$PlanChangeOutboxTableFilterComposer
+    extends Composer<_$AppDatabase, $PlanChangeOutboxTable> {
+  $$PlanChangeOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dedupeKey => $composableBuilder(
+    column: $table.dedupeKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nextAttemptAtUtc => $composableBuilder(
+    column: $table.nextAttemptAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PlanChangeOutboxTableOrderingComposer
+    extends Composer<_$AppDatabase, $PlanChangeOutboxTable> {
+  $$PlanChangeOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dedupeKey => $composableBuilder(
+    column: $table.dedupeKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nextAttemptAtUtc => $composableBuilder(
+    column: $table.nextAttemptAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PlanChangeOutboxTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PlanChangeOutboxTable> {
+  $$PlanChangeOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get dedupeKey =>
+      $composableBuilder(column: $table.dedupeKey, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<int> get nextAttemptAtUtc => $composableBuilder(
+    column: $table.nextAttemptAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAtUtc => $composableBuilder(
+    column: $table.createdAtUtc,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get completedAtUtc => $composableBuilder(
+    column: $table.completedAtUtc,
+    builder: (column) => column,
+  );
+}
+
+class $$PlanChangeOutboxTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PlanChangeOutboxTable,
+          PlanChangeOutboxData,
+          $$PlanChangeOutboxTableFilterComposer,
+          $$PlanChangeOutboxTableOrderingComposer,
+          $$PlanChangeOutboxTableAnnotationComposer,
+          $$PlanChangeOutboxTableCreateCompanionBuilder,
+          $$PlanChangeOutboxTableUpdateCompanionBuilder,
+          (
+            PlanChangeOutboxData,
+            BaseReferences<
+              _$AppDatabase,
+              $PlanChangeOutboxTable,
+              PlanChangeOutboxData
+            >,
+          ),
+          PlanChangeOutboxData,
+          PrefetchHooks Function()
+        > {
+  $$PlanChangeOutboxTableTableManager(
+    _$AppDatabase db,
+    $PlanChangeOutboxTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PlanChangeOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PlanChangeOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PlanChangeOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> dedupeKey = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<int> nextAttemptAtUtc = const Value.absent(),
+                Value<String?> lastErrorCode = const Value.absent(),
+                Value<int> createdAtUtc = const Value.absent(),
+                Value<int?> completedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlanChangeOutboxCompanion(
+                id: id,
+                dedupeKey: dedupeKey,
+                kind: kind,
+                payloadJson: payloadJson,
+                attempts: attempts,
+                nextAttemptAtUtc: nextAttemptAtUtc,
+                lastErrorCode: lastErrorCode,
+                createdAtUtc: createdAtUtc,
+                completedAtUtc: completedAtUtc,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String dedupeKey,
+                required String kind,
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                required int nextAttemptAtUtc,
+                Value<String?> lastErrorCode = const Value.absent(),
+                required int createdAtUtc,
+                Value<int?> completedAtUtc = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlanChangeOutboxCompanion.insert(
+                id: id,
+                dedupeKey: dedupeKey,
+                kind: kind,
+                payloadJson: payloadJson,
+                attempts: attempts,
+                nextAttemptAtUtc: nextAttemptAtUtc,
+                lastErrorCode: lastErrorCode,
+                createdAtUtc: createdAtUtc,
+                completedAtUtc: completedAtUtc,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$PlanChangeOutboxTable, PlanChangeOutboxData>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $PlanChangeOutboxTable,
+                    PlanChangeOutboxData
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PlanChangeOutboxTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PlanChangeOutboxTable,
+      PlanChangeOutboxData,
+      $$PlanChangeOutboxTableFilterComposer,
+      $$PlanChangeOutboxTableOrderingComposer,
+      $$PlanChangeOutboxTableAnnotationComposer,
+      $$PlanChangeOutboxTableCreateCompanionBuilder,
+      $$PlanChangeOutboxTableUpdateCompanionBuilder,
+      (
+        PlanChangeOutboxData,
+        BaseReferences<
+          _$AppDatabase,
+          $PlanChangeOutboxTable,
+          PlanChangeOutboxData
+        >,
+      ),
+      PlanChangeOutboxData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -48663,4 +51229,18 @@ class $AppDatabaseManager {
       $$PlanAdjustmentsTableTableManager(_db, _db.planAdjustments);
   $$PlanAdjustmentEventsTableTableManager get planAdjustmentEvents =>
       $$PlanAdjustmentEventsTableTableManager(_db, _db.planAdjustmentEvents);
+  $$PlanAdjustmentApplyReceiptsTableTableManager
+  get planAdjustmentApplyReceipts =>
+      $$PlanAdjustmentApplyReceiptsTableTableManager(
+        _db,
+        _db.planAdjustmentApplyReceipts,
+      );
+  $$PlanAdjustmentUndoReceiptsTableTableManager
+  get planAdjustmentUndoReceipts =>
+      $$PlanAdjustmentUndoReceiptsTableTableManager(
+        _db,
+        _db.planAdjustmentUndoReceipts,
+      );
+  $$PlanChangeOutboxTableTableManager get planChangeOutbox =>
+      $$PlanChangeOutboxTableTableManager(_db, _db.planChangeOutbox);
 }

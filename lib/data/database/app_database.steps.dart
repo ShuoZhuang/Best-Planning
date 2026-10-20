@@ -5028,6 +5028,9 @@ final class Schema11 extends i0.VersionedSchema {
     pendingPlanPreviewBlocks,
     planAdjustments,
     planAdjustmentEvents,
+    planAdjustmentApplyReceipts,
+    planAdjustmentUndoReceipts,
+    planChangeOutbox,
   ];
   late final Shape0 areas = Shape0(
     source: i0.VersionedTable(
@@ -6053,6 +6056,77 @@ final class Schema11 extends i0.VersionedSchema {
         _column_67,
         _column_138,
         _column_237,
+      ],
+      attachedDatabase: database,
+    ),
+    alias: null,
+  );
+  late final Shape47 planAdjustmentApplyReceipts = Shape47(
+    source: i0.VersionedTable(
+      entityName: 'plan_adjustment_apply_receipts',
+      withoutRowId: false,
+      isStrict: false,
+      tableConstraints: [
+        'PRIMARY KEY(receipt_id)',
+        'CHECK(length(token_hash) = 64)',
+        'CHECK(created_at_utc >= 0)',
+      ],
+      columns: [
+        _column_238,
+        _column_239,
+        _column_240,
+        _column_241,
+        _column_242,
+        _column_23,
+      ],
+      attachedDatabase: database,
+    ),
+    alias: null,
+  );
+  late final Shape48 planAdjustmentUndoReceipts = Shape48(
+    source: i0.VersionedTable(
+      entityName: 'plan_adjustment_undo_receipts',
+      withoutRowId: false,
+      isStrict: false,
+      tableConstraints: [
+        'PRIMARY KEY(receipt_id)',
+        'CHECK(state IN (\'available\', \'completed\', \'blocked\'))',
+      ],
+      columns: [
+        _column_238,
+        _column_239,
+        _column_243,
+        _column_244,
+        _column_164,
+        _column_245,
+        _column_246,
+        _column_23,
+        _column_201,
+      ],
+      attachedDatabase: database,
+    ),
+    alias: null,
+  );
+  late final Shape49 planChangeOutbox = Shape49(
+    source: i0.VersionedTable(
+      entityName: 'plan_change_outbox',
+      withoutRowId: false,
+      isStrict: false,
+      tableConstraints: [
+        'PRIMARY KEY(id)',
+        'CHECK(attempts >= 0)',
+        'CHECK(kind IN (\'planChanged\', \'calendarRefresh\', \'trayRefresh\'))',
+      ],
+      columns: [
+        _column_0,
+        _column_247,
+        _column_55,
+        _column_140,
+        _column_175,
+        _column_176,
+        _column_248,
+        _column_23,
+        _column_201,
       ],
       attachedDatabase: database,
     ),
@@ -7752,6 +7826,157 @@ i1.GeneratedColumn<String> _column_236(String aliasedName) =>
 i1.GeneratedColumn<String> _column_237(String aliasedName) =>
     i1.GeneratedColumn<String>(
       'reason_code',
+      aliasedName,
+      true,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NULL',
+    );
+
+class Shape47 extends i0.VersionedTable {
+  Shape47({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get receiptId =>
+      columnsByName['receipt_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get adjustmentId =>
+      columnsByName['adjustment_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get tokenHash =>
+      columnsByName['token_hash']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get planVersionId =>
+      columnsByName['plan_version_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get undoReceiptId =>
+      columnsByName['undo_receipt_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get createdAtUtc =>
+      columnsByName['created_at_utc']! as i1.GeneratedColumn<int>;
+}
+
+i1.GeneratedColumn<String> _column_238(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'receipt_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_239(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'adjustment_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL UNIQUE',
+    );
+i1.GeneratedColumn<String> _column_240(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'token_hash',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL UNIQUE',
+    );
+i1.GeneratedColumn<String> _column_241(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'plan_version_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_242(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'undo_receipt_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+
+class Shape48 extends i0.VersionedTable {
+  Shape48({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get receiptId =>
+      columnsByName['receipt_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get adjustmentId =>
+      columnsByName['adjustment_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get baselinePlanVersionId =>
+      columnsByName['baseline_plan_version_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get appliedPlanVersionId =>
+      columnsByName['applied_plan_version_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get state =>
+      columnsByName['state']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get baselineBlocksJson =>
+      columnsByName['baseline_blocks_json']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get appliedBlockIdsJson =>
+      columnsByName['applied_block_ids_json']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get createdAtUtc =>
+      columnsByName['created_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get completedAtUtc =>
+      columnsByName['completed_at_utc']! as i1.GeneratedColumn<int>;
+}
+
+i1.GeneratedColumn<String> _column_243(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'baseline_plan_version_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_244(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'applied_plan_version_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_245(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'baseline_blocks_json',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_246(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'applied_block_ids_json',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+
+class Shape49 extends i0.VersionedTable {
+  Shape49({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get id =>
+      columnsByName['id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get dedupeKey =>
+      columnsByName['dedupe_key']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get kind =>
+      columnsByName['kind']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get payloadJson =>
+      columnsByName['payload_json']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get attempts =>
+      columnsByName['attempts']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get nextAttemptAtUtc =>
+      columnsByName['next_attempt_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get lastErrorCode =>
+      columnsByName['last_error_code']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get createdAtUtc =>
+      columnsByName['created_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get completedAtUtc =>
+      columnsByName['completed_at_utc']! as i1.GeneratedColumn<int>;
+}
+
+i1.GeneratedColumn<String> _column_247(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'dedupe_key',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL UNIQUE',
+    );
+i1.GeneratedColumn<String> _column_248(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'last_error_code',
       aliasedName,
       true,
       type: i1.DriftSqlType.string,

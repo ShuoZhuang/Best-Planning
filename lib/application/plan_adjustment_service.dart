@@ -10,9 +10,11 @@ import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/repositories/pending_plan_preview_repository.dart';
 import 'package:personal_planner/domain/repositories/plan_adjustment_repository.dart';
+import 'package:personal_planner/domain/repositories/plan_adjustment_transaction.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
+import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
@@ -122,6 +124,7 @@ final class PlanAdjustmentService {
     required this.ids,
     required this.granularityForDate,
     required this.zones,
+    this.applier,
     this.executionEvidence = const NoAdjustmentExecutionEvidence(),
     this.codec = const ScheduleProposalCodec(),
     this.previewTtl = const Duration(hours: 12),
@@ -140,6 +143,10 @@ final class PlanAdjustmentService {
   final IdGenerator ids;
   final Future<int> Function(DateTime localDate) granularityForDate;
   final TimeZoneDatabase zones;
+
+  /// 单事务应用/撤销端口；为空时 confirm/undo 会显式报错而不是退化成两次写。
+  final PlanAdjustmentTransactionApplier? applier;
+
   final AdjustmentExecutionEvidence executionEvidence;
   final ScheduleProposalCodec codec;
   final Duration previewTtl;
@@ -386,6 +393,125 @@ final class PlanAdjustmentService {
     final now = clock.nowUtc();
     await adjustments.expireBefore(now);
     return adjustments.recoverable(now);
+  }
+
+  /// 确认持久预览：校验当前事实 + 硬约束 + 兑现，再交给单事务应用端口。
+  ///
+  /// **不信任预览阶段曾经成功**（DFR-014）：确认时重新装配问题、重新校验块集合、
+  /// 重新判兑现；任何一步失败都返回结构化结果、零写入。
+  Future<AdjustmentApplyReceipt> confirmAdjustment({
+    required String adjustmentId,
+    required String previewId,
+  }) async {
+    final applier = this.applier;
+    if (applier == null) {
+      throw StateError(
+        'confirmAdjustment 需要装配 PlanAdjustmentTransactionApplier。',
+      );
+    }
+    final adjustment = await adjustments.byId(adjustmentId);
+    if (adjustment == null) {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.notFound,
+        reasonCode: 'adjustmentNotFound',
+      );
+    }
+    if (adjustment.previewId != previewId) {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.stale,
+        reasonCode: 'previewNotBound',
+      );
+    }
+    final preview = await previews.byId(previewId);
+    if (preview == null) {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.notFound,
+        reasonCode: 'previewMissing',
+      );
+    }
+    if (!preview.isActive) {
+      return AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.stale,
+        reasonCode: 'preview${preview.status.name}',
+      );
+    }
+    final ScheduleProposal proposal;
+    try {
+      proposal = codec.decode(preview.proposalJson);
+    } on FormatException {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.invalid,
+        reasonCode: 'proposalCodec',
+      );
+    }
+    if (codec.sha256OfCanonical(proposal) != preview.proposalSha256) {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.invalid,
+        reasonCode: 'proposalHashMismatch',
+      );
+    }
+    final now = clock.nowUtc();
+    final windowEnd = policy.adjustmentWindowEnd(
+      notBeforeUtc: adjustment.notBeforeUtc,
+      defaultWindowEnd: now.add(Duration(days: defaultWindowDays)),
+      timeZoneId: adjustment.timeZoneId,
+    );
+    final problem = await source.loadForAdjustment(
+      token: adjustment.token,
+      windowEndUtc: windowEnd,
+    );
+    final conflicts = PlanValidator(zones).validate(problem, proposal.blocks);
+    if (conflicts.isNotEmpty) {
+      return AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.invalid,
+        reasonCode: conflicts.first.code.name,
+      );
+    }
+    final requirement =
+        proposal.adjustmentRequirement ??
+        AdjustmentRequirement(
+          targetBlockId: adjustment.targetBlockId,
+          notBeforeUtc: adjustment.notBeforeUtc,
+          requiredMinutes: adjustment.sourceDurationMinutes,
+          originalStartUtc: adjustment.sourceStartUtc,
+        );
+    final fulfilment = evaluateAdjustmentFulfilment(
+      requirement: requirement,
+      proposalBlocks: proposal.blocks,
+    );
+    if (!fulfilment.isFulfilled) {
+      return const AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.adjustmentUnfulfilled,
+        reasonCode: 'unfulfilled',
+      );
+    }
+    return applier.applyAdjustmentProposal(
+      command: AdjustmentApplyCommand(
+        adjustmentId: adjustment.adjustmentId,
+        adjustmentRevision: adjustment.revision,
+        previewId: preview.previewId,
+        previewRevision: preview.revision,
+        proposalId: proposal.proposalId,
+        contentHash: preview.proposalSha256,
+        basePlanVersionId: adjustment.basePlanVersionId,
+        inputHash: preview.inputHash,
+        algorithmVersion: preview.algorithmVersion,
+      ),
+      proposal: proposal,
+      nowUtc: now,
+    );
+  }
+
+  /// 撤销一次已应用的调整；具体证据保护在同一事务里完成。
+  Future<PlanUndoResult> undoAdjustment(String adjustmentId) async {
+    final applier = this.applier;
+    if (applier == null) {
+      throw StateError('undoAdjustment 需要装配 PlanAdjustmentTransactionApplier。');
+    }
+    return applier.undoAdjustment(
+      adjustmentId: adjustmentId,
+      nowUtc: clock.nowUtc(),
+    );
   }
 
   // ── 内部 ─────────────────────────────────────────────────────────────────

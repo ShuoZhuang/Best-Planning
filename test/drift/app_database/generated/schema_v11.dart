@@ -22243,6 +22243,1378 @@ class PlanAdjustmentEventsCompanion
   }
 }
 
+class PlanAdjustmentApplyReceipts extends Table
+    with
+        TableInfo<
+          PlanAdjustmentApplyReceipts,
+          PlanAdjustmentApplyReceiptsData
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentApplyReceipts(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> tokenHash = GeneratedColumn<String>(
+    'token_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> planVersionId = GeneratedColumn<String>(
+    'plan_version_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> undoReceiptId = GeneratedColumn<String>(
+    'undo_receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_apply_receipts';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentApplyReceiptsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      tokenHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}token_hash'],
+      )!,
+      planVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_version_id'],
+      )!,
+      undoReceiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}undo_receipt_id'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  PlanAdjustmentApplyReceipts createAlias(String alias) {
+    return PlanAdjustmentApplyReceipts(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(receipt_id)',
+    'CHECK(length(token_hash) = 64)',
+    'CHECK(created_at_utc >= 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentApplyReceiptsData extends DataClass
+    implements Insertable<PlanAdjustmentApplyReceiptsData> {
+  final String receiptId;
+  final String adjustmentId;
+  final String tokenHash;
+  final String planVersionId;
+  final String undoReceiptId;
+  final int createdAtUtc;
+  const PlanAdjustmentApplyReceiptsData({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.tokenHash,
+    required this.planVersionId,
+    required this.undoReceiptId,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['token_hash'] = Variable<String>(tokenHash);
+    map['plan_version_id'] = Variable<String>(planVersionId);
+    map['undo_receipt_id'] = Variable<String>(undoReceiptId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      tokenHash: Value(tokenHash),
+      planVersionId: Value(planVersionId),
+      undoReceiptId: Value(undoReceiptId),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentApplyReceiptsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      tokenHash: serializer.fromJson<String>(json['tokenHash']),
+      planVersionId: serializer.fromJson<String>(json['planVersionId']),
+      undoReceiptId: serializer.fromJson<String>(json['undoReceiptId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'tokenHash': serializer.toJson<String>(tokenHash),
+      'planVersionId': serializer.toJson<String>(planVersionId),
+      'undoReceiptId': serializer.toJson<String>(undoReceiptId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  PlanAdjustmentApplyReceiptsData copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? tokenHash,
+    String? planVersionId,
+    String? undoReceiptId,
+    int? createdAtUtc,
+  }) => PlanAdjustmentApplyReceiptsData(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    tokenHash: tokenHash ?? this.tokenHash,
+    planVersionId: planVersionId ?? this.planVersionId,
+    undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  PlanAdjustmentApplyReceiptsData copyWithCompanion(
+    PlanAdjustmentApplyReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      tokenHash: data.tokenHash.present ? data.tokenHash.value : this.tokenHash,
+      planVersionId: data.planVersionId.present
+          ? data.planVersionId.value
+          : this.planVersionId,
+      undoReceiptId: data.undoReceiptId.present
+          ? data.undoReceiptId.value
+          : this.undoReceiptId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceiptsData(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentApplyReceiptsData &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.tokenHash == this.tokenHash &&
+          other.planVersionId == this.planVersionId &&
+          other.undoReceiptId == this.undoReceiptId &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class PlanAdjustmentApplyReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentApplyReceiptsData> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> tokenHash;
+  final Value<String> planVersionId;
+  final Value<String> undoReceiptId;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentApplyReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.tokenHash = const Value.absent(),
+    this.planVersionId = const Value.absent(),
+    this.undoReceiptId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentApplyReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String tokenHash,
+    required String planVersionId,
+    required String undoReceiptId,
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       tokenHash = Value(tokenHash),
+       planVersionId = Value(planVersionId),
+       undoReceiptId = Value(undoReceiptId),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentApplyReceiptsData> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? tokenHash,
+    Expression<String>? planVersionId,
+    Expression<String>? undoReceiptId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (tokenHash != null) 'token_hash': tokenHash,
+      if (planVersionId != null) 'plan_version_id': planVersionId,
+      if (undoReceiptId != null) 'undo_receipt_id': undoReceiptId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? tokenHash,
+    Value<String>? planVersionId,
+    Value<String>? undoReceiptId,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      tokenHash: tokenHash ?? this.tokenHash,
+      planVersionId: planVersionId ?? this.planVersionId,
+      undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (tokenHash.present) {
+      map['token_hash'] = Variable<String>(tokenHash.value);
+    }
+    if (planVersionId.present) {
+      map['plan_version_id'] = Variable<String>(planVersionId.value);
+    }
+    if (undoReceiptId.present) {
+      map['undo_receipt_id'] = Variable<String>(undoReceiptId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustmentUndoReceipts extends Table
+    with TableInfo<PlanAdjustmentUndoReceipts, PlanAdjustmentUndoReceiptsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentUndoReceipts(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> baselinePlanVersionId =
+      GeneratedColumn<String>(
+        'baseline_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> appliedPlanVersionId =
+      GeneratedColumn<String>(
+        'applied_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> baselineBlocksJson =
+      GeneratedColumn<String>(
+        'baseline_blocks_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> appliedBlockIdsJson =
+      GeneratedColumn<String>(
+        'applied_block_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_undo_receipts';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentUndoReceiptsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      baselinePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_plan_version_id'],
+      )!,
+      appliedPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_plan_version_id'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      baselineBlocksJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_blocks_json'],
+      )!,
+      appliedBlockIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_block_ids_json'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustmentUndoReceipts createAlias(String alias) {
+    return PlanAdjustmentUndoReceipts(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(receipt_id)',
+    'CHECK(state IN (\'available\', \'completed\', \'blocked\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentUndoReceiptsData extends DataClass
+    implements Insertable<PlanAdjustmentUndoReceiptsData> {
+  final String receiptId;
+  final String adjustmentId;
+  final String baselinePlanVersionId;
+  final String appliedPlanVersionId;
+  final String state;
+  final String baselineBlocksJson;
+  final String appliedBlockIdsJson;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanAdjustmentUndoReceiptsData({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.baselinePlanVersionId,
+    required this.appliedPlanVersionId,
+    required this.state,
+    required this.baselineBlocksJson,
+    required this.appliedBlockIdsJson,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['baseline_plan_version_id'] = Variable<String>(baselinePlanVersionId);
+    map['applied_plan_version_id'] = Variable<String>(appliedPlanVersionId);
+    map['state'] = Variable<String>(state);
+    map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson);
+    map['applied_block_ids_json'] = Variable<String>(appliedBlockIdsJson);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    return map;
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      baselinePlanVersionId: Value(baselinePlanVersionId),
+      appliedPlanVersionId: Value(appliedPlanVersionId),
+      state: Value(state),
+      baselineBlocksJson: Value(baselineBlocksJson),
+      appliedBlockIdsJson: Value(appliedBlockIdsJson),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentUndoReceiptsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      baselinePlanVersionId: serializer.fromJson<String>(
+        json['baselinePlanVersionId'],
+      ),
+      appliedPlanVersionId: serializer.fromJson<String>(
+        json['appliedPlanVersionId'],
+      ),
+      state: serializer.fromJson<String>(json['state']),
+      baselineBlocksJson: serializer.fromJson<String>(
+        json['baselineBlocksJson'],
+      ),
+      appliedBlockIdsJson: serializer.fromJson<String>(
+        json['appliedBlockIdsJson'],
+      ),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'baselinePlanVersionId': serializer.toJson<String>(baselinePlanVersionId),
+      'appliedPlanVersionId': serializer.toJson<String>(appliedPlanVersionId),
+      'state': serializer.toJson<String>(state),
+      'baselineBlocksJson': serializer.toJson<String>(baselineBlocksJson),
+      'appliedBlockIdsJson': serializer.toJson<String>(appliedBlockIdsJson),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+    };
+  }
+
+  PlanAdjustmentUndoReceiptsData copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? baselinePlanVersionId,
+    String? appliedPlanVersionId,
+    String? state,
+    String? baselineBlocksJson,
+    String? appliedBlockIdsJson,
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanAdjustmentUndoReceiptsData(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    baselinePlanVersionId: baselinePlanVersionId ?? this.baselinePlanVersionId,
+    appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+    state: state ?? this.state,
+    baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+    appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+  );
+  PlanAdjustmentUndoReceiptsData copyWithCompanion(
+    PlanAdjustmentUndoReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      baselinePlanVersionId: data.baselinePlanVersionId.present
+          ? data.baselinePlanVersionId.value
+          : this.baselinePlanVersionId,
+      appliedPlanVersionId: data.appliedPlanVersionId.present
+          ? data.appliedPlanVersionId.value
+          : this.appliedPlanVersionId,
+      state: data.state.present ? data.state.value : this.state,
+      baselineBlocksJson: data.baselineBlocksJson.present
+          ? data.baselineBlocksJson.value
+          : this.baselineBlocksJson,
+      appliedBlockIdsJson: data.appliedBlockIdsJson.present
+          ? data.appliedBlockIdsJson.value
+          : this.appliedBlockIdsJson,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceiptsData(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentUndoReceiptsData &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.baselinePlanVersionId == this.baselinePlanVersionId &&
+          other.appliedPlanVersionId == this.appliedPlanVersionId &&
+          other.state == this.state &&
+          other.baselineBlocksJson == this.baselineBlocksJson &&
+          other.appliedBlockIdsJson == this.appliedBlockIdsJson &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc);
+}
+
+class PlanAdjustmentUndoReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentUndoReceiptsData> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> baselinePlanVersionId;
+  final Value<String> appliedPlanVersionId;
+  final Value<String> state;
+  final Value<String> baselineBlocksJson;
+  final Value<String> appliedBlockIdsJson;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentUndoReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.baselinePlanVersionId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.state = const Value.absent(),
+    this.baselineBlocksJson = const Value.absent(),
+    this.appliedBlockIdsJson = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentUndoReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String baselinePlanVersionId,
+    required String appliedPlanVersionId,
+    required String state,
+    required String baselineBlocksJson,
+    required String appliedBlockIdsJson,
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       baselinePlanVersionId = Value(baselinePlanVersionId),
+       appliedPlanVersionId = Value(appliedPlanVersionId),
+       state = Value(state),
+       baselineBlocksJson = Value(baselineBlocksJson),
+       appliedBlockIdsJson = Value(appliedBlockIdsJson),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentUndoReceiptsData> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? baselinePlanVersionId,
+    Expression<String>? appliedPlanVersionId,
+    Expression<String>? state,
+    Expression<String>? baselineBlocksJson,
+    Expression<String>? appliedBlockIdsJson,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (baselinePlanVersionId != null)
+        'baseline_plan_version_id': baselinePlanVersionId,
+      if (appliedPlanVersionId != null)
+        'applied_plan_version_id': appliedPlanVersionId,
+      if (state != null) 'state': state,
+      if (baselineBlocksJson != null)
+        'baseline_blocks_json': baselineBlocksJson,
+      if (appliedBlockIdsJson != null)
+        'applied_block_ids_json': appliedBlockIdsJson,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? baselinePlanVersionId,
+    Value<String>? appliedPlanVersionId,
+    Value<String>? state,
+    Value<String>? baselineBlocksJson,
+    Value<String>? appliedBlockIdsJson,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      baselinePlanVersionId:
+          baselinePlanVersionId ?? this.baselinePlanVersionId,
+      appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+      state: state ?? this.state,
+      baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+      appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (baselinePlanVersionId.present) {
+      map['baseline_plan_version_id'] = Variable<String>(
+        baselinePlanVersionId.value,
+      );
+    }
+    if (appliedPlanVersionId.present) {
+      map['applied_plan_version_id'] = Variable<String>(
+        appliedPlanVersionId.value,
+      );
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (baselineBlocksJson.present) {
+      map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson.value);
+    }
+    if (appliedBlockIdsJson.present) {
+      map['applied_block_ids_json'] = Variable<String>(
+        appliedBlockIdsJson.value,
+      );
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanChangeOutbox extends Table
+    with TableInfo<PlanChangeOutbox, PlanChangeOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanChangeOutbox(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dedupeKey = GeneratedColumn<String>(
+    'dedupe_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<int> nextAttemptAtUtc = GeneratedColumn<int>(
+    'next_attempt_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> lastErrorCode = GeneratedColumn<String>(
+    'last_error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    dedupeKey,
+    kind,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_change_outbox';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PlanChangeOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanChangeOutboxData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      dedupeKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dedupe_key'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at_utc'],
+      )!,
+      lastErrorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error_code'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  PlanChangeOutbox createAlias(String alias) {
+    return PlanChangeOutbox(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(id)',
+    'CHECK(attempts >= 0)',
+    'CHECK(kind IN (\'planChanged\', \'calendarRefresh\', \'trayRefresh\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanChangeOutboxData extends DataClass
+    implements Insertable<PlanChangeOutboxData> {
+  final String id;
+  final String dedupeKey;
+  final String kind;
+  final String payloadJson;
+  final int attempts;
+  final int nextAttemptAtUtc;
+  final String? lastErrorCode;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanChangeOutboxData({
+    required this.id,
+    required this.dedupeKey,
+    required this.kind,
+    required this.payloadJson,
+    required this.attempts,
+    required this.nextAttemptAtUtc,
+    this.lastErrorCode,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['dedupe_key'] = Variable<String>(dedupeKey);
+    map['kind'] = Variable<String>(kind);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['attempts'] = Variable<int>(attempts);
+    map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc);
+    if (!nullToAbsent || lastErrorCode != null) {
+      map['last_error_code'] = Variable<String>(lastErrorCode);
+    }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    return map;
+  }
+
+  PlanChangeOutboxCompanion toCompanion(bool nullToAbsent) {
+    return PlanChangeOutboxCompanion(
+      id: Value(id),
+      dedupeKey: Value(dedupeKey),
+      kind: Value(kind),
+      payloadJson: Value(payloadJson),
+      attempts: Value(attempts),
+      nextAttemptAtUtc: Value(nextAttemptAtUtc),
+      lastErrorCode: lastErrorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastErrorCode),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+    );
+  }
+
+  factory PlanChangeOutboxData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanChangeOutboxData(
+      id: serializer.fromJson<String>(json['id']),
+      dedupeKey: serializer.fromJson<String>(json['dedupeKey']),
+      kind: serializer.fromJson<String>(json['kind']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAtUtc: serializer.fromJson<int>(json['nextAttemptAtUtc']),
+      lastErrorCode: serializer.fromJson<String?>(json['lastErrorCode']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'dedupeKey': serializer.toJson<String>(dedupeKey),
+      'kind': serializer.toJson<String>(kind),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAtUtc': serializer.toJson<int>(nextAttemptAtUtc),
+      'lastErrorCode': serializer.toJson<String?>(lastErrorCode),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+    };
+  }
+
+  PlanChangeOutboxData copyWith({
+    String? id,
+    String? dedupeKey,
+    String? kind,
+    String? payloadJson,
+    int? attempts,
+    int? nextAttemptAtUtc,
+    Value<String?> lastErrorCode = const Value.absent(),
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanChangeOutboxData(
+    id: id ?? this.id,
+    dedupeKey: dedupeKey ?? this.dedupeKey,
+    kind: kind ?? this.kind,
+    payloadJson: payloadJson ?? this.payloadJson,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+    lastErrorCode: lastErrorCode.present
+        ? lastErrorCode.value
+        : this.lastErrorCode,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+  );
+  PlanChangeOutboxData copyWithCompanion(PlanChangeOutboxCompanion data) {
+    return PlanChangeOutboxData(
+      id: data.id.present ? data.id.value : this.id,
+      dedupeKey: data.dedupeKey.present ? data.dedupeKey.value : this.dedupeKey,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAtUtc: data.nextAttemptAtUtc.present
+          ? data.nextAttemptAtUtc.value
+          : this.nextAttemptAtUtc,
+      lastErrorCode: data.lastErrorCode.present
+          ? data.lastErrorCode.value
+          : this.lastErrorCode,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanChangeOutboxData(')
+          ..write('id: $id, ')
+          ..write('dedupeKey: $dedupeKey, ')
+          ..write('kind: $kind, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    dedupeKey,
+    kind,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
+    createdAtUtc,
+    completedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanChangeOutboxData &&
+          other.id == this.id &&
+          other.dedupeKey == this.dedupeKey &&
+          other.kind == this.kind &&
+          other.payloadJson == this.payloadJson &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAtUtc == this.nextAttemptAtUtc &&
+          other.lastErrorCode == this.lastErrorCode &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc);
+}
+
+class PlanChangeOutboxCompanion extends UpdateCompanion<PlanChangeOutboxData> {
+  final Value<String> id;
+  final Value<String> dedupeKey;
+  final Value<String> kind;
+  final Value<String> payloadJson;
+  final Value<int> attempts;
+  final Value<int> nextAttemptAtUtc;
+  final Value<String?> lastErrorCode;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> rowid;
+  const PlanChangeOutboxCompanion({
+    this.id = const Value.absent(),
+    this.dedupeKey = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAtUtc = const Value.absent(),
+    this.lastErrorCode = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanChangeOutboxCompanion.insert({
+    required String id,
+    required String dedupeKey,
+    required String kind,
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int nextAttemptAtUtc,
+    this.lastErrorCode = const Value.absent(),
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       dedupeKey = Value(dedupeKey),
+       kind = Value(kind),
+       nextAttemptAtUtc = Value(nextAttemptAtUtc),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanChangeOutboxData> custom({
+    Expression<String>? id,
+    Expression<String>? dedupeKey,
+    Expression<String>? kind,
+    Expression<String>? payloadJson,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAtUtc,
+    Expression<String>? lastErrorCode,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (dedupeKey != null) 'dedupe_key': dedupeKey,
+      if (kind != null) 'kind': kind,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAtUtc != null) 'next_attempt_at_utc': nextAttemptAtUtc,
+      if (lastErrorCode != null) 'last_error_code': lastErrorCode,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanChangeOutboxCompanion copyWith({
+    Value<String>? id,
+    Value<String>? dedupeKey,
+    Value<String>? kind,
+    Value<String>? payloadJson,
+    Value<int>? attempts,
+    Value<int>? nextAttemptAtUtc,
+    Value<String?>? lastErrorCode,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanChangeOutboxCompanion(
+      id: id ?? this.id,
+      dedupeKey: dedupeKey ?? this.dedupeKey,
+      kind: kind ?? this.kind,
+      payloadJson: payloadJson ?? this.payloadJson,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+      lastErrorCode: lastErrorCode ?? this.lastErrorCode,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (dedupeKey.present) {
+      map['dedupe_key'] = Variable<String>(dedupeKey.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAtUtc.present) {
+      map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc.value);
+    }
+    if (lastErrorCode.present) {
+      map['last_error_code'] = Variable<String>(lastErrorCode.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanChangeOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('dedupeKey: $dedupeKey, ')
+          ..write('kind: $kind, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class DatabaseAtV11 extends GeneratedDatabase {
   DatabaseAtV11(QueryExecutor e) : super(e);
   late final Areas areas = Areas(this);
@@ -22314,6 +23686,11 @@ class DatabaseAtV11 extends GeneratedDatabase {
   late final PlanAdjustmentEvents planAdjustmentEvents = PlanAdjustmentEvents(
     this,
   );
+  late final PlanAdjustmentApplyReceipts planAdjustmentApplyReceipts =
+      PlanAdjustmentApplyReceipts(this);
+  late final PlanAdjustmentUndoReceipts planAdjustmentUndoReceipts =
+      PlanAdjustmentUndoReceipts(this);
+  late final PlanChangeOutbox planChangeOutbox = PlanChangeOutbox(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -22362,6 +23739,9 @@ class DatabaseAtV11 extends GeneratedDatabase {
     pendingPlanPreviewBlocks,
     planAdjustments,
     planAdjustmentEvents,
+    planAdjustmentApplyReceipts,
+    planAdjustmentUndoReceipts,
+    planChangeOutbox,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([

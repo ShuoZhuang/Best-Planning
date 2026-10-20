@@ -11,7 +11,7 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('创建全部四十三张核心表并启用外键', () async {
+  test('创建全部四十六张核心表并启用外键', () async {
     // 断言 **SQLite 自己**的表目录，而不是 `database.allTables`：后者是 drift 依据 schema
     // 声明生成的列表，拿它跟字面量比对等于把声明抄一遍——它发现不了"迁移里漏了一句
     // CREATE TABLE"，而那恰好是本用例标题所声称要检查的事（§13.0 的 T3）。
@@ -63,6 +63,10 @@ void main() {
       // v11 的块级调整操作与状态审计（1.11.0 计划 Task 3）。
       'plan_adjustments',
       'plan_adjustment_events',
+      // v11 的应用回执、撤销快照与提交后 outbox（计划 Task 10/11）。
+      'plan_adjustment_apply_receipts',
+      'plan_adjustment_undo_receipts',
+      'plan_change_outbox',
     };
     final rows = await database
         .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -117,4 +121,3 @@ void main() {
     expect(violations, isEmpty);
   });
 }
-

@@ -5744,6 +5744,329 @@
           "sequence"
         ]
       }
+    },
+    {
+      "id": 43,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "plan_adjustment_apply_receipts",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "receipt_id",
+            "getter_name": "receiptId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "adjustment_id",
+            "getter_name": "adjustmentId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "defaultConstraints": "UNIQUE",
+            "dialectAwareDefaultConstraints": {
+              "sqlite": "UNIQUE"
+            },
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": [
+              "unique"
+            ]
+          },
+          {
+            "name": "token_hash",
+            "getter_name": "tokenHash",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "defaultConstraints": "UNIQUE",
+            "dialectAwareDefaultConstraints": {
+              "sqlite": "UNIQUE"
+            },
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": [
+              "unique"
+            ]
+          },
+          {
+            "name": "plan_version_id",
+            "getter_name": "planVersionId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "undo_receipt_id",
+            "getter_name": "undoReceiptId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "created_at_utc",
+            "getter_name": "createdAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": false,
+        "constraints": [
+          "CHECK (length(token_hash) = 64)",
+          "CHECK (created_at_utc >= 0)"
+        ],
+        "explicit_pk": [
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "id": 44,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "plan_adjustment_undo_receipts",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "receipt_id",
+            "getter_name": "receiptId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "adjustment_id",
+            "getter_name": "adjustmentId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "defaultConstraints": "UNIQUE",
+            "dialectAwareDefaultConstraints": {
+              "sqlite": "UNIQUE"
+            },
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": [
+              "unique"
+            ]
+          },
+          {
+            "name": "baseline_plan_version_id",
+            "getter_name": "baselinePlanVersionId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "applied_plan_version_id",
+            "getter_name": "appliedPlanVersionId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "state",
+            "getter_name": "state",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "baseline_blocks_json",
+            "getter_name": "baselineBlocksJson",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "applied_block_ids_json",
+            "getter_name": "appliedBlockIdsJson",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "created_at_utc",
+            "getter_name": "createdAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "completed_at_utc",
+            "getter_name": "completedAtUtc",
+            "moor_type": "int",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": false,
+        "constraints": [
+          "CHECK (state IN ('available', 'completed', 'blocked'))"
+        ],
+        "explicit_pk": [
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "id": 45,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "plan_change_outbox",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "id",
+            "getter_name": "id",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "dedupe_key",
+            "getter_name": "dedupeKey",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "defaultConstraints": "UNIQUE",
+            "dialectAwareDefaultConstraints": {
+              "sqlite": "UNIQUE"
+            },
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": [
+              "unique"
+            ]
+          },
+          {
+            "name": "kind",
+            "getter_name": "kind",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "payload_json",
+            "getter_name": "payloadJson",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('\\'{}\\'')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "attempts",
+            "getter_name": "attempts",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('0')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "next_attempt_at_utc",
+            "getter_name": "nextAttemptAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "last_error_code",
+            "getter_name": "lastErrorCode",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "created_at_utc",
+            "getter_name": "createdAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "completed_at_utc",
+            "getter_name": "completedAtUtc",
+            "moor_type": "int",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": false,
+        "constraints": [
+          "CHECK (attempts >= 0)",
+          "CHECK (kind IN ('planChanged', 'calendarRefresh', 'trayRefresh'))"
+        ],
+        "explicit_pk": [
+          "id"
+        ]
+      }
     }
   ],
   "fixed_sql": [
@@ -6131,6 +6454,33 @@
         {
           "dialect": "sqlite",
           "sql": "CREATE TABLE IF NOT EXISTS \"plan_adjustment_events\" (\"adjustment_id\" TEXT NOT NULL REFERENCES plan_adjustments (adjustment_id) ON DELETE CASCADE, \"sequence\" INTEGER NOT NULL, \"from_status\" TEXT NOT NULL, \"to_status\" TEXT NOT NULL, \"revision\" INTEGER NOT NULL, \"occurred_at_utc\" INTEGER NOT NULL, \"reason_code\" TEXT NULL, PRIMARY KEY (\"adjustment_id\", \"sequence\"), CHECK (sequence >= 1), CHECK (revision >= 1));"
+        }
+      ]
+    },
+    {
+      "name": "plan_adjustment_apply_receipts",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"plan_adjustment_apply_receipts\" (\"receipt_id\" TEXT NOT NULL, \"adjustment_id\" TEXT NOT NULL UNIQUE, \"token_hash\" TEXT NOT NULL UNIQUE, \"plan_version_id\" TEXT NOT NULL, \"undo_receipt_id\" TEXT NOT NULL, \"created_at_utc\" INTEGER NOT NULL, PRIMARY KEY (\"receipt_id\"), CHECK (length(token_hash) = 64), CHECK (created_at_utc >= 0));"
+        }
+      ]
+    },
+    {
+      "name": "plan_adjustment_undo_receipts",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"plan_adjustment_undo_receipts\" (\"receipt_id\" TEXT NOT NULL, \"adjustment_id\" TEXT NOT NULL UNIQUE, \"baseline_plan_version_id\" TEXT NOT NULL, \"applied_plan_version_id\" TEXT NOT NULL, \"state\" TEXT NOT NULL, \"baseline_blocks_json\" TEXT NOT NULL, \"applied_block_ids_json\" TEXT NOT NULL, \"created_at_utc\" INTEGER NOT NULL, \"completed_at_utc\" INTEGER NULL, PRIMARY KEY (\"receipt_id\"), CHECK (state IN ('available', 'completed', 'blocked')));"
+        }
+      ]
+    },
+    {
+      "name": "plan_change_outbox",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"plan_change_outbox\" (\"id\" TEXT NOT NULL, \"dedupe_key\" TEXT NOT NULL UNIQUE, \"kind\" TEXT NOT NULL, \"payload_json\" TEXT NOT NULL DEFAULT '{}', \"attempts\" INTEGER NOT NULL DEFAULT 0, \"next_attempt_at_utc\" INTEGER NOT NULL, \"last_error_code\" TEXT NULL, \"created_at_utc\" INTEGER NOT NULL, \"completed_at_utc\" INTEGER NULL, PRIMARY KEY (\"id\"), CHECK (attempts >= 0), CHECK (kind IN ('planChanged', 'calendarRefresh', 'trayRefresh')));"
         }
       ]
     }
