@@ -198,4 +198,3 @@ void main() {
     expect(DeterministicScheduleEngine.algorithmVersion, '20');
   });
 }
-

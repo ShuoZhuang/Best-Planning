@@ -1862,4 +1862,3 @@ int _gapMinutes(TimeRange a, TimeRange b) {
   }
   return a.startUtc.difference(b.endUtc).inMinutes;
 }
-

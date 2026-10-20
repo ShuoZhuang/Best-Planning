@@ -35,6 +35,7 @@ final class HardConstraintViolation {
     required this.requiredMinutes,
     required this.availableMinutes,
     this.blockId,
+    this.relatedBlockId,
   });
 
   final HardConstraintCode code;
@@ -49,6 +50,9 @@ final class HardConstraintViolation {
   final int availableMinutes;
 
   final String? blockId;
+
+  /// 与本次违规直接相关的另一块（休息/重叠）。用于在整份计划校验里去重。
+  final String? relatedBlockId;
 
   @override
   String toString() =>
@@ -238,15 +242,17 @@ final class PlanHardConstraintEvaluator {
       }
     }
 
-    // ⑧ 任务间休息（只与**紧邻**的其他任务块比较；同任务连续片段不在此列）。
+    // ⑧ 任务之间（以及**同一任务相邻片段之间**）的休息。引擎的既有契约是
+    // "任意两个任务块之间保留休息，不区分任务类型"，因此这里**不跳过同任务块**；
+    // 唯一例外是模型显式允许的连续片段——本仓库没有这种标记，故不设例外。
     final neighbours = [
       for (final other in [...otherBlocks, ...problem.lockedBlocks])
-        if (other.id != block.id && other.taskId != block.taskId) other,
+        if (other.id != block.id) other,
     ];
     for (final other in neighbours) {
-      // 只由**较早的那一块**报告，避免同一对相邻块报两遍。
-      if (!other.startUtc.isAfter(block.startUtc)) continue;
-      final gap = other.startUtc.difference(block.endUtc).inMinutes;
+      final gap = other.startUtc.isBefore(block.startUtc)
+          ? block.startUtc.difference(other.endUtc).inMinutes
+          : other.startUtc.difference(block.endUtc).inMinutes;
       if (gap < 0) continue; // 重叠由 planBlockConflict 负责
       final otherPolicy = context.policyFor(
         _localDate(context, other.startUtc),
@@ -262,6 +268,7 @@ final class PlanHardConstraintEvaluator {
             requiredMinutes: required,
             availableMinutes: gap,
             blockId: block.id,
+            relatedBlockId: other.id,
           ),
         );
         break;
@@ -332,8 +339,22 @@ final class PlanHardConstraintEvaluator {
       }
     }
 
-    violations.sort(_priority);
-    return List.unmodifiable(violations);
+    // 相邻休息在逐块校验里会从**两侧各报一次**：按无向对去重，保证"一对相邻块
+    // 只有一条休息证据"（与 validator 旧口径一致）。
+    final seenBreakPairs = <String>{};
+    final deduped = <HardConstraintViolation>[];
+    for (final violation in violations) {
+      if (violation.code == HardConstraintCode.requiredBreakUnavailable &&
+          violation.blockId != null &&
+          violation.relatedBlockId != null) {
+        final ids = [violation.blockId!, violation.relatedBlockId!]..sort();
+        if (!seenBreakPairs.add('${ids[0]}|${ids[1]}')) continue;
+      }
+      deduped.add(violation);
+    }
+
+    deduped.sort(_priority);
+    return List.unmodifiable(deduped);
   }
 
   // ── 内部 ─────────────────────────────────────────────────────────────────

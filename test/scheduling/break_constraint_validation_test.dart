@@ -146,7 +146,7 @@ void main() {
     );
   });
 
-  test('同一任务的连续片段不要求任务间休息', () {
+  test('同一任务的相邻片段同样要求休息（引擎契约：不区分任务类型）', () {
     final rules = DefaultSettings.v1().copyWith(breakMinutes: 30);
     final continuous = SchedulableTask(
       id: 'task-a',
@@ -175,7 +175,7 @@ void main() {
 
     expect(
       conflicts.where((c) => c.code == ConflictCode.requiredBreakUnavailable),
-      isEmpty,
+      isNotEmpty,
     );
   });
 
