@@ -20,6 +20,7 @@ import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 import 'package:personal_planner/scheduling/schedule_proposal_codec.dart';
+import 'package:personal_planner/scheduling/search_outcome.dart';
 
 /// 调整专属的排程输入装配端口（计划 Task 5 Step 4）。
 ///
@@ -631,6 +632,15 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
       );
     }
     final raw = engine.generate(problem);
+    // 搜索结果门禁（DFR-043）：预算耗尽与不变量违反**都不是**可确认方案。
+    // 允许部分应用也不能放行：用户要的是"这次延后"，不是"随便写一部分"。
+    if (!isApplicableOutcome(raw.outcome, allowPartial: true)) {
+      throw AdjustmentSourceException(
+        raw.outcome == SearchOutcomeKind.invariantViolation
+            ? PlanAdjustmentFailureCode.invariantViolation
+            : PlanAdjustmentFailureCode.searchBudgetExhausted,
+      );
+    }
     final requirement = AdjustmentRequirement(
       targetBlockId: adjustment.targetBlockId,
       notBeforeUtc: adjustment.notBeforeUtc,

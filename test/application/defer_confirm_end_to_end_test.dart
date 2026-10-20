@@ -13,6 +13,7 @@ import 'package:personal_planner/data/repositories/drift_plan_adjustment_reposit
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/defer_unit.dart';
+import 'package:personal_planner/domain/models/pending_plan_preview.dart';
 import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
@@ -23,6 +24,9 @@ import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+import 'package:personal_planner/scheduling/search_outcome.dart';
+import 'package:personal_planner/scheduling/schedule_proposal_codec.dart';
+import 'package:drift/drift.dart' show Variable;
 
 import '../application/execution/execution_test_support.dart';
 
@@ -35,6 +39,28 @@ final class _NoCalendar implements CalendarRepository {
 
   @override
   Future<void> save(CalendarEvent event) async {}
+}
+
+final class _BudgetExhaustedEngine implements ScheduleEngine {
+  const _BudgetExhaustedEngine();
+
+  @override
+  ScheduleProposal generate(ScheduleProblem problem) => ScheduleProposal(
+    proposalId: 'budget-proposal',
+    inputHash: problem.inputHash,
+    algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
+    planningWindow: problem.planningWindow,
+    blocks: const [],
+    unscheduled: const [],
+    conflicts: const [],
+    explanations: const [],
+    metrics: const ProposalMetrics(
+      isFullyFeasible: false,
+      scheduledMinutes: 0,
+      unscheduledMinutes: 0,
+    ),
+    outcome: SearchOutcomeKind.budgetExhausted,
+  );
 }
 
 final class _NoLifeAreas implements LifeAreaLookup {
@@ -53,6 +79,7 @@ void main() {
   late DriftPlanAdjustmentRepository adjustments;
   late DriftPendingPlanPreviewRepository previews;
   late PlanAdjustmentService service;
+  late RepositoryScheduleProblemSource source;
 
   final sourceStart = DateTime.utc(2026, 10, 19, 7);
   var sideEffectCalls = 0;
@@ -71,7 +98,7 @@ void main() {
       harness.database,
       clock: harness.clock,
     );
-    final source = RepositoryScheduleProblemSource(
+    source = RepositoryScheduleProblemSource(
       tasks: harness.taskRepository,
       lifeAreas: const _NoLifeAreas(),
       calendar: _NoCalendar(),
@@ -218,5 +245,109 @@ void main() {
       (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
       PlanAdjustmentStatus.cancelled,
     );
+  });
+
+  test('确认前硬约束校验失败：零计划写入、零回执，调整仍可重生', () async {
+    const codec = ScheduleProposalCodec();
+    final begun = await service.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    final generated = await service.generate(begun.adjustment!.adjustmentId);
+    expect(generated.status, GenerateAdjustmentPreviewStatus.previewReady);
+
+    // 把持久预览篡改成"新增一块与目标块重叠"的方案：令牌仍匹配（哈希一起改），
+    // 只有硬约束不合法。确认必须被 validator 拦下。
+    final bundle = await previews.active(
+      PendingPreviewKind.deferAdjustment,
+      operationId: begun.adjustment!.adjustmentId,
+    );
+    final proposal = codec.decode(bundle!.preview.proposalJson);
+    final target = proposal.blocks.firstWhere(
+      (block) => block.taskId == 'task-1',
+    );
+    final tampered = proposal.withBlocks([
+      ...proposal.blocks,
+      PlannedBlock(
+        id: 'overlapping-dup',
+        taskId: target.taskId,
+        range: TimeRange(
+          startUtc: target.range.startUtc.add(const Duration(minutes: 5)),
+          endUtc: target.range.endUtc,
+        ),
+      ),
+    ]);
+    await harness.database.customUpdate(
+      'UPDATE pending_plan_previews SET proposal_json = ?, '
+      'proposal_sha256 = ? WHERE preview_id = ?',
+      variables: [
+        Variable.withString(codec.encodeCanonical(tampered)),
+        Variable.withString(codec.sha256OfCanonical(tampered)),
+        Variable.withString(generated.previewId!),
+      ],
+    );
+
+    final confirmed = await service.confirmAdjustment(
+      adjustmentId: begun.adjustment!.adjustmentId,
+      previewId: generated.previewId!,
+    );
+
+    expect(confirmed.status, AdjustmentApplyStatus.invalid);
+    expect((await plans.current())!.id, 'base-1');
+    expect(
+      (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
+      PlanAdjustmentStatus.previewReady,
+    );
+    expect(
+      (await previews.byId(generated.previewId!))!.status,
+      PendingPreviewStatus.active,
+    );
+  });
+
+  test('搜索预算耗尽：生成失败且零计划写入、零预览', () async {
+    final capped = PlanAdjustmentService(
+      plans: plans,
+      tasks: harness.taskRepository,
+      adjustments: adjustments,
+      previews: previews,
+      source: source,
+      // 引擎返回 budgetExhausted：它**不能**被当作"有解"或被部分应用。
+      engine: const _BudgetExhaustedEngine(),
+      policy: DeferTimePolicy(zones),
+      clock: harness.clock,
+      ids: harness.ids,
+      granularityForDate: (_) async => 5,
+      zones: zones,
+      timeZoneId: zoneId,
+      applier: plans,
+    );
+    final begun = await capped.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    final generated = await capped.generate(begun.adjustment!.adjustmentId);
+
+    expect(
+      generated.status,
+      isNot(GenerateAdjustmentPreviewStatus.previewReady),
+    );
+    expect((await plans.current())!.id, 'base-1');
+    expect(
+      await previews.active(
+        PendingPreviewKind.deferAdjustment,
+        operationId: begun.adjustment!.adjustmentId,
+      ),
+      isNull,
+    );
+    final status = (await adjustments.byId(begun.adjustment!.adjustmentId))!
+        .status;
+    expect([
+      PlanAdjustmentStatus.failed,
+      PlanAdjustmentStatus.stale,
+    ], contains(status));
   });
 }
