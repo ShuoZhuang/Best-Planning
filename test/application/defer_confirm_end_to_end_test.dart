@@ -307,6 +307,38 @@ void main() {
     );
   });
 
+  test('预览内容损坏（codec 失败）：确认被拒且零写入', () async {
+    final begun = await service.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    final generated = await service.generate(begun.adjustment!.adjustmentId);
+    expect(generated.status, GenerateAdjustmentPreviewStatus.previewReady);
+
+    // 直接破坏持久预览的 JSON：解码失败必须转成 invalid，而不是抛出未处理异常。
+    await harness.database.customUpdate(
+      'UPDATE pending_plan_previews SET proposal_json = ? WHERE preview_id = ?',
+      variables: [
+        Variable.withString('{"formatVersion":1,"proposal":{}}'),
+        Variable.withString(generated.previewId!),
+      ],
+    );
+
+    final confirmed = await service.confirmAdjustment(
+      adjustmentId: begun.adjustment!.adjustmentId,
+      previewId: generated.previewId!,
+    );
+
+    expect(confirmed.status, AdjustmentApplyStatus.invalid);
+    expect(confirmed.reasonCode, 'proposalCodec');
+    expect((await plans.current())!.id, 'base-1');
+    expect(
+      (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
+      PlanAdjustmentStatus.previewReady,
+    );
+  });
   test('搜索预算耗尽：生成失败且零计划写入、零预览', () async {
     final capped = PlanAdjustmentService(
       plans: plans,
