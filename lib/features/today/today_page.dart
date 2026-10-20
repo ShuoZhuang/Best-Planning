@@ -12,6 +12,7 @@ import 'package:personal_planner/features/calendar/schedule_category_legend.dart
 import 'package:personal_planner/features/calendar/schedule_category_summary.dart';
 import 'package:personal_planner/features/calendar/schedule_item_open_target.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/today/defer_eligibility.dart';
 import 'package:personal_planner/features/execution/execution_bar.dart';
 import 'package:personal_planner/features/execution/execution_card.dart';
 import 'package:personal_planner/features/execution/execution_controller.dart';
@@ -542,6 +543,7 @@ final class _TimelinePanel extends StatelessWidget {
                         isLast: index == items.length - 1,
                         formatTime: formatTime,
                         isCurrent: _isCurrent(items[index]),
+                        nowUtc: nowUtc,
                         onStartFocus: onStartFocus,
                         onComplete: onComplete,
                         onOpenDetail: onOpenDetail,
@@ -597,6 +599,7 @@ final class _TimelineItem extends StatelessWidget {
     required this.isLast,
     required this.formatTime,
     required this.isCurrent,
+    required this.nowUtc,
     this.onStartFocus,
     this.onComplete,
     this.onOpenDetail,
@@ -610,6 +613,7 @@ final class _TimelineItem extends StatelessWidget {
   final bool isLast;
   final String Function(DateTime value) formatTime;
   final bool isCurrent;
+  final DateTime nowUtc;
   final ValueChanged<ScheduleViewItem>? onStartFocus;
   final ValueChanged<ScheduleViewItem>? onComplete;
   final ValueChanged<ScheduleViewItem>? onOpenDetail;
@@ -869,6 +873,7 @@ final class _TimelineItem extends StatelessWidget {
     // 没有合法目标（生活块、缺 taskId 的任务块、id 拆不出事件 id 的固定日程）时它是 `null`，
     // 于是这一项**不渲染**——这正是 §3.2 的"不显示死入口"。
     final openLabel = onOpenDetail == null ? null : scheduleItemOpenLabel(item);
+    final deferEntry = DeferEligibility.forItem(item: item, nowUtc: nowUtc);
     final menuItems = <PopupMenuEntry<String>>[
       if (openLabel != null)
         PopupMenuItem(value: 'detail', child: Text(openLabel)),
@@ -876,8 +881,13 @@ final class _TimelineItem extends StatelessWidget {
       // 只对**任务块**出现——固定日程与保护时间没有"要不要做"这回事。
       if (_isTask && onSkipCurrent != null)
         const PopupMenuItem(value: 'skip', child: Text('跳过本次')),
-      if (_isTask && onDefer != null)
-        const PopupMenuItem(value: 'defer', child: Text('延后本次')),
+      if (onDefer != null && deferEntry.isVisible)
+        deferEntry.isEnabled
+            ? const PopupMenuItem(value: 'defer', child: Text('延后本次'))
+            : PopupMenuItem<String>(
+                enabled: false,
+                child: Text(deferEntry.disabledLabel ?? '延后本次'),
+              ),
       if (_isMovable && onRequestAdjust != null)
         const PopupMenuItem(value: 'adjust', child: Text('请求调整')),
       if (_isMovable && onToggleLock != null)
