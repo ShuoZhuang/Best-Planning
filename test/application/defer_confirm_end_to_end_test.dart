@@ -15,6 +15,7 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/defer_unit.dart';
 import 'package:personal_planner/domain/models/pending_plan_preview.dart';
 import 'package:personal_planner/domain/models/plan_adjustment.dart';
+import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
@@ -349,5 +350,55 @@ void main() {
       PlanAdjustmentStatus.failed,
       PlanAdjustmentStatus.stale,
     ], contains(status));
+  });
+
+  test('任务在窗口内不可安排：生成失败且零写入（局部/全局都无解）', () async {
+    // 目标块仍在确认计划里，但任务的最早开始时间落在规划窗口之后：
+    // 装配层会把它作为 futureOutsideWindow 排除，于是目标块没有任何延续者。
+    final current = await harness.taskRepository.getById('task-1');
+    await harness.taskRepository.save(
+      PlannerTask(
+        id: current!.id,
+        areaId: current.areaId,
+        title: current.title,
+        priority: current.priority,
+        estimatedMinutes: current.estimatedMinutes,
+        remainingMinutes: current.remainingMinutes,
+        energyLevel: current.energyLevel,
+        splitMode: current.splitMode,
+        minChunkMinutes: current.minChunkMinutes,
+        maxChunkMinutes: current.maxChunkMinutes,
+        status: TaskStatus.open,
+        availableFromUtc: DateTime.utc(2026, 11, 1),
+        createdAtUtc: current.createdAtUtc,
+        updatedAtUtc: harness.clock.nowUtc(),
+      ),
+    );
+    final begun = await service.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    expect(begun.status, BeginDeferStatus.created);
+
+    final generated = await service.generate(begun.adjustment!.adjustmentId);
+
+    expect(
+      generated.status,
+      isNot(GenerateAdjustmentPreviewStatus.previewReady),
+    );
+    expect((await plans.current())!.id, 'base-1');
+    expect(
+      await previews.active(
+        PendingPreviewKind.deferAdjustment,
+        operationId: begun.adjustment!.adjustmentId,
+      ),
+      isNull,
+    );
+    expect(
+      (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
+      PlanAdjustmentStatus.failed,
+    );
   });
 }
