@@ -19,8 +19,11 @@ void main() {
     endUtc: DateTime.utc(2026, 10, 26),
   );
 
-  ScheduleProposal proposal({DateTime? blockStart}) => ScheduleProposal(
-    proposalId: 'proposal-1',
+  ScheduleProposal proposal({
+    DateTime? blockStart,
+    String proposalId = 'proposal-1',
+  }) => ScheduleProposal(
+    proposalId: proposalId,
     inputHash: 'hash-1',
     algorithmVersion: '20',
     planningWindow: window,
@@ -148,6 +151,36 @@ void main() {
         (proposalJson['blocks'] as List).single as Map<String, Object?>;
     final blockKeys = block.keys.toList();
     expect(blockKeys, [...blockKeys]..sort());
+  });
+
+  test('proposalId 不参与内容哈希（实例身份与内容指纹分离）', () {
+    final first = proposal(proposalId: 'proposal-1');
+    final second = proposal(proposalId: 'proposal-2');
+
+    expect(
+      codec.sha256OfCanonical(second),
+      codec.sha256OfCanonical(first),
+      reason: '实例 ID 每次生成都不同，不能影响内容指纹',
+    );
+    expect(codec.encodeCanonical(first), isNot(codec.encodeCanonical(second)));
+  });
+
+  test('调整要求变化会改变内容哈希（DFR-033）', () {
+    final base = proposal();
+    final changed = base.withAdjustmentRequirement(
+      AdjustmentRequirement(
+        targetBlockId: 'block-1',
+        notBeforeUtc: DateTime.utc(2026, 10, 19, 4),
+        requiredMinutes: 60,
+        originalStartUtc: DateTime.utc(2026, 10, 19, 2),
+      ),
+    );
+
+    expect(
+      codec.sha256OfCanonical(changed),
+      isNot(codec.sha256OfCanonical(base)),
+      reason: '下界变化必须让预览令牌失效',
+    );
   });
 
   test('未知 formatVersion 拒绝解码，不按残缺字段重建', () {

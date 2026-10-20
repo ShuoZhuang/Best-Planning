@@ -43,8 +43,25 @@ final class ScheduleProposalCodec {
     return _proposalFrom(body);
   }
 
-  String sha256OfCanonical(ScheduleProposal proposal) =>
-      sha256.convert(utf8.encode(encodeCanonical(proposal))).toString();
+  /// 提案**语义内容**的 SHA-256（DFR-013）。
+  ///
+  /// **不含 `proposalId`**：实例 ID 每次生成都不同，把它写进哈希会让"同一输入
+  /// 两次生成"得到不同指纹，于是"内容没变"的提案被判为过期，或让调整令牌
+  /// 无法区分"身份变化"与"内容变化"。`proposalId` 仍会随文档持久化（用于身份），
+  /// 只是不参与指纹。
+  String sha256OfCanonical(ScheduleProposal proposal) => sha256
+      .convert(
+        utf8.encode(jsonEncode(_canonicalize(_contentPayload(proposal)))),
+      )
+      .toString();
+
+  Map<String, Object?> _contentPayload(ScheduleProposal proposal) {
+    final payload = _payload(proposal);
+    final body = Map<String, Object?>.of(
+      payload['proposal']! as Map<String, Object?>,
+    )..remove('proposalId');
+    return {'formatVersion': payload['formatVersion'], 'proposal': body};
+  }
 
   // ── 编码 ─────────────────────────────────────────────────────────────────
 

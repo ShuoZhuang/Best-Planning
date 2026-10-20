@@ -969,7 +969,10 @@ ScheduleProblem _problemFromFixture(Map<String, Object?> fixture) {
 final TimeZoneDatabase _fixtureZones = TimeZoneDatabase();
 
 String _signature(dynamic proposal) => jsonEncode({
-  'id': proposal.proposalId,
+  // **刻意不含 `proposalId`**（DFR-013）：实例 ID 每次生成都不同，判"结果是否
+  // 相同"必须比较块/缺口/冲突这些语义内容；把实例 ID 写进签名会让确定性测试
+  // 与"每次生成都唯一"直接矛盾。
+  'id': '<instance>',
   'blocks': [
     for (final block in proposal.blocks)
       [

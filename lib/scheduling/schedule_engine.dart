@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -25,11 +26,18 @@ abstract interface class ScheduleEngine {
 }
 
 final class DeterministicScheduleEngine implements ScheduleEngine {
-  DeterministicScheduleEngine(this._zones, {this.maxAllocationStates = 10000})
-    : _availabilityBuilder = AvailabilityBuilder(_zones),
-      _validator = PlanValidator(_zones);
+  DeterministicScheduleEngine(
+    this._zones, {
+    this.maxAllocationStates = 10000,
+    IdGenerator? proposalIds,
+  }) : _proposalIds = proposalIds ?? UuidIdGenerator(),
+       _availabilityBuilder = AvailabilityBuilder(_zones),
+       _validator = PlanValidator(_zones);
 
   final int maxAllocationStates;
+
+  /// 提案实例 ID 发生器（DFR-013）：不得从 inputHash 派生，否则两次生成会撞同一 id。
+  final IdGenerator _proposalIds;
 
   /// 算法版本。任何会改变排程结果的改动都必须提升该值，否则历史计划无法按
   /// 当时的算法复现（设计 §5.1）。版本 2 引入同一任务的片段间休息，并把续排
@@ -669,7 +677,7 @@ final class DeterministicScheduleEngine implements ScheduleEngine {
       (sum, task) => sum + task.shortageMinutes,
     );
     return ScheduleProposal(
-      proposalId: 'proposal:${problem.inputHash}:$algorithmVersion',
+      proposalId: _proposalIds.next(),
       inputHash: problem.inputHash,
       algorithmVersion: algorithmVersion,
       // **生成时的窗口随提案走**（1.8.0，冻结决策 §1.3）：预览装配层要在生成**之后**

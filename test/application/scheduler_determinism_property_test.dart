@@ -22,6 +22,7 @@ import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
+import 'package:personal_planner/scheduling/schedule_proposal_codec.dart';
 
 import '../support/daily_policies.dart';
 
@@ -194,12 +195,18 @@ void main() {
       expect(reversed, forward, reason: '锁定块顺序改变导致结果不同');
     });
 
-    test('输入哈希相同的两次装配得到同一个 `proposalId`', () {
+    test('输入哈希相同的两次生成：实例 ID 不同、内容指纹相同（DFR-013）', () {
+      const codec = ScheduleProposalCodec();
       final engine = DeterministicScheduleEngine(_zones);
       final first = engine.generate(_problem());
       final second = engine.generate(_problem());
-      expect(second.proposalId, first.proposalId);
+
       expect(second.inputHash, first.inputHash);
+      // `proposalId` 是**实例身份**：每次生成必须不同，否则第二次确认会与
+      // 第一次撞同一个计划版本主键，或让"同一令牌重放"失去区分力。
+      expect(second.proposalId, isNot(first.proposalId));
+      // 判"内容是否相同"只能用语义指纹，不能用实例 ID。
+      expect(codec.sha256OfCanonical(second), codec.sha256OfCanonical(first));
     });
   });
 
