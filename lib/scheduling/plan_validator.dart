@@ -1,9 +1,8 @@
 import 'dart:collection';
-import 'dart:math' as math;
 
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
-import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
+import 'package:personal_planner/scheduling/plan_hard_constraint_evaluator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 enum ConflictCode {
@@ -580,92 +579,53 @@ final class PlanValidator {
     // 因此不计入本上限。AvailabilityBuilder 同样先把锁定块从可用时间中扣除，
     // 再把当日预算花在剩余空闲上；若此处再把锁定块计入，同一段时长会被计算两次，
     // 产生虚假的 dailyLimitExceeded，并使 PlanApplicationService 把合法提案判为 invalid。
-    // **逐日上限必须按块所在本地日查当天的策略**（DFR-027/031）：用窗口首日的
-    // `problem.rules` 检查所有日期，会让"周末上限更高"被周一的上限判成超限，也会让
-    // "周末上限更低"被放过。缺某天策略是装配不变量破坏，直接报输入错误，不偷偷套默认值。
-    final minutesByLocalDate = <DateTime, int>{};
-    for (final block in blocks) {
-      if (block.locked) continue;
-      final localDate = normalizeLocalDate(
-        _zones.toLocal(block.startUtc, problem.timeZoneId),
-      );
-      minutesByLocalDate.update(
-        localDate,
-        (value) => value + block.durationMinutes,
-        ifAbsent: () => block.durationMinutes,
-      );
-    }
-    for (final entry in minutesByLocalDate.entries) {
-      final policy = problem.dailyPolicies[entry.key];
-      if (policy == null) {
-        conflicts.add(
-          PlanningConflict(
-            code: ConflictCode.invalidInput,
-            blockingInput: 'missingDailyPolicy',
-            details: {
-              'localDate':
-                  '${entry.key.year}-${entry.key.month}-${entry.key.day}',
-            },
+    // 逐日上限与任务间休息由**统一判定器**给出（计划 Task 6，DFR-024/025/031）：
+    // 这里只做"稳定码 -> 冲突码"的翻译，不再保留第二份判断。
+    final evaluatorViolations = PlanHardConstraintEvaluator(_zones)
+        .validatePlan(
+          blocks: blocks,
+          context: HardConstraintContext(
+            problem: problem,
+            // 校验阶段没有独立时钟：窗口起点就是引擎与装配层共同的"现在"。
+            nowUtc: problem.planningWindow.startUtc,
           ),
         );
-        continue;
+    for (final violation in evaluatorViolations) {
+      switch (violation.code) {
+        case HardConstraintCode.taskDailyLimitReached:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.dailyLimitExceeded,
+              details: {
+                'localDate': _dateKey(violation.localDate),
+                'scheduledMinutes': violation.requiredMinutes,
+                'limitMinutes': violation.availableMinutes,
+              },
+            ),
+          );
+        case HardConstraintCode.requiredBreakUnavailable:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.requiredBreakUnavailable,
+              details: {
+                'gapMinutes': violation.availableMinutes,
+                'breakMinutes': violation.requiredMinutes,
+                'localDate': _dateKey(violation.localDate),
+              },
+            ),
+          );
+        case HardConstraintCode.missingDailyPolicy:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.invalidInput,
+              blockingInput: 'missingDailyPolicy',
+              details: {'localDate': _dateKey(violation.localDate)},
+            ),
+          );
+        default:
+          // 其余码由逐块循环或片段集合校验负责归因；这里不重复报。
+          break;
       }
-      final limit = policy.resolvedRules.dailyMovableTaskLimitMinutes;
-      if (entry.value > limit) {
-        conflicts.add(
-          PlanningConflict(
-            code: ConflictCode.dailyLimitExceeded,
-            details: {
-              'localDate':
-                  '${entry.key.year}-${entry.key.month}-${entry.key.day}',
-              'scheduledMinutes': entry.value,
-              'limitMinutes': limit,
-            },
-          ),
-        );
-      }
-    }
-
-    // 相邻任务块之间的休息间隔（DFR-025/031）。同一任务的连续片段不在此列：
-    // 连续/拆分规则另有判定，把同任务也要求休息会让合法的连续片段被判非法。
-    final orderedForBreak = [...blocks]
-      ..sort((a, b) {
-        final byStart = a.startUtc.compareTo(b.startUtc);
-        return byStart != 0 ? byStart : a.id.compareTo(b.id);
-      });
-    for (var index = 1; index < orderedForBreak.length; index++) {
-      final previous = orderedForBreak[index - 1];
-      final next = orderedForBreak[index];
-      if (previous.taskId == next.taskId) continue;
-      final gap = next.startUtc.difference(previous.endUtc).inMinutes;
-      // 重叠由 `blockOverlap` 单独报告；这里只判断"分离但不够远"。
-      if (gap < 0) continue;
-      final previousDate = normalizeLocalDate(
-        _zones.toLocal(previous.startUtc, problem.timeZoneId),
-      );
-      final nextDate = normalizeLocalDate(
-        _zones.toLocal(next.startUtc, problem.timeZoneId),
-      );
-      final previousPolicy = problem.dailyPolicies[previousDate];
-      final nextPolicy = problem.dailyPolicies[nextDate];
-      if (previousPolicy == null || nextPolicy == null) continue;
-      final required = math.max(
-        previousPolicy.resolvedRules.breakMinutes,
-        nextPolicy.resolvedRules.breakMinutes,
-      );
-      if (required <= 0 || gap >= required) continue;
-      conflicts.add(
-        PlanningConflict(
-          code: ConflictCode.requiredBreakUnavailable,
-          taskId: next.taskId,
-          relatedEntityIds: [previous.id, next.id],
-          details: {
-            'gapMinutes': gap,
-            'breakMinutes': required,
-            'localDate': '${nextDate.year}-${nextDate.month}-${nextDate.day}',
-          },
-        ),
-      );
     }
     return List.unmodifiable(conflicts);
   }
@@ -702,4 +662,8 @@ final class PlanValidator {
     // 它的值是**枚举名**，不是自由文本。
     details: {'reason': reason.name, ...details},
   );
+
+  /// 把本地日期写成既有的 `yyyy-m-d` 键（与 DFR-027 的 details 口径一致）。
+  static String _dateKey(DateTime? date) =>
+      date == null ? '' : '${date.year}-${date.month}-${date.day}';
 }
