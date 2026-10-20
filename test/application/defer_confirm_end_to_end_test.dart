@@ -42,6 +42,31 @@ final class _NoCalendar implements CalendarRepository {
   Future<void> save(CalendarEvent event) async {}
 }
 
+/// 回退路径的坏样本：目标块仍停在原位置。
+///
+/// 这正是 DFR-035 的红线——"回退看起来成功、其实没有移动"。服务必须在生成阶段
+/// 就判为未兑现，而不是把它当预览交付。
+final class _NoMoveEngine implements ScheduleEngine {
+  const _NoMoveEngine();
+
+  @override
+  ScheduleProposal generate(ScheduleProblem problem) => ScheduleProposal(
+    proposalId: 'no-move-proposal',
+    inputHash: problem.inputHash,
+    algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
+    planningWindow: problem.planningWindow,
+    blocks: problem.confirmedBlocks,
+    unscheduled: const [],
+    conflicts: const [],
+    explanations: const [],
+    metrics: const ProposalMetrics(
+      isFullyFeasible: true,
+      scheduledMinutes: 0,
+      unscheduledMinutes: 0,
+    ),
+  );
+}
+
 final class _BudgetExhaustedEngine implements ScheduleEngine {
   const _BudgetExhaustedEngine();
 
@@ -384,6 +409,48 @@ void main() {
     ], contains(status));
   });
 
+  test('回退方案让目标原地不动：判为未兑现，零写入', () async {
+    final frozen = PlanAdjustmentService(
+      plans: plans,
+      tasks: harness.taskRepository,
+      adjustments: adjustments,
+      previews: previews,
+      source: source,
+      engine: const _NoMoveEngine(),
+      policy: DeferTimePolicy(zones),
+      clock: harness.clock,
+      ids: harness.ids,
+      granularityForDate: (_) async => 5,
+      zones: zones,
+      timeZoneId: zoneId,
+      applier: plans,
+    );
+    final begun = await frozen.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    final generated = await frozen.generate(begun.adjustment!.adjustmentId);
+
+    expect(
+      generated.status,
+      isNot(GenerateAdjustmentPreviewStatus.previewReady),
+      reason: '目标块还在原位时，绝不能交付"看起来成功"的预览',
+    );
+    expect((await plans.current())!.id, 'base-1');
+    expect(
+      await previews.active(
+        PendingPreviewKind.deferAdjustment,
+        operationId: begun.adjustment!.adjustmentId,
+      ),
+      isNull,
+    );
+    expect(
+      (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
+      PlanAdjustmentStatus.failed,
+    );
+  });
   test('任务在窗口内不可安排：生成失败且零写入（局部/全局都无解）', () async {
     // 目标块仍在确认计划里，但任务的最早开始时间落在规划窗口之后：
     // 装配层会把它作为 futureOutsideWindow 排除，于是目标块没有任何延续者。
