@@ -16,6 +16,7 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -133,6 +134,12 @@ final class PlannerApp extends StatefulWidget {
 
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
+
+    /// 1.11.0：持久化的「延后本次」服务。
+    ///
+    /// **为空时退回 1.8.0 的内存路径**（测试与未装配排程时）：那条路径仍然可用，
+    /// 但不会持久化调整、也拿不到确认/撤销与重启恢复。
+    this.adjustmentService,
 
     /// 「跳过本次」产生的待处理跳过（M4，2026-10-07 用户定义）。
     /// 为空即该入口不显示（测试与未装配排程时）——与 [pendingMoves] 同一口径。
@@ -305,6 +312,9 @@ final class PlannerApp extends StatefulWidget {
   /// 手动拖动的落点（FR-CAL-05）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingMoveDrafts? pendingMoves;
+
+  /// 持久调整服务（1.11.0）。导航只携带 adjustmentId，页面从仓储重新读取。
+  final PlanAdjustmentService? adjustmentService;
 
   /// 「跳过本次」的落点（M4）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
@@ -526,6 +536,7 @@ final class _PlannerAppState extends State<PlannerApp>
       // 且日历工具栏不显示「管理课程」。
       courseManagement: widget.courseManagement,
       pendingMoves: widget.pendingMoves,
+      adjustmentService: widget.adjustmentService,
       // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
       // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。
       pendingSkips: widget.planningService == null ? null : widget.pendingSkips,

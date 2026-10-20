@@ -16,6 +16,7 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/plan_undo_service.dart';
@@ -39,6 +40,8 @@ import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
+import 'package:personal_planner/features/planning/adjustment_preview_page.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
@@ -381,6 +384,11 @@ GoRouter createPlannerRouter({
   /// 「延后本次」的一次性计划块位移意图。为 `null` 时今日页不显示该入口。
   PendingMoveDrafts? pendingMoves,
 
+  /// 1.11.0：持久调整服务。提供时今日页的「延后本次」走
+  /// `beginDefer → generate → /planning/adjustment/:id`，并支持确认、取消与撤销；
+  /// 为空时退回 1.8.0 的内存路径（测试与未装配排程时）。
+  PlanAdjustmentService? adjustmentService,
+
   /// 「跳过本次」的落点（M4，2026-10-07 用户定义）。为 `null` 时今日页**不显示**该入口。
   PendingSkipDrafts? pendingSkips,
   required DateTime todayStartUtc,
@@ -577,7 +585,15 @@ GoRouter createPlannerRouter({
               //    并在 `finally` 里销毁（`endAdjustment`），因此"生成失败"这条路径也不会
               //    把它留给下一次生成（全局不变量第 4 条）；
               // 3. 对话框提供分钟／小时／天三种单位（§11.1），天的语义是**本地日历日**。
-              onDefer: pendingMoves == null || planningService == null
+              onDefer: adjustmentService != null
+                  ? (item) => _deferThroughAdjustment(
+                      context,
+                      item: item,
+                      service: adjustmentService,
+                      plans: plans,
+                      timeZoneId: timeZoneId,
+                    )
+                  : pendingMoves == null || planningService == null
                   ? null
                   : (item) async {
                       final blockId = movableTaskBlockId(item);
@@ -1897,6 +1913,18 @@ GoRouter createPlannerRouter({
               );
             },
           ),
+          if (adjustmentService != null)
+            GoRoute(
+              // 只携带 adjustmentId：页面启动后重新读仓储（DFR-001/018）。
+              path: '/planning/adjustment/:adjustmentId',
+              builder: (context, state) => AdjustmentPreviewPage(
+                key: ValueKey(state.pathParameters['adjustmentId']),
+                adjustmentId: state.pathParameters['adjustmentId']!,
+                port: adjustmentService,
+                zones: zones,
+                timeZoneId: timeZoneId,
+              ),
+            ),
           GoRoute(
             path: '/planning/preview/:proposalId',
             builder: (context, state) => _PlanPreviewLoader(
@@ -3136,3 +3164,83 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
+
+/// 1.11.0：把今日页的「延后本次」接到持久调整服务。
+///
+/// **导航只携带 adjustmentId**：生成结束之后请求仍然活着（DFR-001），预览页从仓储
+/// 重新读取，因此重启、返回或重新打开都不会退回成"普通生成"。
+Future<void> _deferThroughAdjustment(
+  BuildContext context, {
+  required ScheduleViewItem item,
+  required PlanAdjustmentService service,
+  required PlanRepository? plans,
+  required String timeZoneId,
+}) async {
+  final blockId = movableTaskBlockId(item);
+  if (blockId == null) return;
+  final repository = plans;
+  final current = repository == null ? null : await repository.current();
+  if (!context.mounted) return;
+  if (current == null) {
+    showPlannerMessage(context, message: '还没有确认计划，无法延后这一块。');
+    return;
+  }
+  final choice = await _showDeferCurrentDialog(
+    context,
+    sourceStartUtc: item.range.startUtc,
+    timeZoneId: timeZoneId,
+  );
+  if (choice == null || !context.mounted) return;
+  final begun = await service.beginDefer(
+    currentPlanVersionId: current.id,
+    targetBlockId: blockId,
+    amount: choice.amount,
+    unit: choice.unit,
+  );
+  if (!context.mounted) return;
+  if (begun.status != BeginDeferStatus.created || begun.adjustment == null) {
+    showPlannerMessage(context, message: _deferBeginMessage(begun.status));
+    return;
+  }
+  final generated = await service.generate(begun.adjustment!.adjustmentId);
+  if (!context.mounted) return;
+  if (generated.status != GenerateAdjustmentPreviewStatus.previewReady) {
+    showPlannerMessage(context, message: _deferGenerateMessage(generated));
+    return;
+  }
+  context.go('/planning/adjustment/${begun.adjustment!.adjustmentId}');
+}
+
+String _deferBeginMessage(BeginDeferStatus status) => switch (status) {
+  BeginDeferStatus.created => '',
+  BeginDeferStatus.targetMissing => '这一块已经不在当前计划里，请刷新后重试。',
+  BeginDeferStatus.targetChanged => '计划已经变化，请刷新后再延后。',
+  BeginDeferStatus.targetIneligible => '这一块已经开始、完成或已锁定，不能延后。',
+  BeginDeferStatus.operationConflict => '这一块已有一次延后正在进行。',
+  BeginDeferStatus.invalidAmount => '延后量超出允许范围。',
+};
+
+String _deferGenerateMessage(GenerateAdjustmentPreviewResult result) =>
+    switch (result.status) {
+      GenerateAdjustmentPreviewStatus.previewReady => '',
+      GenerateAdjustmentPreviewStatus.stale => '计划或目标块已经变化，请重新发起延后。',
+      GenerateAdjustmentPreviewStatus.notFound => '找不到这次延后。',
+      GenerateAdjustmentPreviewStatus.terminal => '这次延后已经结束。',
+      GenerateAdjustmentPreviewStatus.failed => switch (result.failureCode) {
+        PlanAdjustmentFailureCode.deadlineExceeded => '延后会超过任务截止时间，当前计划未改变。',
+        PlanAdjustmentFailureCode.disallowedWeekday => '目标日期不允许安排这项任务，当前计划未改变。',
+        PlanAdjustmentFailureCode.taskDailyLimitReached ||
+        PlanAdjustmentFailureCode.globalDailyLimitReached =>
+          '那一天的可安排上限已用完，当前计划未改变。',
+        PlanAdjustmentFailureCode.fixedOrProtectedConflict =>
+          '目标时段与固定日程或保护时间冲突，当前计划未改变。',
+        PlanAdjustmentFailureCode.requiredBreakUnavailable =>
+          '找不到满足任务间休息的位置，当前计划未改变。',
+        PlanAdjustmentFailureCode.searchBudgetExhausted => '未能在计算限制内找到方案，可以重试。',
+        PlanAdjustmentFailureCode.concurrentModification =>
+          '另一个操作先修改了这次延后，请重试。',
+        PlanAdjustmentFailureCode.targetChanged => '目标块已经变化，请重新发起延后。',
+        PlanAdjustmentFailureCode.invariantViolation => '生成过程中出现内部异常，当前计划未改变。',
+        _ => '这次延后没有找到合法位置，当前计划未改变。',
+      },
+    };
