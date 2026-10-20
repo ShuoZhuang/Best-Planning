@@ -211,7 +211,11 @@ void main() {
     await tester.pumpWidget(MaterialApp.router(routerConfig: router));
     router.go('/today');
     await _settle(tester);
-    expect(find.byKey(const Key('today-more-block:base-1:block-1')), findsOneWidget, reason: '菜单入口');
+    expect(
+      find.byKey(const Key('today-more-block:base-1:block-1')),
+      findsOneWidget,
+      reason: '菜单入口',
+    );
     await tester.tap(find.byKey(const Key('today-more-block:base-1:block-1')));
     await _settle(tester);
     expect(find.text('延后本次'), findsWidgets, reason: '菜单项');
@@ -245,9 +249,3 @@ void main() {
     expect(target.startUtc, DateTime.utc(2026, 10, 19, 7));
   });
 }
-
-
-
-
-
-
