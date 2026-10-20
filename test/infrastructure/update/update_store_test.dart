@@ -155,7 +155,9 @@ void main() {
     test('clear 只删除日志，不动更新目录里的其他文件', () async {
       final store = FileUpdateLogStore(directory: directory);
       store.writeLine('hello');
-      final package = File('${directory.path}${Platform.pathSeparator}package.msix.ready');
+      final package = File(
+        '${directory.path}${Platform.pathSeparator}package.msix.ready',
+      );
       await package.writeAsBytes([1, 2, 3]);
 
       await store.clear();

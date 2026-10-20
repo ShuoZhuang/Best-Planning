@@ -68,9 +68,6 @@ void main() {
           '${temp.path}${Platform.pathSeparator}WindowsApps${Platform.pathSeparator}missing.exe',
     );
 
-    expect(
-      await missing.stageHelperForLaunch(),
-      missing.helperPath,
-    );
+    expect(await missing.stageHelperForLaunch(), missing.helperPath);
   });
 }

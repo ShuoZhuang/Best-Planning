@@ -27,7 +27,8 @@ final class UpdateStorageLayout {
     String? localAppData,
     String productDirectory = 'BestPlanning',
   }) {
-    final base = localAppData ??
+    final base =
+        localAppData ??
         Platform.environment['LOCALAPPDATA'] ??
         Directory.systemTemp.path;
     return UpdateStorageLayout(
@@ -61,13 +62,11 @@ final class UpdateStorageLayout {
     '${versionDirectory(target.msixVersion).path}${_separator}package.msix.ready',
   );
 
-  File requestFile(MsixVersion version) => File(
-    '${versionDirectory(version).path}${_separator}update-request.json',
-  );
+  File requestFile(MsixVersion version) =>
+      File('${versionDirectory(version).path}${_separator}update-request.json');
 
-  File helperStatusFile(MsixVersion version) => File(
-    '${versionDirectory(version).path}${_separator}helper-status.json',
-  );
+  File helperStatusFile(MsixVersion version) =>
+      File('${versionDirectory(version).path}${_separator}helper-status.json');
 
   File healthConfirmationFile(MsixVersion version) => File(
     '${versionDirectory(version).path}${_separator}health-confirmation.json',
@@ -112,4 +111,3 @@ final class UpdateStorageLayout {
         normalizedPath.startsWith(rootWithSeparator);
   }
 }
-

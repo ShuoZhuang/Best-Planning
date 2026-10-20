@@ -70,7 +70,9 @@ void main() {
   });
 
   test('目标位置是目录时失败，并给出操作名与 Windows 错误码', () async {
-    final target = Directory('${directory.path}${Platform.pathSeparator}state.json');
+    final target = Directory(
+      '${directory.path}${Platform.pathSeparator}state.json',
+    );
     await target.create();
 
     try {

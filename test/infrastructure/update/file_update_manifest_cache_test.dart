@@ -51,7 +51,8 @@ void main() {
     ) as UpdateManifestEnvelope;
     await cache.save((await verifier.verify(envelope)).verified!);
 
-    final raw = jsonDecode(await cache.file.readAsString()) as Map<String, Object?>;
+    final raw =
+        jsonDecode(await cache.file.readAsString()) as Map<String, Object?>;
     final envelopeNode = (raw['envelope']! as Map).cast<String, Object?>();
     final payload = (envelopeNode['payload']! as Map).cast<String, Object?>();
     (payload['package']! as Map)['sizeBytes'] = 999;
@@ -88,4 +89,3 @@ void main() {
     expect(await cache.load(), isNull);
   });
 }
-

@@ -66,9 +66,8 @@ final class FileUpdateLogStore implements UpdateLogSink {
     }
   }
 
-  File _rotatedFile(int index) => File(
-    '${directory.path}${Platform.pathSeparator}update.log.$index',
-  );
+  File _rotatedFile(int index) =>
+      File('${directory.path}${Platform.pathSeparator}update.log.$index');
 
   @override
   Future<List<String>> readRecent({int maxLines = 200}) async {
@@ -119,5 +118,3 @@ final class FileUpdateLogStore implements UpdateLogSink {
     return cleaned;
   }
 }
-
-

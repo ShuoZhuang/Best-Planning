@@ -183,8 +183,7 @@ final class UpdateStatusCard extends StatelessWidget {
       return snapshot.state.lastFailure?.userMessage;
     }
     if (snapshot.state.phase == UpdatePhase.temporarilyBlocked) {
-      return snapshot.state.lastFailure?.userMessage ??
-          '更新信息暂时无法确认，稍后会自动重试。';
+      return snapshot.state.lastFailure?.userMessage ?? '更新信息暂时无法确认，稍后会自动重试。';
     }
     return null;
   }

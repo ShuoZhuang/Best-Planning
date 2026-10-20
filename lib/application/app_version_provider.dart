@@ -50,4 +50,3 @@ final class FixedAppVersionProvider implements AppVersionProvider {
   @override
   Future<AppVersion?> currentVersion() async => version;
 }
-

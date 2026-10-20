@@ -31,7 +31,8 @@ final class UpdateHealthService {
       'schemaVersion': 1,
       'transactionId': transactionId,
       'version': version.value,
-      'ok': databaseOpened &&
+      'ok':
+          databaseOpened &&
           migrationSucceeded &&
           repositoriesReadable &&
           uiInitialized &&

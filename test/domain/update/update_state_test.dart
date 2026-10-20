@@ -11,8 +11,7 @@ const _target = UpdateTarget(
   tag: 'v1.9.0',
   msixVersion: MsixVersion(1, 9, 0, 0),
   fileName: 'BestPlanning_1.9.0.0_x64.msix',
-  downloadUrl:
-      'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
+  downloadUrl: 'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
   sizeBytes: 2048,
   sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   manifestDigest:
@@ -76,10 +75,7 @@ void main() {
         final result = state.transitionTo(to);
         expect(result.acceptedTransition, isFalse);
         expect(result.state.phase, from);
-        expect(
-          result.failure!.code,
-          UpdateFailureCode.stateIllegalTransition,
-        );
+        expect(result.failure!.code, UpdateFailureCode.stateIllegalTransition);
         // 非法跳转不写 updatedAtUtc，也不改变任何其它字段。
         expect(result.state.updatedAtUtc, isNull);
       });
@@ -130,7 +126,10 @@ void main() {
       expect(restored.target!.msixVersion.value, '1.9.0.0');
       expect(restored.baseline!.version.value, '1.8.1.0');
       expect(restored.lastFailure!.code, UpdateFailureCode.networkOffline);
-      expect(restored.lastCheckClassification, UpdateCheckClassification.updateAvailable);
+      expect(
+        restored.lastCheckClassification,
+        UpdateCheckClassification.updateAvailable,
+      );
       expect(restored.targetFailureCount, 3);
       expect(restored.pausedTargetVersion, '1.9.0.0');
       expect(restored.downloadProgress, 0.5);
@@ -142,8 +141,14 @@ void main() {
         {...base, 'schemaVersion': 2},
         {...base, 'phase': 'unknownPhase'},
         {...base, 'receivedBytes': -1},
-        {...base, 'target': {'version': '1.9.0'}},
-        {...base, 'lastFailure': {'code': 'UPDATE_NOT_A_REAL_CODE'}},
+        {
+          ...base,
+          'target': {'version': '1.9.0'},
+        },
+        {
+          ...base,
+          'lastFailure': {'code': 'UPDATE_NOT_A_REAL_CODE'},
+        },
       ];
       for (final json in cases) {
         expect(UpdateState.tryParse(json), isNull, reason: '$json');
@@ -168,7 +173,10 @@ void main() {
 
   group('崩溃恢复动作', () {
     test('每个阶段都有明确动作', () {
-      expect(recoveryActionFor(UpdatePhase.checking), UpdateRecoveryAction.recheck);
+      expect(
+        recoveryActionFor(UpdatePhase.checking),
+        UpdateRecoveryAction.recheck,
+      );
       expect(
         recoveryActionFor(UpdatePhase.downloading),
         UpdateRecoveryAction.resumeDownload,
@@ -223,20 +231,21 @@ void main() {
     final busy = UpdatePhase.values
         .where((phase) => UpdateState(phase: phase).isBusy)
         .toSet();
-    expect(busy, containsAll([
-      UpdatePhase.checking,
-      UpdatePhase.downloading,
-      UpdatePhase.verifying,
-      UpdatePhase.preparingInstall,
-      UpdatePhase.waitingForExit,
-      UpdatePhase.installing,
-      UpdatePhase.launchingNewVersion,
-      UpdatePhase.waitingForHealth,
-      UpdatePhase.rollingBack,
-    ]));
+    expect(
+      busy,
+      containsAll([
+        UpdatePhase.checking,
+        UpdatePhase.downloading,
+        UpdatePhase.verifying,
+        UpdatePhase.preparingInstall,
+        UpdatePhase.waitingForExit,
+        UpdatePhase.installing,
+        UpdatePhase.launchingNewVersion,
+        UpdatePhase.waitingForHealth,
+        UpdatePhase.rollingBack,
+      ]),
+    );
     expect(busy.contains(UpdatePhase.ready), isFalse);
     expect(busy.contains(UpdatePhase.downloadPaused), isFalse);
   });
 }
-
-

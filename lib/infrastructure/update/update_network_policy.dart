@@ -23,7 +23,8 @@ abstract final class UpdateNetworkPolicy {
   static bool isAllowedManifestUri(Uri uri) {
     if (!_isGithubRepoPath(uri)) return false;
     final path = uri.path;
-    if (path == '/ShuoZhuang/Best-Planning/releases/latest/download/update-manifest.json') {
+    if (path ==
+        '/ShuoZhuang/Best-Planning/releases/latest/download/update-manifest.json') {
       return true;
     }
     return RegExp(

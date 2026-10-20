@@ -35,12 +35,15 @@ void main() {
       ..add(ArchiveFile.string('AppxBlockMap.xml', '<BlockMap/>'));
     if (includeManifest) {
       archive.add(
-        ArchiveFile.string('AppxManifest.xml', _manifestXml(
-          name: identityName,
-          publisher: publisher,
-          version: version,
-          architecture: architecture,
-        )),
+        ArchiveFile.string(
+          'AppxManifest.xml',
+          _manifestXml(
+            name: identityName,
+            publisher: publisher,
+            version: version,
+            architecture: architecture,
+          ),
+        ),
       );
     }
     if (includeSignature) {
@@ -64,8 +67,7 @@ void main() {
       tag: 'v1.9.0',
       msixVersion: version ?? const MsixVersion(1, 9, 0, 0),
       fileName: 'BestPlanning_1.9.0.0_x64.msix',
-      downloadUrl:
-          'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
+      downloadUrl: 'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
       sizeBytes: bytes.length,
       sha256: sha256Override ?? sha256.convert(bytes).toString(),
       manifestDigest: 'a' * 64,

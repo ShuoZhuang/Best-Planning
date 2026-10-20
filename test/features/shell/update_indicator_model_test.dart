@@ -52,7 +52,10 @@ void main() {
   });
 
   test('updateAvailable/downloading 显示下载进度，点击展开卡片', () {
-    for (final phase in [UpdatePhase.updateAvailable, UpdatePhase.downloading]) {
+    for (final phase in [
+      UpdatePhase.updateAvailable,
+      UpdatePhase.downloading,
+    ]) {
       final model = UpdateIndicatorModel.from(_snapshot(phase, progress: 0.42));
       expect(model.kind, UpdateIndicatorKind.downloading);
       expect(model.progress, 0.42);
@@ -126,7 +129,9 @@ void main() {
     final permanent = UpdateIndicatorModel.from(
       _snapshot(
         UpdatePhase.failed,
-        failure: const UpdateFailure(UpdateFailureCode.packagePublisherMismatch),
+        failure: const UpdateFailure(
+          UpdateFailureCode.packagePublisherMismatch,
+        ),
       ),
     );
     expect(permanent.kind, UpdateIndicatorKind.failedPermanent);

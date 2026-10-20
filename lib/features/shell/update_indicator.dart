@@ -43,36 +43,36 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 140),
-                child: _expanded
-                    ? Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: UpdateStatusCard(
-                          snapshot: snapshot,
-                          onInstall: _install,
-                          onRetry: _retry,
-                          onDownload: _download,
-                          onCheck: _check,
-                          onOpenDetails: () {
-                            setState(() => _expanded = false);
-                            widget.onOpenDetails?.call();
-                          },
-                          onClose: () => setState(() => _expanded = false),
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
-              _IndicatorButton(
-                model: model,
-                onPressed: () => _handleTap(model),
-                onLongPress: () => widget.onOpenDetails?.call(),
-              ),
-            ],
-          ),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 140),
+                  child: _expanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: UpdateStatusCard(
+                            snapshot: snapshot,
+                            onInstall: _install,
+                            onRetry: _retry,
+                            onDownload: _download,
+                            onCheck: _check,
+                            onOpenDetails: () {
+                              setState(() => _expanded = false);
+                              widget.onOpenDetails?.call();
+                            },
+                            onClose: () => setState(() => _expanded = false),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                _IndicatorButton(
+                  model: model,
+                  onPressed: () => _handleTap(model),
+                  onLongPress: () => widget.onOpenDetails?.call(),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -208,12 +208,12 @@ final class _IndicatorButton extends StatelessWidget {
   static String _label(UpdateIndicatorModel model) {
     final progress = model.progress;
     return switch (model.kind) {
-      UpdateIndicatorKind.downloading => progress == null
-          ? model.title
-          : '${model.title} ${(progress * 100).round()}%',
+      UpdateIndicatorKind.downloading =>
+        progress == null
+            ? model.title
+            : '${model.title} ${(progress * 100).round()}%',
       UpdateIndicatorKind.verifying => model.title,
-      UpdateIndicatorKind.ready =>
-        model.canInstall ? '更新已就绪' : '更新已就绪（暂时不可用）',
+      UpdateIndicatorKind.ready => model.canInstall ? '更新已就绪' : '更新已就绪（暂时不可用）',
       UpdateIndicatorKind.blocked => '暂时无法确认更新',
       UpdateIndicatorKind.failedRetryable => '更新失败，点击重试',
       UpdateIndicatorKind.failedPermanent => '更新失败',
@@ -229,20 +229,16 @@ final class _IndicatorButton extends StatelessWidget {
     UpdateIndicatorKind.ready => Icons.system_update_alt_rounded,
     UpdateIndicatorKind.blocked => Icons.cloud_off_rounded,
     UpdateIndicatorKind.failedRetryable ||
-    UpdateIndicatorKind.failedPermanent =>
-      Icons.error_outline_rounded,
+    UpdateIndicatorKind.failedPermanent => Icons.error_outline_rounded,
     UpdateIndicatorKind.hidden => Icons.circle_outlined,
   };
 
   Color _color(ThemeData theme) => switch (model.kind) {
     UpdateIndicatorKind.ready => theme.colorScheme.primary,
     UpdateIndicatorKind.failedRetryable ||
-    UpdateIndicatorKind.failedPermanent =>
-      theme.colorScheme.error,
+    UpdateIndicatorKind.failedPermanent => theme.colorScheme.error,
     UpdateIndicatorKind.blocked ||
-    UpdateIndicatorKind.paused =>
-      theme.colorScheme.onSurfaceVariant,
+    UpdateIndicatorKind.paused => theme.colorScheme.onSurfaceVariant,
     _ => theme.colorScheme.primary,
   };
 }
-

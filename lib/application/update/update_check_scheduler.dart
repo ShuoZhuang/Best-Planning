@@ -78,8 +78,8 @@ final class UpdateCheckScheduler {
       return;
     }
     if (!controller.autoUpdateEnabled) return;
-    final last = controller.orchestrator.state.lastConfirmedUtc ??
-        state.lastCheckedUtc;
+    final last =
+        controller.orchestrator.state.lastConfirmedUtc ?? state.lastCheckedUtc;
     if (last == null) {
       unawaited(_checkIfEnabled());
       return;
@@ -116,4 +116,3 @@ final class UpdateCheckScheduler {
     _networkSubscription = null;
   }
 }
-

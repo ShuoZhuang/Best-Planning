@@ -197,11 +197,10 @@ UpdateRecoveryAction recoveryActionFor(UpdatePhase phase) => switch (phase) {
   UpdatePhase.waitingForExit => UpdateRecoveryAction.inspectHelperAndProcess,
   UpdatePhase.installing => UpdateRecoveryAction.queryInstalledPackage,
   UpdatePhase.launchingNewVersion ||
-  UpdatePhase.waitingForHealth =>
-    UpdateRecoveryAction.continueHealthWait,
+  UpdatePhase.waitingForHealth => UpdateRecoveryAction.continueHealthWait,
   UpdatePhase.succeeded => UpdateRecoveryAction.verifyAndCleanup,
-  UpdatePhase.rollingBack || UpdatePhase.rolledBack =>
-    UpdateRecoveryAction.resumeRollback,
+  UpdatePhase.rollingBack ||
+  UpdatePhase.rolledBack => UpdateRecoveryAction.resumeRollback,
   UpdatePhase.failed => UpdateRecoveryAction.keepFailureAndWait,
 };
 
@@ -467,8 +466,7 @@ final class UpdateState {
     UpdatePhase.installing ||
     UpdatePhase.launchingNewVersion ||
     UpdatePhase.waitingForHealth ||
-    UpdatePhase.rollingBack =>
-      true,
+    UpdatePhase.rollingBack => true,
     _ => false,
   };
 
@@ -504,7 +502,9 @@ final class UpdateState {
             'code': lastFailure!.code.code,
             'detail': lastFailure!.detail,
             'windowsResultCode': lastFailure!.windowsResultCode,
-            'occurredAtUtc': lastFailure!.occurredAtUtc?.toUtc().toIso8601String(),
+            'occurredAtUtc': lastFailure!.occurredAtUtc
+                ?.toUtc()
+                .toIso8601String(),
             'attempt': lastFailure!.attempt,
           },
     'transactionId': transactionId,
@@ -563,7 +563,9 @@ final class UpdateState {
         detail: failureJson['detail'] as String?,
         windowsResultCode: failureJson['windowsResultCode'] as int?,
         occurredAtUtc: _parseUtc(failureJson['occurredAtUtc']),
-        attempt: failureJson['attempt'] is int ? failureJson['attempt'] as int : 0,
+        attempt: failureJson['attempt'] is int
+            ? failureJson['attempt'] as int
+            : 0,
       );
     } else if (failureJson != null) {
       return null;
@@ -582,7 +584,9 @@ final class UpdateState {
       return null;
     }
     final targetJson = json['target'];
-    final target = targetJson == null ? null : UpdateTarget.tryParse(targetJson);
+    final target = targetJson == null
+        ? null
+        : UpdateTarget.tryParse(targetJson);
     if (targetJson != null && target == null) return null;
     final transactionId = json['transactionId'];
     final snapshotPath = json['snapshotPath'];
@@ -638,6 +642,3 @@ final class UpdateTransitionResult {
 
   bool get acceptedTransition => failure == null;
 }
-
-
-

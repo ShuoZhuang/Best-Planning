@@ -38,27 +38,23 @@ void main() {
   test('签名后改动 payload 会被发现', () async {
     final payload = validManifestPayload();
     final envelopeJson = await signedManifestEnvelope(payload);
-    final tampered = (UpdateManifestEnvelope.tryParse(envelopeJson)
-            as UpdateManifestEnvelope)
-        .payloadJson
-        .cast<String, Object?>();
+    final tampered = (UpdateManifestEnvelope.tryParse(
+      envelopeJson,
+    ) as UpdateManifestEnvelope).payloadJson.cast<String, Object?>();
     tampered['release'] = {
       ...(tampered['release']! as Map).cast<String, Object?>(),
       'buildNumber': 47,
     };
     final envelope = UpdateManifestEnvelope(
       payloadJson: tampered,
-      signature: (UpdateManifestEnvelope.tryParse(envelopeJson)
-              as UpdateManifestEnvelope)
-          .signature,
+      signature: (UpdateManifestEnvelope.tryParse(
+        envelopeJson,
+      ) as UpdateManifestEnvelope).signature,
     );
 
     final result = await (await createTestVerifier()).verify(envelope);
     expect(result.isValid, isFalse);
-    expect(
-      result.failure?.code,
-      UpdateFailureCode.manifestSignatureInvalid,
-    );
+    expect(result.failure?.code, UpdateFailureCode.manifestSignatureInvalid);
   });
 
   test('不在允许集合里的 keyId 一律拒绝', () async {
@@ -68,10 +64,7 @@ void main() {
     ) as UpdateManifestEnvelope;
 
     final result = await (await createTestVerifier()).verify(envelope);
-    expect(
-      result.failure?.code,
-      UpdateFailureCode.manifestSignatureInvalid,
-    );
+    expect(result.failure?.code, UpdateFailureCode.manifestSignatureInvalid);
   });
 
   test('用另一把密钥签的清单不能通过', () async {
@@ -124,10 +117,6 @@ void main() {
 
     final result = await (await createTestVerifier()).verify(envelope);
     expect(result.isValid, isFalse);
-    expect(
-      result.failure?.code,
-      UpdateFailureCode.manifestVersionInconsistent,
-    );
+    expect(result.failure?.code, UpdateFailureCode.manifestVersionInconsistent);
   });
 }
-

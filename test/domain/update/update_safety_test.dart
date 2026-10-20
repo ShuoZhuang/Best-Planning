@@ -31,17 +31,18 @@ void main() {
   });
 
   test('多个阻塞同时存在时只显示主阻塞的文案', () {
-    const status = UpdateSafetyStatus(blockers: {
-      UpdateBlocker.diskSpaceLow,
-      UpdateBlocker.unsavedChanges,
-    });
+    const status = UpdateSafetyStatus(
+      blockers: {UpdateBlocker.diskSpaceLow, UpdateBlocker.unsavedChanges},
+    );
     expect(status.message, startsWith('请先保存'));
     expect(status.canInstall, isFalse);
   });
 
   test('移除阻塞后恢复可安装', () {
-    final blocked = const UpdateSafetyStatus.safe()
-        .withBlocker(UpdateBlocker.databaseTransaction, active: true);
+    final blocked = const UpdateSafetyStatus.safe().withBlocker(
+      UpdateBlocker.databaseTransaction,
+      active: true,
+    );
     expect(blocked.canInstall, isFalse);
     final cleared = blocked.withBlocker(
       UpdateBlocker.databaseTransaction,
@@ -115,7 +116,10 @@ void main() {
     lease.release();
     lease.release();
     expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
-    expect(safety.status.blockers, isNot(contains(UpdateBlocker.backupRunning)));
+    expect(
+      safety.status.blockers,
+      isNot(contains(UpdateBlocker.backupRunning)),
+    );
     safety.setUnsavedChanges(false);
     expect(safety.status.canInstall, isTrue);
   });

@@ -15,7 +15,11 @@ typedef _OpenProcessNative = IntPtr Function(
   Int32 inheritHandle,
   Uint32 processId,
 );
-typedef _OpenProcessDart = int Function(int desiredAccess, int inheritHandle, int processId);
+typedef _OpenProcessDart = int Function(
+  int desiredAccess,
+  int inheritHandle,
+  int processId,
+);
 
 typedef _GetProcessTimesNative = Int32 Function(
   IntPtr process,
@@ -55,12 +59,12 @@ final class WindowsProcessIdentityProbe implements ProcessIdentityProbe {
     _kernel32 ??= DynamicLibrary.open('kernel32.dll');
     _openProcess ??= _kernel32!
         .lookupFunction<_OpenProcessNative, _OpenProcessDart>('OpenProcess');
-    _getProcessTimes ??= _kernel32!.lookupFunction<_GetProcessTimesNative,
-        _GetProcessTimesDart>('GetProcessTimes');
-    _closeHandle ??=
-        _kernel32!.lookupFunction<_CloseHandleNative, _CloseHandleDart>(
-      'CloseHandle',
-    );
+    _getProcessTimes ??= _kernel32!
+        .lookupFunction<_GetProcessTimesNative, _GetProcessTimesDart>(
+          'GetProcessTimes',
+        );
+    _closeHandle ??= _kernel32!
+        .lookupFunction<_CloseHandleNative, _CloseHandleDart>('CloseHandle');
   }
 
   @override
@@ -84,20 +88,12 @@ final class WindowsProcessIdentityProbe implements ProcessIdentityProbe {
       final kernel = calloc<_FileTimeStruct>();
       final user = calloc<_FileTimeStruct>();
       try {
-        final ok = _getProcessTimes!(
-          handle,
-          creation,
-          exit,
-          kernel,
-          user,
-        );
+        final ok = _getProcessTimes!(handle, creation, exit, kernel, user);
         if (ok == 0) return null;
-        final ticks =
-            (creation.ref.high & 0xFFFFFFFF) << 32 | creation.ref.low;
+        final ticks = (creation.ref.high & 0xFFFFFFFF) << 32 | creation.ref.low;
         // FILETIME 是自 1601-01-01 起的 100 纳秒数。Dart 的 DateTime 支持该年份范围。
-        final started = DateTime.utc(1601).add(
-          Duration(microseconds: ticks ~/ 10),
-        );
+        final started = DateTime.utc(1601)
+            .add(Duration(microseconds: ticks ~/ 10));
         return ProcessIdentity(pid: processId, startedAtUtc: started);
       } finally {
         calloc
@@ -111,4 +107,3 @@ final class WindowsProcessIdentityProbe implements ProcessIdentityProbe {
     }
   }
 }
-

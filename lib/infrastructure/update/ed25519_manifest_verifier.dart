@@ -95,10 +95,7 @@ final class Ed25519ManifestVerifier {
         canonicalBytes,
         signature: Signature(
           signatureBytes,
-          publicKey: SimplePublicKey(
-            publicKeyBytes,
-            type: KeyPairType.ed25519,
-          ),
+          publicKey: SimplePublicKey(publicKeyBytes, type: KeyPairType.ed25519),
         ),
       );
     } on Object {
@@ -190,8 +187,7 @@ final class Ed25519ManifestSigner {
   }
 
   /// 把 payload 包成完整信封。
-  Future<Map<String, Object?>> signEnvelope(Map<String, Object?> payload) async => {
-    'payload': payload,
-    'signature': await signPayload(payload),
-  };
+  Future<Map<String, Object?>> signEnvelope(
+    Map<String, Object?> payload,
+  ) async => {'payload': payload, 'signature': await signPayload(payload)};
 }

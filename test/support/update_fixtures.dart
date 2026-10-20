@@ -116,10 +116,7 @@ Map<String, Object?> replaceAt(
 }
 
 /// 按路径删除一个键。
-Map<String, Object?> removeAt(
-  Map<String, Object?> source,
-  List<String> path,
-) {
+Map<String, Object?> removeAt(Map<String, Object?> source, List<String> path) {
   final copy = deepCopy(source);
   Map<String, Object?> current = copy;
   for (var i = 0; i < path.length - 1; i++) {
@@ -135,10 +132,7 @@ Future<Map<String, Object?>> signedManifestEnvelope(
   Ed25519ManifestSigner? signer,
 }) async {
   final active = signer ?? await createTestSigner();
-  return {
-    'payload': payload,
-    'signature': await active.signPayload(payload),
-  };
+  return {'payload': payload, 'signature': await active.signPayload(payload)};
 }
 
 /// 已签名的清单 JSON 字符串（仓库测试用）。

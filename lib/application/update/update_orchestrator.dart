@@ -26,7 +26,9 @@ import 'package:personal_planner/infrastructure/update/update_storage_layout.dar
 int updateDiskSafetyMarginBytes(int packageBytes) {
   const fiveHundredMegabytes = 500 * 1024 * 1024;
   final doublePackage = packageBytes * 2;
-  return fiveHundredMegabytes > doublePackage ? fiveHundredMegabytes : doublePackage;
+  return fiveHundredMegabytes > doublePackage
+      ? fiveHundredMegabytes
+      : doublePackage;
 }
 
 /// 一次更新事务所需的可用空间估算：
@@ -271,7 +273,8 @@ final class UpdateOrchestrator {
       return _handleCheckFailure(
         UpdateFailure(
           UpdateFailureCode.packageDowngradeBlocked,
-          detail: 'remote=${verified.manifest.msixVersion.value} installed=${installed.version.value}',
+          detail:
+              'remote=${verified.manifest.msixVersion.value} installed=${installed.version.value}',
         ),
         installed,
       );
@@ -427,10 +430,12 @@ final class UpdateOrchestrator {
     final mismatches = manifest.compatibility.mismatches;
     if (mismatches.isEmpty) return null;
     final code = switch (mismatches.first) {
-      CompatibilityMismatch.identityName ||
-      CompatibilityMismatch.publisher => UpdateFailureCode.packagePublisherMismatch,
-      CompatibilityMismatch.familyName => UpdateFailureCode.packageFamilyMismatch,
-      CompatibilityMismatch.architecture => UpdateFailureCode.packageArchMismatch,
+      CompatibilityMismatch.identityName || CompatibilityMismatch.publisher =>
+        UpdateFailureCode.packagePublisherMismatch,
+      CompatibilityMismatch.familyName =>
+        UpdateFailureCode.packageFamilyMismatch,
+      CompatibilityMismatch.architecture =>
+        UpdateFailureCode.packageArchMismatch,
     };
     return UpdateFailure(
       code,
@@ -469,7 +474,8 @@ final class UpdateOrchestrator {
       await _reverifyReadyPackage(target);
       return;
     }
-    final allowed = _state.phase == UpdatePhase.updateAvailable ||
+    final allowed =
+        _state.phase == UpdatePhase.updateAvailable ||
         _state.phase == UpdatePhase.downloadPaused ||
         _state.phase == UpdatePhase.failed ||
         _state.phase == UpdatePhase.temporarilyBlocked;
@@ -524,83 +530,86 @@ final class UpdateOrchestrator {
 
     try {
       if (!await _go(UpdatePhase.downloading)) return;
-    _state = _state.copyWith(
-      receivedBytes: 0,
-      totalBytes: target.sizeBytes,
-      lastFailure: null,
-    );
-    await _persist();
-    _emit();
+      _state = _state.copyWith(
+        receivedBytes: 0,
+        totalBytes: target.sizeBytes,
+        lastFailure: null,
+      );
+      await _persist();
+      _emit();
 
-    final partialPath = layout.partialPackage(target).path;
-    final readyPath = layout.readyPackage(target).path;
-    _lastPersistedBytes = -1;
-    _lastPersistedProgressUtc = null;
+      final partialPath = layout.partialPackage(target).path;
+      final readyPath = layout.readyPackage(target).path;
+      _lastPersistedBytes = -1;
+      _lastPersistedProgressUtc = null;
 
-    final outcome = await downloader.download(
-      target: target,
-      partialPath: partialPath,
-      readyPath: readyPath,
-      etag: _state.etag,
-      lastModified: _state.lastModified,
-      shouldCancel: () =>
-          _disposed ||
-          _state.target?.msixVersion != target.msixVersion,
-      onProgress: (received, total) {
-        _onProgress(received, total);
-      },
-    );
+      final outcome = await downloader.download(
+        target: target,
+        partialPath: partialPath,
+        readyPath: readyPath,
+        etag: _state.etag,
+        lastModified: _state.lastModified,
+        shouldCancel: () =>
+            _disposed || _state.target?.msixVersion != target.msixVersion,
+        onProgress: (received, total) {
+          _onProgress(received, total);
+        },
+      );
 
-    if (outcome.cancelled) return;
+      if (outcome.cancelled) return;
 
-    if (!outcome.isSuccess) {
-      final failure = outcome.failure ?? const UpdateFailure(UpdateFailureCode.internalError);
-      await _failDownload(failure, target: target);
-      return;
-    }
+      if (!outcome.isSuccess) {
+        final failure =
+            outcome.failure ??
+            const UpdateFailure(UpdateFailureCode.internalError);
+        await _failDownload(failure, target: target);
+        return;
+      }
 
-    _state = _state.copyWith(
-      receivedBytes: outcome.sizeBytes,
-      totalBytes: target.sizeBytes,
-      etag: outcome.etag,
-      lastModified: outcome.lastModified,
-      lastFailure: null,
-    );
-    await _go(UpdatePhase.verifying);
-    await _persist();
-    _emit();
+      _state = _state.copyWith(
+        receivedBytes: outcome.sizeBytes,
+        totalBytes: target.sizeBytes,
+        etag: outcome.etag,
+        lastModified: outcome.lastModified,
+        lastFailure: null,
+      );
+      await _go(UpdatePhase.verifying);
+      await _persist();
+      _emit();
 
-    final verification = await verifier.verify(
-      path: outcome.path!,
-      target: target,
-      installed: installed,
-      // 只有在生产装配了助手时才要求原生签名验证；测试与未打包开发环境没有助手，
-      // 结构/哈希/身份三层仍然照常验证。
-      verifyNativeSignature: helper != null,
-    );
+      final verification = await verifier.verify(
+        path: outcome.path!,
+        target: target,
+        installed: installed,
+        // 只有在生产装配了助手时才要求原生签名验证；测试与未打包开发环境没有助手，
+        // 结构/哈希/身份三层仍然照常验证。
+        verifyNativeSignature: helper != null,
+      );
 
-    if (!verification.ok) {
-      final failure = verification.failure ?? const UpdateFailure(UpdateFailureCode.packageFormatInvalid);
-      await _discardReadyPackage(target);
-      await _failDownload(failure, target: target);
-      return;
-    }
+      if (!verification.ok) {
+        final failure =
+            verification.failure ??
+            const UpdateFailure(UpdateFailureCode.packageFormatInvalid);
+        await _discardReadyPackage(target);
+        await _failDownload(failure, target: target);
+        return;
+      }
 
-    await _go(UpdatePhase.ready);
-    _state = _state.copyWith(
-      receivedBytes: target.sizeBytes,
-      totalBytes: target.sizeBytes,
-      lastFailure: null,
-      retryAttempt: 0,
-      targetFailureCount: 0,
-      pausedTargetVersion: null,
-      nextAttemptUtc: null,
-    );
-    log.writeLine(
-      'ready target=${target.msixVersion.value} sha256=${target.sha256}',
-    );
-    await _persist();
-    _emit();
+      await _go(UpdatePhase.ready);
+      _state = _state.copyWith(
+        receivedBytes: target.sizeBytes,
+        totalBytes: target.sizeBytes,
+        lastFailure: null,
+        retryAttempt: 0,
+        targetFailureCount: 0,
+        pausedTargetVersion: null,
+        nextAttemptUtc: null,
+      );
+      log.writeLine(
+        'ready target=${target.msixVersion.value} sha256=${target.sha256}',
+      );
+      await _persist();
+      _emit();
     } finally {
       await _releaseUpdateLock();
     }
@@ -614,7 +623,9 @@ final class UpdateOrchestrator {
     if (!await ready.exists()) {
       await _go(UpdatePhase.failed);
       _state = _state.copyWith(
-        lastFailure: const UpdateFailure(UpdateFailureCode.packageFormatInvalid),
+        lastFailure: const UpdateFailure(
+          UpdateFailureCode.packageFormatInvalid,
+        ),
       );
       await _persist();
       _emit();
@@ -629,7 +640,8 @@ final class UpdateOrchestrator {
     if (!verification.ok) {
       await _discardReadyPackage(target);
       await _failDownload(
-        verification.failure ?? const UpdateFailure(UpdateFailureCode.packageFormatInvalid),
+        verification.failure ??
+            const UpdateFailure(UpdateFailureCode.packageFormatInvalid),
         target: target,
       );
     }
@@ -699,15 +711,17 @@ final class UpdateOrchestrator {
     }
   }
 
-  Future<bool> _acquireUpdateLock(String operation, String targetVersion) async {
+  Future<bool> _acquireUpdateLock(
+    String operation,
+    String targetVersion,
+  ) async {
     final lock = updateLock;
     final probe = processProbe;
     if (lock == null || probe == null) return true;
     try {
       final process = await probe.current();
       return await lock.acquire(
-        transactionId:
-            '-',
+        transactionId: '-',
         pid: process.pid,
         processStartedAtUtc: process.startedAtUtc,
         token: _lockToken(),
@@ -734,6 +748,7 @@ final class UpdateOrchestrator {
       return value.toRadixString(16).padLeft(2, '0');
     }).join();
   }
+
   /// 后台建立回退基线（规格 §13.3）。失败不改变当前版本，也不阻止下载新版本。
   Future<void> ensureRollbackBaseline() async {
     final service = baselineService;
@@ -768,6 +783,7 @@ final class UpdateOrchestrator {
     await _persist();
     _emit();
   }
+
   /// 用户点击就绪入口后的安装请求（规格 §12.3 的前半段在这里）。
   ///
   /// 在原生安装链装配之前，它只做两件事：检查安全阻塞、记录明确原因。**不弹二次确认**，
@@ -803,8 +819,8 @@ final class UpdateOrchestrator {
       if (baseline != null) {
         try {
           final file = File(baseline.packagePath);
-          baselineUsable = await file.exists() &&
-              await file.length() == baseline.sizeBytes;
+          baselineUsable =
+              await file.exists() && await file.length() == baseline.sizeBytes;
         } on FileSystemException {
           baselineUsable = false;
         }
@@ -874,7 +890,8 @@ final class UpdateOrchestrator {
       // 助手没有确认之前不得退出：退回到就绪，保留包，等待用户重试。
       await _go(UpdatePhase.ready);
       _state = _state.copyWith(
-        lastFailure: failure ??
+        lastFailure:
+            failure ??
             const UpdateFailure(UpdateFailureCode.helperLaunchFailed),
         transactionId: null,
       );
@@ -991,8 +1008,3 @@ final class UpdateOrchestrator {
     await _states.close();
   }
 }
-
-
-
-
-

@@ -369,7 +369,10 @@ abstract interface class UpdateLock {
 }
 
 final class LockInspection {
-  const LockInspection.free() : holderPid = null, holderStartedAtUtc = null, operation = null;
+  const LockInspection.free()
+    : holderPid = null,
+      holderStartedAtUtc = null,
+      operation = null;
 
   const LockInspection.held({
     required this.holderPid,
@@ -407,5 +410,3 @@ abstract interface class UpdateLogSink {
 
   Future<void> clear();
 }
-
-

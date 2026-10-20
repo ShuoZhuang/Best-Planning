@@ -124,6 +124,7 @@ final class _TaskDetailPageState extends State<TaskDetailPage> {
       });
     }
   }
+
   bool _saving = false;
   bool _tagSaving = false;
   String? _message;

@@ -118,8 +118,7 @@ final class WindowsUpdateStorage {
   }
 
   ResolvedUpdateRoot _fallback(String reason) {
-    final base =
-        _environment['LOCALAPPDATA'] ?? Directory.systemTemp.path;
+    final base = _environment['LOCALAPPDATA'] ?? Directory.systemTemp.path;
     return ResolvedUpdateRoot(
       path: [base, productDirectory, 'Updates'].join(Platform.pathSeparator),
       source: 'unpackaged-fallback',

@@ -256,8 +256,7 @@ enum UpdateVersionRelation { newer, same, older }
 
 /// 清单解析结果。
 final class ManifestParseResult {
-  const ManifestParseResult.success(this.manifest)
-    : failure = null;
+  const ManifestParseResult.success(this.manifest) : failure = null;
 
   const ManifestParseResult.failure(this.failure) : manifest = null;
 
@@ -389,7 +388,13 @@ ManifestParseResult parseUpdateManifestPayload(
 Object? _parseRelease(Object? raw) {
   if (raw is! Map) return null;
   final map = raw.cast<String, Object?>();
-  const keys = {'version', 'buildNumber', 'msixVersion', 'tag', 'publishedAtUtc'};
+  const keys = {
+    'version',
+    'buildNumber',
+    'msixVersion',
+    'tag',
+    'publishedAtUtc',
+  };
   final keyFailure = _checkKeys(map, keys);
   if (keyFailure != null) return keyFailure;
   final version = map['version'];
@@ -563,4 +568,3 @@ ManifestParseFailure? _checkKeys(
 ManifestParseResult _invalidJson() => const ManifestParseResult.failure(
   ManifestParseFailure(UpdateFailureCode.manifestInvalidJson),
 );
-

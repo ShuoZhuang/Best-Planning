@@ -37,9 +37,7 @@ final class MsixVersion implements Comparable<MsixVersion> {
     if (raw == null) return null;
     final match = _pattern.firstMatch(raw);
     if (match == null) return null;
-    final parts = [
-      for (var i = 1; i <= 4; i++) int.parse(match.group(i)!),
-    ];
+    final parts = [for (var i = 1; i <= 4; i++) int.parse(match.group(i)!)];
     if (parts.any((part) => part > 0xFFFF)) return null;
     return MsixVersion(parts[0], parts[1], parts[2], parts[3]);
   }
@@ -118,8 +116,7 @@ final class SemVer implements Comparable<SemVer> {
   bool operator <(SemVer other) => compareTo(other) < 0;
 
   @override
-  bool operator ==(Object other) =>
-      other is SemVer && compareTo(other) == 0;
+  bool operator ==(Object other) => other is SemVer && compareTo(other) == 0;
 
   @override
   int get hashCode => Object.hash(major, minor, patch);
@@ -235,8 +232,4 @@ final class ReleaseVersionSet {
 }
 
 /// 版本字段之间的不一致类型。仅用于测试与结构化日志，**不直接展示给用户**。
-enum ReleaseVersionIssue {
-  tagMismatch,
-  msixSemverMismatch,
-}
-
+enum ReleaseVersionIssue { tagMismatch, msixSemverMismatch }

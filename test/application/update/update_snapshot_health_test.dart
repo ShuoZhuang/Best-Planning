@@ -24,7 +24,9 @@ void main() {
   });
 
   test('快照复制文件并写入带摘要的清单，检查点先于复制', () async {
-    final database = File('${directory.path}${Platform.pathSeparator}app.sqlite');
+    final database = File(
+      '${directory.path}${Platform.pathSeparator}app.sqlite',
+    );
     await database.writeAsBytes([1, 2, 3, 4]);
     final settings = File(
       '${directory.path}${Platform.pathSeparator}settings.json',
@@ -60,12 +62,14 @@ void main() {
     expect(manifest['transactionId'], 'tx-1');
     expect(manifest['schemaVersion'], 1);
     final files = (manifest['files']! as List).cast<Map<String, Object?>>();
-    expect(files.map((file) => file['relative']), containsAll(['app.sqlite', 'settings.json']));
+    expect(
+      files.map((file) => file['relative']),
+      containsAll(['app.sqlite', 'settings.json']),
+    );
     expect(files.first['sha256'], hasLength(64));
     expect(
-      await File(
-        '${snapshot.directoryPath}${Platform.pathSeparator}app.sqlite',
-      ).readAsBytes(),
+      await File('${snapshot.directoryPath}${Platform.pathSeparator}app.sqlite')
+          .readAsBytes(),
       [1, 2, 3, 4],
     );
   });
@@ -106,8 +110,9 @@ void main() {
       version: const MsixVersion(1, 9, 0, 0),
       databaseOpened: false,
     );
-    final failed =
-        jsonDecode(await File(failedPath).readAsString()) as Map<String, Object?>;
+    final failed = jsonDecode(
+      await File(failedPath).readAsString(),
+    ) as Map<String, Object?>;
     expect(failed['ok'], isFalse);
     expect((failed['checks']! as Map)['databaseOpened'], isFalse);
   });

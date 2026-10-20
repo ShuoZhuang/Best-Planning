@@ -414,9 +414,9 @@ final class _RecurringTaskEditorPageState
                           onChanged: _saving
                               ? null
                               : (value) => setState(() {
-                                _dirty = true;
-                                _carryOver = value;
-                              }),
+                                  _dirty = true;
+                                  _carryOver = value;
+                                }),
                           title: const Text('结转未完成分钟'),
                           subtitle: const Text('默认关闭：新的一周按原目标重新开始，上周的未达标记录保留。'),
                         ),
@@ -617,9 +617,9 @@ final class _RecurringTaskEditorPageState
         onChanged: _saving
             ? null
             : (value) => setState(() {
-              _dirty = true;
-              _projectId = value;
-            }),
+                _dirty = true;
+                _projectId = value;
+              }),
         items: [
           const DropdownMenuItem(value: null, child: Text('不归属项目')),
           for (final project in _projectsOfArea)

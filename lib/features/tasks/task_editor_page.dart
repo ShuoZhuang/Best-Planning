@@ -539,9 +539,9 @@ final class _TaskEditorPageState extends State<TaskEditorPage> {
             onChanged: _saving || _areaId == null
                 ? null
                 : (value) => setState(() {
-                        _dirty = true;
-                        _projectId = value;
-                      }),
+                    _dirty = true;
+                    _projectId = value;
+                  }),
           ),
         ),
         if (_clearedProjectName != null) ...[
@@ -950,5 +950,3 @@ String _minute(int minute) =>
 String _formatLocal(DateTime value) =>
     '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} '
     '${_minute(value.hour * 60 + value.minute)}';
-
-

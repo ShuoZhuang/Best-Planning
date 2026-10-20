@@ -86,7 +86,9 @@ void main() {
 
   test('快照在启动助手之前生成，并包含数据库', () async {
     await writeReadyPackage();
-    final database = File('${directory.path}${Platform.pathSeparator}app.sqlite');
+    final database = File(
+      '${directory.path}${Platform.pathSeparator}app.sqlite',
+    );
     await database.writeAsBytes([9, 9, 9]);
     final helper = FakeUpdateHelper();
     final service = UpdateInstallService(
@@ -94,9 +96,7 @@ void main() {
       helper: helper,
       snapshotService: UpdateSnapshotService(
         layout: layout,
-        sources: [
-          SnapshotSource(file: database, relativePath: 'app.sqlite'),
-        ],
+        sources: [SnapshotSource(file: database, relativePath: 'app.sqlite')],
         clock: FakeClock(),
       ),
       processProbe: FakeProcessProbe(),
@@ -113,9 +113,8 @@ void main() {
     expect(outcome.launched, isTrue);
     expect(outcome.snapshotPath, isNotNull);
     expect(
-      await File(
-        '${outcome.snapshotPath}${Platform.pathSeparator}app.sqlite',
-      ).exists(),
+      await File('${outcome.snapshotPath}${Platform.pathSeparator}app.sqlite')
+          .exists(),
       isTrue,
     );
   });
@@ -154,4 +153,3 @@ void main() {
     expect(outcome.failure!.code, UpdateFailureCode.helperLaunchFailed);
   });
 }
-

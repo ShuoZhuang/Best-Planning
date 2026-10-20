@@ -139,7 +139,8 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
       return PackageVerification.invalid(
         UpdateFailure(
           UpdateFailureCode.packageVersionMismatch,
-          detail: 'package=${identity.version.value} target=${target.msixVersion.value}',
+          detail:
+              'package=${identity.version.value} target=${target.msixVersion.value}',
         ),
       );
     }
@@ -199,7 +200,8 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
     if (identity.name != appPackageIdentityName) {
       return const UpdateFailure(UpdateFailureCode.packageIdentityMismatch);
     }
-    if (normalizePublisher(identity.publisher) != normalizePublisher(appPublisher)) {
+    if (normalizePublisher(identity.publisher) !=
+        normalizePublisher(appPublisher)) {
       return const UpdateFailure(UpdateFailureCode.packagePublisherMismatch);
     }
     if (packageFamilyNameFor(identity.name, identity.publisher) !=
@@ -233,7 +235,10 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
         ) ??
         // 缺省表示 neutral；MSIX 要求显式声明，因此这里按"不匹配"处理。
         PackageArchitecture.neutral;
-    if (name == null || name.isEmpty || publisher == null || publisher.isEmpty) {
+    if (name == null ||
+        name.isEmpty ||
+        publisher == null ||
+        publisher.isEmpty) {
       throw const FormatException('Identity 缺少 Name/Publisher');
     }
     if (version == null) {
@@ -263,4 +268,3 @@ final class _AppxIdentity {
 
   bool versionMatches(MsixVersion expected) => version == expected;
 }
-

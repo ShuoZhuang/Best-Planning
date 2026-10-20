@@ -157,7 +157,8 @@ void main() {
   test('PKCS#8 私钥里的种子可以被读出（只取最后 32 字节）', () async {
     final seed = List<int>.generate(32, (index) => index);
     final der = [...List<int>.filled(16, 1), ...seed];
-    final pem = '-----BEGIN PRIVATE KEY-----\n'
+    final pem =
+        '-----BEGIN PRIVATE KEY-----\n'
         '${base64.encode(der)}\n'
         '-----END PRIVATE KEY-----\n';
     final file = File('${directory.path}${Platform.pathSeparator}key.pem');
@@ -176,5 +177,3 @@ void main() {
     );
   });
 }
-
-

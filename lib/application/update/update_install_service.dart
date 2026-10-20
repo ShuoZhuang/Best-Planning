@@ -102,7 +102,8 @@ final class UpdateInstallService implements UpdateInstallCoordinator {
 
     final launch = await helper.launch(request);
     if (!launch.isLaunched) {
-      final failure = launch.failure ??
+      final failure =
+          launch.failure ??
           UpdateFailure(
             UpdateFailureCode.fromCode(launch.failureCode) ??
                 UpdateFailureCode.helperLaunchFailed,
@@ -119,7 +120,9 @@ final class UpdateInstallService implements UpdateInstallCoordinator {
   Future<void> requestExit() => onRequestExit();
 
   static String _newTransactionId() {
-    final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch
+    final timestamp = DateTime.now()
+        .toUtc()
+        .microsecondsSinceEpoch
         .toRadixString(16);
     return '$timestamp-${_randomHex(8)}';
   }
@@ -139,10 +142,7 @@ List<SnapshotSource> defaultSnapshotSources({
   required UpdateStorageLayout layout,
 }) => [
   SnapshotSource(file: File(databasePath), relativePath: 'app.sqlite'),
-  SnapshotSource(
-    file: layout.stateFile,
-    relativePath: 'update-state.json',
-  ),
+  SnapshotSource(file: layout.stateFile, relativePath: 'update-state.json'),
 ];
 
 /// 当前数据目录（快照恢复的落点）。
@@ -154,6 +154,3 @@ String? dataDirectoryFor(String databasePath) {
 
 /// 把 `MsixVersion` 转成字符串时的空安全辅助（避免调用处重复判空）。
 String? versionLabel(MsixVersion? version) => version?.value;
-
-
-

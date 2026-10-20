@@ -283,169 +283,169 @@ final class _ProtectedTimeEditorPageState
       if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
     });
     return PlannerEditorScaffold(
-    // 规范 §7.2：所有编辑器共用同一骨架的标题区、返回行为、底部保存栏与错误摘要。
-    //
-    // **两个模式的标题必须不同**（计划 Task 8 Step 1）：共用"新建保护时间"
-    // 会让用户在改一条既有规则时以为自己在新建，从而不敢保存、或者保存后又建了一条
-    // 重复的。
-    title: widget.editAnchorId == null
-        ? '新建保护时间'
-        : '编辑「${widget.initialTitle}」',
-    subtitle: '这段时段排程绝不会占用它。可一次性，也可按周重复。',
-    onCancel: widget.onCancel,
-    errorSummary: PlannerEditorErrorSummary(
-      messages: [for (final message in _errors.values) message],
-    ),
-    actions: [
-      FilledButton.icon(
-        key: const Key('save-protected-time'),
-        onPressed: _save,
-        icon: const Icon(Icons.save_outlined),
-        label: const Text('保存保护时间'),
+      // 规范 §7.2：所有编辑器共用同一骨架的标题区、返回行为、底部保存栏与错误摘要。
+      //
+      // **两个模式的标题必须不同**（计划 Task 8 Step 1）：共用"新建保护时间"
+      // 会让用户在改一条既有规则时以为自己在新建，从而不敢保存、或者保存后又建了一条
+      // 重复的。
+      title: widget.editAnchorId == null
+          ? '新建保护时间'
+          : '编辑「${widget.initialTitle}」',
+      subtitle: '这段时段排程绝不会占用它。可一次性，也可按周重复。',
+      onCancel: widget.onCancel,
+      errorSummary: PlannerEditorErrorSummary(
+        messages: [for (final message in _errors.values) message],
       ),
-    ],
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          key: const Key('protected-title'),
-          controller: _titleController,
-          decoration: InputDecoration(
-            labelText: '标题',
-            errorText: _errors['title'],
+      actions: [
+        FilledButton.icon(
+          key: const Key('save-protected-time'),
+          onPressed: _save,
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('保存保护时间'),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const Key('protected-title'),
+            controller: _titleController,
+            decoration: InputDecoration(
+              labelText: '标题',
+              errorText: _errors['title'],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          // 规范 §9.2 把「备注」列为这一页的字段之一。
-          key: const Key('protected-notes'),
-          controller: _notesController,
-          minLines: 2,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: '备注（可选）',
-            hintText: '例如：这段时间用来吃饭，不安排任务',
+          const SizedBox(height: 16),
+          TextField(
+            // 规范 §9.2 把「备注」列为这一页的字段之一。
+            key: const Key('protected-notes'),
+            controller: _notesController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: '备注（可选）',
+              hintText: '例如：这段时间用来吃饭，不安排任务',
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            SizedBox(
-              width: 200,
-              child: PlannerDateField(
-                key: const Key('protected-start-date'),
-                boxKey: const Key('protected-start-date-box'),
-                value: _range.startDate,
-                label: '开始日期',
-                errorText: _errors['time'],
-                onChanged: _range.setStartDate,
-              ),
-            ),
-            SizedBox(
-              width: 150,
-              child: PlannerTimeField(
-                key: const Key('protected-start-time'),
-                boxKey: const Key('protected-start-time-box'),
-                value: _range.startTime,
-                label: '开始时间',
-                onChanged: _range.setStartTime,
-              ),
-            ),
-            SizedBox(
-              width: 200,
-              child: PlannerDateField(
-                key: const Key('protected-end-date'),
-                boxKey: const Key('protected-end-date-box'),
-                value: _range.endDate,
-                label: '结束日期',
-                onChanged: _range.setEndDate,
-              ),
-            ),
-            SizedBox(
-              width: 150,
-              child: PlannerTimeField(
-                key: const Key('protected-end-time'),
-                boxKey: const Key('protected-end-time-box'),
-                value: _range.endTime,
-                label: '结束时间',
-                onChanged: _range.setEndTime,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          key: const Key('protected-weekly'),
-          contentPadding: EdgeInsets.zero,
-          title: const Text('每周重复'),
-          subtitle: const Text('例如每周二下午的两小时'),
-          value: _weekly,
-          onChanged: (value) => setState(() => _weekly = value),
-        ),
-        if (_weekly) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (var day = DateTime.monday; day <= DateTime.sunday; day++)
-                FilterChip(
-                  key: Key('protected-weekday-$day'),
-                  label: Text(_weekdayLabel(day)),
-                  selected: _weekdays.contains(day),
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _weekdays.add(day);
-                      } else if (_weekdays.length > 1) {
-                        // **至少留一天**：全不选会让重复规则没有可展开的日子，
-                        // 保存出来的保护时间等于不存在。
-                        _weekdays.remove(day);
-                      }
-                    });
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Wrap(
             spacing: 12,
             runSpacing: 12,
             children: [
               SizedBox(
-                width: 250,
+                width: 200,
                 child: PlannerDateField(
-                  key: const Key('protected-recurrence-end-date'),
-                  boxKey: const Key('protected-recurrence-end-date-box'),
-                  value: _recurrenceEnd ?? _range.startDate,
-                  label: '重复结束日期（可选）',
-                  onChanged: (value) => setState(() {
-                        _recurrenceEnd = value;
-                        _dirty = true;
-                      }),
+                  key: const Key('protected-start-date'),
+                  boxKey: const Key('protected-start-date-box'),
+                  value: _range.startDate,
+                  label: '开始日期',
+                  errorText: _errors['time'],
+                  onChanged: _range.setStartDate,
                 ),
               ),
-              if (_recurrenceEnd != null)
-                TextButton(
-                  key: const Key('protected-recurrence-end-clear'),
-                  onPressed: () => setState(() {
-                        _recurrenceEnd = null;
-                        _dirty = true;
-                      }),
-                  child: const Text('不设结束日期'),
+              SizedBox(
+                width: 150,
+                child: PlannerTimeField(
+                  key: const Key('protected-start-time'),
+                  boxKey: const Key('protected-start-time-box'),
+                  value: _range.startTime,
+                  label: '开始时间',
+                  onChanged: _range.setStartTime,
                 ),
+              ),
+              SizedBox(
+                width: 200,
+                child: PlannerDateField(
+                  key: const Key('protected-end-date'),
+                  boxKey: const Key('protected-end-date-box'),
+                  value: _range.endDate,
+                  label: '结束日期',
+                  onChanged: _range.setEndDate,
+                ),
+              ),
+              SizedBox(
+                width: 150,
+                child: PlannerTimeField(
+                  key: const Key('protected-end-time'),
+                  boxKey: const Key('protected-end-time-box'),
+                  value: _range.endTime,
+                  label: '结束时间',
+                  onChanged: _range.setEndTime,
+                ),
+              ),
             ],
           ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            key: const Key('protected-weekly'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('每周重复'),
+            subtitle: const Text('例如每周二下午的两小时'),
+            value: _weekly,
+            onChanged: (value) => setState(() => _weekly = value),
+          ),
+          if (_weekly) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+                  FilterChip(
+                    key: Key('protected-weekday-$day'),
+                    label: Text(_weekdayLabel(day)),
+                    selected: _weekdays.contains(day),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _weekdays.add(day);
+                        } else if (_weekdays.length > 1) {
+                          // **至少留一天**：全不选会让重复规则没有可展开的日子，
+                          // 保存出来的保护时间等于不存在。
+                          _weekdays.remove(day);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: 250,
+                  child: PlannerDateField(
+                    key: const Key('protected-recurrence-end-date'),
+                    boxKey: const Key('protected-recurrence-end-date-box'),
+                    value: _recurrenceEnd ?? _range.startDate,
+                    label: '重复结束日期（可选）',
+                    onChanged: (value) => setState(() {
+                      _recurrenceEnd = value;
+                      _dirty = true;
+                    }),
+                  ),
+                ),
+                if (_recurrenceEnd != null)
+                  TextButton(
+                    key: const Key('protected-recurrence-end-clear'),
+                    onPressed: () => setState(() {
+                      _recurrenceEnd = null;
+                      _dirty = true;
+                    }),
+                    child: const Text('不设结束日期'),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            '时间按 ${widget.timeZoneId} 保存',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
-        const SizedBox(height: 8),
-        Text(
-          '时间按 ${widget.timeZoneId} 保存',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    ),
-  );
+      ),
+    );
   }
 }
 

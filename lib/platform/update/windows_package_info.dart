@@ -9,7 +9,8 @@ import 'package:personal_planner/domain/update/update_ports.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
 import 'package:personal_planner/platform/update/windows_update_helper.dart';
 
-final class WindowsInstalledPackageProvider implements InstalledPackageProvider {
+final class WindowsInstalledPackageProvider
+    implements InstalledPackageProvider {
   const WindowsInstalledPackageProvider(this.helper);
 
   final WindowsUpdateHelper helper;
@@ -28,9 +29,8 @@ final class WindowsBuildProbe {
   Future<MsixVersion?> current() async {
     if (!Platform.isWindows) return null;
     // Dart 在 Windows 上给出的形如 `Windows 10.0.22631`；取三段并补第四段 0。
-    final match = RegExp(
-      r'(\d+)\.(\d+)\.(\d+)',
-    ).firstMatch(Platform.operatingSystemVersion);
+    final match = RegExp(r'(\d+)\.(\d+)\.(\d+)')
+        .firstMatch(Platform.operatingSystemVersion);
     if (match == null) return null;
     final parts = [
       int.parse(match.group(1)!),

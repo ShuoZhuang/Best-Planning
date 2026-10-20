@@ -109,9 +109,7 @@ final class UpdateIndicatorModel {
         return UpdateIndicatorModel(
           kind: UpdateIndicatorKind.ready,
           title: '更新已就绪',
-          tooltip: blocked
-              ? (safety.message ?? '更新已就绪')
-              : '点击立即更新（无需再次确认）',
+          tooltip: blocked ? (safety.message ?? '更新已就绪') : '点击立即更新（无需再次确认）',
           message: blocked ? safety.message : null,
           canTap: true,
           canInstall: !blocked,

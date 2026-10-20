@@ -286,9 +286,9 @@ final class _EventEditorFormState extends State<EventEditorForm> {
               onChanged: _areaId == null
                   ? null
                   : (value) => setState(() {
-                        _projectId = value;
-                        _dirty = true;
-                      }),
+                      _projectId = value;
+                      _dirty = true;
+                    }),
             ),
           ),
           const SizedBox(height: 12),
@@ -406,18 +406,18 @@ final class _EventEditorFormState extends State<EventEditorForm> {
                   value: _recurrenceEnd ?? _range.startDate,
                   label: '重复结束日期（可选）',
                   onChanged: (value) => setState(() {
-                        _recurrenceEnd = value;
-                        _dirty = true;
-                      }),
+                    _recurrenceEnd = value;
+                    _dirty = true;
+                  }),
                 ),
               ),
               if (_recurrenceEnd != null)
                 TextButton(
                   key: const Key('event-recurrence-end-clear'),
                   onPressed: () => setState(() {
-                        _recurrenceEnd = null;
-                        _dirty = true;
-                      }),
+                    _recurrenceEnd = null;
+                    _dirty = true;
+                  }),
                   child: const Text('不设结束日期'),
                 ),
               if (_recurrenceEnd == null)
@@ -488,11 +488,10 @@ final class _EventEditorFormState extends State<EventEditorForm> {
               ),
             ],
             selected: {_scope},
-            onSelectionChanged: (selection) =>
-                setState(() {
-                  _scope = selection.single;
-                  _dirty = true;
-                }),
+            onSelectionChanged: (selection) => setState(() {
+              _scope = selection.single;
+              _dirty = true;
+            }),
           ),
         const SizedBox(height: 12),
         FilledButton(onPressed: _save, child: const Text('保存日程')),

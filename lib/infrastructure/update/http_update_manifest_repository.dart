@@ -176,19 +176,13 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
       if (status == 403 || status == 429) {
         await _drain(response);
         return ManifestFetchResult.failed(
-          _failure(
-            UpdateFailureCode.networkHttpFailed,
-            detail: 'HTTP $status',
-          ),
+          _failure(UpdateFailureCode.networkHttpFailed, detail: 'HTTP $status'),
         );
       }
       if (status != 200) {
         await _drain(response);
         return ManifestFetchResult.failed(
-          _failure(
-            UpdateFailureCode.networkHttpFailed,
-            detail: 'HTTP $status',
-          ),
+          _failure(UpdateFailureCode.networkHttpFailed, detail: 'HTTP $status'),
         );
       }
 
@@ -289,7 +283,11 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
       UpdateFailure(code, detail: detail, occurredAtUtc: _nowUtc());
 
   static bool _isRedirect(int status) =>
-      status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+      status == 301 ||
+      status == 302 ||
+      status == 303 ||
+      status == 307 ||
+      status == 308;
 
   /// 释放内部创建的 HTTP 客户端。注入的客户端由调用方负责。
   void close() {

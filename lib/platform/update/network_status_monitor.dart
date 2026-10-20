@@ -16,8 +16,7 @@ final class NetworkInterfaceStatusMonitor implements NetworkStatusMonitor {
   }
 
   final Duration pollInterval;
-  final StreamController<bool> _controller =
-      StreamController<bool>.broadcast();
+  final StreamController<bool> _controller = StreamController<bool>.broadcast();
   Timer? _timer;
   bool _available;
   bool _disposed = false;

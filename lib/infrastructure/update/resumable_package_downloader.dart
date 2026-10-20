@@ -26,8 +26,10 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
     bool Function(Uri)? isAllowedInitial,
     bool Function(Uri)? isAllowedRedirect,
   }) : _client = client ?? http.Client(),
-       _isAllowedInitial = isAllowedInitial ?? UpdateNetworkPolicy.isAllowedPackageUri,
-       _isAllowedRedirect = isAllowedRedirect ?? UpdateNetworkPolicy.isAllowedRedirect;
+       _isAllowedInitial =
+           isAllowedInitial ?? UpdateNetworkPolicy.isAllowedPackageUri,
+       _isAllowedRedirect =
+           isAllowedRedirect ?? UpdateNetworkPolicy.isAllowedRedirect;
 
   final http.Client _client;
   final Duration timeout;
@@ -80,7 +82,9 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
     var retriedWithoutRange = false;
     final validator = (etag != null && etag.isNotEmpty)
         ? etag
-        : (lastModified != null && lastModified.isNotEmpty ? lastModified : null);
+        : (lastModified != null && lastModified.isNotEmpty
+              ? lastModified
+              : null);
 
     while (true) {
       if (!followedRedirect && !_isAllowedInitial(current)) {
@@ -295,7 +299,11 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
       if (digest == null) {
         // 读不出来时不能删：这可能是占用或权限问题，不是哈希错误。
         return DownloadOutcome.failed(
-          _fileFailure('read', partial, FileSystemException('read failed', partial.path)),
+          _fileFailure(
+            'read',
+            partial,
+            FileSystemException('read failed', partial.path),
+          ),
         );
       }
       if (digest != target.sha256) {
@@ -332,7 +340,8 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
   }) async {
     try {
       if (await ready.exists()) {
-        final stillValid = await ready.length() == target.sizeBytes &&
+        final stillValid =
+            await ready.length() == target.sizeBytes &&
             await _sha256OrNull(ready) == target.sha256;
         if (stillValid) {
           await _deleteQuietly(partial);
@@ -430,12 +439,17 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
   }
 
   static bool _isRedirect(int status) =>
-      status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+      status == 301 ||
+      status == 302 ||
+      status == 303 ||
+      status == 307 ||
+      status == 308;
 
   /// 解析 `Content-Range: bytes start-end/total` 里的 start；格式不对返回 `null`。
   static int? _contentRangeStart(String? value) {
     if (value == null) return null;
-    final match = RegExp(r'^bytes\s+(\d+)-(\d+)/(\d+|\*)$').firstMatch(value.trim());
+    final match = RegExp(r'^bytes\s+(\d+)-(\d+)/(\d+|\*)$')
+        .firstMatch(value.trim());
     if (match == null) return null;
     return int.tryParse(match.group(1)!);
   }
@@ -443,5 +457,3 @@ final class ResumablePackageDownloader implements UpdatePackageDownloader {
   /// 释放内部创建的 HTTP 客户端。
   void close() => _client.close();
 }
-
-

@@ -88,10 +88,12 @@ final class UpdateController extends ChangeNotifier {
     await orchestrator.initialize();
     _subscriptions
       ..add(orchestrator.states.listen((_) => _notify()))
-      ..add(safety.changes.listen((_) {
-        orchestrator.notifySafetyChanged();
-        _notify();
-      }));
+      ..add(
+        safety.changes.listen((_) {
+          orchestrator.notifySafetyChanged();
+          _notify();
+        }),
+      );
     _initialized = true;
     _notify();
   }
@@ -151,6 +153,3 @@ final class UpdateController extends ChangeNotifier {
     super.dispose();
   }
 }
-
-
-

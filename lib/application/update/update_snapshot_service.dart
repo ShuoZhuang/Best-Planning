@@ -74,7 +74,9 @@ final class UpdateSnapshotService {
         throw StateError('非法的快照相对路径：${source.relativePath}');
       }
       if (!await source.file.exists()) continue;
-      final target = File('${directory.path}${Platform.pathSeparator}$relative');
+      final target = File(
+        '${directory.path}${Platform.pathSeparator}$relative',
+      );
       await target.parent.create(recursive: true);
       final bytes = await source.file.readAsBytes();
       await target.writeAsBytes(bytes, flush: true);

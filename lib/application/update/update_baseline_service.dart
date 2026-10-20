@@ -90,7 +90,8 @@ final class UpdateBaselineService {
     );
     if (!outcome.isSuccess) {
       return UpdateBaselineResult(
-        failure: outcome.failure?.code.code ?? 'UPDATE_DOWNLOAD_RETRY_EXHAUSTED',
+        failure:
+            outcome.failure?.code.code ?? 'UPDATE_DOWNLOAD_RETRY_EXHAUSTED',
       );
     }
 
@@ -114,7 +115,8 @@ final class UpdateBaselineService {
         // 忽略：下次会重新下载。
       }
       return UpdateBaselineResult(
-        failure: verification.failure?.code.code ?? 'UPDATE_PACKAGE_FORMAT_INVALID',
+        failure:
+            verification.failure?.code.code ?? 'UPDATE_PACKAGE_FORMAT_INVALID',
       );
     }
 

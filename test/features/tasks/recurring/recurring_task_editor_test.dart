@@ -449,10 +449,7 @@ void main() {
     await pump(tester, updateSafety: safety);
     expect(safety.status.canInstall, isTrue, reason: '纯查看不应阻塞更新');
 
-    await tester.enterText(
-      find.byKey(const Key('recurring-title')),
-      '每周英语',
-    );
+    await tester.enterText(find.byKey(const Key('recurring-title')), '每周英语');
     await tester.pumpAndSettle();
     expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
 

@@ -278,10 +278,7 @@ void main() {
       onProgress: (_, _) {},
     );
 
-    expect(
-      outcome.failure!.code,
-      UpdateFailureCode.manifestSourceNotAllowed,
-    );
+    expect(outcome.failure!.code, UpdateFailureCode.manifestSourceNotAllowed);
   });
 
   // ── 落盘失败与恢复（实施计划 §9.3 / §9.5）─────────────────────────────────
@@ -308,11 +305,7 @@ void main() {
     expect(outcome.failure!.detail, contains('op=promote'));
     expect(outcome.failure!.windowsResultCode, isNotNull);
     expect(await File(partial).readAsBytes(), body, reason: '已验证的字节不能被删除');
-    expect(
-      server.requests,
-      isEmpty,
-      reason: '提升失败不是重新下载的理由（下一次启动再试）',
-    );
+    expect(server.requests, isEmpty, reason: '提升失败不是重新下载的理由（下一次启动再试）');
   });
 
   test('重启后只用 .partial 完成提升，不发起任何 HTTP 请求', () async {
@@ -401,7 +394,8 @@ final class _PackageServer {
     requests.add(request.headers);
     final response = request.response;
     try {
-      if (redirectFirstTo != null && !request.uri.path.contains('real-package')) {
+      if (redirectFirstTo != null &&
+          !request.uri.path.contains('real-package')) {
         response.statusCode = HttpStatus.found;
         response.headers.set('location', redirectFirstTo!);
         await response.close();
@@ -451,4 +445,3 @@ final class _PackageServer {
     }
   }
 }
-

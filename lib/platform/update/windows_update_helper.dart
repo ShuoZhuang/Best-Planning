@@ -27,9 +27,10 @@ final class WindowsUpdateHelper implements UpdateHelper {
     String? helperPath,
     this.handshakeTimeout = const Duration(seconds: 15),
     DateTime Function()? nowUtc,
-  }) : helperPath = helperPath ??
-            Platform.environment['BEST_PLANNING_UPDATE_HELPER'] ??
-            _defaultHelperPath(),
+  }) : helperPath =
+           helperPath ??
+           Platform.environment['BEST_PLANNING_UPDATE_HELPER'] ??
+           _defaultHelperPath(),
        _nowUtc = nowUtc ?? (() => DateTime.now().toUtc());
 
   final UpdateStorageLayout layout;
@@ -186,11 +187,10 @@ final class WindowsUpdateHelper implements UpdateHelper {
       await writeJsonAtomically(requestFile, request.toJson());
       // 必须从包外启动，否则助手自己会把安装包锁住（0x80073D02）。
       final launchPath = await stageHelperForLaunch();
-      final process = await Process.start(
-        launchPath,
-        ['--apply', requestFile.path],
-        mode: ProcessStartMode.detached,
-      );
+      final process = await Process.start(launchPath, [
+        '--apply',
+        requestFile.path,
+      ], mode: ProcessStartMode.detached);
       // 助手会立即读取请求并写入 helper-status.json；等待它写下本次事务号。
       final deadline = _nowUtc().add(handshakeTimeout);
       while (_nowUtc().isBefore(deadline)) {

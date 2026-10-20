@@ -197,4 +197,3 @@ void main() {
     expect(find.byKey(const Key('adjustment-confirm')), findsOneWidget);
   });
 }
-

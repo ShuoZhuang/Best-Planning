@@ -27,7 +27,10 @@ final class _NoPlans implements PlanRepository {
 
 final class _UnusedSource implements ScheduleProblemSource {
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override, TimeRange? window}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     throw StateError('测试不应走到排程输入装配');
   }
 }

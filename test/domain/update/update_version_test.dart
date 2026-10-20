@@ -47,7 +47,13 @@ void main() {
   group('SemVer / AppBuildVersion', () {
     test('SemVer 只接受三段数字', () {
       expect(SemVer.tryParse('1.9.0'), const SemVer(1, 9, 0));
-      for (final raw in ['1.9', '1.9.0.0', 'v1.9.0', '1.9.0-beta.1', '1.9.0+46']) {
+      for (final raw in [
+        '1.9',
+        '1.9.0.0',
+        'v1.9.0',
+        '1.9.0-beta.1',
+        '1.9.0+46',
+      ]) {
         expect(SemVer.tryParse(raw), isNull, reason: '不应接受 $raw');
       }
     });
@@ -122,7 +128,10 @@ void main() {
     });
 
     test('AUMID 由包族名与入口名组成', () {
-      expect(appAumid, 'ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner');
+      expect(
+        appAumid,
+        'ShuoZhuang.PersonalPlanner_v9555qkaxdyym!personalplanner',
+      );
       expect(appAumid.startsWith(appPackageFamilyName), isTrue);
     });
 

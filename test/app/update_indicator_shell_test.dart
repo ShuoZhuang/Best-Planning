@@ -34,7 +34,9 @@ void main() {
   testWidgets('六个主页面都显示同一个更新入口', (tester) async {
     final verified = await verifiedManifestFixture();
     final orchestrator = UpdateOrchestrator(
-      manifestSource: FakeManifestSource(ManifestFetchResult.verified(verified)),
+      manifestSource: FakeManifestSource(
+        ManifestFetchResult.verified(verified),
+      ),
       stateStore: InMemoryStateStore(),
       installedPackages: FakeInstalledPackages(),
       downloader: FakeDownloader(),

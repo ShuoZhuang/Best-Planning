@@ -13,7 +13,8 @@ void main() {
 
   const channel = MethodChannel(updateStorageChannelName);
   const localAppData = r'C:\Users\tester\AppData\Local';
-  const localCache = r'C:\Users\tester\AppData\Local\Packages\ShuoZhuang.PersonalPlanner_v9555qkaxdyym\LocalCache';
+  const localCache =
+      r'C:\Users\tester\AppData\Local\Packages\ShuoZhuang.PersonalPlanner_v9555qkaxdyym\LocalCache';
 
   void respondWith(Future<Object?> Function(MethodCall call) handler) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -88,9 +89,17 @@ void main() {
       storage().resolveRoot(),
       throwsA(
         isA<UpdateStorageException>()
-            .having((error) => error.code, 'code', UpdateStorageErrorCode.failed)
+            .having(
+              (error) => error.code,
+              'code',
+              UpdateStorageErrorCode.failed,
+            )
             .having((error) => error.hresult, 'hresult', hresult)
-            .having((error) => error.diagnostic, 'diagnostic', contains('0x80070005')),
+            .having(
+              (error) => error.diagnostic,
+              'diagnostic',
+              contains('0x80070005'),
+            ),
       ),
     );
   });

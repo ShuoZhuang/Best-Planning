@@ -26,12 +26,13 @@ const _deletedLegacyFiles = <String>[
   'lib/domain/models/app_update.dart',
 ];
 
-List<File> _dartSources() => Directory('lib')
-    .listSync(recursive: true)
-    .whereType<File>()
-    .where((file) => file.path.endsWith('.dart'))
-    .where((file) => !file.path.endsWith('.g.dart'))
-    .toList();
+List<File> _dartSources() =>
+    Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .where((file) => !file.path.endsWith('.g.dart'))
+        .toList();
 
 String _normalized(File file) => file.path.replaceAll(r'\', '/');
 
@@ -73,11 +74,7 @@ void main() {
           '这些文件也 import 了网络包：$offenders。新链路只有三个出网相关的文件'
           '（${_allowedNetworkFiles.join('、')}）。',
     );
-    expect(
-      seen,
-      containsAll(_allowedNetworkFiles),
-      reason: '允许名单失效：只看到 $seen',
-    );
+    expect(seen, containsAll(_allowedNetworkFiles), reason: '允许名单失效：只看到 $seen');
   });
 
   test('不再调用 GitHub Releases API（UPD-001）', () {
@@ -110,9 +107,8 @@ void main() {
   });
 
   test('清单地址固定为两个 HTTPS 路径，可执行代码里没有明文 HTTP', () {
-    final manifest = File(
-      'lib/domain/update/update_manifest.dart',
-    ).readAsStringSync();
+    final manifest = File('lib/domain/update/update_manifest.dart')
+        .readAsStringSync();
     expect(
       manifest,
       contains(
@@ -123,18 +119,19 @@ void main() {
 
     for (final path in _allowedNetworkFiles) {
       final code = _stripLineComments(File(path).readAsStringSync());
-      expect(
-        code.contains("'http://"),
-        isFalse,
-        reason: '$path 出现明文 HTTP',
-      );
+      expect(code.contains("'http://"), isFalse, reason: '$path 出现明文 HTTP');
     }
   });
 
   test('出网口不发送 cookie、授权头或本地版本号', () {
     for (final path in _allowedNetworkFiles) {
       final code = _stripLineComments(File(path).readAsStringSync());
-      for (final forbidden in const ['cookie', 'Cookie', 'Authorization', 'Bearer']) {
+      for (final forbidden in const [
+        'cookie',
+        'Cookie',
+        'Authorization',
+        'Bearer',
+      ]) {
         expect(
           code.contains(forbidden),
           isFalse,
@@ -165,9 +162,8 @@ void main() {
   });
 
   test('外链只交给系统浏览器，不在应用内下载或启动安装程序', () {
-    final launcher = File(
-      'lib/platform/update/url_launcher_adapter.dart',
-    ).readAsStringSync();
+    final launcher = File('lib/platform/update/url_launcher_adapter.dart')
+        .readAsStringSync();
     expect(launcher, contains('LaunchMode.externalApplication'));
     for (final forbidden in const ['download', 'HttpClient', 'Process.start']) {
       expect(
@@ -218,10 +214,11 @@ void main() {
     var scanned = 0;
     for (final directory in directories) {
       if (!directory.existsSync()) continue;
-      for (final file in directory
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((file) => file.path.endsWith('.dart'))) {
+      for (final file
+          in directory
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((file) => file.path.endsWith('.dart'))) {
         scanned++;
         final code = _stripLineComments(file.readAsStringSync());
         for (final forbidden in const [
@@ -238,10 +235,6 @@ void main() {
       }
     }
     expect(scanned, greaterThan(10), reason: '扫描路径可能失效');
-    expect(
-      hits,
-      isEmpty,
-      reason: '自动更新不应按 Wi-Fi/计费网络分支（规格 §7.3）：$hits',
-    );
+    expect(hits, isEmpty, reason: '自动更新不应按 Wi-Fi/计费网络分支（规格 §7.3）：$hits');
   });
 }

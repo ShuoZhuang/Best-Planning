@@ -41,10 +41,7 @@ void main() {
     final base = join(['C:', 'Users', 'tester', 'AppData', 'Local']);
     final layout = UpdateStorageLayout.localAppData(localAppData: base);
 
-    expect(
-      layout.root.path,
-      join([base, 'BestPlanning', 'Updates']),
-    );
+    expect(layout.root.path, join([base, 'BestPlanning', 'Updates']));
     expect('Updates'.allMatches(layout.root.path), hasLength(1));
   });
 

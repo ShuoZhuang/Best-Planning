@@ -18,7 +18,10 @@ import 'execution_test_support.dart';
 
 final class _NeverSource implements ScheduleProblemSource {
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override, TimeRange? window}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     throw StateError('截止时间已过时不应装配排程输入');
   }
 }

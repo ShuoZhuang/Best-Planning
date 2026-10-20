@@ -27,7 +27,9 @@ void main() {
       buildNumber: 46,
       msixVersion: '1.9.0.0',
     );
-    manifest = File('${directory.path}${Platform.pathSeparator}update-manifest.json');
+    manifest = File(
+      '${directory.path}${Platform.pathSeparator}update-manifest.json',
+    );
     await manifest.writeAsString(
       jsonEncode(await signer.signEnvelope(payload)),
     );
@@ -183,4 +185,3 @@ Future<File> _writeMsix(Directory directory) async {
   await file.writeAsBytes(ZipEncoder().encode(archive));
   return file;
 }
-

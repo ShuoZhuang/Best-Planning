@@ -55,10 +55,7 @@ final class _UpdatePageState extends State<UpdatePage> {
                     : () => _openReleaseNotes(context),
               ),
               const SizedBox(height: 12),
-              _SettingsCard(
-                controller: widget.controller,
-                snapshot: snapshot,
-              ),
+              _SettingsCard(controller: widget.controller, snapshot: snapshot),
               const SizedBox(height: 12),
               UpdateDiagnosticsPanel(
                 snapshot: snapshot,
@@ -189,8 +186,7 @@ final class _StatusCard extends StatelessWidget {
     UpdatePhase.installing ||
     UpdatePhase.launchingNewVersion ||
     UpdatePhase.waitingForHealth ||
-    UpdatePhase.succeeded =>
-      '已通过大小、SHA-256 与包身份验证',
+    UpdatePhase.succeeded => '已通过大小、SHA-256 与包身份验证',
     UpdatePhase.verifying => '正在验证',
     _ => '尚无可验证的更新包',
   };
@@ -207,10 +203,7 @@ final class _StatusCard extends StatelessWidget {
       children: [
         SizedBox(
           width: 104,
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
         ),
         Expanded(child: Text(value, key: key)),
       ],
@@ -323,5 +316,3 @@ String _formatBytes(int bytes) {
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
-
-

@@ -55,8 +55,10 @@ final class WindowsDiskSpaceProbe implements DiskSpaceProbe {
 
   static _GetDiskFreeSpaceExWDart _load() {
     final kernel32 = DynamicLibrary.open('kernel32.dll');
-    return kernel32.lookupFunction<_GetDiskFreeSpaceExWNative,
-        _GetDiskFreeSpaceExWDart>('GetDiskFreeSpaceExW');
+    return kernel32
+        .lookupFunction<_GetDiskFreeSpaceExWNative, _GetDiskFreeSpaceExWDart>(
+          'GetDiskFreeSpaceExW',
+        );
   }
 
   /// 取盘符根（`C:\`）。没有盘符时返回原路径，交给系统解析。

@@ -20,12 +20,12 @@ void main() {
   });
 
   Future<FileUpdateLock> buildLock({FakeProcessProbe? probe}) async =>
-      FileUpdateLock(
-        file: file,
-        processProbe: probe ?? FakeProcessProbe(),
-      );
+      FileUpdateLock(file: file, processProbe: probe ?? FakeProcessProbe());
 
-  Future<bool> acquire(FileUpdateLock lock, {String operation = 'download'}) async {
+  Future<bool> acquire(
+    FileUpdateLock lock, {
+    String operation = 'download',
+  }) async {
     final process = await lock.processProbe.current();
     return lock.acquire(
       transactionId: 'tx-1',
@@ -98,6 +98,3 @@ void main() {
     expect(await file.exists(), isFalse);
   });
 }
-
-
-

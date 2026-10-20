@@ -42,8 +42,7 @@ final class _UpdateDiagnosticsPanelState extends State<UpdateDiagnosticsPanel> {
             Text('诊断', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             _line(theme, '最近失败', failure?.code.code ?? '无'),
-            if (failure?.detail != null)
-              _line(theme, '失败详情', failure!.detail!),
+            if (failure?.detail != null) _line(theme, '失败详情', failure!.detail!),
             if (failure?.windowsResultCode != null)
               _line(
                 theme,
@@ -118,10 +117,7 @@ final class _UpdateDiagnosticsPanelState extends State<UpdateDiagnosticsPanel> {
           child: Text(label, style: theme.textTheme.bodySmall),
         ),
         Expanded(
-          child: SelectableText(
-            value,
-            style: theme.textTheme.bodySmall,
-          ),
+          child: SelectableText(value, style: theme.textTheme.bodySmall),
         ),
       ],
     ),

@@ -62,10 +62,6 @@ void main() {
       }
     }
 
-    expect(
-      hits,
-      isEmpty,
-      reason: '正常更新流程不允许弹窗/通知/浏览器跳转：$hits',
-    );
+    expect(hits, isEmpty, reason: '正常更新流程不允许弹窗/通知/浏览器跳转：$hits');
   });
 }

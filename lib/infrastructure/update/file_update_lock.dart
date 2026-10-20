@@ -96,7 +96,9 @@ final class FileUpdateLock implements UpdateLock {
         holderPid: localHolder._record?['pid'] is int
             ? localHolder._record!['pid'] as int
             : null,
-        holderStartedAtUtc: _parseUtc(localHolder._record?['processStartedAtUtc']),
+        holderStartedAtUtc: _parseUtc(
+          localHolder._record?['processStartedAtUtc'],
+        ),
         operation: localHolder._record?['operation'] is String
             ? localHolder._record!['operation'] as String
             : null,
@@ -181,8 +183,3 @@ final class FileUpdateLock implements UpdateLock {
     return value is Map ? value.cast<String, Object?>() : null;
   }
 }
-
-
-
-
-

@@ -72,8 +72,7 @@ const UpdateTarget targetFixture = UpdateTarget(
   tag: 'v1.9.0',
   msixVersion: MsixVersion(1, 9, 0, 0),
   fileName: 'BestPlanning_1.9.0.0_x64.msix',
-  downloadUrl:
-      'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
+  downloadUrl: 'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
   sizeBytes: 2048,
   sha256: testPackageSha256,
   manifestDigest:
@@ -200,8 +199,8 @@ Future<VerifiedManifest> verifiedManifestFixture({
     revokedVersions: revokedVersions,
   );
   if (publisher != null) {
-    payload['compatibility'] =
-        (payload['compatibility']! as Map).cast<String, Object?>();
+    payload['compatibility'] = (payload['compatibility']! as Map)
+        .cast<String, Object?>();
     (payload['compatibility']! as Map)['publisher'] = publisher;
   }
   if (identityName != null) {
@@ -254,10 +253,8 @@ ManifestFetchResult networkFailureFixture() => ManifestFetchResult.failed(
 );
 
 final class FakeProcessProbe implements ProcessIdentityProbe {
-  FakeProcessProbe({
-    this.pid = 4321,
-    DateTime? startedAtUtc,
-  }) : startedAtUtc = startedAtUtc ?? DateTime.utc(2026, 10, 18, 11);
+  FakeProcessProbe({this.pid = 4321, DateTime? startedAtUtc})
+    : startedAtUtc = startedAtUtc ?? DateTime.utc(2026, 10, 18, 11);
 
   final int pid;
   final DateTime startedAtUtc;
@@ -267,8 +264,9 @@ final class FakeProcessProbe implements ProcessIdentityProbe {
       ProcessIdentity(pid: pid, startedAtUtc: startedAtUtc);
 
   @override
-  Future<ProcessIdentity?> forPid(int processId) async =>
-      processId == pid ? ProcessIdentity(pid: pid, startedAtUtc: startedAtUtc) : null;
+  Future<ProcessIdentity?> forPid(int processId) async => processId == pid
+      ? ProcessIdentity(pid: pid, startedAtUtc: startedAtUtc)
+      : null;
 }
 
 final class FakeUpdateHelper implements UpdateHelper {

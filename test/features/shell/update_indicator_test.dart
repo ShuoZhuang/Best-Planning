@@ -130,10 +130,7 @@ void main() {
     await tester.tap(find.byKey(const Key('update-indicator-button')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('请先保存或取消当前编辑，再进行更新。'),
-      findsOneWidget,
-    );
+    expect(find.text('请先保存或取消当前编辑，再进行更新。'), findsOneWidget);
     expect(
       find.byKey(const Key('update-indicator-card-install')),
       findsNothing,
@@ -193,9 +190,7 @@ void main() {
 final class JsonUpdateSettingsStoreFixture {
   JsonUpdateSettingsStoreFixture();
 
-  final store = JsonUpdateSettingsStore(
-    settings: _MemorySettings(),
-  );
+  final store = JsonUpdateSettingsStore(settings: _MemorySettings());
 }
 
 final class _MemorySettings implements SettingsRepository {
@@ -210,6 +205,3 @@ final class _MemorySettings implements SettingsRepository {
   @override
   Future<void> remove(String key) async => _values.remove(key);
 }
-
-
-

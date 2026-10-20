@@ -73,8 +73,10 @@ String packageFamilyNameFor(String name, String publisher) {
 }
 
 /// 由发布者派生 13 位 PublisherId。
-String publisherIdFor(String publisher) =>
-    _windowsBase32(sha256.convert(_utf16LeBytes(publisher)).bytes.take(8).toList(), 13);
+String publisherIdFor(String publisher) => _windowsBase32(
+  sha256.convert(_utf16LeBytes(publisher)).bytes.take(8).toList(),
+  13,
+);
 
 List<int> _utf16LeBytes(String value) {
   final bytes = <int>[];
@@ -93,7 +95,8 @@ String _windowsBase32(List<int> bytes, int characterCount) {
   var index = 0;
   while (buffer.length < characterCount) {
     if (bits < 5) {
-      accumulator = (accumulator << 8) | (index < bytes.length ? bytes[index] : 0);
+      accumulator =
+          (accumulator << 8) | (index < bytes.length ? bytes[index] : 0);
       bits += 8;
       index++;
     }
@@ -195,12 +198,7 @@ final class CompatibilityAssessment {
   }
 }
 
-enum CompatibilityMismatch {
-  identityName,
-  publisher,
-  familyName,
-  architecture,
-}
+enum CompatibilityMismatch { identityName, publisher, familyName, architecture }
 
 /// 把 JSON 里的发布者字符串规范化成可比较的形式。
 ///
@@ -213,5 +211,7 @@ String normalizePublisher(String value) => value
     .join(', ');
 
 /// 供日志与状态文件使用的短发布者标识（不含任何用户信息）。
-String publisherFingerprint(String publisher) =>
-    sha256.convert(utf8.encode(normalizePublisher(publisher))).toString().substring(0, 16);
+String publisherFingerprint(String publisher) => sha256
+    .convert(utf8.encode(normalizePublisher(publisher)))
+    .toString()
+    .substring(0, 16);

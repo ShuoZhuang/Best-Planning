@@ -46,10 +46,7 @@ void main() {
 
     test('NaN 与 Infinity 不是合法 JSON', () {
       expect(() => canonicalJsonNumber(double.nan), throwsFormatException);
-      expect(
-        () => canonicalJsonNumber(double.infinity),
-        throwsFormatException,
-      );
+      expect(() => canonicalJsonNumber(double.infinity), throwsFormatException);
     });
   });
 
@@ -70,7 +67,10 @@ void main() {
   });
 
   test('规范化的 UTF-8 字节可用于签名，且与字符串编码一致', () {
-    const value = {'b': [1, 2.5], 'a': '优'};
+    const value = {
+      'b': [1, 2.5],
+      'a': '优',
+    };
     expect(
       canonicalizeJsonToUtf8(value),
       equals(utf8.encode(canonicalizeJson(value))),

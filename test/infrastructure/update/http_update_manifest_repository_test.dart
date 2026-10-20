@@ -65,8 +65,14 @@ void main() {
 
     expect(requested.toString(), updateManifestLatestUrl);
     expect(requested!.query, isEmpty);
-    expect(seen!.headers.keys.map((key) => key.toLowerCase()), isNot(contains('cookie')));
-    expect(seen!.headers.keys.map((key) => key.toLowerCase()), isNot(contains('authorization')));
+    expect(
+      seen!.headers.keys.map((key) => key.toLowerCase()),
+      isNot(contains('cookie')),
+    );
+    expect(
+      seen!.headers.keys.map((key) => key.toLowerCase()),
+      isNot(contains('authorization')),
+    );
     expect(seen!.headers['User-Agent'], contains('Best-Planning'));
   });
 
@@ -85,10 +91,7 @@ void main() {
     final result = await repository.fetchLatest();
 
     expect(result.isVerified, isFalse);
-    expect(
-      result.failure!.code,
-      UpdateFailureCode.manifestSignatureInvalid,
-    );
+    expect(result.failure!.code, UpdateFailureCode.manifestSignatureInvalid);
     expect(
       classificationFor(result.failure!.code),
       UpdateCheckClassification.sourceInvalid,
@@ -192,10 +195,13 @@ void main() {
       client: MockClient((request) async {
         calls++;
         if (calls == 1) {
-          return http.Response('', 302, headers: {
-            'location':
-                'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/update-manifest.json',
-          });
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location': 'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/update-manifest.json',
+            },
+          );
         }
         return _manifestResponse(json);
       }),
@@ -213,17 +219,16 @@ void main() {
       verifier: verifier,
       client: MockClient((request) async {
         calls++;
-        return http.Response('', 302, headers: {
-          'location': 'https://evil.example/update-manifest.json',
-        });
+        return http.Response(
+          '',
+          302,
+          headers: {'location': 'https://evil.example/update-manifest.json'},
+        );
       }),
     );
 
     final result = await repository.fetchLatest();
-    expect(
-      result.failure!.code,
-      UpdateFailureCode.manifestSourceNotAllowed,
-    );
+    expect(result.failure!.code, UpdateFailureCode.manifestSourceNotAllowed);
     expect(calls, 1, reason: '不允许的目标不应再发请求');
   });
 
@@ -234,18 +239,19 @@ void main() {
       verifier: verifier,
       client: MockClient((request) async {
         calls++;
-        return http.Response('', 302, headers: {
-          'location':
-              'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.$calls/update-manifest.json',
-        });
+        return http.Response(
+          '',
+          302,
+          headers: {
+            'location':
+                'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.$calls/update-manifest.json',
+          },
+        );
       }),
     );
 
     final result = await repository.fetchLatest();
-    expect(
-      result.failure!.code,
-      UpdateFailureCode.manifestSourceNotAllowed,
-    );
+    expect(result.failure!.code, UpdateFailureCode.manifestSourceNotAllowed);
     expect(result.failure!.detail, contains('redirects=6'));
   });
 
@@ -253,9 +259,7 @@ void main() {
     final repository = HttpUpdateManifestRepository(
       cache: createCache(),
       verifier: verifier,
-      client: MockClient(
-        (request) async => http.Response('rate limited', 429),
-      ),
+      client: MockClient((request) async => http.Response('rate limited', 429)),
     );
 
     final result = await repository.fetchLatest();
@@ -298,9 +302,7 @@ void main() {
     final repository = HttpUpdateManifestRepository(
       cache: createCache(),
       verifier: verifier,
-      client: MockClient(
-        (request) async => _manifestResponse('{"payload":'),
-      ),
+      client: MockClient((request) async => _manifestResponse('{"payload":')),
     );
 
     final result = await repository.fetchLatest();
@@ -311,9 +313,5 @@ void main() {
 http.Response _manifestResponse(String body, {String? etag}) => http.Response(
   body,
   200,
-  headers: {
-    'content-type': 'application/json; charset=utf-8',
-    'etag': ?etag,
-  },
+  headers: {'content-type': 'application/json; charset=utf-8', 'etag': ?etag},
 );
-

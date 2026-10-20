@@ -607,4 +607,3 @@ final class _Ids implements IdGenerator {
   @override
   String next() => 'id-${_next++}';
 }
-

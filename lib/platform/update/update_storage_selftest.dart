@@ -71,7 +71,9 @@ Future<Map<String, Object?>> runUpdateStorageSelfTest({
     report['promote'] = 'ok';
     report['readyPath'] = ready.path;
     report['readyBytes'] = await ready.length();
-    report['readySha256'] = sha256.convert(await ready.readAsBytes()).toString();
+    report['readySha256'] = sha256
+        .convert(await ready.readAsBytes())
+        .toString();
     report['partialExists'] = await partial.exists();
 
     // "重启"后仍能读回：重新构造存储，只有真实落盘才可能成立。
@@ -100,7 +102,9 @@ Future<Map<String, Object?>> runUpdateStorageSelfTest({
   if (reportPath != null && reportPath.isNotEmpty) {
     final file = File(reportPath);
     await file.parent.create(recursive: true);
-    await file.writeAsString(const JsonEncoder.withIndent('  ').convert(report));
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(report),
+    );
   }
   return report;
 }

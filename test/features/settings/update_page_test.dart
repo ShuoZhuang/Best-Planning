@@ -141,10 +141,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.state.phase, UpdatePhase.updateAvailable);
-    expect(
-      find.byKey(const Key('update-download-now')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('update-download-now')), findsOneWidget);
   });
 
   testWidgets('立即重新检查会再请求一次清单', (tester) async {
@@ -213,10 +210,7 @@ void main() {
       find.byKey(const Key('update-install')),
     );
     expect(button.onPressed, isNull);
-    expect(
-      find.text('请先保存或取消当前编辑，再进行更新。'),
-      findsWidgets,
-    );
+    expect(find.text('请先保存或取消当前编辑，再进行更新。'), findsWidgets);
   });
 }
 
@@ -232,7 +226,3 @@ final class _MemorySettings implements SettingsRepository {
   @override
   Future<void> remove(String key) async => _values.remove(key);
 }
-
-
-
-

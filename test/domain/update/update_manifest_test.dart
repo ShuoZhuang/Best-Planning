@@ -62,8 +62,7 @@ void main() {
 
   group('结构严格性（UPD-007）', () {
     test('payload 多出未知字段被拒绝', () {
-      final payload = deepCopy(validManifestPayload())
-        ..['futureField'] = true;
+      final payload = deepCopy(validManifestPayload())..['futureField'] = true;
       expect(
         _parse(payload).failure?.code,
         UpdateFailureCode.manifestSchemaUnsupported,
@@ -71,11 +70,10 @@ void main() {
     });
 
     test('嵌套段多出未知字段被拒绝', () {
-      final payload = replaceAt(
-        validManifestPayload(),
-        ['release', 'channel'],
-        'stable',
-      );
+      final payload = replaceAt(validManifestPayload(), [
+        'release',
+        'channel',
+      ], 'stable');
       expect(
         _parse(payload).failure?.code,
         UpdateFailureCode.manifestSchemaUnsupported,
@@ -210,8 +208,7 @@ void main() {
 
     test('下载地址必须是同仓库同 Tag 同文件名的不可变地址', () {
       final payload = validManifestPayload(
-        downloadUrl:
-            'https://github.com/ShuoZhuang/Other/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
+        downloadUrl: 'https://github.com/ShuoZhuang/Other/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
       );
       expect(
         _parse(payload).failure?.code,
@@ -219,8 +216,7 @@ void main() {
       );
 
       final httpPayload = validManifestPayload(
-        downloadUrl:
-            'http://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
+        downloadUrl: 'http://github.com/ShuoZhuang/Best-Planning/releases/download/v1.9.0/BestPlanning_1.9.0.0_x64.msix',
       );
       expect(
         _parse(httpPayload).failure?.code,
@@ -232,8 +228,7 @@ void main() {
       expect(
         _parse(
           validManifestPayload(
-            releaseUrl:
-                'https://github.com/ShuoZhuang/Best-Planning/releases/tag/v1.9.1',
+            releaseUrl: 'https://github.com/ShuoZhuang/Best-Planning/releases/tag/v1.9.1',
           ),
         ).failure?.code,
         UpdateFailureCode.manifestSourceNotAllowed,
@@ -259,11 +254,10 @@ void main() {
       );
       expect(
         _parse(
-          replaceAt(
-            validManifestPayload(),
-            ['presentation', 'title'],
-            'x' * 121,
-          ),
+          replaceAt(validManifestPayload(), [
+            'presentation',
+            'title',
+          ], 'x' * 121),
         ).failure?.code,
         UpdateFailureCode.manifestInvalidJson,
       );
@@ -272,11 +266,10 @@ void main() {
     test('摘要不能包含控制字符', () {
       expect(
         _parse(
-          replaceAt(
-            validManifestPayload(),
-            ['presentation', 'summary'],
-            'bad\u0000summary',
-          ),
+          replaceAt(validManifestPayload(), [
+            'presentation',
+            'summary',
+          ], 'bad\u0000summary'),
         ).failure?.code,
         UpdateFailureCode.manifestInvalidJson,
       );

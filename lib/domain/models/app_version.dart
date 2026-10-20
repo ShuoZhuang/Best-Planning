@@ -21,9 +21,8 @@ final class AppVersion implements Comparable<AppVersion> {
   /// 拒绝：`1.7`、`1.7.0.1`、`nightly`、``（`1.7` 若被接受会与 `1.7.0` 混淆）。
   static AppVersion? parse(String? raw) {
     if (raw == null) return null;
-    final match = RegExp(
-      r'^v?(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$',
-    ).firstMatch(raw.trim());
+    final match = RegExp(r'^v?(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$')
+        .firstMatch(raw.trim());
     if (match == null) return null;
     return AppVersion(
       int.parse(match.group(1)!),

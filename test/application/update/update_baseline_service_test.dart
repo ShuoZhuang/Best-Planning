@@ -52,7 +52,10 @@ void main() {
     expect(result.ok, isTrue, reason: result.failure);
     final baseline = result.baseline!;
     expect(baseline.version.value, '1.8.1.0');
-    expect(baseline.packagePath, layout.baselinePackage(installedFixture.version).path);
+    expect(
+      baseline.packagePath,
+      layout.baselinePackage(installedFixture.version).path,
+    );
     expect(baseline.sha256, hasLength(64));
     expect(await File(baseline.packagePath).exists(), isTrue);
     expect(downloader.calls, 1);
@@ -182,4 +185,3 @@ final class _FailingDownloader implements UpdatePackageDownloader {
     UpdateFailure(UpdateFailureCode.downloadHashMismatch),
   );
 }
-

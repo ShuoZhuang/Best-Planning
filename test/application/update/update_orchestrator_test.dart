@@ -25,7 +25,9 @@ void main() {
   late FakeVerifier verifier;
 
   setUp(() {
-    directory = Directory.systemTemp.createTempSync('update_orchestrator_test_');
+    directory = Directory.systemTemp.createTempSync(
+      'update_orchestrator_test_',
+    );
     layout = UpdateStorageLayout(root: directory);
     clock = FakeClock();
     store = InMemoryStateStore();
@@ -72,10 +74,7 @@ void main() {
       fetchResult: ManifestFetchResult.verified(verified),
     );
 
-    final result = await orchestrator.check(
-      manual: true,
-      autoDownload: false,
-    );
+    final result = await orchestrator.check(manual: true, autoDownload: false);
 
     expect(result.classification, UpdateCheckClassification.updateAvailable);
     expect(result.isConfirmedUpToDate, isFalse);
@@ -103,10 +102,16 @@ void main() {
 
     final result = await orchestrator.check(manual: false);
 
-    expect(result.classification, UpdateCheckClassification.temporarilyUnconfirmed);
+    expect(
+      result.classification,
+      UpdateCheckClassification.temporarilyUnconfirmed,
+    );
     expect(result.isConfirmedUpToDate, isFalse);
     expect(orchestrator.state.phase, UpdatePhase.temporarilyBlocked);
-    expect(orchestrator.state.lastFailure!.code, UpdateFailureCode.networkOffline);
+    expect(
+      orchestrator.state.lastFailure!.code,
+      UpdateFailureCode.networkOffline,
+    );
   });
 
   test('签名无效是“更新源异常”，不是无更新', () async {
@@ -141,7 +146,9 @@ void main() {
   });
 
   test('清单里的发布者与客户端不一致时拒绝', () async {
-    final verified = await verifiedManifestFixture(publisher: 'CN=Someone Else');
+    final verified = await verifiedManifestFixture(
+      publisher: 'CN=Someone Else',
+    );
     final orchestrator = build(
       fetchResult: ManifestFetchResult.verified(verified),
     );
@@ -181,7 +188,10 @@ void main() {
     expect(orchestrator.state.phase, UpdatePhase.ready);
     expect(downloader.calls, 1);
     expect(verifier.calls, 1);
-    expect(orchestrator.state.receivedBytes, orchestrator.state.target!.sizeBytes);
+    expect(
+      orchestrator.state.receivedBytes,
+      orchestrator.state.target!.sizeBytes,
+    );
   });
 
   test('下载失败：进入 failed 并安排退避，而不是假装就绪', () async {
@@ -517,10 +527,7 @@ void main() {
     final result = await orchestrator.check(manual: true);
 
     expect(source.calls, 0);
-    expect(
-      result.failure!.code,
-      UpdateFailureCode.environmentNotPackaged,
-    );
+    expect(result.failure!.code, UpdateFailureCode.environmentNotPackaged);
     expect(result.isConfirmedUpToDate, isFalse);
   });
 
@@ -584,9 +591,7 @@ final class _SequencedSafety implements UpdateSafetyCoordinator {
   UpdateSafetyStatus get status {
     _reads++;
     if (_reads == 2) {
-      return const UpdateSafetyStatus(
-        blockers: {UpdateBlocker.planApplying},
-      );
+      return const UpdateSafetyStatus(blockers: {UpdateBlocker.planApplying});
     }
     return _delegate.status;
   }
