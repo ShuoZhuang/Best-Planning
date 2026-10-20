@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:personal_planner/application/adjustment_preview_port.dart';
 import 'package:personal_planner/application/defer_time_policy.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
@@ -111,7 +112,7 @@ final class NoAdjustmentExecutionEvidence
 /// **它取代 `PendingMoveDrafts._adjustment`**：资格校验、目标快照、下界计算、
 /// 生成、重生、取消与恢复都在这里，并且每次状态转换都经仓储 CAS。路由只持有
 /// `adjustmentId`，不再缓存任何业务真相。
-final class PlanAdjustmentService {
+final class PlanAdjustmentService implements AdjustmentPreviewPort {
   PlanAdjustmentService({
     required this.plans,
     required this.tasks,
@@ -372,6 +373,7 @@ final class PlanAdjustmentService {
   }
 
   /// 显式取消：只 CAS 自己的 adjustment，重复取消幂等。
+  @override
   Future<bool> cancel(String adjustmentId) async {
     final adjustment = await adjustments.byId(adjustmentId);
     if (adjustment == null) return false;
@@ -389,6 +391,27 @@ final class PlanAdjustmentService {
     return cas != null;
   }
 
+  @override
+  Future<AdjustmentPreviewView?> loadPreview(String adjustmentId) async {
+    final adjustment = await adjustments.byId(adjustmentId);
+    if (adjustment == null) return null;
+    final previewId = adjustment.previewId;
+    if (previewId == null) {
+      return AdjustmentPreviewView(adjustment: adjustment);
+    }
+    final preview = await previews.byId(previewId);
+    if (preview == null) {
+      return AdjustmentPreviewView(adjustment: adjustment);
+    }
+    return AdjustmentPreviewView(
+      adjustment: adjustment,
+      preview: PendingPreviewBundle(
+        preview: preview,
+        blocks: await previews.blocks(previewId),
+      ),
+    );
+  }
+
   Future<List<PlanAdjustment>> recoverable() async {
     final now = clock.nowUtc();
     await adjustments.expireBefore(now);
@@ -399,6 +422,7 @@ final class PlanAdjustmentService {
   ///
   /// **不信任预览阶段曾经成功**（DFR-014）：确认时重新装配问题、重新校验块集合、
   /// 重新判兑现；任何一步失败都返回结构化结果、零写入。
+  @override
   Future<AdjustmentApplyReceipt> confirmAdjustment({
     required String adjustmentId,
     required String previewId,
@@ -503,6 +527,7 @@ final class PlanAdjustmentService {
   }
 
   /// 撤销一次已应用的调整；具体证据保护在同一事务里完成。
+  @override
   Future<PlanUndoResult> undoAdjustment(String adjustmentId) async {
     final applier = this.applier;
     if (applier == null) {
@@ -713,3 +738,4 @@ final class PlanAdjustmentService {
     ];
   }
 }
+
