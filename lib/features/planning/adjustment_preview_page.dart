@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:personal_planner/application/adjustment_failure_presenter.dart';
 import 'package:personal_planner/application/adjustment_preview_port.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/adjustment_failure_evidence.dart';
 import 'package:personal_planner/domain/models/pending_plan_preview.dart';
 import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/domain/repositories/plan_adjustment_transaction.dart';
@@ -32,6 +34,8 @@ final class AdjustmentPreviewPage extends StatefulWidget {
 }
 
 final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
+  static const _failurePresenter = AdjustmentFailurePresenter();
+
   AdjustmentPreviewView? _view;
   bool _loading = true;
   bool _busy = false;
@@ -226,6 +230,10 @@ final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
                 ],
                 const SizedBox(height: 4),
                 Text('状态：${_statusLabel(adjustment.status)}'),
+                if (adjustment.failureCode != null) ...[
+                  const SizedBox(height: 12),
+                  _failureCard(adjustment),
+                ],
               ],
             ),
           ),
@@ -315,6 +323,30 @@ final class _AdjustmentPreviewPageState extends State<AdjustmentPreviewPage> {
       return null;
     }
     return null;
+  }
+
+  Widget _failureCard(PlanAdjustment adjustment) {
+    final message = _failurePresenter.present(
+      AdjustmentFailureEvidence(
+        code: adjustment.failureCode!,
+        taskTitle: adjustment.targetTitleSnapshot,
+        requestedMinutes: adjustment.sourceDurationMinutes,
+      ),
+    );
+    return Card(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message.title),
+            const SizedBox(height: 4),
+            Text(message.explanation),
+          ],
+        ),
+      ),
+    );
   }
 
   String _statusLabel(PlanAdjustmentStatus status) => switch (status) {
