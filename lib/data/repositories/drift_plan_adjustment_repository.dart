@@ -12,8 +12,7 @@ import 'package:personal_planner/domain/repositories/plan_adjustment_repository.
 /// **CAS 是这里唯一的写入口**：`compareAndSet` 在一个事务里"读行 → 逐项比对
 /// `adjustmentId + revision + basePlanVersionId + status∈from` → 条件 UPDATE →
 /// 追加审计事件"。零行更新返回 `null`，让上层把并发当成正常结果而不是异常。
-final class DriftPlanAdjustmentRepository
-    implements PlanAdjustmentRepository {
+final class DriftPlanAdjustmentRepository implements PlanAdjustmentRepository {
   DriftPlanAdjustmentRepository(
     this.database, {
     this.clock = const SystemClock(),
@@ -85,13 +84,10 @@ final class DriftPlanAdjustmentRepository
       }
       final current = d.PlanAdjustmentStatus.values.byName(row.status);
       if (!from.contains(current)) return null;
-      final allowed =
-          d.PlanAdjustment.allowedTransitions[current] ?? const {};
+      final allowed = d.PlanAdjustment.allowedTransitions[current] ?? const {};
       if (!allowed.contains(to)) return null;
 
-      final newRevision = incrementRevision
-          ? row.revision + 1
-          : row.revision;
+      final newRevision = incrementRevision ? row.revision + 1 : row.revision;
       final companion = db.PlanAdjustmentsCompanion(
         status: Value(to.name),
         revision: Value(newRevision),
@@ -110,9 +106,7 @@ final class DriftPlanAdjustmentRepository
                 (table) =>
                     table.adjustmentId.equals(expected.adjustmentId) &
                     table.revision.equals(expected.revision) &
-                    table.basePlanVersionId.equals(
-                      expected.basePlanVersionId,
-                    ) &
+                    table.basePlanVersionId.equals(expected.basePlanVersionId) &
                     table.status.isIn([for (final s in from) s.name]),
               ))
               .write(companion);
@@ -190,7 +184,9 @@ final class DriftPlanAdjustmentRepository
   }
 
   @override
-  Future<List<d.PlanAdjustment>> openForTargetBlock(String targetBlockId) async {
+  Future<List<d.PlanAdjustment>> openForTargetBlock(
+    String targetBlockId,
+  ) async {
     final query = database.select(database.planAdjustments)
       ..where(
         (table) =>
@@ -276,7 +272,8 @@ final class DriftPlanAdjustmentRepository
         failureCode: Value(adjustment.failureCode?.name),
       );
 
-  d.PlanAdjustment _adjustment(db.PlanAdjustment row) => d.PlanAdjustment(    adjustmentId: row.adjustmentId,
+  d.PlanAdjustment _adjustment(db.PlanAdjustment row) => d.PlanAdjustment(
+    adjustmentId: row.adjustmentId,
     kind: d.PlanAdjustmentKind.values.byName(row.kind),
     targetBlockId: row.targetBlockId,
     targetTaskId: row.targetTaskId,
@@ -292,9 +289,9 @@ final class DriftPlanAdjustmentRepository
     createdAtUtc: _utc(row.createdAtUtc),
     expiresAtUtc: _utc(row.expiresAtUtc),
     revision: row.revision,
-    targetSiblingBlockIds: (jsonDecode(row.targetSiblingBlockIdsJson)
-            as List<Object?>)
-        .whereType<String>(),
+    targetSiblingBlockIds: (jsonDecode(
+      row.targetSiblingBlockIdsJson,
+    ) as List<Object?>).whereType<String>(),
     previewId: row.previewId,
     appliedPlanVersionId: row.appliedPlanVersionId,
     failureCode: row.failureCode == null
@@ -302,4 +299,3 @@ final class DriftPlanAdjustmentRepository
         : d.PlanAdjustmentFailureCode.values.byName(row.failureCode!),
   );
 }
-

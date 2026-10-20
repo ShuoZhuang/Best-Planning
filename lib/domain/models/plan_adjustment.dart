@@ -94,8 +94,7 @@ final class PlanAdjustmentToken {
   int get hashCode => Object.hash(adjustmentId, revision, basePlanVersionId);
 
   @override
-  String toString() =>
-      'PlanAdjustmentToken(revision: $revision)'; // 不打印实例 id（日志脱敏）
+  String toString() => 'PlanAdjustmentToken(revision: $revision)'; // 不打印实例 id（日志脱敏）
 }
 
 /// 不可变、可持久化的一次块级调整（计划 Task 2 Step 2）。
@@ -230,7 +229,8 @@ final class PlanAdjustment {
   TimeRange get sourceRange =>
       TimeRange(startUtc: sourceStartUtc, endUtc: sourceEndUtc);
 
-  int get sourceDurationMinutes => sourceEndUtc.difference(sourceStartUtc).inMinutes;
+  int get sourceDurationMinutes =>
+      sourceEndUtc.difference(sourceStartUtc).inMinutes;
 
   /// 可以被自动应用的前提：仍处于可应用的活状态。
   bool get isActionable => status == PlanAdjustmentStatus.previewReady;

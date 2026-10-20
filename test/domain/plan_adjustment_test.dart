@@ -98,10 +98,7 @@ void main() {
     });
 
     test('过期时间必须晚于创建时间，延后量必须为正', () {
-      expect(
-        () => build(expiresAtUtc: created),
-        throwsArgumentError,
-      );
+      expect(() => build(expiresAtUtc: created), throwsArgumentError);
       expect(() => build(amount: 0), throwsArgumentError);
       expect(() => build(amount: -5), throwsArgumentError);
     });
@@ -112,7 +109,10 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => build(status: PlanAdjustmentStatus.applied, appliedPlanVersionId: 'plan-8'),
+        () => build(
+          status: PlanAdjustmentStatus.applied,
+          appliedPlanVersionId: 'plan-8',
+        ),
         returnsNormally,
       );
       expect(
@@ -157,7 +157,8 @@ void main() {
       );
       expect(adjustment.previewId, 'preview-1');
       expect(
-        () => build(status: PlanAdjustmentStatus.previewReady, previewId: '   '),
+        () =>
+            build(status: PlanAdjustmentStatus.previewReady, previewId: '   '),
         throwsArgumentError,
       );
     });
@@ -173,8 +174,11 @@ void main() {
     });
 
     test('令牌绑定 id、修订号与基线版本', () {
-      final token = build(revision: 3, status: PlanAdjustmentStatus.previewReady, previewId: 'p')
-          .token;
+      final token = build(
+        revision: 3,
+        status: PlanAdjustmentStatus.previewReady,
+        previewId: 'p',
+      ).token;
 
       expect(token.adjustmentId, 'adj-1');
       expect(token.revision, 3);
@@ -193,7 +197,12 @@ void main() {
       final adjustment = build();
       final expiresAt = created.add(const Duration(hours: 12));
 
-      expect(adjustment.isExpiredAt(expiresAt.subtract(const Duration(microseconds: 1))), isFalse);
+      expect(
+        adjustment.isExpiredAt(
+          expiresAt.subtract(const Duration(microseconds: 1)),
+        ),
+        isFalse,
+      );
       expect(adjustment.isExpiredAt(expiresAt), isTrue);
     });
 

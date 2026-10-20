@@ -56,7 +56,8 @@ final class ScheduleProposalCodec {
       'algorithmVersion': proposal.algorithmVersion,
       'outcome': proposal.outcome.name,
       'planningWindow': {
-        'startUtcMicros': proposal.planningWindow.startUtc.microsecondsSinceEpoch,
+        'startUtcMicros':
+            proposal.planningWindow.startUtc.microsecondsSinceEpoch,
         'endUtcMicros': proposal.planningWindow.endUtc.microsecondsSinceEpoch,
       },
       'metrics': {
@@ -65,8 +66,9 @@ final class ScheduleProposalCodec {
         'unscheduledMinutes': proposal.metrics.unscheduledMinutes,
       },
       'blocks': [
-        for (final block in [...proposal.blocks]
-          ..sort((a, b) => a.id.compareTo(b.id)))
+        for (final block in [
+          ...proposal.blocks,
+        ]..sort((a, b) => a.id.compareTo(b.id)))
           {
             'id': block.id,
             'taskId': block.taskId,
@@ -78,8 +80,9 @@ final class ScheduleProposalCodec {
           },
       ],
       'unscheduled': [
-        for (final item in [...proposal.unscheduled]
-          ..sort((a, b) => a.taskId.compareTo(b.taskId)))
+        for (final item in [
+          ...proposal.unscheduled,
+        ]..sort((a, b) => a.taskId.compareTo(b.taskId)))
           _unscheduledJson(item),
       ],
       'conflicts': [
@@ -87,12 +90,10 @@ final class ScheduleProposalCodec {
           _conflictJson(conflict),
       ],
       'explanations': [
-        for (final explanation in [...proposal.explanations]
-          ..sort((a, b) => a.code.compareTo(b.code)))
-          {
-            'code': explanation.code,
-            'parameters': explanation.parameters,
-          },
+        for (final explanation in [
+          ...proposal.explanations,
+        ]..sort((a, b) => a.code.compareTo(b.code)))
+          {'code': explanation.code, 'parameters': explanation.parameters},
       ],
       'adjustmentRequirement': _requirementJson(proposal.adjustmentRequirement),
       // `ScheduleRuleOverride` 目前只由特殊日恢复产生，不进入持久调整预览；
@@ -143,7 +144,8 @@ final class ScheduleProposalCodec {
           'targetBlockId': value.targetBlockId,
           'notBeforeUtcMicros': value.notBeforeUtc.microsecondsSinceEpoch,
           'requiredMinutes': value.requiredMinutes,
-          'originalStartUtcMicros': value.originalStartUtc.microsecondsSinceEpoch,
+          'originalStartUtcMicros':
+              value.originalStartUtc.microsecondsSinceEpoch,
         };
 
   // ── 解码 ─────────────────────────────────────────────────────────────────
@@ -205,11 +207,10 @@ final class ScheduleProposalCodec {
   UnscheduledTask _unscheduledFrom(Map<String, Object?> raw) => UnscheduledTask(
     taskId: _string(raw, 'taskId'),
     shortageMinutes: _int(raw, 'shortageMinutes'),
-    primaryReason: _reasonFrom(
-      _map(raw['primaryReason'], 'primaryReason'),
-    ),
+    primaryReason: _reasonFrom(_map(raw['primaryReason'], 'primaryReason')),
     reasons: [
-      for (final reason in _list(raw, 'reasons')) _reasonFrom(_map(reason, 'reason')),
+      for (final reason in _list(raw, 'reasons'))
+        _reasonFrom(_map(reason, 'reason')),
     ],
   );
 
@@ -246,10 +247,10 @@ final class ScheduleProposalCodec {
   UnscheduledReason _reasonFrom(Map<String, Object?> raw) => UnscheduledReason(
     code: UnscheduledReasonCode.values.byName(_string(raw, 'code')),
     placementRemainingMinutes: _int(raw, 'placementRemainingMinutes'),
-    constraintRequiredMinutes:
-        (raw['constraintRequiredMinutes'] as num?)?.toInt(),
-    constraintAvailableMinutes:
-        (raw['constraintAvailableMinutes'] as num?)?.toInt(),
+    constraintRequiredMinutes: (raw['constraintRequiredMinutes'] as num?)
+        ?.toInt(),
+    constraintAvailableMinutes: (raw['constraintAvailableMinutes'] as num?)
+        ?.toInt(),
     constraintLabel: raw['constraintLabel'] as String?,
   );
   // ── 规范化与类型辅助 ──────────────────────────────────────────────────────
@@ -271,7 +272,9 @@ final class ScheduleProposalCodec {
 
   Map<String, Object?> _map(Object? value, String name) {
     if (value is Map) {
-      return {for (final entry in value.entries) entry.key as String: entry.value};
+      return {
+        for (final entry in value.entries) entry.key as String: entry.value,
+      };
     }
     throw FormatException('提案字段 $name 必须是对象。');
   }
@@ -301,4 +304,3 @@ final class ScheduleProposalCodec {
     throw FormatException('时间字段 $name 必须是 UTC 微秒整数。');
   }
 }
-

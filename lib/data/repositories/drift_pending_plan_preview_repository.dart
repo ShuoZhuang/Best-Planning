@@ -169,29 +169,31 @@ final class DriftPendingPlanPreviewRepository
                   PendingPreviewStatus.active.name,
                   PendingPreviewStatus.accepted.name,
                 ]) &
-                table.createdAtUtc.isSmallerThanValue(cutoff.microsecondsSinceEpoch),
+                table.createdAtUtc.isSmallerThanValue(
+                  cutoff.microsecondsSinceEpoch,
+                ),
           ))
           .go();
       // ② 每种终态最多保留最近 N 条，防止 100 条上限之后的新记录把库里塞满。
       for (final kind in PendingPreviewKind.values) {
-        final terminal = await (database.select(database.pendingPlanPreviews)
-              ..where(
-                (table) =>
-                    table.kind.equals(kind.name) &
-                    table.status.isNotIn([
-                      PendingPreviewStatus.active.name,
-                      PendingPreviewStatus.accepted.name,
-                    ]),
-              )
-              ..orderBy([(table) => OrderingTerm.desc(table.createdAtUtc)]))
-            .get();
+        final terminal =
+            await (database.select(database.pendingPlanPreviews)
+                  ..where(
+                    (table) =>
+                        table.kind.equals(kind.name) &
+                        table.status.isNotIn([
+                          PendingPreviewStatus.active.name,
+                          PendingPreviewStatus.accepted.name,
+                        ]),
+                  )
+                  ..orderBy([(table) => OrderingTerm.desc(table.createdAtUtc)]))
+                .get();
         final stale = terminal.skip(maxTerminalPerKind).toList();
         if (stale.isEmpty) continue;
         final ids = [for (final row in stale) row.previewId];
-        await (database.delete(database.pendingPlanPreviews)..where(
-              (table) => table.previewId.isIn(ids),
-            ))
-            .go();
+        await (database.delete(
+          database.pendingPlanPreviews,
+        )..where((table) => table.previewId.isIn(ids))).go();
       }
     });
   }
@@ -230,4 +232,3 @@ final class DriftPendingPlanPreviewRepository
         minutes: row.minutes,
       );
 }
-

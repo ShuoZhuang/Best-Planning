@@ -128,13 +128,19 @@ void main() {
 
     expect(wrongRevision, isNull);
     expect(wrongBase, isNull);
-    expect((await repository.byId('adj-1'))!.status, PlanAdjustmentStatus.active);
+    expect(
+      (await repository.byId('adj-1'))!.status,
+      PlanAdjustmentStatus.active,
+    );
     expect(await repository.events('adj-1'), hasLength(1));
   });
 
   test('状态不在 from 集合时 CAS 不写库（旧预览不能二次确认）', () async {
     await repository.create(
-      adjustment(status: PlanAdjustmentStatus.applied, appliedPlanVersionId: 'plan-8'),
+      adjustment(
+        status: PlanAdjustmentStatus.applied,
+        appliedPlanVersionId: 'plan-8',
+      ),
     );
 
     final result = await repository.compareAndSet(
@@ -148,7 +154,10 @@ void main() {
     );
 
     expect(result, isNull);
-    expect((await repository.byId('adj-1'))!.status, PlanAdjustmentStatus.applied);
+    expect(
+      (await repository.byId('adj-1'))!.status,
+      PlanAdjustmentStatus.applied,
+    );
   });
 
   test('重生 CAS 递增 revision 并清掉旧 preview', () async {
@@ -238,10 +247,7 @@ void main() {
   test('openForTargetBlock 只返回未终结的调整（两个调整互不覆盖）', () async {
     await repository.create(adjustment(id: 'adj-1'));
     await repository.create(
-      adjustment(
-        id: 'adj-2',
-        status: PlanAdjustmentStatus.cancelled,
-      ),
+      adjustment(id: 'adj-2', status: PlanAdjustmentStatus.cancelled),
     );
 
     final open = await repository.openForTargetBlock('block-1');
@@ -259,7 +265,11 @@ void main() {
       ),
     );
     await repository.create(
-      adjustment(id: 'adj-3', blockId: 'block-3', expiresIn: const Duration(hours: 1)),
+      adjustment(
+        id: 'adj-3',
+        blockId: 'block-3',
+        expiresIn: const Duration(hours: 1),
+      ),
     );
 
     final recoverable = await repository.recoverable(harness.clock.nowUtc());
@@ -272,14 +282,24 @@ void main() {
       adjustment(id: 'adj-1', expiresIn: const Duration(minutes: 1)),
     );
     await repository.create(
-      adjustment(id: 'adj-2', blockId: 'block-2', expiresIn: const Duration(hours: 5)),
+      adjustment(
+        id: 'adj-2',
+        blockId: 'block-2',
+        expiresIn: const Duration(hours: 5),
+      ),
     );
 
     final now = harness.clock.nowUtc().add(const Duration(minutes: 2));
     await repository.expireBefore(now);
 
-    expect((await repository.byId('adj-1'))!.status, PlanAdjustmentStatus.expired);
-    expect((await repository.byId('adj-2'))!.status, PlanAdjustmentStatus.active);
+    expect(
+      (await repository.byId('adj-1'))!.status,
+      PlanAdjustmentStatus.expired,
+    );
+    expect(
+      (await repository.byId('adj-2'))!.status,
+      PlanAdjustmentStatus.active,
+    );
     final expiredEvents = await repository.events('adj-1');
     expect(expiredEvents.last.toStatus, PlanAdjustmentStatus.expired);
     expect(
@@ -291,7 +311,12 @@ void main() {
   test('basePlanVersion 查询覆盖该基线上的全部调整（撤销与审计用）', () async {
     await repository.create(adjustment(id: 'adj-1'));
     await repository.create(
-      adjustment(id: 'adj-2', blockId: 'block-2', status: PlanAdjustmentStatus.applied, appliedPlanVersionId: 'plan-8'),
+      adjustment(
+        id: 'adj-2',
+        blockId: 'block-2',
+        status: PlanAdjustmentStatus.applied,
+        appliedPlanVersionId: 'plan-8',
+      ),
     );
 
     final onBase = await repository.byBasePlanVersion('plan-1');

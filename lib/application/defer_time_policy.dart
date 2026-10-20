@@ -65,18 +65,18 @@ final class DeferTimePolicy {
       return const DeferAmountValidation.invalid('amountNotPositive');
     }
     return switch (unit) {
-      DeferUnit.minutes => amount <= maxMinutes
-          ? DeferAmountValidation.valid(
-              amount,
-              max: maxMinutes,
-            )
-          : const DeferAmountValidation.invalid('amountOutOfRange'),
-      DeferUnit.hours => amount <= maxHours
-          ? DeferAmountValidation.valid(amount, max: maxHours)
-          : const DeferAmountValidation.invalid('amountOutOfRange'),
-      DeferUnit.days => amount <= maxDays
-          ? DeferAmountValidation.valid(amount, max: maxDays)
-          : const DeferAmountValidation.invalid('longerThanOneWeek'),
+      DeferUnit.minutes =>
+        amount <= maxMinutes
+            ? DeferAmountValidation.valid(amount, max: maxMinutes)
+            : const DeferAmountValidation.invalid('amountOutOfRange'),
+      DeferUnit.hours =>
+        amount <= maxHours
+            ? DeferAmountValidation.valid(amount, max: maxHours)
+            : const DeferAmountValidation.invalid('amountOutOfRange'),
+      DeferUnit.days =>
+        amount <= maxDays
+            ? DeferAmountValidation.valid(amount, max: maxDays)
+            : const DeferAmountValidation.invalid('longerThanOneWeek'),
     };
   }
 
@@ -101,7 +101,11 @@ final class DeferTimePolicy {
       );
     }
     if (!sourceStartUtc.isUtc) {
-      throw ArgumentError.value(sourceStartUtc, 'sourceStartUtc', 'Must be UTC.');
+      throw ArgumentError.value(
+        sourceStartUtc,
+        'sourceStartUtc',
+        'Must be UTC.',
+      );
     }
     final raw = switch (unit) {
       DeferUnit.minutes => sourceStartUtc.add(Duration(minutes: amount)),
@@ -131,7 +135,9 @@ final class DeferTimePolicy {
       DateTime(nextLocalDate.year, nextLocalDate.month, nextLocalDate.day + 1),
       timeZoneId,
     );
-    return endOfNextDay.isAfter(defaultWindowEnd) ? endOfNextDay : defaultWindowEnd;
+    return endOfNextDay.isAfter(defaultWindowEnd)
+        ? endOfNextDay
+        : defaultWindowEnd;
   }
 
   /// 目标本地日期（只含年月日）。用于按日查粒度与展示"最早可开始"。
@@ -183,9 +189,7 @@ final class DeferTimePolicy {
       final minutesFromMidnight = local.hour * 60 + local.minute;
       final withinGrid = minutesFromMidnight % grid;
       final hasSubMinute =
-          local.second != 0 ||
-          local.millisecond != 0 ||
-          local.microsecond != 0;
+          local.second != 0 || local.millisecond != 0 || local.microsecond != 0;
       if (withinGrid == 0 && !hasSubMinute) return candidate;
 
       final addMinutes = withinGrid == 0 ? grid : grid - withinGrid;
@@ -193,7 +197,11 @@ final class DeferTimePolicy {
       var targetDate = localDate;
       while (targetMinute >= 24 * 60) {
         targetMinute -= 24 * 60;
-        targetDate = DateTime(targetDate.year, targetDate.month, targetDate.day + 1);
+        targetDate = DateTime(
+          targetDate.year,
+          targetDate.month,
+          targetDate.day + 1,
+        );
       }
       final aligned = zones.resolveLocalWallTime(
         localDate: targetDate,
@@ -235,4 +243,3 @@ TimeRange deferBoundPreview({
   startUtc: notBeforeUtc,
   endUtc: notBeforeUtc.add(Duration(minutes: durationMinutes)),
 );
-

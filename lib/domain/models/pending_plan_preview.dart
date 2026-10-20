@@ -34,11 +34,10 @@ final class PendingPlanPreview {
     required this.revision,
     String operationId = recurringLookaheadOperationId,
     String proposalJson = '{}',
-    String proposalSha256 = '',
+    this.proposalSha256 = '',
     int formatVersion = 1,
   }) : operationId = _requireText(operationId, 'operationId'),
        proposalJson = proposalJson,
-       proposalSha256 = proposalSha256,
        formatVersion = _requireFormatVersion(formatVersion) {
     if (!windowStartUtc.isUtc || !windowEndUtc.isUtc) {
       throw ArgumentError('Preview window must be UTC.');
@@ -54,9 +53,7 @@ final class PendingPlanPreview {
       throw ArgumentError.value(timeZoneId, 'timeZoneId');
     }
     if (kind == PendingPreviewKind.deferAdjustment && proposalJson == '{}') {
-      throw ArgumentError(
-        '延后调整的预览必须携带完整提案；只存块会让确认阶段丢掉未安排、冲突与要求。',
-      );
+      throw ArgumentError('延后调整的预览必须携带完整提案；只存块会让确认阶段丢掉未安排、冲突与要求。');
     }
   }
 

@@ -94,12 +94,14 @@ abstract interface class AdjustmentExecutionEvidence {
   Future<Set<String>> startedOrCompletedBlockIds(Iterable<String> blockIds);
 }
 
-final class NoAdjustmentExecutionEvidence implements AdjustmentExecutionEvidence {
+final class NoAdjustmentExecutionEvidence
+    implements AdjustmentExecutionEvidence {
   const NoAdjustmentExecutionEvidence();
 
   @override
-  Future<Set<String>> startedOrCompletedBlockIds(Iterable<String> blockIds) async =>
-      const {};
+  Future<Set<String>> startedOrCompletedBlockIds(
+    Iterable<String> blockIds,
+  ) async => const {};
 }
 
 /// 「延后本次」的唯一应用服务（计划 Task 5）。
@@ -282,7 +284,8 @@ final class PlanAdjustmentService {
         status: GenerateAdjustmentPreviewStatus.notFound,
       );
     }
-    if (!adjustment.status.isOpen && adjustment.status != PlanAdjustmentStatus.failed) {
+    if (!adjustment.status.isOpen &&
+        adjustment.status != PlanAdjustmentStatus.failed) {
       return GenerateAdjustmentPreviewResult(
         status: GenerateAdjustmentPreviewStatus.terminal,
         adjustment: adjustment,
@@ -309,7 +312,9 @@ final class PlanAdjustmentService {
   }
 
   /// 重生：同一 adjustmentId、revision +1、复用原 amount/unit，并重新读取目标块。
-  Future<GenerateAdjustmentPreviewResult> regenerate(String adjustmentId) async {
+  Future<GenerateAdjustmentPreviewResult> regenerate(
+    String adjustmentId,
+  ) async {
     final adjustment = await adjustments.byId(adjustmentId);
     if (adjustment == null) {
       return const GenerateAdjustmentPreviewResult(
@@ -434,9 +439,9 @@ final class PlanAdjustmentService {
   Future<GenerateAdjustmentPreviewResult> _generate(
     PlanAdjustment adjustment,
   ) async {
-    final defaultWindowEnd = clock
-        .nowUtc()
-        .add(Duration(days: defaultWindowDays));
+    final defaultWindowEnd = clock.nowUtc().add(
+      Duration(days: defaultWindowDays),
+    );
     final windowEnd = policy.adjustmentWindowEnd(
       notBeforeUtc: adjustment.notBeforeUtc,
       defaultWindowEnd: defaultWindowEnd,
@@ -582,4 +587,3 @@ final class PlanAdjustmentService {
     ];
   }
 }
-

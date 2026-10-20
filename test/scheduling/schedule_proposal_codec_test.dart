@@ -144,19 +144,20 @@ void main() {
 
     final keys = (proposalJson.keys.toList());
     expect(keys, [...keys]..sort());
-    final block = (proposalJson['blocks'] as List).single as Map<String, Object?>;
+    final block =
+        (proposalJson['blocks'] as List).single as Map<String, Object?>;
     final blockKeys = block.keys.toList();
     expect(blockKeys, [...blockKeys]..sort());
   });
 
   test('未知 formatVersion 拒绝解码，不按残缺字段重建', () {
     final encoded = codec.encodeCanonical(proposal());
-    final tampered = encoded.replaceFirst('"formatVersion":1', '"formatVersion":2');
-
-    expect(
-      () => codec.decode(tampered),
-      throwsA(isA<FormatException>()),
+    final tampered = encoded.replaceFirst(
+      '"formatVersion":1',
+      '"formatVersion":2',
     );
+
+    expect(() => codec.decode(tampered), throwsA(isA<FormatException>()));
   });
 
   test('非对象根与缺失 proposal 都拒绝', () {

@@ -259,7 +259,10 @@ void main() {
         occurredAtUtc: now,
       );
 
-      expect(cancelled.canTransitionTo(PlanAdjustmentStatus.generating), isFalse);
+      expect(
+        cancelled.canTransitionTo(PlanAdjustmentStatus.generating),
+        isFalse,
+      );
     });
   });
 

@@ -120,10 +120,7 @@ void main() {
 
     expect(recurring, isNotNull);
     expect(adjustment, isNotNull);
-    expect(
-      recurring!.preview.kind,
-      PendingPreviewKind.recurringLookahead,
-    );
+    expect(recurring!.preview.kind, PendingPreviewKind.recurringLookahead);
   });
 
   test('完整提案 JSON 与哈希跨读回逐字保留', () async {
@@ -139,9 +136,7 @@ void main() {
   });
 
   test('过期预览在 expireBefore 之后变 stale，不能再被当作 active', () async {
-    await repository.saveActive(
-      bundle(expiresIn: const Duration(minutes: 1)),
-    );
+    await repository.saveActive(bundle(expiresIn: const Duration(minutes: 1)));
 
     await repository.expireBefore(
       harness.clock.nowUtc().add(const Duration(minutes: 2)),
@@ -161,11 +156,13 @@ void main() {
   });
 
   test('cleanup 只清终态，不碰 active 预览', () async {
+    await repository.saveActive(bundle(id: 'preview-1', operationId: 'adj-1'));
     await repository.saveActive(
-      bundle(id: 'preview-1', operationId: 'adj-1'),
-    );
-    await repository.saveActive(
-      bundle(id: 'preview-2', operationId: 'adj-2', expiresIn: const Duration(minutes: 1)),
+      bundle(
+        id: 'preview-2',
+        operationId: 'adj-2',
+        expiresIn: const Duration(minutes: 1),
+      ),
     );
     await repository.expireBefore(
       harness.clock.nowUtc().add(const Duration(minutes: 2)),

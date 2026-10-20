@@ -9,7 +9,6 @@ import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
-import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/repositories/drift_pending_plan_preview_repository.dart';
 import 'package:personal_planner/data/repositories/drift_plan_adjustment_repository.dart';
@@ -134,18 +133,21 @@ void main() {
     locked: locked,
   );
 
-  ConfirmedPlan confirmedPlan({List<PlannedBlock>? blocks, String id = 'plan-1'}) =>
-      ConfirmedPlan(
-        id: id,
-        inputHash: 'hash',
-        algorithmVersion: '20',
-        blocks: blocks ?? [block()],
-      );
+  ConfirmedPlan confirmedPlan({
+    List<PlannedBlock>? blocks,
+    String id = 'plan-1',
+  }) => ConfirmedPlan(
+    id: id,
+    inputHash: 'hash',
+    algorithmVersion: '20',
+    blocks: blocks ?? [block()],
+  );
 
   Future<void> build({
     ConfirmedPlan? plan,
     PlannerTask? task,
-    AdjustmentExecutionEvidence evidence = const NoAdjustmentExecutionEvidence(),
+    AdjustmentExecutionEvidence evidence =
+        const NoAdjustmentExecutionEvidence(),
   }) async {
     harness = await ExecutionTestHarness.create(
       // 本地 09:00 的周一：目标块（本地 10:00）尚未开始。
@@ -316,7 +318,8 @@ void main() {
 
       expect(second.status, BeginDeferStatus.operationConflict);
       expect(
-        (await adjustments.byId(first.adjustment!.adjustmentId))!.requestedAmount,
+        (await adjustments.byId(first.adjustment!.adjustmentId))!
+            .requestedAmount,
         10,
         reason: '第二个操作不得改动第一个',
       );
@@ -375,9 +378,7 @@ void main() {
         GenerateAdjustmentPreviewStatus.previewReady,
         reason: generated.failureCode?.name,
       );
-      final persisted = await adjustments.byId(
-        begun.adjustment!.adjustmentId,
-      );
+      final persisted = await adjustments.byId(begun.adjustment!.adjustmentId);
       expect(persisted!.status, PlanAdjustmentStatus.previewReady);
       expect(persisted.previewId, generated.previewId);
       final bundle = await previews.active(
@@ -394,7 +395,9 @@ void main() {
         reason: '标题快照必须进入预览',
       );
       expect(
-        bundle.blocks.any((b) => b.startUtc.isBefore(DateTime.utc(2026, 10, 5, 2, 10))),
+        bundle.blocks.any(
+          (b) => b.startUtc.isBefore(DateTime.utc(2026, 10, 5, 2, 10)),
+        ),
         isFalse,
         reason: '预览块不得早于下界',
       );
@@ -530,7 +533,9 @@ void main() {
 
       final recoverable = await service.recoverable();
 
-      expect(recoverable.map((a) => a.adjustmentId), [begun.adjustment!.adjustmentId]);
+      expect(recoverable.map((a) => a.adjustmentId), [
+        begun.adjustment!.adjustmentId,
+      ]);
       expect(recoverable.single.requestedAmount, 30);
     });
   });

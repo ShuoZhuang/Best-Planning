@@ -160,8 +160,7 @@ final class RepositoryScheduleProblemSource
         );
     // 调整专属窗口只能**扩大**：`max(默认窗口终点, adjustmentWindowEnd)`。
     // 缩小会让延后 1–7 天的合法目标被截掉，表现为莫名其妙的无解。
-    final endUtc =
-        windowEndUtc != null && windowEndUtc.isAfter(defaultEndUtc)
+    final endUtc = windowEndUtc != null && windowEndUtc.isAfter(defaultEndUtc)
         ? windowEndUtc
         : defaultEndUtc;
 

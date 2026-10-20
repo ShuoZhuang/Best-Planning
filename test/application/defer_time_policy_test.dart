@@ -134,10 +134,7 @@ void main() {
       );
 
       expect(result, DateTime.utc(2026, 3, 29, 1));
-      expect(
-        result.difference(DateTime.utc(2026, 3, 28, 2)).inHours,
-        23,
-      );
+      expect(result.difference(DateTime.utc(2026, 3, 28, 2)).inHours, 23);
     });
 
     test('纽约春季前跳：缺失的 02:30 推进到第一个有效本地时刻 03:00', () async {
@@ -210,4 +207,3 @@ void main() {
     });
   });
 }
-
