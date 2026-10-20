@@ -9,6 +9,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_manifest.dart';
 import 'package:personal_planner/domain/update/update_ports.dart';
@@ -51,10 +52,14 @@ final class Ed25519ManifestVerifier {
   final Ed25519 _ed25519 = Ed25519();
 
   /// 验证信封：规范化 payload → Ed25519 → 严格解析。
+  ///
+  /// [requestKey] 是"这份清单回答的是哪个请求"，会被写进 [VerifiedManifest]，使
+  /// 调用方之后无法把 tag 清单当成 latest 清单使用（INV-01）。
   Future<ManifestVerification> verify(
     UpdateManifestEnvelope envelope, {
     String? etag,
-    String? manifestUrl,
+    ManifestRequestKey? requestKey,
+    String? resolvedOrigin,
   }) async {
     final publicKeyHex = _publicKeys[envelope.signature.keyId];
     if (publicKeyHex == null) {
@@ -128,8 +133,9 @@ final class Ed25519ManifestVerifier {
         payloadJson: envelope.payloadJson,
         canonicalDigest: sha256.convert(canonicalBytes).toString(),
         confirmedAtUtc: _nowUtc(),
+        requestKey: requestKey,
         etag: etag,
-        manifestUrl: manifestUrl,
+        resolvedOrigin: resolvedOrigin,
       ),
     );
   }

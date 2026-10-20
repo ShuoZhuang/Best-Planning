@@ -1,5 +1,6 @@
-// 持久状态机（UPD-019 / UPD-020 / 规格 §9）。
+// 持久状态机（UPD-019 / UPD-020 / 规格 §9；1.11.1 修复 §4.5）。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
@@ -111,8 +112,11 @@ void main() {
           sha256: _target.sha256,
           sizeBytes: 2048,
           createdAtUtc: DateTime.utc(2026, 10, 18),
-          snapshotPath: 'C:/Updates/snapshot.zip',
-          snapshotSha256: _target.manifestDigest,
+        ),
+        baselinePreparation: const BaselinePreparationState(
+          phase: BaselinePhase.retryWaiting,
+          requiredForInstalledVersion: MsixVersion(1, 8, 1, 0),
+          attempt: 2,
         ),
         snapshotPath: 'C:/Updates/snapshot.zip',
         healthDeadlineUtc: DateTime.utc(2026, 10, 18, 0, 5),
@@ -138,7 +142,7 @@ void main() {
     test('损坏或不支持的状态返回 null（由调用方重建，不安装任何文件）', () {
       final base = const UpdateState(phase: UpdatePhase.ready).toJson();
       final cases = <Map<String, Object?>>[
-        {...base, 'schemaVersion': 2},
+        {...base, 'schemaVersion': 3},
         {...base, 'phase': 'unknownPhase'},
         {...base, 'receivedBytes': -1},
         {
@@ -247,5 +251,133 @@ void main() {
     );
     expect(busy.contains(UpdatePhase.ready), isFalse);
     expect(busy.contains(UpdatePhase.downloadPaused), isFalse);
+  });
+
+  group('v1 → v2 迁移（UPD-INC-027）', () {
+    Map<String, Object?> v1Json({
+      String phase = 'ready',
+      Map<String, Object?>? target,
+      Map<String, Object?>? baseline,
+    }) => {
+      'schemaVersion': 1,
+      'phase': phase,
+      'currentMsixVersion': '1.10.2.0',
+      'target': target ?? _target.toJson(),
+      'receivedBytes': 2048,
+      'totalBytes': 2048,
+      'etag': '"pkg"',
+      'lastModified': 'Wed, 21 Oct 2026 07:28:00 GMT',
+      'retryAttempt': 0,
+      'targetFailureCount': 0,
+      'pausedTargetVersion': null,
+      'nextAttemptUtc': null,
+      'lastCheckedUtc': '2026-10-20T00:00:00.000Z',
+      'lastConfirmedUtc': '2026-10-20T00:00:00.000Z',
+      'manifestEtag': '"latest-1"',
+      'lastCheckClassification': 'updateAvailable',
+      'lastFailure': null,
+      'transactionId': null,
+      'baseline': baseline,
+      'snapshotPath': null,
+      'healthDeadlineUtc': null,
+      'helperStartedUtc': null,
+      'updatedAtUtc': '2026-10-20T00:00:00.000Z',
+    };
+
+    test('完整 v1 迁移保留 target、进度与 phase，ETag 只作诊断', () {
+      final migrated = UpdateState.tryMigrateV1(v1Json());
+
+      expect(migrated, isNotNull);
+      expect(migrated!.schemaVersion, updateStateSchemaVersion);
+      expect(migrated.phase, UpdatePhase.ready);
+      expect(migrated.target!.msixVersion.value, '1.9.0.0');
+      expect(migrated.receivedBytes, 2048);
+      expect(migrated.etag, '"pkg"');
+      expect(migrated.manifestEtag, '"latest-1"');
+      expect(migrated.migratedFromSchemaVersion, 1);
+      expect(migrated.migrationDroppedFields, isEmpty);
+      expect(migrated.baselinePreparation.phase, BaselinePhase.absent);
+      // v1 迁移结果本身是合法 v2：可以写回并再次读回。
+      final reloaded = UpdateState.tryParse(migrated.toJson());
+      expect(reloaded, isNotNull);
+      expect(reloaded!.target!.msixVersion.value, '1.9.0.0');
+    });
+
+    test('v1 有 baseline 时只给出 ready 候选值', () {
+      final migrated = UpdateState.tryMigrateV1(
+        v1Json(
+          baseline: {
+            'version': '1.8.1.0',
+            'packagePath': 'C:/Updates/baseline/pkg.msix',
+            'sha256': '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+            'sizeBytes': 2048,
+            'createdAtUtc': '2026-10-18T00:00:00.000Z',
+            'snapshotPath': 'C:/Updates/snapshot.zip',
+          },
+        ),
+      );
+
+      expect(migrated!.baseline!.version.value, '1.8.1.0');
+      expect(migrated.baselinePreparation.phase, BaselinePhase.ready);
+      // 旧模型里的快照字段被忽略：快照属于安装事务。
+      expect(migrated.baseline!.packagePath, 'C:/Updates/baseline/pkg.msix');
+    });
+
+    test('缺字段的 v1 只丢该字段，保留可独立验证的 target', () {
+      final json = v1Json()..remove('receivedBytes');
+      final migrated = UpdateState.tryMigrateV1(json);
+
+      expect(migrated, isNotNull);
+      expect(migrated!.target!.msixVersion.value, '1.9.0.0');
+      expect(migrated.receivedBytes, 0);
+      expect(migrated.migrationDroppedFields, contains('receivedBytes'));
+    });
+
+    test('损坏的 v1 target 只丢 target，phase 与基线线索保留', () {
+      final migrated = UpdateState.tryMigrateV1(
+        v1Json(target: {'version': '1.9.0'}),
+      );
+
+      expect(migrated, isNotNull);
+      expect(migrated!.target, isNull);
+      expect(migrated.phase, UpdatePhase.ready);
+      expect(migrated.migrationDroppedFields, contains('target'));
+    });
+
+    test('v2 已含基线准备状态时往返一致', () {
+      final state = UpdateState(
+        phase: UpdatePhase.ready,
+        target: _target,
+        baselinePreparation: BaselinePreparationState(
+          phase: BaselinePhase.retryWaiting,
+          requiredForInstalledVersion: const MsixVersion(1, 8, 1, 0),
+          attempt: 3,
+          nextAttemptUtc: DateTime.utc(2026, 10, 20, 1),
+          lastFailure: const UpdateFailure(UpdateFailureCode.networkOffline),
+        ),
+        migrationDroppedFields: const ['legacyField'],
+      );
+
+      final restored = UpdateState.tryParse(state.toJson());
+      expect(restored, isNotNull);
+      expect(restored!.baselinePreparation.phase, BaselinePhase.retryWaiting);
+      expect(restored.baselinePreparation.attempt, 3);
+      expect(
+        restored.baselinePreparation.lastFailure!.code,
+        UpdateFailureCode.networkOffline,
+      );
+      expect(restored.migrationDroppedFields, ['legacyField']);
+      expect(restored.baselinePhase, BaselinePhase.retryWaiting);
+    });
+
+    test('未来版本 schema 不被当作当前结构解析', () {
+      final future = {
+        ...const UpdateState(phase: UpdatePhase.ready).toJson(),
+        'schemaVersion': updateStateSchemaVersion + 1,
+        'newField': true,
+      };
+      expect(UpdateState.tryParse(future), isNull);
+      expect(UpdateState.tryMigrateV1(future), isNull);
+    });
   });
 }

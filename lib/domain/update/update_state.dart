@@ -1,4 +1,4 @@
-// 持久更新状态机（规格 §9）。
+// 持久更新状态机（规格 §9；1.11.1 修复 §4.5）。
 //
 // **这个文件回答两个问题**：
 //   1. 从当前阶段能不能走到下一阶段？——合法跳转集中成一张表，非法跳转不改变安全状态；
@@ -6,12 +6,21 @@
 //
 // 状态本身只是**恢复线索**，不是事实（规格 §9.4）。启动时必须重新核对文件、进程、锁与
 // Windows 实际包状态；因此这里刻意不提供"读到 ready 就直接安装"这类捷径。
+//
+// 1.11.1 的两处结构性变化：
+//   · schema 从 1 抬到 2，并提供**显式 v1 迁移**：字段级容错，优先保住 target / baseline
+//     这些可以独立验证的线索，不因为改版重置整份状态（UPD-INC-027）；
+//   · 清单 ETag 不再驱动请求（缓存项自己带着它），`manifestEtag` 只作为诊断字段保留。
 import 'package:personal_planner/domain/update/rollback_baseline.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
 
-/// 状态文件的结构版本。字段含义变化时提升它，并拒绝按旧结构解释。
-const int updateStateSchemaVersion = 1;
+/// 状态文件的结构版本。字段含义变化时提升它，并按版本显式迁移。
+const int updateStateSchemaVersion = 2;
+
+/// 1.11.0 及更早版本写的结构版本。
+const int updateStateLegacySchemaVersion = 1;
 
 /// 18 个阶段（规格 §9.1），名称与规格逐字对应。
 enum UpdatePhase {
@@ -319,10 +328,13 @@ final class UpdateState {
     this.lastFailure,
     this.transactionId,
     this.baseline,
+    this.baselinePreparation = const BaselinePreparationState(),
     this.snapshotPath,
     this.healthDeadlineUtc,
     this.helperStartedUtc,
     this.updatedAtUtc,
+    this.migratedFromSchemaVersion,
+    this.migrationDroppedFields = const [],
   });
 
   final int schemaVersion;
@@ -355,7 +367,8 @@ final class UpdateState {
   /// 最近一次**成功验证**清单的时间（与 [lastCheckedUtc] 不同：失败也会更新后者）。
   final DateTime? lastConfirmedUtc;
 
-  /// 清单响应的 ETag（与安装包的 [etag] 分开存）。
+  /// **已废弃**：清单响应的 ETag。1.11.1 起 ETag 与实体一起存在缓存项里，
+  /// 这里只为旧状态文件保留诊断信息，**不得**再作为条件请求的输入（INV-02）。
   final String? manifestEtag;
 
   final UpdateCheckClassification? lastCheckClassification;
@@ -367,6 +380,9 @@ final class UpdateState {
 
   final RollbackBaseline? baseline;
 
+  /// 基线准备的独立子状态（阶段、尝试、下次重试、最近失败）。
+  final BaselinePreparationState baselinePreparation;
+
   /// 更新前数据快照路径（快照文件本身由 `UpdateSnapshotService` 生成）。
   final String? snapshotPath;
 
@@ -376,6 +392,15 @@ final class UpdateState {
   final DateTime? helperStartedUtc;
 
   final DateTime? updatedAtUtc;
+
+  /// 由 v1 迁移而来时记录原 schema 版本；v2 原生写入时为 `null`。
+  final int? migratedFromSchemaVersion;
+
+  /// v1 迁移时被丢弃的字段名（稳定标识，**不含原始值或路径**）。
+  final List<String> migrationDroppedFields;
+
+  /// 基线阶段（等价于 [baselinePreparation] 的 phase，供界面直接读）。
+  BaselinePhase get baselinePhase => baselinePreparation.phase;
 
   static const Object _unset = Object();
 
@@ -402,10 +427,13 @@ final class UpdateState {
     Object? lastFailure = _unset,
     Object? transactionId = _unset,
     Object? baseline = _unset,
+    BaselinePreparationState? baselinePreparation,
     Object? snapshotPath = _unset,
     Object? healthDeadlineUtc = _unset,
     Object? helperStartedUtc = _unset,
     Object? updatedAtUtc = _unset,
+    Object? migratedFromSchemaVersion = _unset,
+    List<String>? migrationDroppedFields,
   }) => UpdateState(
     schemaVersion: schemaVersion ?? this.schemaVersion,
     phase: _pick(phase, this.phase)!,
@@ -429,10 +457,17 @@ final class UpdateState {
     lastFailure: _pick(lastFailure, this.lastFailure),
     transactionId: _pick(transactionId, this.transactionId),
     baseline: _pick(baseline, this.baseline),
+    baselinePreparation: baselinePreparation ?? this.baselinePreparation,
     snapshotPath: _pick(snapshotPath, this.snapshotPath),
     healthDeadlineUtc: _pick(healthDeadlineUtc, this.healthDeadlineUtc),
     helperStartedUtc: _pick(helperStartedUtc, this.helperStartedUtc),
     updatedAtUtc: _pick(updatedAtUtc, this.updatedAtUtc),
+    migratedFromSchemaVersion: _pick(
+      migratedFromSchemaVersion,
+      this.migratedFromSchemaVersion,
+    ),
+    migrationDroppedFields:
+        migrationDroppedFields ?? this.migrationDroppedFields,
   );
 
   /// 从当前阶段能否走到 [next]。
@@ -509,19 +544,171 @@ final class UpdateState {
           },
     'transactionId': transactionId,
     'baseline': baseline?.toJson(),
+    'baselinePreparation': baselinePreparation.toJson(),
     'snapshotPath': snapshotPath,
     'healthDeadlineUtc': healthDeadlineUtc?.toUtc().toIso8601String(),
     'helperStartedUtc': helperStartedUtc?.toUtc().toIso8601String(),
     'updatedAtUtc': updatedAtUtc?.toUtc().toIso8601String(),
+    'migratedFromSchemaVersion': migratedFromSchemaVersion,
+    'migrationDroppedFields': migrationDroppedFields,
   };
 
-  /// 解析状态文件；任何结构问题都返回 `null`（调用方据此重建，而不是按半份状态安装）。
+  /// 解析 v2 状态文件；任何结构问题都返回 `null`（调用方据此重建，而不是按半份状态安装）。
   static UpdateState? tryParse(Object? json) {
     if (json is! Map) return null;
     final schemaVersion = json['schemaVersion'];
     if (schemaVersion is! int || schemaVersion != updateStateSchemaVersion) {
       return null;
     }
+    return _parseV2(json);
+  }
+
+  /// 显式 v1 → v2 迁移。
+  ///
+  /// 1.11.0 写下的状态里已经有"已下载 1.11.0"的全部事实，直接按未知 schema 丢弃
+  /// 就是事故的第二半（UPD-INC-027）。这里的规则是：
+  ///   · 能独立验证的字段（target、baseline、下载进度、事务）尽量保留；
+  ///   · 单字段损坏只丢弃该字段，并把字段**名**记进 [migrationDroppedFields]；
+  ///   · `manifestEtag` 降级为诊断字段，不再驱动请求；
+  ///   · baseline 是否存在只给出 absent/ready 的**候选值**，随后必须走启动严格复核。
+  static UpdateState? tryMigrateV1(Object? json) {
+    if (json is! Map) return null;
+    final schemaVersion = json['schemaVersion'];
+    if (schemaVersion is! int ||
+        schemaVersion != updateStateLegacySchemaVersion) {
+      return null;
+    }
+    final dropped = <String>[];
+
+    var phase = UpdatePhase.fromWireName(json['phase'] as String?);
+    if (phase == null) {
+      phase = UpdatePhase.idle;
+      dropped.add('phase');
+    }
+
+    int readCount(String key) {
+      if (!json.containsKey(key)) {
+        // v1 的 toJson 总是写全字段，因此"缺键"本身就是一份不完整的状态。
+        dropped.add(key);
+        return 0;
+      }
+      final value = json[key];
+      if (value is int && value >= 0) return value;
+      if (value != null) dropped.add(key);
+      return 0;
+    }
+
+    final receivedBytes = readCount('receivedBytes');
+    final retryAttempt = readCount('retryAttempt');
+    final targetFailureCount = readCount('targetFailureCount');
+
+    int? totalBytes;
+    final totalRaw = json['totalBytes'];
+    if (totalRaw is int && totalRaw >= 0) {
+      totalBytes = totalRaw;
+    } else if (totalRaw != null) {
+      dropped.add('totalBytes');
+    }
+
+    String? readString(String key) {
+      final value = json[key];
+      if (value is String) return value;
+      if (value != null) dropped.add(key);
+      return null;
+    }
+
+    MsixVersion? currentVersion;
+    final currentRaw = json['currentMsixVersion'];
+    if (currentRaw is String) {
+      currentVersion = MsixVersion.tryParse(currentRaw);
+      if (currentVersion == null) dropped.add('currentMsixVersion');
+    } else if (currentRaw != null) {
+      dropped.add('currentMsixVersion');
+    }
+
+    UpdateTarget? target;
+    final targetRaw = json['target'];
+    if (targetRaw != null) {
+      target = UpdateTarget.tryParse(targetRaw);
+      if (target == null) dropped.add('target');
+    }
+
+    RollbackBaseline? baseline;
+    final baselineRaw = json['baseline'];
+    if (baselineRaw != null) {
+      baseline = RollbackBaseline.tryParse(baselineRaw);
+      if (baseline == null) dropped.add('baseline');
+    }
+
+    UpdateFailure? failure;
+    final failureRaw = json['lastFailure'];
+    if (failureRaw is Map) {
+      final code = UpdateFailureCode.fromCode(failureRaw['code'] as String?);
+      if (code == null) {
+        dropped.add('lastFailure');
+      } else {
+        failure = UpdateFailure(
+          code,
+          detail: failureRaw['detail'] as String?,
+          windowsResultCode: failureRaw['windowsResultCode'] as int?,
+          occurredAtUtc: _parseUtc(failureRaw['occurredAtUtc']),
+          attempt: failureRaw['attempt'] is int
+              ? failureRaw['attempt'] as int
+              : 0,
+        );
+      }
+    } else if (failureRaw != null) {
+      dropped.add('lastFailure');
+    }
+
+    UpdateCheckClassification? classification;
+    final classificationRaw = json['lastCheckClassification'];
+    if (classificationRaw is String) {
+      for (final value in UpdateCheckClassification.values) {
+        if (value.name == classificationRaw) classification = value;
+      }
+      if (classification == null) dropped.add('lastCheckClassification');
+    } else if (classificationRaw != null) {
+      dropped.add('lastCheckClassification');
+    }
+
+    // v1 没有独立的基线准备状态：只给出候选值，随后由启动复核决定是否可信。
+    final baselinePreparation = BaselinePreparationState(
+      phase: baseline == null ? BaselinePhase.absent : BaselinePhase.ready,
+      requiredForInstalledVersion: baseline?.version,
+    );
+
+    return UpdateState(
+      phase: phase,
+      currentMsixVersion: currentVersion,
+      target: target,
+      receivedBytes: receivedBytes,
+      totalBytes: totalBytes,
+      etag: readString('etag'),
+      lastModified: readString('lastModified'),
+      retryAttempt: retryAttempt,
+      targetFailureCount: targetFailureCount,
+      pausedTargetVersion: readString('pausedTargetVersion'),
+      nextAttemptUtc: _parseUtc(json['nextAttemptUtc']),
+      lastCheckedUtc: _parseUtc(json['lastCheckedUtc']),
+      lastConfirmedUtc: _parseUtc(json['lastConfirmedUtc']),
+      // 仅保留为诊断；1.11.1 起条件请求的 ETag 只从缓存项读。
+      manifestEtag: readString('manifestEtag'),
+      lastCheckClassification: classification,
+      lastFailure: failure,
+      transactionId: readString('transactionId'),
+      baseline: baseline,
+      baselinePreparation: baselinePreparation,
+      snapshotPath: readString('snapshotPath'),
+      healthDeadlineUtc: _parseUtc(json['healthDeadlineUtc']),
+      helperStartedUtc: _parseUtc(json['helperStartedUtc']),
+      updatedAtUtc: _parseUtc(json['updatedAtUtc']),
+      migratedFromSchemaVersion: updateStateLegacySchemaVersion,
+      migrationDroppedFields: List.unmodifiable(dropped),
+    );
+  }
+
+  static UpdateState? _parseV2(Map json) {
     final phase = UpdatePhase.fromWireName(json['phase'] as String?);
     if (phase == null) return null;
     final receivedBytes = json['receivedBytes'];
@@ -575,6 +762,11 @@ final class UpdateState {
         ? null
         : RollbackBaseline.tryParse(baselineJson);
     if (baselineJson != null && baseline == null) return null;
+    final preparationJson = json['baselinePreparation'];
+    final preparation = preparationJson == null
+        ? const BaselinePreparationState()
+        : BaselinePreparationState.tryParse(preparationJson);
+    if (preparation == null) return null;
     final current = json['currentMsixVersion'];
     MsixVersion? currentVersion;
     if (current is String) {
@@ -596,8 +788,21 @@ final class UpdateState {
         (manifestEtag != null && manifestEtag is! String)) {
       return null;
     }
+    final migratedFrom = json['migratedFromSchemaVersion'];
+    if (migratedFrom != null && migratedFrom is! int) return null;
+    final droppedRaw = json['migrationDroppedFields'];
+    var dropped = const <String>[];
+    if (droppedRaw != null) {
+      if (droppedRaw is! List) return null;
+      final names = <String>[];
+      for (final item in droppedRaw) {
+        if (item is! String) return null;
+        names.add(item);
+      }
+      dropped = List.unmodifiable(names);
+    }
     return UpdateState(
-      schemaVersion: schemaVersion,
+      schemaVersion: updateStateSchemaVersion,
       phase: phase,
       currentMsixVersion: currentVersion,
       target: target,
@@ -618,10 +823,13 @@ final class UpdateState {
       lastFailure: failure,
       transactionId: transactionId as String?,
       baseline: baseline,
+      baselinePreparation: preparation,
       snapshotPath: snapshotPath as String?,
       healthDeadlineUtc: _parseUtc(json['healthDeadlineUtc']),
       helperStartedUtc: _parseUtc(json['helperStartedUtc']),
       updatedAtUtc: _parseUtc(json['updatedAtUtc']),
+      migratedFromSchemaVersion: migratedFrom as int?,
+      migrationDroppedFields: dropped,
     );
   }
 }

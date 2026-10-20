@@ -55,6 +55,7 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
                             snapshot: snapshot,
                             onInstall: _install,
                             onRetry: _retry,
+                            onRetryBaseline: _retryBaseline,
                             onDownload: _download,
                             onCheck: _check,
                             onOpenDetails: () {
@@ -85,6 +86,10 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
         _install();
       case UpdateIndicatorAction.retry:
         _retry();
+      case UpdateIndicatorAction.retryBaseline:
+        _retryBaseline();
+      case UpdateIndicatorAction.retryCheck:
+        _check();
       case UpdateIndicatorAction.expand:
         setState(() => _expanded = !_expanded);
       case UpdateIndicatorAction.none:
@@ -100,6 +105,11 @@ final class _UpdateIndicatorState extends State<UpdateIndicator> {
 
   Future<void> _retry() async {
     await widget.controller.retry();
+  }
+
+  /// 基线失败的"立即重试"：只重试同一个 single-flight 任务，不产生第二个下载。
+  Future<void> _retryBaseline() async {
+    await widget.controller.retryBaseline();
   }
 
   Future<void> _download() async {
@@ -151,6 +161,8 @@ final class _IndicatorButton extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
+                        // 只有下载才用进度环；"准备安全更新"用静态图标，避免常驻的不确定动画
+                        // 让界面（和 widget 测试）永远无法 settle。
                         if (model.kind == UpdateIndicatorKind.downloading)
                           SizedBox(
                             width: 22,
@@ -213,8 +225,12 @@ final class _IndicatorButton extends StatelessWidget {
             ? model.title
             : '${model.title} ${(progress * 100).round()}%',
       UpdateIndicatorKind.verifying => model.title,
+      UpdateIndicatorKind.preparingSafety => '更新已下载 · 准备中',
+      UpdateIndicatorKind.waitingNetwork => '等待网络恢复 · 点击重试',
       UpdateIndicatorKind.ready => model.canInstall ? '更新已就绪' : '更新已就绪（暂时不可用）',
+      UpdateIndicatorKind.staleRetained => '暂时无法重新确认',
       UpdateIndicatorKind.blocked => '暂时无法确认更新',
+      UpdateIndicatorKind.revoked => '此更新已撤回',
       UpdateIndicatorKind.failedRetryable => '更新失败，点击重试',
       UpdateIndicatorKind.failedPermanent => '更新失败',
       UpdateIndicatorKind.paused => '下载已暂停',
@@ -226,8 +242,12 @@ final class _IndicatorButton extends StatelessWidget {
     UpdateIndicatorKind.downloading => Icons.download_rounded,
     UpdateIndicatorKind.paused => Icons.pause_circle_outline_rounded,
     UpdateIndicatorKind.verifying => Icons.verified_outlined,
+    UpdateIndicatorKind.preparingSafety => Icons.shield_outlined,
+    UpdateIndicatorKind.waitingNetwork => Icons.cloud_off_rounded,
     UpdateIndicatorKind.ready => Icons.system_update_alt_rounded,
+    UpdateIndicatorKind.staleRetained => Icons.help_outline_rounded,
     UpdateIndicatorKind.blocked => Icons.cloud_off_rounded,
+    UpdateIndicatorKind.revoked => Icons.block_rounded,
     UpdateIndicatorKind.failedRetryable ||
     UpdateIndicatorKind.failedPermanent => Icons.error_outline_rounded,
     UpdateIndicatorKind.hidden => Icons.circle_outlined,
@@ -235,8 +255,12 @@ final class _IndicatorButton extends StatelessWidget {
 
   Color _color(ThemeData theme) => switch (model.kind) {
     UpdateIndicatorKind.ready => theme.colorScheme.primary,
+    UpdateIndicatorKind.preparingSafety ||
+    UpdateIndicatorKind.waitingNetwork ||
+    UpdateIndicatorKind.staleRetained => theme.colorScheme.tertiary,
     UpdateIndicatorKind.failedRetryable ||
-    UpdateIndicatorKind.failedPermanent => theme.colorScheme.error,
+    UpdateIndicatorKind.failedPermanent ||
+    UpdateIndicatorKind.revoked => theme.colorScheme.error,
     UpdateIndicatorKind.blocked ||
     UpdateIndicatorKind.paused => theme.colorScheme.onSurfaceVariant,
     _ => theme.colorScheme.primary,

@@ -1,4 +1,5 @@
-// 状态文件与日志存储（UPD-019 / UPD-041）。
+// 状态文件与日志存储（UPD-019 / UPD-041；1.11.1 修复 §4.5）。
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -53,13 +54,63 @@ void main() {
       expect(store.lastLoadWasCorrupt, isTrue);
     });
 
-    test('不支持的结构版本也按损坏处理', () async {
+    test('未来版本 schema 不覆盖原文件，也不降级解析', () async {
       final file = File('${directory.path}${Platform.pathSeparator}state.json');
-      await file.writeAsString('{"schemaVersion": 99, "phase": "ready"}');
+      final original = '{"schemaVersion": 99, "phase": "ready"}';
+      await file.writeAsString(original);
       final store = FileUpdateStateStore(file: file);
 
-      expect((await store.load()).phase, UpdatePhase.idle);
-      expect(store.lastLoadWasCorrupt, isTrue);
+      final loaded = await store.load();
+      expect(loaded.phase, UpdatePhase.idle);
+      expect(store.sawFutureSchema, isTrue);
+      expect(store.lastLoadWasCorrupt, isFalse);
+
+      // 不覆盖：保存必须被拒绝，文件保持原样。
+      await expectLater(
+        store.save(const UpdateState(phase: UpdatePhase.upToDate)),
+        throwsA(isA<StateError>()),
+      );
+      expect(await file.readAsString(), original);
+    });
+
+    test('v1 状态迁移为 v2 并写回，保留 target 与下载进度', () async {
+      final file = File('${directory.path}${Platform.pathSeparator}state.json');
+      await file.writeAsString(
+        jsonEncode({
+          'schemaVersion': 1,
+          'phase': 'ready',
+          'currentMsixVersion': '1.10.2.0',
+          'target': {
+            'version': '1.11.0',
+            'buildNumber': 52,
+            'tag': 'v1.11.0',
+            'msixVersion': '1.11.0.0',
+            'fileName': 'BestPlanning_1.11.0.0_x64.msix',
+            'downloadUrl': 'https://github.com/ShuoZhuang/Best-Planning/releases/download/v1.11.0/BestPlanning_1.11.0.0_x64.msix',
+            'sizeBytes': 2048,
+            'sha256': '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+            'manifestDigest': 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+            'keyId': 'best-planning-2026-10',
+          },
+          'receivedBytes': 2048,
+          'totalBytes': 2048,
+          'retryAttempt': 0,
+          'targetFailureCount': 0,
+          'manifestEtag': '"latest-1"',
+        }),
+      );
+      final store = FileUpdateStateStore(file: file);
+
+      final loaded = await store.load();
+
+      expect(loaded.schemaVersion, updateStateSchemaVersion);
+      expect(loaded.target!.msixVersion.value, '1.11.0.0');
+      expect(loaded.receivedBytes, 2048);
+      expect(store.lastLoadMigrated, isTrue);
+
+      // 迁移后立即写回 v2。
+      final persisted = jsonDecode(await file.readAsString()) as Map;
+      expect(persisted['schemaVersion'], updateStateSchemaVersion);
     });
 
     test('reset 删除状态文件', () async {

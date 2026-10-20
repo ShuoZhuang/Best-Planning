@@ -2,6 +2,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_manifest.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
@@ -273,6 +274,85 @@ void main() {
         ).failure?.code,
         UpdateFailureCode.manifestInvalidJson,
       );
+    });
+  });
+
+  group('请求身份（ManifestRequestKey）', () {
+    test('latest 与 tag 的存储键、路径与固定地址互不相同', () {
+      const latest = ManifestRequestKey.latestStable();
+      final tag = ManifestRequestKey.releaseTag('v1.10.2');
+
+      expect(latest.storageKey, 'latest-stable');
+      expect(tag.storageKey, 'tag-v1.10.2');
+      expect(latest.relativePath, 'manifests/latest-stable.json');
+      expect(tag.relativePath, 'manifests/tags/v1.10.2.json');
+      expect(latest.canonicalUri.toString(), updateManifestLatestUrl);
+      expect(
+        tag.canonicalUri.toString(),
+        updateManifestUrlForTag('v1.10.2').toString(),
+      );
+      expect(latest, isNot(tag));
+      expect(latest, const ManifestRequestKey.latestStable());
+    });
+
+    test('同一 tag 的两次构造相等；不同 tag 不等', () {
+      expect(
+        ManifestRequestKey.releaseTag('v1.10.2'),
+        ManifestRequestKey.releaseTag('v1.10.2'),
+      );
+      expect(
+        ManifestRequestKey.releaseTag('v1.10.2'),
+        isNot(ManifestRequestKey.releaseTag('v1.10.3')),
+      );
+    });
+
+    test('非法 tag 不产生请求身份', () {
+      for (final tag in [
+        '',
+        '../evil',
+        'v1.10',
+        'v01.10.2',
+        '1.10.2',
+        'v1.10.2/../x',
+        'v1.10.2 ',
+        'v1.10.2\n',
+      ]) {
+        expect(
+          ManifestRequestKey.tryReleaseTag(tag),
+          isNull,
+          reason: '应拒绝 $tag',
+        );
+        expect(
+          () => ManifestRequestKey.releaseTag(tag),
+          throwsA(isA<ArgumentError>()),
+        );
+      }
+    });
+
+    test('JSON 表达稳定，非法 JSON 不产生身份', () {
+      const latest = ManifestRequestKey.latestStable();
+      final tag = ManifestRequestKey.releaseTag('v1.11.0');
+
+      expect(ManifestRequestKey.fromJson(latest.toJson()), latest);
+      expect(ManifestRequestKey.fromJson(tag.toJson()), tag);
+      expect(ManifestRequestKey.fromJson({'kind': 'releaseTag'}), isNull);
+      expect(
+        ManifestRequestKey.fromJson({'kind': 'releaseTag', 'tag': 'bad'}),
+        isNull,
+      );
+      expect(ManifestRequestKey.fromJson({'kind': 'other'}), isNull);
+      expect(ManifestRequestKey.fromJson('latest'), isNull);
+    });
+
+    test('界面来源名不包含 URL 或查询串', () {
+      const latest = ManifestRequestKey.latestStable();
+      final tag = ManifestRequestKey.releaseTag('v1.10.2');
+      expect(latest.label, 'GitHub 稳定通道');
+      expect(tag.label, contains('v1.10.2'));
+      for (final label in [latest.label, tag.label]) {
+        expect(label, isNot(contains('http')));
+        expect(label, isNot(contains('?')));
+      }
     });
   });
 }

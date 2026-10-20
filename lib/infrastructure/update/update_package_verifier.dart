@@ -40,6 +40,39 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
     required UpdateTarget target,
     required InstalledPackage installed,
     required bool verifyNativeSignature,
+  }) => _verifyFile(
+    path: path,
+    expectedVersion: target.msixVersion,
+    expectedSizeBytes: target.sizeBytes,
+    expectedSha256: target.sha256,
+    installed: installed,
+    verifyNativeSignature: verifyNativeSignature,
+  );
+
+  @override
+  Future<PackageVerification> verifyBaseline({
+    required String path,
+    required MsixVersion expectedVersion,
+    required int expectedSizeBytes,
+    required String expectedSha256,
+    required bool verifyNativeSignature,
+  }) => _verifyFile(
+    path: path,
+    expectedVersion: expectedVersion,
+    expectedSizeBytes: expectedSizeBytes,
+    expectedSha256: expectedSha256,
+    // 基线包就是"当前已安装版本"，版本关系检查（同版本/降级）不适用。
+    installed: null,
+    verifyNativeSignature: verifyNativeSignature,
+  );
+
+  Future<PackageVerification> _verifyFile({
+    required String path,
+    required MsixVersion expectedVersion,
+    required int expectedSizeBytes,
+    required String expectedSha256,
+    required InstalledPackage? installed,
+    required bool verifyNativeSignature,
   }) async {
     final file = File(path);
     if (!await file.exists()) {
@@ -59,15 +92,15 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
       );
     }
 
-    if (sizeBytes != target.sizeBytes) {
+    if (sizeBytes != expectedSizeBytes) {
       return PackageVerification.invalid(
         UpdateFailure(
           UpdateFailureCode.downloadSizeMismatch,
-          detail: 'size=$sizeBytes expected=${target.sizeBytes}',
+          detail: 'size=$sizeBytes expected=$expectedSizeBytes',
         ),
       );
     }
-    if (sha256Hex != target.sha256) {
+    if (sha256Hex != expectedSha256) {
       return PackageVerification.invalid(
         UpdateFailure(
           UpdateFailureCode.downloadHashMismatch,
@@ -134,13 +167,13 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
       );
     }
 
-    // 包内部版本必须与清单声明的目标版本一致（清单签名保护前者，包清单保护后者）。
-    if (!identity.versionMatches(target.msixVersion)) {
+    // 包内部版本必须与期望版本一致（清单签名保护前者，包清单保护后者）。
+    if (!identity.versionMatches(expectedVersion)) {
       return PackageVerification.invalid(
         UpdateFailure(
           UpdateFailureCode.packageVersionMismatch,
           detail:
-              'package=${identity.version.value} target=${target.msixVersion.value}',
+              'package=${identity.version.value} expected=${expectedVersion.value}',
         ),
       );
     }
@@ -150,16 +183,18 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
       return PackageVerification.invalid(mismatch);
     }
 
-    final relation = target.msixVersion.compareTo(installed.version);
-    if (relation == 0) {
-      return const PackageVerification.invalid(
-        UpdateFailure(UpdateFailureCode.packageVersionSame),
-      );
-    }
-    if (relation < 0) {
-      return const PackageVerification.invalid(
-        UpdateFailure(UpdateFailureCode.packageDowngradeBlocked),
-      );
+    if (installed != null) {
+      final relation = expectedVersion.compareTo(installed.version);
+      if (relation == 0) {
+        return const PackageVerification.invalid(
+          UpdateFailure(UpdateFailureCode.packageVersionSame),
+        );
+      }
+      if (relation < 0) {
+        return const PackageVerification.invalid(
+          UpdateFailure(UpdateFailureCode.packageDowngradeBlocked),
+        );
+      }
     }
 
     if (verifyNativeSignature) {
@@ -195,7 +230,7 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
 
   UpdateFailure? _identityMismatch(
     _AppxIdentity identity,
-    InstalledPackage installed,
+    InstalledPackage? installed,
   ) {
     if (identity.name != appPackageIdentityName) {
       return const UpdateFailure(UpdateFailureCode.packageIdentityMismatch);
@@ -211,7 +246,7 @@ final class ZipUpdatePackageVerifier implements UpdatePackageVerifier {
     if (identity.architecture != PackageArchitecture.x64) {
       return const UpdateFailure(UpdateFailureCode.packageArchMismatch);
     }
-    if (installed.familyName != appPackageFamilyName) {
+    if (installed != null && installed.familyName != appPackageFamilyName) {
       return const UpdateFailure(UpdateFailureCode.packageFamilyMismatch);
     }
     return null;

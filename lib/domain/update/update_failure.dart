@@ -101,6 +101,12 @@ enum UpdateFailureCode {
     retryable: false,
     message: '更新信息里的版本互相矛盾',
   ),
+  manifestStaleLatest(
+    'UPDATE_MANIFEST_STALE_LATEST',
+    UpdateStage.manifest,
+    retryable: true,
+    message: '暂时无法重新确认更新；已下载的更新仍会保留',
+  ),
 
   // ── 下载（规格 §14.2）──────────────────────────────────────────────────────
   downloadDiskSpaceLow(
@@ -471,6 +477,12 @@ enum UpdateFailureCode {
     retryable: true,
     message: '更新状态文件损坏，正在重建',
   ),
+  stateSchemaUnsupported(
+    'UPDATE_STATE_SCHEMA_UNSUPPORTED',
+    UpdateStage.state,
+    retryable: false,
+    message: '更新状态由更新版本的客户端写入，请先升级到最新版本',
+  ),
   stateWriteFailed(
     'UPDATE_STATE_WRITE_FAILED',
     UpdateStage.state,
@@ -619,6 +631,7 @@ UpdateCheckClassification classificationFor(UpdateFailureCode code) =>
       UpdateFailureCode.networkHttpFailed ||
       UpdateFailureCode.manifestNotModifiedWithoutCache ||
       UpdateFailureCode.manifestEmpty ||
+      UpdateFailureCode.manifestStaleLatest ||
       UpdateFailureCode.environmentNotPackaged =>
         UpdateCheckClassification.temporarilyUnconfirmed,
       UpdateFailureCode.manifestInvalidJson ||

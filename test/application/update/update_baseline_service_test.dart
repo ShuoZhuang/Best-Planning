@@ -1,15 +1,18 @@
-// 回退基线（UPD-038 的前置条件 / 规格 §13.3）。
+// 回退基线（UPD-038 的前置条件 / 规格 §13.3；1.11.1 修复 §4.4 / §6）。
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/update/update_baseline_service.dart';
+import 'package:personal_planner/domain/update/package_identity.dart';
 import 'package:personal_planner/domain/update/rollback_baseline.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_ports.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
+import 'package:personal_planner/domain/update/update_version.dart';
 import 'package:personal_planner/infrastructure/update/update_storage_layout.dart';
 
 import '../../support/update_doubles.dart';
+import '../../support/update_fixtures.dart';
 
 void main() {
   late Directory directory;
@@ -49,7 +52,7 @@ void main() {
       state: const UpdateState(phase: UpdatePhase.idle),
     );
 
-    expect(result.ok, isTrue, reason: result.failure);
+    expect(result.ok, isTrue, reason: result.failure?.code.code);
     final baseline = result.baseline!;
     expect(baseline.version.value, '1.8.1.0');
     expect(
@@ -99,7 +102,7 @@ void main() {
     );
 
     expect(result.ok, isFalse);
-    expect(result.failure, UpdateFailureCode.networkOffline.code);
+    expect(result.failure!.code, UpdateFailureCode.networkOffline);
   });
 
   test('下载失败时不产生基线', () async {
@@ -115,7 +118,7 @@ void main() {
     );
 
     expect(result.ok, isFalse);
-    expect(result.failure, UpdateFailureCode.downloadHashMismatch.code);
+    expect(result.failure!.code, UpdateFailureCode.downloadHashMismatch);
   });
 
   test('包验证失败时删除半成品', () async {
@@ -136,11 +139,233 @@ void main() {
     );
 
     expect(result.ok, isFalse);
-    expect(result.failure, UpdateFailureCode.packageSignatureInvalid.code);
+    expect(result.failure!.code, UpdateFailureCode.packageSignatureInvalid);
     expect(
       await layout.baselinePackage(installedFixture.version).exists(),
       isFalse,
     );
+  });
+
+  group('严格校验（INV-06 / UPD-INC-010～012）', () {
+    Future<UpdateBaselineService> build({
+      required ManifestFetchResult result,
+      required UpdatePackageDownloader downloader,
+      UpdatePackageVerifier? verifier,
+      DiskSpaceProbe? diskSpace,
+    }) async => UpdateBaselineService(
+      layout: layout,
+      manifestSource: FakeManifestSource(result),
+      downloader: downloader,
+      verifier: verifier ?? FakeVerifier(),
+      clock: FakeClock(),
+      diskSpace: diskSpace,
+    );
+
+    RollbackBaseline baselineAt(String path, {int sizeBytes = 2048}) =>
+        RollbackBaseline(
+          version: installedFixture.version,
+          packagePath: path,
+          sha256: testPackageSha256,
+          sizeBytes: sizeBytes,
+          createdAtUtc: DateTime.utc(2026, 10, 18),
+        );
+
+    test('同长度但 SHA 错误的基线被拒绝并重建', () async {
+      final file = layout.baselinePackage(installedFixture.version);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(List<int>.filled(2048, 0));
+      final existing = baselineAt(file.path);
+      final verifier = _ScriptedVerifier([
+        const PackageVerification.invalid(
+          UpdateFailure(UpdateFailureCode.downloadHashMismatch),
+        ),
+        PackageVerification.valid(
+          path: file.path,
+          sizeBytes: 2048,
+          sha256: testPackageSha256,
+          identity: installedFixture,
+        ),
+      ]);
+      final downloader = _WritingDownloader();
+      final service = await build(
+        result: ManifestFetchResult.verified(
+          await verifiedManifestFixture(version: '1.8.1'),
+        ),
+        downloader: downloader,
+        verifier: verifier,
+      );
+
+      final result = await service.ensureBaseline(
+        installed: installedFixture,
+        state: UpdateState(phase: UpdatePhase.idle, baseline: existing),
+      );
+
+      expect(result.ok, isTrue);
+      expect(verifier.baselineCalls, 2, reason: '旧基线被拒绝后才重新建立');
+      expect(downloader.calls, 1);
+      expect(await file.exists(), isTrue);
+    });
+
+    test('SHA 对但包版本不等于已安装版本被拒绝', () async {
+      final file = layout.baselinePackage(installedFixture.version);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(List<int>.filled(2048, 0));
+      final service = await build(
+        result: networkFailureFixture(),
+        downloader: _WritingDownloader(),
+        verifier: FakeVerifier(
+          baselineIdentity: const InstalledPackage(
+            identityName: appPackageIdentityName,
+            publisher: appPublisher,
+            familyName: appPackageFamilyName,
+            architecture: PackageArchitecture.x64,
+            version: MsixVersion(1, 9, 0, 0),
+          ),
+        ),
+      );
+
+      final validation = await service.validate(
+        installed: installedFixture,
+        baseline: baselineAt(file.path),
+      );
+
+      expect(validation.usable, isFalse);
+      expect(
+        validation.failure!.code,
+        UpdateFailureCode.packageVersionMismatch,
+      );
+    });
+
+    test('Publisher 不同被拒绝', () async {
+      final file = layout.baselinePackage(installedFixture.version);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(List<int>.filled(2048, 0));
+      final service = await build(
+        result: networkFailureFixture(),
+        downloader: _WritingDownloader(),
+        verifier: FakeVerifier(
+          baselineIdentity: const InstalledPackage(
+            identityName: appPackageIdentityName,
+            publisher: 'CN=Other Publisher, C=CN',
+            familyName: appPackageFamilyName,
+            architecture: PackageArchitecture.x64,
+            version: MsixVersion(1, 8, 1, 0),
+          ),
+        ),
+      );
+
+      final validation = await service.validate(
+        installed: installedFixture,
+        baseline: baselineAt(file.path),
+      );
+
+      expect(validation.usable, isFalse);
+      expect(
+        validation.failure!.code,
+        UpdateFailureCode.packagePublisherMismatch,
+      );
+    });
+
+    test('基线位于基线目录之外被拒绝', () async {
+      final outside = File(
+        '${directory.parent.path}${Platform.pathSeparator}outside.msix',
+      );
+      await outside.writeAsBytes(List<int>.filled(2048, 0));
+      addTearDown(() {
+        if (outside.existsSync()) outside.deleteSync();
+      });
+      final service = await build(
+        result: networkFailureFixture(),
+        downloader: _WritingDownloader(),
+      );
+
+      final validation = await service.validate(
+        installed: installedFixture,
+        baseline: baselineAt(outside.path),
+      );
+
+      expect(validation.usable, isFalse);
+      expect(
+        validation.failure!.code,
+        UpdateFailureCode.rollbackPackageInvalid,
+      );
+    });
+
+    test('空间不足是可重试失败，且不删除已就绪的目标包', () async {
+      final targetReady = File(
+        '${layout.versionDirectory(const MsixVersion(1, 9, 0, 0)).path}'
+        '${Platform.pathSeparator}package.msix.ready',
+      );
+      await targetReady.parent.create(recursive: true);
+      await targetReady.writeAsBytes(List<int>.filled(2048, 0));
+      final downloader = _WritingDownloader();
+      final service = await build(
+        result: ManifestFetchResult.verified(
+          await verifiedManifestFixture(version: '1.8.1'),
+        ),
+        downloader: downloader,
+        diskSpace: FakeDiskSpace(0),
+      );
+
+      final result = await service.ensureBaseline(
+        installed: installedFixture,
+        state: const UpdateState(phase: UpdatePhase.idle),
+      );
+
+      expect(result.ok, isFalse);
+      expect(result.failure!.code, UpdateFailureCode.blockedDiskSpaceLow);
+      expect(result.failure!.retryable, isTrue);
+      expect(downloader.calls, 0, reason: '空间不足不能开始下载');
+      expect(await targetReady.exists(), isTrue, reason: '不得删除目标 ready');
+    });
+
+    test('安装前常量被篡改时再次被发现', () async {
+      final file = layout.baselinePackage(installedFixture.version);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(List<int>.filled(2048, 0));
+      final service = await build(
+        result: networkFailureFixture(),
+        downloader: _WritingDownloader(),
+      );
+      final baseline = baselineAt(file.path);
+      expect(
+        (await service.validate(
+          installed: installedFixture,
+          baseline: baseline,
+        )).usable,
+        isTrue,
+      );
+
+      // 篡改成同长度的另一份内容：严格校验必须发现。
+      await file.writeAsBytes(List<int>.filled(2048, 9));
+      final tampered = await build(
+        result: networkFailureFixture(),
+        downloader: _WritingDownloader(),
+        verifier: FakeVerifier(
+          onVerifyBaseline: () => const PackageVerification.invalid(
+            UpdateFailure(UpdateFailureCode.downloadHashMismatch),
+          ),
+        ),
+      );
+      final validation = await tampered.validate(
+        installed: installedFixture,
+        baseline: baseline,
+      );
+      expect(validation.usable, isFalse);
+      expect(validation.failure!.code, UpdateFailureCode.downloadHashMismatch);
+    });
+
+    test('基线对象不再假装持有数据快照', () {
+      final json = RollbackBaseline(
+        version: installedFixture.version,
+        packagePath: 'C:/Updates/baseline/pkg.msix',
+        sha256: testPackageSha256,
+        sizeBytes: 2048,
+        createdAtUtc: DateTime.utc(2026, 10, 18),
+      ).toJson();
+      expect(json.containsKey('snapshotPath'), isFalse);
+      expect(json.containsKey('snapshotSha256'), isFalse);
+    });
   });
 }
 
@@ -184,4 +409,33 @@ final class _FailingDownloader implements UpdatePackageDownloader {
   }) async => const DownloadOutcome.failed(
     UpdateFailure(UpdateFailureCode.downloadHashMismatch),
   );
+}
+
+/// 按顺序返回验证结论的替身：用来表达"旧基线坏、新基线好"。
+final class _ScriptedVerifier implements UpdatePackageVerifier {
+  _ScriptedVerifier(this._results);
+
+  final List<PackageVerification> _results;
+  int baselineCalls = 0;
+
+  @override
+  Future<PackageVerification> verify({
+    required String path,
+    required UpdateTarget target,
+    required InstalledPackage installed,
+    required bool verifyNativeSignature,
+  }) async => _results.last;
+
+  @override
+  Future<PackageVerification> verifyBaseline({
+    required String path,
+    required MsixVersion expectedVersion,
+    required int expectedSizeBytes,
+    required String expectedSha256,
+    required bool verifyNativeSignature,
+  }) async {
+    final index = baselineCalls.clamp(0, _results.length - 1);
+    baselineCalls++;
+    return _results[index];
+  }
 }

@@ -22,6 +22,7 @@ final class UpdateSnapshot {
     required this.autoUpdateEnabled,
     this.installed,
     this.manifest,
+    this.baselineRequired = false,
   });
 
   final UpdateState state;
@@ -29,6 +30,12 @@ final class UpdateSnapshot {
   final bool autoUpdateEnabled;
   final InstalledPackage? installed;
   final VerifiedManifest? manifest;
+
+  /// 本环境是否把"回退基线就绪"作为安装前置条件。
+  ///
+  /// 只有装配了基线任务的生产组合根才为真；未打包的开发/测试环境没有这项能力，
+  /// 因此界面不应把"没有基线"说成"正在准备安全更新"。
+  final bool baselineRequired;
 
   bool get isReady => state.phase == UpdatePhase.ready && state.target != null;
 
@@ -78,9 +85,15 @@ final class UpdateController extends ChangeNotifier {
     autoUpdateEnabled: _settings.autoUpdateEnabled,
     installed: orchestrator.installed,
     manifest: orchestrator.latestManifest,
+    baselineRequired: orchestrator.baselineService != null,
   );
 
   bool get isInitialized => _initialized;
+
+  /// 本次启动是否为"升级后第一次启动"；非空时组合根应写健康确认。
+  String? get pendingHealthTransaction => orchestrator.pendingHealthTransaction;
+
+  MsixVersion? get pendingHealthVersion => orchestrator.pendingHealthVersion;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -103,12 +116,16 @@ final class UpdateController extends ChangeNotifier {
       manual: true,
       autoDownload: _settings.autoUpdateEnabled,
     );
+    // 手动检查也触发基线准备，但**不等待**：缓存已按请求身份隔离，两者可并行。
+    unawaited(ensureBaseline());
     _notify();
     return result;
   }
 
   Future<void> startDownload() async {
     await orchestrator.startDownload();
+    // 下载目标版本的同时后台准备基线：只受磁盘预算约束，不改变当前结论。
+    unawaited(ensureBaseline());
     _notify();
   }
 
@@ -124,15 +141,36 @@ final class UpdateController extends ChangeNotifier {
   }
 
   Future<void> setAutoUpdateEnabled(bool enabled) async {
+    final changed = _settings.autoUpdateEnabled != enabled;
     _settings = _settings.copyWith(autoUpdateEnabled: enabled);
     _notify();
     await settings.save(_settings);
+    // 从"关"改成"开"必须立即开始准备回退基线，无需重启（UPD-INC-007）。
+    if (changed && enabled) {
+      unawaited(ensureBaseline());
+    }
   }
 
   /// 手动模式下的"开始下载"（自动更新关闭但用户主动要求）。
   Future<void> downloadManually() => startDownload();
 
-  Future<void> ensureBaseline() => orchestrator.ensureRollbackBaseline();
+  /// 基线准备（single-flight 在编排器里，多入口调用安全）。
+  Future<void> ensureBaseline() async {
+    await orchestrator.ensureRollbackBaseline();
+    _notify();
+  }
+
+  /// 强制重试基线（用户点击"重试准备"）。
+  Future<void> retryBaseline() async {
+    await orchestrator.ensureRollbackBaseline(userInitiated: true);
+    _notify();
+  }
+
+  /// 健康确认成功后晋升基线（由组合根在写完健康确认之后调用）。
+  Future<void> confirmHealth() async {
+    await orchestrator.confirmHealthPromotion();
+    _notify();
+  }
 
   Future<List<String>> readLogs({int maxLines = 200}) =>
       orchestrator.readLogs(maxLines: maxLines);

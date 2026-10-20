@@ -1,10 +1,12 @@
-// 回退基线与数据快照的领域事实（规格 §13.3 / §13.4）。
+// 回退基线的领域事实（规格 §13.3 / §13.4；1.11.1 修复 §4.4）。
 //
-// 回退不是"再装一次旧包"这么简单：只有当**旧包有效**且**更新前快照完整**时，回退才是安全的。
-// 因此基线把两样东西绑在同一个对象里——只保留其中之一的实现会在失败时才发现缺另一半。
+// **基线只表示"当前已安装版本的已验证回退包"**。1.11.0 的模型里还带着"更新前数据快照"
+// 字段，但下载基线时快照并不存在（它属于某一次具体安装事务），注释因此与事实不符
+// （UPD-INC-020）。1.11.1 把快照彻底交给 `UpdateInstallService` 生成并写进 update request，
+// 基线对象只保留"包"这一件事。
 import 'package:personal_planner/domain/update/update_version.dart';
 
-/// 当前稳定版本的回退基线。
+/// 当前已安装版本的回退基线。
 final class RollbackBaseline {
   const RollbackBaseline({
     required this.version,
@@ -12,25 +14,20 @@ final class RollbackBaseline {
     required this.sha256,
     required this.sizeBytes,
     required this.createdAtUtc,
-    this.snapshotPath,
-    this.snapshotSha256,
   });
 
-  /// 基线对应的 MSIX 版本。每次成功更新后，本次目标包成为新的当前基线。
+  /// 基线对应的 MSIX 版本。健康确认成功后，本次目标包晋升为新的当前基线。
   final MsixVersion version;
 
-  /// 已验证的 `.ready` 包规范路径。
+  /// 已验证的回退包规范路径（必须位于更新根目录内）。
   final String packagePath;
 
   final String sha256;
   final int sizeBytes;
-  final String? snapshotPath;
-  final String? snapshotSha256;
   final DateTime createdAtUtc;
 
-  bool get hasSnapshot => snapshotPath != null && snapshotSha256 != null;
-
-  /// 是否足够支撑一次回退（规格 §13.4 的"直接上一版本包有效 + 更新前快照完整"）。
+  /// 是否具备回退所需的**形状**条件；真正的可用性必须走严格校验（版本、路径、长度、
+  /// SHA-256、包身份、发布者），不能只用这个 getter 判断。
   bool get isUsable => packagePath.isNotEmpty && sha256.length == 64;
 
   RollbackBaseline copyWith({
@@ -38,16 +35,12 @@ final class RollbackBaseline {
     String? packagePath,
     String? sha256,
     int? sizeBytes,
-    String? snapshotPath,
-    String? snapshotSha256,
     DateTime? createdAtUtc,
   }) => RollbackBaseline(
     version: version ?? this.version,
     packagePath: packagePath ?? this.packagePath,
     sha256: sha256 ?? this.sha256,
     sizeBytes: sizeBytes ?? this.sizeBytes,
-    snapshotPath: snapshotPath ?? this.snapshotPath,
-    snapshotSha256: snapshotSha256 ?? this.snapshotSha256,
     createdAtUtc: createdAtUtc ?? this.createdAtUtc,
   );
 
@@ -56,8 +49,6 @@ final class RollbackBaseline {
     'packagePath': packagePath,
     'sha256': sha256,
     'sizeBytes': sizeBytes,
-    'snapshotPath': snapshotPath,
-    'snapshotSha256': snapshotSha256,
     'createdAtUtc': createdAtUtc.toUtc().toIso8601String(),
   };
 
@@ -77,16 +68,14 @@ final class RollbackBaseline {
     }
     final created = DateTime.tryParse(createdAt);
     if (created == null) return null;
-    final snapshotPath = json['snapshotPath'];
-    final snapshotSha256 = json['snapshotSha256'];
+    // 旧版本写入的 `snapshotPath` / `snapshotSha256` 被忽略：快照属于安装事务，
+    // 不属于基线。保留解析宽容度只是为了让旧状态文件仍可迁移，不是继续承认它的语义。
     return RollbackBaseline(
       version: version,
       packagePath: packagePath,
       sha256: sha256,
       sizeBytes: sizeBytes,
       createdAtUtc: created.toUtc(),
-      snapshotPath: snapshotPath is String ? snapshotPath : null,
-      snapshotSha256: snapshotSha256 is String ? snapshotSha256 : null,
     );
   }
 

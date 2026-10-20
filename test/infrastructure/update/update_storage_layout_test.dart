@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
 import 'package:personal_planner/infrastructure/update/update_storage_layout.dart';
@@ -82,5 +83,52 @@ void main() {
       layout.partialPackage(target).path,
       endsWith(join(['1.10.0.0', 'package.msix.partial'])),
     );
+  });
+
+  test('清单缓存按请求身份分区，旧全局缓存与隔离文件各有固定位置', () {
+    final root = join(['C:', 'Temp', 'Updates']);
+    final layout = UpdateStorageLayout.fromResolvedRoot(root);
+
+    expect(
+      layout.manifestCacheFile(const ManifestRequestKey.latestStable()).path,
+      endsWith(join(['manifests', 'latest-stable.json'])),
+    );
+    expect(
+      layout.manifestCacheFile(ManifestRequestKey.releaseTag('v1.10.2')).path,
+      endsWith(join(['manifests', 'tags', 'v1.10.2.json'])),
+    );
+    expect(
+      layout.legacyManifestCacheFile.path,
+      endsWith('update-manifest.cache.json'),
+    );
+    expect(
+      layout.legacyManifestCacheQuarantineFile.path,
+      endsWith('update-manifest.cache.json.legacy-quarantine'),
+    );
+    expect(
+      layout.manifestCacheFile(ManifestRequestKey.releaseTag('v1.10.2')).path,
+      isNot(
+        layout.manifestCacheFile(ManifestRequestKey.releaseTag('v1.11.0')).path,
+      ),
+    );
+  });
+
+  test('只枚举能解析成 MSIX 版本的受控目录', () {
+    final root = Directory.systemTemp.createTempSync('layout_versions_');
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+    final layout = UpdateStorageLayout.fromResolvedRoot(root.path);
+    Directory(join([root.path, '1.10.2.0'])).createSync();
+    Directory(join([root.path, '1.11.0.0'])).createSync();
+    Directory(join([root.path, 'not-a-version'])).createSync();
+    Directory(join([root.path, 'baseline'])).createSync();
+
+    final versions = layout
+        .versionDirectories()
+        .map((directory) => directory.path.split(separator).last)
+        .toSet();
+
+    expect(versions, {'1.10.2.0', '1.11.0.0'});
   });
 }

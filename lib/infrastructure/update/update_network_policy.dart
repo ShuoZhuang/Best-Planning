@@ -78,3 +78,17 @@ abstract final class UpdateNetworkPolicy {
     return host.contains(':');
   }
 }
+
+/// 诊断可存储的"解析来源"：只保留 `scheme + host + path`。
+///
+/// GitHub 的临时下载重定向会带一次性查询串（形如令牌），它既不长期有效，也不该进日志、
+/// 状态文件或诊断面板。2026-10-20 事故复盘把"保存最终重定向 URL"列为独立缺陷
+/// （UPD-INC-028），因此这里提供一个唯一的脱敏入口。
+String? sanitizeResolvedOrigin(Uri? uri) {
+  if (uri == null) return null;
+  final host = uri.host;
+  if (host.isEmpty) return null;
+  final path = uri.path.isEmpty ? '/' : uri.path;
+  final port = uri.hasPort ? ':${uri.port}' : '';
+  return '${uri.scheme}://$host$port$path';
+}

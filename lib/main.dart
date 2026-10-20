@@ -59,7 +59,6 @@ import 'package:personal_planner/application/update/update_snapshot_service.dart
 import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/application/update/update_orchestrator.dart';
 import 'package:personal_planner/domain/update/update_safety.dart';
-import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_settings.dart';
 import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
 import 'package:personal_planner/infrastructure/update/file_update_manifest_cache.dart';
@@ -374,14 +373,17 @@ Future<void> main() async {
     updateMainHelper,
   );
   final updateManifestCache = FileUpdateManifestCache(
-    directory: updateLayout.root,
+    layout: updateLayout,
     verifier: updateManifestVerifier,
   );
+  // 1.11.0 的全局缓存没有请求身份：启动时先隔离，绝不把它当成 latest 复用。
+  await updateManifestCache.migrateLegacyIfNeeded();
+  final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
   final updateManifestSource = HttpUpdateManifestRepository(
     cache: updateManifestCache,
     verifier: updateManifestVerifier,
+    log: updateLog,
   );
-  final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
   final updateHealth = UpdateHealthService(layout: updateLayout, clock: clock);
   final updateSnapshotService = UpdateSnapshotService(
     layout: updateLayout,
@@ -423,6 +425,7 @@ Future<void> main() async {
     downloader: updateDownloader,
     verifier: updatePackageVerifier,
     clock: clock,
+    diskSpace: WindowsDiskSpaceProbe(),
   );
   final updateOrchestrator = UpdateOrchestrator(
     manifestSource: updateManifestSource,
@@ -453,20 +456,22 @@ Future<void> main() async {
     await updateController.initialize();
   }
   // 如果这次启动正是"助手装完新版后拉起来"的那一次，写健康确认（规格 §13.2）。
-  final recoveredState = updateController.state;
-  final recoveredTarget = recoveredState.target;
-  final recoveredTransaction = recoveredState.transactionId;
+  // `initialize()` 会把 installing/launchingNewVersion/waitingForHealth 收敛成 succeeded，
+  // 因此"这次是升级后首启"的证据由编排器单独保留，而不是靠已收敛的阶段判断。
+  final pendingHealthTransaction = updateController.pendingHealthTransaction;
+  final pendingHealthVersion = updateController.pendingHealthVersion;
   if (nativeUpdaterAvailable &&
-      recoveredTarget != null &&
-      recoveredTransaction != null &&
-      updateController.installed?.version == recoveredTarget.msixVersion &&
-      (recoveredState.phase == UpdatePhase.installing ||
-          recoveredState.phase == UpdatePhase.launchingNewVersion ||
-          recoveredState.phase == UpdatePhase.waitingForHealth)) {
+      pendingHealthTransaction != null &&
+      pendingHealthVersion != null) {
     await updateHealth.writeConfirmation(
-      transactionId: recoveredTransaction,
-      version: recoveredTarget.msixVersion,
+      transactionId: pendingHealthTransaction,
+      version: pendingHealthVersion,
     );
+  }
+  // 健康确认写完之后才把目标包晋升为下一次更新所需的当前基线（INV-09）：
+  // 晋升失败只保留旧基线，不阻止应用启动。
+  if (nativeUpdaterAvailable) {
+    await updateController.confirmHealth();
   }
   // 后台建立回退基线（规格 §13.3）：基线完成前禁止安装，但允许下载新版本。
   if (nativeUpdaterAvailable && updateController.autoUpdateEnabled) {

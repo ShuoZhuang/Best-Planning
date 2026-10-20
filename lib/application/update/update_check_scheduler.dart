@@ -61,6 +61,8 @@ final class UpdateCheckScheduler {
         _debounceTimer?.cancel();
         _debounceTimer = Timer(networkDebounce, () {
           _debounceTimer = null;
+          // 断网可能同时打断目标下载与基线下载：恢复后两者各自按退避重试。
+          unawaited(controller.ensureBaseline());
           unawaited(_checkIfEnabled());
         });
       });
@@ -76,6 +78,11 @@ final class UpdateCheckScheduler {
     if (state.nextAttemptUtc != null && controller.orchestrator.canAutoRetry) {
       unawaited(controller.retry());
       return;
+    }
+    // 基线退避到点也必须自动恢复：否则"回退基线未就绪"会永久残留（INV-08）。
+    if (controller.state.target != null &&
+        controller.orchestrator.canAutoRetryBaseline) {
+      unawaited(controller.ensureBaseline());
     }
     if (!controller.autoUpdateEnabled) return;
     final last =

@@ -6,6 +6,8 @@ import 'dart:async';
 
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/domain/update/package_identity.dart';
+import 'package:personal_planner/domain/update/rollback_baseline.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_manifest.dart';
 import 'package:personal_planner/domain/update/update_ports.dart';
@@ -33,11 +35,20 @@ final class InMemoryStateStore implements UpdateStateStore {
   UpdateState state;
   int saveCount = 0;
 
+  /// 模拟"读到未来版本 schema"：为真时保存必须被拒绝。
+  bool sawFutureSchemaValue = false;
+
+  @override
+  bool get sawFutureSchema => sawFutureSchemaValue;
+
   @override
   Future<UpdateState> load() async => state;
 
   @override
   Future<void> save(UpdateState value) async {
+    if (sawFutureSchemaValue) {
+      throw StateError('UPDATE_STATE_SCHEMA_UNSUPPORTED');
+    }
     state = value;
     saveCount++;
   }
@@ -81,22 +92,38 @@ const UpdateTarget targetFixture = UpdateTarget(
 );
 
 final class FakeManifestSource implements UpdateManifestSource {
-  FakeManifestSource(this.result);
+  FakeManifestSource(this.result, {this.cached});
 
   ManifestFetchResult result;
+
+  /// 本地缓存的 latest 清单（启动复核用，不产生网络请求）。
+  VerifiedManifest? cached;
+
   int calls = 0;
-  String? lastEtag;
+  int tagCalls = 0;
+  bool? lastForceRefresh;
+  String? lastTag;
 
   @override
-  Future<ManifestFetchResult> fetchLatest({String? etag}) async {
+  Future<ManifestFetchResult> fetchLatest({bool forceRefresh = false}) async {
     calls++;
-    lastEtag = etag;
+    lastForceRefresh = forceRefresh;
     return result;
   }
 
   @override
-  Future<ManifestFetchResult> fetchForTag(String tag, {String? etag}) async =>
-      result;
+  Future<ManifestFetchResult> fetchForTag(
+    String tag, {
+    bool forceRefresh = false,
+  }) async {
+    tagCalls++;
+    lastTag = tag;
+    lastForceRefresh = forceRefresh;
+    return result;
+  }
+
+  @override
+  Future<VerifiedManifest?> cachedLatest() async => cached ?? result.verified;
 }
 
 final class FakeDownloader implements UpdatePackageDownloader {
@@ -132,10 +159,16 @@ final class FakeDownloader implements UpdatePackageDownloader {
 }
 
 final class FakeVerifier implements UpdatePackageVerifier {
-  FakeVerifier({this.onVerify});
+  FakeVerifier({this.onVerify, this.onVerifyBaseline, this.baselineIdentity});
 
   PackageVerification Function()? onVerify;
+  PackageVerification Function()? onVerifyBaseline;
+
+  /// 基线包里"读出来的身份"。默认与 [installedFixture] 一致。
+  InstalledPackage? baselineIdentity;
+
   int calls = 0;
+  int baselineCalls = 0;
   bool? lastNativeFlag;
 
   @override
@@ -154,6 +187,36 @@ final class FakeVerifier implements UpdatePackageVerifier {
       sizeBytes: target.sizeBytes,
       sha256: target.sha256,
       identity: installedFixture,
+    );
+  }
+
+  @override
+  Future<PackageVerification> verifyBaseline({
+    required String path,
+    required MsixVersion expectedVersion,
+    required int expectedSizeBytes,
+    required String expectedSha256,
+    required bool verifyNativeSignature,
+  }) async {
+    baselineCalls++;
+    lastNativeFlag = verifyNativeSignature;
+    // 兼作"任何包验证都失败"的替身：基线校验与目标校验共用同一份失败设定。
+    final custom = onVerifyBaseline ?? onVerify;
+    if (custom != null) return custom();
+    final identity = baselineIdentity;
+    return PackageVerification.valid(
+      path: path,
+      sizeBytes: expectedSizeBytes,
+      sha256: expectedSha256,
+      identity:
+          identity ??
+          InstalledPackage(
+            identityName: installedFixture.identityName,
+            publisher: installedFixture.publisher,
+            familyName: installedFixture.familyName,
+            architecture: installedFixture.architecture,
+            version: expectedVersion,
+          ),
     );
   }
 }
@@ -315,6 +378,8 @@ final class FakeInstallCoordinator implements UpdateInstallCoordinator {
   int prepareCalls = 0;
   int exitCalls = 0;
   InstalledPackage? lastInstalled;
+  UpdateTarget? lastTarget;
+  UpdateState? lastState;
 
   @override
   Future<InstallPreparationOutcome> prepareAndLaunch({
@@ -324,6 +389,8 @@ final class FakeInstallCoordinator implements UpdateInstallCoordinator {
   }) async {
     prepareCalls++;
     lastInstalled = installed;
+    lastTarget = target;
+    lastState = state;
     return outcome;
   }
 
@@ -361,4 +428,50 @@ final class FakeUpdateLock implements UpdateLock {
 
   @override
   Future<LockInspection> inspect() async => inspection;
+}
+
+/// 可统计调用次数的基线任务替身：用来证明多入口合并成**一个**真实任务。
+final class CountingBaselineFake implements UpdateBaselinePreparer {
+  CountingBaselineFake({
+    this.baseline,
+    this.failure,
+    this.validationFailure,
+    this.delay = const Duration(milliseconds: 10),
+  });
+
+  RollbackBaseline? baseline;
+  UpdateFailure? failure;
+  UpdateFailure? validationFailure;
+  Duration delay;
+  int calls = 0;
+  int validateCalls = 0;
+
+  @override
+  Future<UpdateBaselineResult> ensureBaseline({
+    required InstalledPackage installed,
+    required UpdateState state,
+  }) async {
+    calls++;
+    await Future<void>.delayed(delay);
+    return UpdateBaselineResult(baseline: baseline, failure: failure);
+  }
+
+  @override
+  Future<BaselineValidationResult> validate({
+    required InstalledPackage installed,
+    required RollbackBaseline baseline,
+  }) async {
+    validateCalls++;
+    final failure = validationFailure;
+    if (failure != null) return BaselineValidationResult.invalid(failure);
+    return BaselineValidationResult.valid(
+      identity: InstalledPackage(
+        identityName: installed.identityName,
+        publisher: installed.publisher,
+        familyName: installed.familyName,
+        architecture: installed.architecture,
+        version: baseline.version,
+      ),
+    );
+  }
 }

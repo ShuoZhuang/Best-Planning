@@ -20,7 +20,7 @@ void main() {
     final result = await verifier.verify(
       envelope,
       etag: '"abc"',
-      manifestUrl: 'https://github.com/ShuoZhuang/Best-Planning/...',
+      resolvedOrigin: 'https://github.com/ShuoZhuang/Best-Planning/...',
     );
 
     expect(result.isValid, isTrue, reason: '${result.failure?.code}');

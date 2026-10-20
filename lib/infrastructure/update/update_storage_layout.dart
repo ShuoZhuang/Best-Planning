@@ -5,6 +5,7 @@
 // `MsixVersion` 或固定文件名生成，远端文件名只作为"期望值"参与校验。
 import 'dart:io';
 
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/domain/update/update_version.dart';
 
@@ -46,6 +47,50 @@ final class UpdateStorageLayout {
   File get stateFile => File('${root.path}${Platform.pathSeparator}state.json');
 
   String get _separator => Platform.pathSeparator;
+
+  // ── 清单缓存（按请求身份分区）──────────────────────────────────────────────
+  //
+  // 1.11.0 及更早版本只有一份 `update-manifest.cache.json`，latest 与 tag 共用它——
+  // 这正是"已是最新版"误报的根因。1.11.1 起每个请求身份一个文件。
+
+  Directory get manifestsDirectory =>
+      Directory('${root.path}${_separator}manifests');
+
+  Directory get manifestTagsDirectory =>
+      Directory('${manifestsDirectory.path}${_separator}tags');
+
+  /// 某个请求身份的缓存文件。路径**只由枚举与已验证 tag 生成**。
+  File manifestCacheFile(ManifestRequestKey key) => File(
+    '${root.path}$_separator'
+    '${key.relativePath.replaceAll('/', _separator)}',
+  );
+
+  /// 旧版全局缓存：1.11.1 首次启动时隔离，绝不把它当成 latest。
+  File get legacyManifestCacheFile =>
+      File('${root.path}${_separator}update-manifest.cache.json');
+
+  /// 旧缓存的隔离位置（最多保留一份，留证用）。
+  File get legacyManifestCacheQuarantineFile =>
+      File('${legacyManifestCacheFile.path}.legacy-quarantine');
+
+  /// 受控版本目录（目录名能严格解析成 MSIX 版本）。
+  ///
+  /// 启动复核只枚举这些目录里的 `.ready`：其他名字一律不参与"收养"，避免把用户数据目录
+  /// 或临时目录当成更新包。
+  List<Directory> versionDirectories() {
+    final result = <Directory>[];
+    if (!root.existsSync()) return result;
+    for (final entity in root.listSync(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final name = entity.path.split(RegExp(r'[\\/]')).last;
+      if (MsixVersion.tryParse(name) == null) continue;
+      result.add(entity);
+    }
+    return result;
+  }
+
+  /// 无法证明身份的包改名为 `.quarantine`：不执行、不静默删除。
+  File quarantined(File file) => File('${file.path}.quarantine');
 
   Directory versionDirectory(MsixVersion version) =>
       Directory('${root.path}$_separator${version.value}');

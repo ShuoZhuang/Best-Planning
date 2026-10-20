@@ -1,8 +1,10 @@
-// 固定清单仓库（规格 §6.1 / §6.4 / §7.4 / §7.5）。
+// 固定清单仓库（规格 §6.1 / §6.4 / §7.4 / §7.5；1.11.1 事故修复 §4.2）。
 //
 // 它是整个更新链路**唯一**读取远端清单的地方，也是"假最新版"问题的修复点：
 //   · 只请求固定的两个 GitHub 地址，不调用 Releases API，因此不会因为匿名额度被限流；
-//   · `304` 只有在本地缓存有效时才等于"没有变化"，否则去掉条件头完整重试；
+//   · **条件缓存按请求身份分区**：`304` 只允许读取同一个请求身份的缓存项，ETag 与实体
+//     从同一份缓存项一起读出，调用方不再持有 ETag；
+//   · `304` 只有在同 key 缓存有效时才等于"没有变化"，否则去掉条件头完整重试一次；
 //   · 空响应、非法 JSON、签名失败都返回**失败**，绝不返回"无更新"；
 //   · 重定向逐跳校验，最多 5 次，只允许 HTTPS、本仓库路径与 GitHub 官方资产域。
 import 'dart:async';
@@ -11,6 +13,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:personal_planner/domain/update/manifest_cache_entry.dart';
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_manifest.dart';
 import 'package:personal_planner/domain/update/update_ports.dart';
@@ -32,6 +36,7 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
     this.maxBodyBytes = updateManifestMaxBodyBytes,
+    this.log,
     DateTime Function()? nowUtc,
   }) : _client = client ?? http.Client(),
        _ownsClient = client == null,
@@ -39,20 +44,30 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
 
   final UpdateManifestCache cache;
   final Ed25519ManifestVerifier verifier;
+
+  /// 诊断日志（可选）。只写 key 与状态，不写 URL 查询串或缓存内容。
+  final UpdateLogSink? log;
   final http.Client _client;
   final bool _ownsClient;
   final DateTime Function() _nowUtc;
   final Duration timeout;
   final int maxBodyBytes;
 
-  @override
-  Future<ManifestFetchResult> fetchLatest({String? etag}) =>
-      _fetch(updateManifestLatestUrl, etag: etag);
+  /// 同一请求身份的并发 fetch 合并成一个 in-flight Future（INV-05 的可执行形式）。
+  final Map<String, Future<ManifestFetchResult>> _inFlight = {};
+  bool _legacyMigrationAttempted = false;
 
   @override
-  Future<ManifestFetchResult> fetchForTag(String tag, {String? etag}) {
-    if (!RegExp(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
-        .hasMatch(tag)) {
+  Future<ManifestFetchResult> fetchLatest({bool forceRefresh = false}) =>
+      _singleFlight(const ManifestRequestKey.latestStable(), forceRefresh);
+
+  @override
+  Future<ManifestFetchResult> fetchForTag(
+    String tag, {
+    bool forceRefresh = false,
+  }) {
+    final key = ManifestRequestKey.tryReleaseTag(tag);
+    if (key == null) {
       return Future.value(
         ManifestFetchResult.failed(
           _failure(
@@ -62,19 +77,65 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
         ),
       );
     }
-    return _fetch(updateManifestUrlForTag(tag).toString(), etag: etag);
+    return _singleFlight(key, forceRefresh);
   }
 
-  Future<ManifestFetchResult> _fetch(String url, {String? etag}) async {
-    final initial = Uri.tryParse(url);
-    if (initial == null || !UpdateNetworkPolicy.isAllowedManifestUri(initial)) {
+  /// 只读 latest 的本地缓存：启动复核用它把磁盘上的包与一份已签名清单对上。
+  @override
+  Future<VerifiedManifest?> cachedLatest() async {
+    const key = ManifestRequestKey.latestStable();
+    try {
+      final entry = await cache.load(key);
+      if (entry == null) return null;
+      return await _verifiedFromEntry(key, entry, etag: entry.etag);
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<ManifestFetchResult> _singleFlight(
+    ManifestRequestKey key,
+    bool forceRefresh,
+  ) async {
+    final pending = _inFlight[key.storageKey];
+    if (pending != null) return pending;
+    final future = _fetch(key, forceRefresh);
+    _inFlight[key.storageKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_inFlight[key.storageKey], future)) {
+        _inFlight.remove(key.storageKey);
+      }
+    }
+  }
+
+  Future<ManifestFetchResult> _fetch(
+    ManifestRequestKey key,
+    bool forceRefresh,
+  ) async {
+    await _migrateLegacyOnce();
+
+    final initial = key.canonicalUri;
+    if (!UpdateNetworkPolicy.isAllowedManifestUri(initial)) {
       return ManifestFetchResult.failed(
-        _failure(UpdateFailureCode.manifestSourceNotAllowed, detail: url),
+        _failure(
+          UpdateFailureCode.manifestSourceNotAllowed,
+          detail: key.storageKey,
+        ),
       );
     }
 
+    // **唯一**读取条件值的地方：与实体同一次 load 返回（INV-02）。
+    ManifestCacheEntry? cached;
+    try {
+      cached = await cache.load(key);
+    } on Object {
+      cached = null;
+    }
+    var conditional = forceRefresh ? null : cached?.etag;
+
     var current = initial;
-    var conditional = etag;
     var redirects = 0;
     var retriedWithoutCondition = false;
 
@@ -125,7 +186,7 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
           return ManifestFetchResult.failed(
             _failure(
               UpdateFailureCode.manifestSourceNotAllowed,
-              detail: 'redirect=${next ?? location ?? 'missing'}',
+              detail: 'redirect=${_redirectLabel(next ?? current)}',
             ),
           );
         }
@@ -152,18 +213,27 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
             _failure(UpdateFailureCode.manifestNotModifiedWithoutCache),
           );
         }
-        final cached = await cache.load();
-        if (cached != null) {
+        // **只读同一个 key**：不同 key 的缓存即使签名有效也不能替代（INV-01）。
+        final entry = await _loadQuietly(key);
+        final verified = entry == null
+            ? null
+            : await _verifiedFromEntry(
+                key,
+                entry,
+                etag: responseEtag ?? entry.etag,
+              );
+        if (verified != null) {
+          log?.writeLine('manifest_cache_hit key=${key.storageKey} status=304');
           return ManifestFetchResult.verified(
-            cached.copyWith(
-              confirmedAtUtc: _nowUtc(),
-              fromCache: true,
-              etag: responseEtag ?? cached.etag,
-            ),
+            verified.copyWith(confirmedAtUtc: _nowUtc(), fromCache: true),
           );
         }
         if (!retriedWithoutCondition) {
           // 缓存缺失或损坏：去掉条件头完整请求一次（规格 §7.4）。
+          log?.writeLine(
+            'manifest_cache_miss key=${key.storageKey} '
+            'action=unconditional_retry',
+          );
           retriedWithoutCondition = true;
           conditional = null;
           continue;
@@ -228,7 +298,7 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
       final parsed = UpdateManifestEnvelope.tryParse(decoded);
       if (parsed is ManifestParseFailure) {
         return ManifestFetchResult.failed(
-          _failure(parsed.code, detail: current.toString()),
+          _failure(parsed.code, detail: key.storageKey),
         );
       }
       if (parsed is! UpdateManifestEnvelope) {
@@ -240,7 +310,9 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
       final verification = await verifier.verify(
         parsed,
         etag: responseEtag,
-        manifestUrl: current.toString(),
+        requestKey: key,
+        // 只保留 scheme + host + path，不保存临时重定向的查询串（UPD-INC-028）。
+        resolvedOrigin: sanitizeResolvedOrigin(current),
       );
       final verified = verification.verified;
       if (verified == null) {
@@ -250,13 +322,50 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
         );
       }
 
-      // **只缓存已验证清单**：写失败不影响本次结果（缓存只是加速与 304 的依据）。
+      // **只缓存已验证清单，且只写自己那个 key**：写失败不影响本次结果。
       try {
-        await cache.save(verified);
+        await cache.save(key, verified);
       } on Object {
         // 忽略：下次仍可完整请求。
       }
       return ManifestFetchResult.verified(verified);
+    }
+  }
+
+  Future<ManifestCacheEntry?> _loadQuietly(ManifestRequestKey key) async {
+    try {
+      return await cache.load(key);
+    } on Object {
+      return null;
+    }
+  }
+
+  /// 把缓存项重新验签成 [VerifiedManifest]；任何不一致都返回 `null`（等价于没有缓存）。
+  Future<VerifiedManifest?> _verifiedFromEntry(
+    ManifestRequestKey key,
+    ManifestCacheEntry entry, {
+    String? etag,
+  }) async {
+    if (entry.requestKey != key) return null;
+    final confirmation = await verifier.verify(
+      entry.envelope,
+      etag: etag ?? entry.etag,
+      requestKey: key,
+      resolvedOrigin: entry.sanitizedResolvedOrigin,
+    );
+    final verified = confirmation.verified;
+    if (verified == null) return null;
+    if (verified.canonicalDigest != entry.canonicalDigest) return null;
+    return verified;
+  }
+
+  Future<void> _migrateLegacyOnce() async {
+    if (_legacyMigrationAttempted) return;
+    _legacyMigrationAttempted = true;
+    try {
+      await cache.migrateLegacyIfNeeded();
+    } on Object {
+      // 迁移失败只影响"能否复用旧缓存"，而旧缓存本来就不允许被复用。
     }
   }
 
@@ -281,6 +390,10 @@ final class HttpUpdateManifestRepository implements UpdateManifestSource {
 
   UpdateFailure _failure(UpdateFailureCode code, {String? detail}) =>
       UpdateFailure(code, detail: detail, occurredAtUtc: _nowUtc());
+
+  /// 重定向诊断只保留"允许/不允许"级别的信息，不写完整临时 URL。
+  static String _redirectLabel(Uri uri) =>
+      sanitizeResolvedOrigin(uri) ?? 'invalid';
 
   static bool _isRedirect(int status) =>
       status == 301 ||

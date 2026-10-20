@@ -3,6 +3,8 @@
 // 领域层只认识这些接口：它们全部是纯 Dart，参数与返回值只有领域类型，不出现 `File`、`Uri`
 // 之外的 IO 细节（`String path` 是唯一允许的"文件"表示，由基础设施解释）。
 // 这样编排器可以在测试里用内存/临时目录替身跑完整状态机，而不需要真的联网或装 MSIX。
+import 'package:personal_planner/domain/update/manifest_cache_entry.dart';
+import 'package:personal_planner/domain/update/manifest_request_key.dart';
 import 'package:personal_planner/domain/update/package_identity.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_manifest.dart';
@@ -16,9 +18,10 @@ final class VerifiedManifest {
     required this.payloadJson,
     required this.canonicalDigest,
     required this.confirmedAtUtc,
+    this.requestKey,
     this.etag,
     this.fromCache = false,
-    this.manifestUrl,
+    this.resolvedOrigin,
   });
 
   final UpdateManifest manifest;
@@ -32,27 +35,37 @@ final class VerifiedManifest {
 
   final DateTime confirmedAtUtc;
 
+  /// 这份清单属于哪一个请求（`latestStable` 或某个 tag）。
+  ///
+  /// 事故修复的核心字段：`304` 只允许使用**同一个**请求身份下的缓存。
+  final ManifestRequestKey? requestKey;
+
   final String? etag;
 
   /// 是否来自本地缓存（`304` 的有效缓存路径）。
   final bool fromCache;
 
-  /// 实际取回清单的地址（用于诊断）。
-  final String? manifestUrl;
+  /// 最终解析到的来源，只保留 `scheme + host + path`（不含 query / fragment）。
+  final String? resolvedOrigin;
+
+  /// 固定请求地址；为空表示"来源未绑定"（只可能出现在手工构造的测试夹具里）。
+  String? get canonicalRequestUrl => requestKey?.canonicalRequestUrl;
 
   VerifiedManifest copyWith({
     DateTime? confirmedAtUtc,
+    ManifestRequestKey? requestKey,
     String? etag,
     bool? fromCache,
-    String? manifestUrl,
+    String? resolvedOrigin,
   }) => VerifiedManifest(
     manifest: manifest,
     payloadJson: payloadJson,
     canonicalDigest: canonicalDigest,
     confirmedAtUtc: confirmedAtUtc ?? this.confirmedAtUtc,
+    requestKey: requestKey ?? this.requestKey,
     etag: etag ?? this.etag,
     fromCache: fromCache ?? this.fromCache,
-    manifestUrl: manifestUrl ?? this.manifestUrl,
+    resolvedOrigin: resolvedOrigin ?? this.resolvedOrigin,
   );
 }
 
@@ -68,20 +81,34 @@ final class ManifestFetchResult {
   bool get isVerified => verified != null;
 }
 
-/// 清单来源（固定地址 + 缓存 + `304` 处理 + 重定向限制）。
+/// 清单来源（固定地址 + 分区缓存 + `304` 处理 + 重定向限制）。
+///
+/// **调用方不再传 ETag**：条件请求的值必须与"用哪一份缓存解释 304"一起读取，因此
+/// ETag 的读取与写入都只发生在实现内部（INV-02）。
 abstract interface class UpdateManifestSource {
-  Future<ManifestFetchResult> fetchLatest({String? etag});
+  Future<ManifestFetchResult> fetchLatest({bool forceRefresh = false});
 
-  Future<ManifestFetchResult> fetchForTag(String tag, {String? etag});
+  Future<ManifestFetchResult> fetchForTag(
+    String tag, {
+    bool forceRefresh = false,
+  });
+
+  /// 只读本地缓存，**不产生任何网络请求**：启动复核用它确认磁盘上的包属于哪份清单。
+  Future<VerifiedManifest?> cachedLatest();
 }
 
 /// 已验证清单的本地缓存。**只缓存通过结构、来源与签名验证的清单**（规格 §7.5）。
+///
+/// 每个请求身份一个文件：`manifests/latest-stable.json` 与 `manifests/tags/<tag>.json`。
 abstract interface class UpdateManifestCache {
-  Future<VerifiedManifest?> load();
+  Future<ManifestCacheEntry?> load(ManifestRequestKey key);
 
-  Future<void> save(VerifiedManifest manifest);
+  Future<void> save(ManifestRequestKey key, VerifiedManifest manifest);
 
-  Future<void> clear();
+  Future<void> clear(ManifestRequestKey key);
+
+  /// 把 1.11.0 及更早版本的全局缓存隔离掉：它没有请求身份，**不能猜**它属于谁。
+  Future<void> migrateLegacyIfNeeded();
 }
 
 /// 持久状态存储（原子替换，损坏时可重建）。
@@ -92,6 +119,11 @@ abstract interface class UpdateStateStore {
 
   /// 丢弃状态文件。用于"状态损坏且无法解释"时的重建。
   Future<void> reset();
+
+  /// 最近一次 [load] 是否读到了**更新版本客户端**写的 schema。
+  ///
+  /// 为真时本次会话必须禁用更新且不得写回状态文件：降级解析会把未知语义当成已知语义。
+  bool get sawFutureSchema;
 }
 
 /// 下载结果。
@@ -183,6 +215,17 @@ abstract interface class UpdatePackageVerifier {
     required String path,
     required UpdateTarget target,
     required InstalledPackage installed,
+    required bool verifyNativeSignature,
+  });
+
+  /// 回退基线包校验：包内部版本必须**等于**当前已安装版本（基线不是升级）。
+  ///
+  /// 与 [verify] 共用同一套长度、SHA-256、ZIP 结构、包身份与发布者检查；差别只在版本关系。
+  Future<PackageVerification> verifyBaseline({
+    required String path,
+    required MsixVersion expectedVersion,
+    required int expectedSizeBytes,
+    required String expectedSha256,
     required bool verifyNativeSignature,
   });
 }

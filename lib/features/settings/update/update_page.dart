@@ -6,6 +6,7 @@
 // 与左下角入口读同一个 [UpdateController] 快照——两处不可能出现不一样的结论。
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
 import 'package:personal_planner/domain/update/update_state.dart';
 import 'package:personal_planner/features/settings/update/update_diagnostics_panel.dart';
 
@@ -188,6 +189,11 @@ final class _StatusCard extends StatelessWidget {
     UpdatePhase.waitingForHealth ||
     UpdatePhase.succeeded => '已通过大小、SHA-256 与包身份验证',
     UpdatePhase.verifying => '正在验证',
+    // 诊断不能与磁盘事实矛盾：有目标包时不能说"尚无可验证的更新包"（UPD-INC-032）。
+    _ when state.target != null =>
+      state.baselinePreparation.phase == BaselinePhase.ready
+          ? '已下载并验证，等待安装'
+          : '已下载，正在准备安全回退包',
     _ => '尚无可验证的更新包',
   };
 
@@ -225,6 +231,7 @@ final class _ActionsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = snapshot.state;
+    final baseline = state.baselinePreparation;
     final canRetry =
         state.lastFailure?.retryable == true &&
         (state.phase == UpdatePhase.failed ||
@@ -254,6 +261,18 @@ final class _ActionsCard extends StatelessWidget {
                   state.phase == UpdatePhase.downloadPaused ? '重新下载' : '开始下载',
                 ),
               ),
+            if (baseline.phase == BaselinePhase.retryWaiting ||
+                baseline.phase == BaselinePhase.failed)
+              OutlinedButton.icon(
+                key: const Key('update-retry-baseline'),
+                onPressed: () => controller.retryBaseline(),
+                icon: const Icon(Icons.shield_outlined),
+                label: Text(
+                  baseline.phase == BaselinePhase.failed
+                      ? '重试准备安全更新'
+                      : '立即重试准备',
+                ),
+              ),
             if (canRetry)
               OutlinedButton.icon(
                 key: const Key('update-retry'),
@@ -264,7 +283,10 @@ final class _ActionsCard extends StatelessWidget {
             if (snapshot.isReady)
               FilledButton.icon(
                 key: const Key('update-install'),
-                onPressed: snapshot.safety.canInstall
+                onPressed:
+                    snapshot.safety.canInstall &&
+                        (!snapshot.baselineRequired ||
+                            baseline.phase == BaselinePhase.ready)
                     ? () => controller.install()
                     : null,
                 icon: const Icon(Icons.system_update_alt_rounded),

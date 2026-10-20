@@ -4,6 +4,8 @@
 // 不展示业务标题、备注、数据库内容或任何令牌。
 import 'package:flutter/material.dart';
 import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
+import 'package:personal_planner/domain/update/update_failure.dart';
 
 final class UpdateDiagnosticsPanel extends StatefulWidget {
   const UpdateDiagnosticsPanel({
@@ -42,6 +44,8 @@ final class _UpdateDiagnosticsPanelState extends State<UpdateDiagnosticsPanel> {
             Text('诊断', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             _line(theme, '最近失败', failure?.code.code ?? '无'),
+            if (failure != null) _line(theme, '失败解释', _explain(failure.code)),
+            if (failure != null) _line(theme, '可采取的动作', _advice(failure.code)),
             if (failure?.detail != null) _line(theme, '失败详情', failure!.detail!),
             if (failure?.windowsResultCode != null)
               _line(
@@ -56,8 +60,24 @@ final class _UpdateDiagnosticsPanelState extends State<UpdateDiagnosticsPanel> {
                 '下次自动重试',
                 state.nextAttemptUtc!.toLocal().toIso8601String(),
               ),
+            _line(theme, '安全回退包', _baselineLine(state.baselinePreparation)),
+            if (state.baselinePreparation.nextAttemptUtc != null)
+              _line(
+                theme,
+                '下次准备重试',
+                state.baselinePreparation.nextAttemptUtc!
+                    .toLocal()
+                    .toIso8601String(),
+              ),
+            if (state.baselinePreparation.lastFailure != null)
+              _line(
+                theme,
+                '基线失败码',
+                state.baselinePreparation.lastFailure!.code.code,
+              ),
             if (manifest != null) ...[
-              _line(theme, '清单元数据', manifest.manifestUrl ?? '未知'),
+              _line(theme, '清单来源', manifest.requestKey?.label ?? '未知来源'),
+              _line(theme, '解析来源', manifest.resolvedOrigin ?? '未记录'),
               _line(theme, '签名密钥', manifest.manifest.signature.keyId),
               _line(theme, '清单摘要', manifest.canonicalDigest),
             ],
@@ -137,5 +157,41 @@ final class _UpdateDiagnosticsPanelState extends State<UpdateDiagnosticsPanel> {
     await widget.clearLogs!();
     if (!mounted) return;
     setState(() => _logs = const []);
+  }
+
+  /// 诊断页可以显示稳定错误码，但**必须同时给出中文解释**（UPD-INC-024）。
+  static String _explain(UpdateFailureCode code) => switch (code) {
+    UpdateFailureCode.manifestStaleLatest =>
+      '服务器返回的版本比已下载的目标旧，本次检查不会被当作"已是最新版"。',
+    UpdateFailureCode.blockedRollbackNotReady => '安全回退包还没准备好，因此暂时不允许安装。',
+    UpdateFailureCode.packageVersionRevoked => '发布方明确撤回了这个版本，不能安装。',
+    UpdateFailureCode.stateSchemaUnsupported => '更新状态由更新版本的客户端写入，当前版本不能安全解释它。',
+    UpdateFailureCode.manifestNotModifiedWithoutCache =>
+      '服务器说"没有变化"，但本地没有可用于比对的缓存。',
+    _ => code.message,
+  };
+
+  /// 与解释配对的下一步：普通用户不需要理解 ETag 或内部阶段名。
+  static String _advice(UpdateFailureCode code) => switch (code) {
+    UpdateFailureCode.manifestStaleLatest => '点击"立即重新检查"，稍后会自动重试。',
+    UpdateFailureCode.blockedRollbackNotReady => '点击"重试准备安全更新"，或等待自动重试。',
+    UpdateFailureCode.packageVersionRevoked => '等待发布新版本后再次检查。',
+    UpdateFailureCode.stateSchemaUnsupported => '升级到最新版本客户端后重试。',
+    UpdateFailureCode.manifestNotModifiedWithoutCache => '点击"立即重新检查"重新拉取清单。',
+    UpdateFailureCode.networkOffline => '检查网络连接；恢复后会自动重试。',
+    _ when code.retryable => '点击"重试"；系统也会按退避时间自动重试。',
+    _ => '可等待新版本发布，或把诊断日志反馈给维护者。',
+  };
+
+  static String _baselineLine(BaselinePreparationState preparation) {
+    final phase = switch (preparation.phase) {
+      BaselinePhase.absent => '尚未建立',
+      BaselinePhase.preparing => '正在下载并校验',
+      BaselinePhase.ready => '已就绪',
+      BaselinePhase.retryWaiting => '等待重试',
+      BaselinePhase.failed => '失败（需要新版本或人工处理）',
+    };
+    final version = preparation.requiredForInstalledVersion;
+    return version == null ? phase : '$phase（针对 $version）';
   }
 }

@@ -1,9 +1,13 @@
-// 编排器：四类结论、状态推进、失败分类与恢复（UPD-004 / UPD-005 / UPD-012 / UPD-025）。
+// 编排器：四类结论、状态推进、失败分类与恢复（UPD-004 / UPD-005 / UPD-012 / UPD-025；
+// 1.11.1 修复 §5 / §7 / §8）。
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/application/update/update_orchestrator.dart';
 import 'package:personal_planner/domain/update/package_identity.dart';
+import 'package:personal_planner/domain/update/rollback_baseline.dart';
+import 'package:personal_planner/domain/update/update_baseline_status.dart';
 import 'package:personal_planner/domain/update/update_failure.dart';
 import 'package:personal_planner/domain/update/update_ports.dart';
 import 'package:personal_planner/domain/update/update_safety.dart';
@@ -501,6 +505,10 @@ void main() {
     final orchestrator = build(
       fetchResult: ManifestFetchResult.verified(verified),
     );
+    // 启动复核会核对磁盘事实：ready 状态必须真的有一个可验证的包。
+    final ready = layout.readyPackage(targetFixture);
+    await ready.parent.create(recursive: true);
+    await ready.writeAsBytes(List<int>.filled(targetFixture.sizeBytes, 0));
 
     await orchestrator.initialize();
 
@@ -579,6 +587,240 @@ void main() {
     await orchestrator.install();
     expect(coordinator.prepareCalls, 1);
   });
+
+  group('磁盘事实与目标单调（1.11.1）', () {
+    Future<File> writeReady(UpdateTarget target, {int? bytes}) async {
+      final ready = layout.readyPackage(target);
+      await ready.parent.create(recursive: true);
+      await ready.writeAsBytes(List<int>.filled(bytes ?? target.sizeBytes, 0));
+      return ready;
+    }
+
+    Future<UpdateOrchestrator> orchestrate({
+      required ManifestFetchResult fetchResult,
+      UpdateState initialState = const UpdateState(),
+      UpdatePackageDownloader? packageDownloader,
+      UpdateBaselinePreparer? baseline,
+      UpdateInstallCoordinator? installCoordinator,
+    }) async {
+      store.state = initialState;
+      final orchestrator = UpdateOrchestrator(
+        manifestSource: FakeManifestSource(fetchResult),
+        stateStore: store,
+        installedPackages: installed,
+        downloader: packageDownloader ?? downloader,
+        verifier: verifier,
+        layout: layout,
+        safety: safety,
+        log: log,
+        clock: clock,
+        diskSpace: FakeDiskSpace(50 * 1024 * 1024 * 1024),
+        baselineService: baseline,
+        installCoordinator: installCoordinator,
+      );
+      await orchestrator.initialize();
+      return orchestrator;
+    }
+
+    test('重新发现相同 target 时复用已验证 ready，不重复下载（INV-10）', () async {
+      final target = targetFixture;
+      await writeReady(target);
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(),
+        ),
+        initialState: UpdateState(
+          phase: UpdatePhase.updateAvailable,
+          target: target,
+        ),
+      );
+
+      await orchestrator.startDownload();
+
+      expect(downloader.calls, 0, reason: '磁盘上已有完整正确的包');
+      expect(orchestrator.state.phase, UpdatePhase.ready);
+      expect(orchestrator.state.receivedBytes, target.sizeBytes);
+    });
+
+    test('ready 长度不符时重新下载', () async {
+      final target = targetFixture;
+      await writeReady(target, bytes: target.sizeBytes - 10);
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(),
+        ),
+        initialState: UpdateState(
+          phase: UpdatePhase.updateAvailable,
+          target: target,
+        ),
+      );
+
+      await orchestrator.startDownload();
+
+      expect(downloader.calls, 1);
+    });
+
+    test('发现更高版本时升级 target 并重置下载进度', () async {
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(version: '1.9.1', buildNumber: 47),
+        ),
+        initialState: const UpdateState(
+          phase: UpdatePhase.ready,
+          target: targetFixture,
+          receivedBytes: 2048,
+          totalBytes: 2048,
+        ),
+      );
+
+      final result = await orchestrator.check(
+        manual: true,
+        autoDownload: false,
+      );
+
+      expect(result.classification, UpdateCheckClassification.updateAvailable);
+      expect(orchestrator.state.target!.msixVersion.value, '1.9.1.0');
+      expect(orchestrator.state.receivedBytes, 0);
+    });
+
+    test('target 被明确撤回时隔离 ready 并阻止安装（INV-04）', () async {
+      final ready = await writeReady(targetFixture);
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(
+            version: '1.9.1',
+            buildNumber: 47,
+            revokedVersions: ['1.9.0.0'],
+          ),
+        ),
+        initialState: const UpdateState(
+          phase: UpdatePhase.ready,
+          target: targetFixture,
+          receivedBytes: 2048,
+          totalBytes: 2048,
+        ),
+      );
+
+      final result = await orchestrator.check(
+        manual: true,
+        autoDownload: false,
+      );
+
+      expect(result.isConfirmedUpToDate, isFalse);
+      expect(orchestrator.state.target, isNull);
+      expect(orchestrator.state.phase, UpdatePhase.failed);
+      expect(
+        orchestrator.state.lastFailure!.code,
+        UpdateFailureCode.packageVersionRevoked,
+      );
+      expect(await ready.exists(), isFalse);
+      expect(await layout.quarantined(ready).exists(), isTrue);
+    });
+
+    test('健康确认成功后目标包晋升为当前基线，并清空目标', () async {
+      final ready = await writeReady(targetFixture);
+      final baselineFile = layout.baselinePackage(targetFixture.msixVersion);
+      final baseline = CountingBaselineFake();
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(),
+        ),
+        initialState: const UpdateState(
+          phase: UpdatePhase.waitingForHealth,
+          target: targetFixture,
+          receivedBytes: 2048,
+          totalBytes: 2048,
+          transactionId: 'tx-1',
+        ),
+        baseline: baseline,
+      );
+      // 安装完成：已安装版本 == target 版本，健康确认也已写入。
+      final installedNow = InstalledPackage(
+        identityName: installedFixture.identityName,
+        publisher: installedFixture.publisher,
+        familyName: installedFixture.familyName,
+        architecture: installedFixture.architecture,
+        version: targetFixture.msixVersion,
+      );
+      await _writeHealthConfirmation(
+        layout: layout,
+        version: targetFixture.msixVersion,
+        transactionId: 'tx-1',
+      );
+
+      await orchestrator.confirmHealthPromotion(installed: installedNow);
+
+      expect(await baselineFile.exists(), isTrue, reason: '目标包成为新基线');
+      expect(await ready.exists(), isTrue, reason: '晋升是复制，不移动原 ready');
+      expect(orchestrator.state.baseline!.version, targetFixture.msixVersion);
+      expect(orchestrator.state.baselinePreparation.phase, BaselinePhase.ready);
+      expect(orchestrator.state.phase, UpdatePhase.succeeded);
+      expect(orchestrator.state.target, isNull);
+    });
+
+    test('晋升校验失败时保留旧基线指针，不把坏包当成新基线', () async {
+      await writeReady(targetFixture);
+      final baselineFile = layout.baselinePackage(targetFixture.msixVersion);
+      final baseline = CountingBaselineFake(
+        validationFailure: const UpdateFailure(
+          UpdateFailureCode.downloadHashMismatch,
+        ),
+      );
+      final orchestrator = await orchestrate(
+        fetchResult: ManifestFetchResult.verified(
+          await verifiedManifestFixture(),
+        ),
+        initialState: const UpdateState(
+          phase: UpdatePhase.waitingForHealth,
+          target: targetFixture,
+        ),
+        baseline: baseline,
+      );
+      final installedNow = InstalledPackage(
+        identityName: installedFixture.identityName,
+        publisher: installedFixture.publisher,
+        familyName: installedFixture.familyName,
+        architecture: installedFixture.architecture,
+        version: targetFixture.msixVersion,
+      );
+      await _writeHealthConfirmation(
+        layout: layout,
+        version: targetFixture.msixVersion,
+      );
+
+      await orchestrator.confirmHealthPromotion(installed: installedNow);
+
+      expect(await baselineFile.exists(), isFalse, reason: '不可用的新基线被删除');
+      expect(orchestrator.state.baseline, isNull);
+      expect(orchestrator.state.target, isNotNull);
+    });
+
+    test('基线 single-flight：多入口同时触发只有一个真实任务', () async {
+      final baseline = CountingBaselineFake(
+        baseline: RollbackBaseline(
+          version: installedFixture.version,
+          packagePath: layout.baselinePackage(installedFixture.version).path,
+          sha256: targetFixture.sha256,
+          sizeBytes: 2048,
+          createdAtUtc: DateTime.utc(2026, 10, 20),
+        ),
+        delay: const Duration(milliseconds: 30),
+      );
+      final orchestrator = await orchestrate(
+        fetchResult: networkFailureFixture(),
+        baseline: baseline,
+      );
+
+      await Future.wait([
+        orchestrator.ensureRollbackBaseline(),
+        orchestrator.ensureRollbackBaseline(),
+        orchestrator.ensureRollbackBaseline(userInitiated: true),
+      ]);
+
+      expect(baseline.calls, 1);
+      expect(orchestrator.state.baselinePreparation.phase, BaselinePhase.ready);
+    });
+  });
 }
 
 final class _SequencedSafety implements UpdateSafetyCoordinator {
@@ -630,4 +872,22 @@ final class _SequencedSafety implements UpdateSafetyCoordinator {
 
   @override
   void dispose() {}
+}
+
+/// 写一份"健康确认成功"的文件：基线的晋升只认这份证据。
+Future<void> _writeHealthConfirmation({
+  required UpdateStorageLayout layout,
+  required MsixVersion version,
+  String? transactionId,
+}) async {
+  final file = layout.healthConfirmationFile(version);
+  await file.parent.create(recursive: true);
+  await file.writeAsString(
+    jsonEncode({
+      'schemaVersion': 1,
+      'transactionId': transactionId,
+      'version': version.value,
+      'ok': true,
+    }),
+  );
 }
