@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/router.dart';
 import 'package:personal_planner/application/appearance_service.dart';
 import 'package:personal_planner/application/defer_time_policy.dart';
+import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/settings_service.dart';
@@ -188,6 +189,7 @@ void main() {
     });
     addTearDown(() => tester.runAsync(harness.close));
 
+    final moves = PendingMoveDrafts();
     final router = createPlannerRouter(
       taskService: TaskService(
         repository: _Tasks(harness.taskRepository),
@@ -200,6 +202,8 @@ void main() {
       moveController: const DisabledWeekMoveController(),
       autoAdjustStore: MemoryAutoAdjustStore(),
       adjustmentService: service,
+      // 旧路径的意图容器同时挂上：新路径**不得**借用或清理它（DFR-008）。
+      pendingMoves: moves,
       plans: plans,
       todayStartUtc: DateTime.utc(2026, 10, 19),
       nowUtc: harness.clock.nowUtc(),
@@ -247,5 +251,9 @@ void main() {
     final restored = await tester.runAsync(() => plans.current());
     final target = restored!.blocks.firstWhere((b) => b.taskId == 'task-1');
     expect(target.startUtc, DateTime.utc(2026, 10, 19, 7));
+    // 延后走持久调整服务，**不碰**拖动/跳过的意图容器（DFR-008）。
+    expect(moves.length, 0);
+    expect(moves.adjustment, isNull);
   });
 }
+
