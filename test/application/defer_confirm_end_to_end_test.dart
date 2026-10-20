@@ -55,9 +55,13 @@ void main() {
   late PlanAdjustmentService service;
 
   final sourceStart = DateTime.utc(2026, 10, 19, 7);
+  var sideEffectCalls = 0;
+  var failSideEffect = false;
 
   setUp(() async {
     harness = await ExecutionTestHarness.create();
+    sideEffectCalls = 0;
+    failSideEffect = false;
     plans = DriftPlanRepository(harness.database, clock: harness.clock);
     adjustments = DriftPlanAdjustmentRepository(
       harness.database,
@@ -92,6 +96,10 @@ void main() {
       zones: zones,
       timeZoneId: zoneId,
       applier: plans,
+      onAppliedSideEffects: () async {
+        sideEffectCalls++;
+        if (failSideEffect) throw StateError('notification down');
+      },
     );
     final base = ScheduleProposal(
       proposalId: 'base-1',
@@ -147,6 +155,7 @@ void main() {
       previewId: generated.previewId!,
     );
     expect(confirmed.status, AdjustmentApplyStatus.applied);
+    expect(sideEffectCalls, 1, reason: '应用成功后应消费一次 outbox');
     final appliedPlan = await plans.current();
     expect(appliedPlan!.id, confirmed.planVersionId);
     final target = appliedPlan.blocks.firstWhere(
@@ -170,6 +179,27 @@ void main() {
       PlanAdjustmentStatus.applied,
       reason: '撤销不倒退调整历史',
     );
+  });
+
+  test('提交后副作用失败不改变已应用结果', () async {
+    failSideEffect = true;
+    final begun = await service.beginDefer(
+      currentPlanVersionId: 'base-1',
+      targetBlockId: 'base-1:block-1',
+      amount: 10,
+      unit: DeferUnit.minutes,
+    );
+    final generated = await service.generate(begun.adjustment!.adjustmentId);
+    expect(generated.status, GenerateAdjustmentPreviewStatus.previewReady);
+
+    final confirmed = await service.confirmAdjustment(
+      adjustmentId: begun.adjustment!.adjustmentId,
+      previewId: generated.previewId!,
+    );
+
+    expect(confirmed.status, AdjustmentApplyStatus.applied);
+    expect((await plans.current())!.id, confirmed.planVersionId);
+    expect(sideEffectCalls, 1);
   });
 
   test('生成后取消：不产出可确认预览，当前计划不变', () async {

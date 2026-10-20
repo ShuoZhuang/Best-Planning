@@ -29,6 +29,7 @@ import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/defer_time_policy.dart';
 import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/plan_change_outbox_dispatcher.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -961,6 +962,13 @@ Future<void> main() async {
     onPlanChanged: invalidation.planAfter(resyncNotifications),
   );
 
+  // 提交后副作用：事务只入队，dispatcher 负责重试（DFR-016）。
+  final planChangeOutbox = PlanChangeOutboxDispatcher(
+    database: database,
+    clock: clock,
+    onPlanChanged: (_) async => resyncNotifications(),
+  );
+
   // 1.11.0：「延后本次」的持久服务。生成、确认、撤销与重启恢复都走它；
   // 今日页只在装配了它时才显示"持久预览"入口（否则退回 1.8.0 内存路径）。
   final planAdjustmentService = PlanAdjustmentService(
@@ -981,6 +989,8 @@ Future<void> main() async {
     zones: zones,
     applier: planRepository,
     executionEvidence: DriftAdjustmentExecutionEvidence(database),
+    // 应用成功后立刻消费一次 outbox；失败不影响已提交结果。
+    onAppliedSideEffects: planChangeOutbox.dispatch,
     timeZoneId: timeZoneId,
   );
 
@@ -1108,6 +1118,11 @@ Future<void> main() async {
                 '已完成 ${report.completed.map((stage) => stage.name).join(' → ')}',
     );
   }());
+
+  // 启动后消费一次上次遗留的提交后副作用（通知重排等）；失败只留在 outbox 里重试。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(planChangeOutbox.dispatch());
+  });
 
   runApp(
     ProviderScope(

@@ -126,6 +126,7 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
     required this.granularityForDate,
     required this.zones,
     this.applier,
+    this.onAppliedSideEffects,
     this.executionEvidence = const NoAdjustmentExecutionEvidence(),
     this.codec = const ScheduleProposalCodec(),
     this.previewTtl = const Duration(hours: 12),
@@ -147,6 +148,10 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
 
   /// 单事务应用/撤销端口；为空时 confirm/undo 会显式报错而不是退化成两次写。
   final PlanAdjustmentTransactionApplier? applier;
+
+  /// 提交后的数据库外副作用（重新同步提醒等）。**异常不得改变应用结果**：
+  /// 计划已经提交，副作用失败只意味着 outbox 还要重试（DFR-016）。
+  final Future<void> Function()? onAppliedSideEffects;
 
   final AdjustmentExecutionEvidence executionEvidence;
   final ScheduleProposalCodec codec;
@@ -509,7 +514,7 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
         reasonCode: 'unfulfilled',
       );
     }
-    return applier.applyAdjustmentProposal(
+    final receipt = await applier.applyAdjustmentProposal(
       command: AdjustmentApplyCommand(
         adjustmentId: adjustment.adjustmentId,
         adjustmentRevision: adjustment.revision,
@@ -524,6 +529,15 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
       proposal: proposal,
       nowUtc: now,
     );
+    if (receipt.status == AdjustmentApplyStatus.applied ||
+        receipt.status == AdjustmentApplyStatus.alreadyApplied) {
+      try {
+        await onAppliedSideEffects?.call();
+      } catch (_) {
+        // 副作用失败不改变已提交结果；outbox 会重试（Error 与 Exception 都吞掉）。
+      }
+    }
+    return receipt;
   }
 
   /// 撤销一次已应用的调整；具体证据保护在同一事务里完成。
@@ -738,4 +752,3 @@ final class PlanAdjustmentService implements AdjustmentPreviewPort {
     ];
   }
 }
-
