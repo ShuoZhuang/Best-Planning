@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:personal_planner/application/pending_plan_preview_service.dart';
+import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/recurring_cycle_maintenance_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
@@ -308,6 +309,39 @@ void main() {
     final current = await planRepository.current();
     expect(current, isNotNull);
     expect(current!.blocks, isNotEmpty);
+
+    final secondProposal = await planning.createProposal();
+    final application = PlanApplicationService(
+      source: source,
+      repository: planRepository,
+      zones: zones,
+    );
+    final router = createPlannerRouter(
+      taskService: taskService,
+      settingsService: settings,
+      appearance: AppearanceService(settingsRepository),
+      scheduleSource: const _EmptyScheduleSource(),
+      moveController: const DisabledWeekMoveController(),
+      autoAdjustStore: MemoryAutoAdjustStore(),
+      todayStartUtc: DateTime.utc(2026, 10, 19, 16),
+      zones: zones,
+      timeZoneId: 'Asia/Shanghai',
+      planningService: planning,
+      planApplication: application,
+      plans: planRepository,
+      planHistory: planRepository,
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+    router.go('/planning/preview/${secondProposal.proposalId}');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('apply-plan')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('apply-plan')));
+    await tester.pumpAndSettle();
+    final rerouted = await planRepository.current();
+    expect(rerouted, isNotNull);
+    expect(rerouted!.blocks, isNotEmpty);
   });
 }
 
@@ -346,4 +380,11 @@ final class _LookaheadCreator implements ProposalCreator {
       ),
     );
   }
+}
+
+final class _EmptyScheduleSource implements ScheduleViewSource {
+  const _EmptyScheduleSource();
+  @override
+  Stream<List<ScheduleViewItem>> watch(DateTime startUtc, DateTime endUtc) =>
+      Stream.value(const []);
 }
