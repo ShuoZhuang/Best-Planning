@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:personal_planner/data/database/daos/task_dao.dart';
 import 'package:personal_planner/data/database/tables/execution_tables.dart';
+import 'package:personal_planner/data/database/tables/plan_adjustment_tables.dart';
 import 'package:personal_planner/data/database/tables/planner_tables.dart';
 import 'package:personal_planner/data/database/tables/recurring_execution_tables.dart';
 
@@ -63,6 +64,9 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     RecurringCompletionEvidence,
     PendingPlanPreviews,
     PendingPlanPreviewBlocks,
+    // v11：块级调整操作与状态审计（1.11.0「延后本次」事务化修复）。
+    PlanAdjustments,
+    PlanAdjustmentEvents,
   ],
   daos: [TaskDao],
 )
@@ -125,6 +129,12 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (migrator) async {
       await migrator.createAll();
       await _createRecurringTaskIndexes();
+      // 全新库也要有执行/周期/调整三组索引：它们承载的是**跨行唯一性**
+      // （如"每个任务只有一个当前检查点""一个预览只能被一个调整认领"），
+      // 只在迁移里创建会让新装用户失去这些约束。
+      await _createExecutionIndexes();
+      await _createRecurringExecutionIndexes();
+      await _createPlanAdjustmentIndexes();
     },
     onUpgrade: (migrator, from, to) async {
       if (from < 2 && to >= 2) {
@@ -299,8 +309,40 @@ class AppDatabase extends _$AppDatabase {
     await migrator.createTable(recurringCompletionEvidence);
     await migrator.createTable(pendingPlanPreviews);
     await migrator.createTable(pendingPlanPreviewBlocks);
+    await migrator.createTable(planAdjustments);
+    await migrator.createTable(planAdjustmentEvents);
     await _createExecutionIndexes();
     await _createRecurringExecutionIndexes();
+    await _createPlanAdjustmentIndexes();
+  }
+
+  /// 1.11.0 调整操作的索引与跨行唯一性（计划 Task 3 Step 2）。
+  ///
+  /// `UNIQUE (preview_id) WHERE preview_id IS NOT NULL` 与
+  /// `UNIQUE (applied_plan_version_id) WHERE ...` 是**跨行**约束：SQLite 的
+  /// 行级 CHECK 管不了，只能用部分唯一索引表达。它们保证一个预览、一个新计划版本
+  /// 只能被一个调整认领（事务不变量 2）。
+  Future<void> _createPlanAdjustmentIndexes() async {
+    const statements = [
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustments_status_expiry '
+          'ON plan_adjustments (status, expires_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustments_base_target '
+          'ON plan_adjustments (base_plan_version_id, target_block_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_adjustment_preview '
+          'ON plan_adjustments (preview_id) WHERE preview_id IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_adjustment_applied_plan '
+          'ON plan_adjustments (applied_plan_version_id) '
+          'WHERE applied_plan_version_id IS NOT NULL',
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustment_events_time '
+          'ON plan_adjustment_events (occurred_at_utc)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与其它索引同口径：只有"目标表尚不存在"会走到这里（逐版本迁移校验）。
+      }
+    }
   }
 
   /// 1.11.0 周期/片段/证据/预排索引。
@@ -316,8 +358,14 @@ class AppDatabase extends _$AppDatabase {
           'ON recurring_completion_evidence (fragment_id)',
       'CREATE INDEX IF NOT EXISTS idx_pending_previews_status '
           'ON pending_plan_previews (status, created_at_utc)',
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_preview_active_kind '
-          "ON pending_plan_previews (kind) WHERE status = 'active'",
+      // 1.11.0：旧约束"每种 kind 只有一条 active"改为"每个操作只有一条 active"。
+      // 否则两个独立调整会互相 supersede（DFR-004），而周期预排仍按稳定 operationId
+      // `recurring-lookahead` 保持"只有一条"。
+      'DROP INDEX IF EXISTS idx_pending_preview_active_kind',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_preview_active_operation '
+          "ON pending_plan_previews (kind, operation_id) WHERE status = 'active'",
+      'CREATE INDEX IF NOT EXISTS idx_pending_preview_operation '
+          'ON pending_plan_previews (operation_id, created_at_utc)',
     ];
     for (final statement in statements) {
       try {

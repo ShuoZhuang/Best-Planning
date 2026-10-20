@@ -5026,6 +5026,8 @@ final class Schema11 extends i0.VersionedSchema {
     recurringCompletionEvidence,
     pendingPlanPreviews,
     pendingPlanPreviewBlocks,
+    planAdjustments,
+    planAdjustmentEvents,
   ];
   late final Shape0 areas = Shape0(
     source: i0.VersionedTable(
@@ -5935,23 +5937,29 @@ final class Schema11 extends i0.VersionedSchema {
         'PRIMARY KEY(preview_id)',
         'CHECK(window_end_utc > window_start_utc)',
         'CHECK(revision >= 1)',
+        'CHECK(format_version >= 1)',
+        'CHECK(kind IN (\'recurringLookahead\', \'deferAdjustment\'))',
         'CHECK(status IN (\'active\', \'superseded\', \'accepted\', \'rejected\', \'stale\'))',
       ],
       columns: [
         _column_207,
         _column_55,
         _column_208,
+        _column_209,
         _column_45,
         _column_46,
-        _column_209,
         _column_210,
+        _column_211,
         _column_32,
         _column_22,
         _column_23,
-        _column_211,
         _column_212,
         _column_213,
+        _column_214,
         _column_104,
+        _column_215,
+        _column_216,
+        _column_217,
       ],
       attachedDatabase: database,
     ),
@@ -5968,15 +5976,83 @@ final class Schema11 extends i0.VersionedSchema {
         'CHECK(minutes > 0)',
       ],
       columns: [
-        _column_214,
+        _column_218,
         _column_129,
-        _column_215,
+        _column_219,
         _column_194,
         _column_10,
         _column_147,
         _column_148,
-        _column_216,
+        _column_220,
         _column_50,
+      ],
+      attachedDatabase: database,
+    ),
+    alias: null,
+  );
+  late final Shape45 planAdjustments = Shape45(
+    source: i0.VersionedTable(
+      entityName: 'plan_adjustments',
+      withoutRowId: false,
+      isStrict: false,
+      tableConstraints: [
+        'PRIMARY KEY(adjustment_id)',
+        'CHECK(source_end_utc > source_start_utc)',
+        'CHECK(not_before_utc > source_start_utc)',
+        'CHECK(expires_at_utc > created_at_utc)',
+        'CHECK(requested_amount > 0)',
+        'CHECK(revision >= 1)',
+        'CHECK(kind IN (\'defer\'))',
+        'CHECK(requested_unit IN (\'minutes\', \'hours\', \'days\'))',
+        'CHECK(status IN (\'active\', \'generating\', \'previewReady\', \'applying\', \'applied\', \'cancelled\', \'failed\', \'stale\', \'expired\'))',
+        'CHECK(failure_code IS NULL OR failure_code IN (\'targetMissing\', \'targetChanged\', \'targetIneligible\', \'basePlanChanged\', \'previewExpired\', \'tokenMismatch\', \'noLegalSlot\', \'deadlineExceeded\', \'disallowedWeekday\', \'taskDailyLimitReached\', \'globalDailyLimitReached\', \'requiredBreakUnavailable\', \'fixedOrProtectedConflict\', \'searchBudgetExhausted\', \'invariantViolation\', \'fulfilmentMissing\', \'fulfilmentDurationMismatch\', \'concurrentModification\'))',
+        'CHECK((status <> \'previewReady\')OR preview_id IS NOT NULL)',
+        'CHECK((status <> \'applied\')OR applied_plan_version_id IS NOT NULL)',
+      ],
+      columns: [
+        _column_221,
+        _column_55,
+        _column_222,
+        _column_223,
+        _column_224,
+        _column_209,
+        _column_225,
+        _column_226,
+        _column_227,
+        _column_32,
+        _column_228,
+        _column_229,
+        _column_22,
+        _column_23,
+        _column_212,
+        _column_104,
+        _column_230,
+        _column_231,
+        _column_232,
+        _column_233,
+      ],
+      attachedDatabase: database,
+    ),
+    alias: null,
+  );
+  late final Shape46 planAdjustmentEvents = Shape46(
+    source: i0.VersionedTable(
+      entityName: 'plan_adjustment_events',
+      withoutRowId: false,
+      isStrict: false,
+      tableConstraints: [
+        'PRIMARY KEY(adjustment_id, sequence)',
+        'CHECK(sequence >= 1)',
+        'CHECK(revision >= 1)',
+      ],
+      columns: [
+        _column_234,
+        _column_142,
+        _column_235,
+        _column_236,
+        _column_67,
+        _column_138,
+        _column_237,
       ],
       attachedDatabase: database,
     ),
@@ -7300,6 +7376,8 @@ class Shape43 extends i0.VersionedTable {
       columnsByName['preview_id']! as i1.GeneratedColumn<String>;
   i1.GeneratedColumn<String> get kind =>
       columnsByName['kind']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get operationId =>
+      columnsByName['operation_id']! as i1.GeneratedColumn<String>;
   i1.GeneratedColumn<String> get basePlanVersionId =>
       columnsByName['base_plan_version_id']! as i1.GeneratedColumn<String>;
   i1.GeneratedColumn<String> get inputHash =>
@@ -7324,6 +7402,12 @@ class Shape43 extends i0.VersionedTable {
       columnsByName['diagnostics_json']! as i1.GeneratedColumn<String>;
   i1.GeneratedColumn<int> get revision =>
       columnsByName['revision']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get proposalJson =>
+      columnsByName['proposal_json']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get proposalSha256 =>
+      columnsByName['proposal_sha256']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get formatVersion =>
+      columnsByName['format_version']! as i1.GeneratedColumn<int>;
 }
 
 i1.GeneratedColumn<String> _column_207(String aliasedName) =>
@@ -7336,13 +7420,22 @@ i1.GeneratedColumn<String> _column_207(String aliasedName) =>
     );
 i1.GeneratedColumn<String> _column_208(String aliasedName) =>
     i1.GeneratedColumn<String>(
+      'operation_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL DEFAULT \'recurring-lookahead\'',
+      defaultValue: const i1.CustomExpression('\'recurring-lookahead\''),
+    );
+i1.GeneratedColumn<String> _column_209(String aliasedName) =>
+    i1.GeneratedColumn<String>(
       'base_plan_version_id',
       aliasedName,
       false,
       type: i1.DriftSqlType.string,
       $customConstraints: 'NOT NULL',
     );
-i1.GeneratedColumn<int> _column_209(String aliasedName) =>
+i1.GeneratedColumn<int> _column_210(String aliasedName) =>
     i1.GeneratedColumn<int>(
       'window_start_utc',
       aliasedName,
@@ -7350,7 +7443,7 @@ i1.GeneratedColumn<int> _column_209(String aliasedName) =>
       type: i1.DriftSqlType.int,
       $customConstraints: 'NOT NULL',
     );
-i1.GeneratedColumn<int> _column_210(String aliasedName) =>
+i1.GeneratedColumn<int> _column_211(String aliasedName) =>
     i1.GeneratedColumn<int>(
       'window_end_utc',
       aliasedName,
@@ -7358,7 +7451,7 @@ i1.GeneratedColumn<int> _column_210(String aliasedName) =>
       type: i1.DriftSqlType.int,
       $customConstraints: 'NOT NULL',
     );
-i1.GeneratedColumn<int> _column_211(String aliasedName) =>
+i1.GeneratedColumn<int> _column_212(String aliasedName) =>
     i1.GeneratedColumn<int>(
       'expires_at_utc',
       aliasedName,
@@ -7366,7 +7459,7 @@ i1.GeneratedColumn<int> _column_211(String aliasedName) =>
       type: i1.DriftSqlType.int,
       $customConstraints: 'NOT NULL',
     );
-i1.GeneratedColumn<String> _column_212(String aliasedName) =>
+i1.GeneratedColumn<String> _column_213(String aliasedName) =>
     i1.GeneratedColumn<String>(
       'summary_json',
       aliasedName,
@@ -7375,7 +7468,7 @@ i1.GeneratedColumn<String> _column_212(String aliasedName) =>
       $customConstraints: 'NOT NULL DEFAULT \'{}\'',
       defaultValue: const i1.CustomExpression('\'{}\''),
     );
-i1.GeneratedColumn<String> _column_213(String aliasedName) =>
+i1.GeneratedColumn<String> _column_214(String aliasedName) =>
     i1.GeneratedColumn<String>(
       'diagnostics_json',
       aliasedName,
@@ -7383,6 +7476,33 @@ i1.GeneratedColumn<String> _column_213(String aliasedName) =>
       type: i1.DriftSqlType.string,
       $customConstraints: 'NOT NULL DEFAULT \'{}\'',
       defaultValue: const i1.CustomExpression('\'{}\''),
+    );
+i1.GeneratedColumn<String> _column_215(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'proposal_json',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+      defaultValue: const i1.CustomExpression('\'{}\''),
+    );
+i1.GeneratedColumn<String> _column_216(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'proposal_sha256',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL DEFAULT \'\'',
+      defaultValue: const i1.CustomExpression('\'\''),
+    );
+i1.GeneratedColumn<int> _column_217(String aliasedName) =>
+    i1.GeneratedColumn<int>(
+      'format_version',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.int,
+      $customConstraints: 'NOT NULL DEFAULT 1',
+      defaultValue: const i1.CustomExpression('1'),
     );
 
 class Shape44 extends i0.VersionedTable {
@@ -7407,7 +7527,7 @@ class Shape44 extends i0.VersionedTable {
       columnsByName['explanation_code']! as i1.GeneratedColumn<String>;
 }
 
-i1.GeneratedColumn<String> _column_214(
+i1.GeneratedColumn<String> _column_218(
   String aliasedName,
 ) => i1.GeneratedColumn<String>(
   'preview_id',
@@ -7417,7 +7537,7 @@ i1.GeneratedColumn<String> _column_214(
   $customConstraints:
       'NOT NULL REFERENCES pending_plan_previews(preview_id)ON DELETE CASCADE',
 );
-i1.GeneratedColumn<String> _column_215(String aliasedName) =>
+i1.GeneratedColumn<String> _column_219(String aliasedName) =>
     i1.GeneratedColumn<String>(
       'task_id',
       aliasedName,
@@ -7425,13 +7545,217 @@ i1.GeneratedColumn<String> _column_215(String aliasedName) =>
       type: i1.DriftSqlType.string,
       $customConstraints: 'NULL',
     );
-i1.GeneratedColumn<int> _column_216(String aliasedName) =>
+i1.GeneratedColumn<int> _column_220(String aliasedName) =>
     i1.GeneratedColumn<int>(
       'minutes',
       aliasedName,
       false,
       type: i1.DriftSqlType.int,
       $customConstraints: 'NOT NULL',
+    );
+
+class Shape45 extends i0.VersionedTable {
+  Shape45({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get adjustmentId =>
+      columnsByName['adjustment_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get kind =>
+      columnsByName['kind']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get targetBlockId =>
+      columnsByName['target_block_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get targetTaskId =>
+      columnsByName['target_task_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get targetTitleSnapshot =>
+      columnsByName['target_title_snapshot']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get basePlanVersionId =>
+      columnsByName['base_plan_version_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get sourceStartUtc =>
+      columnsByName['source_start_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get sourceEndUtc =>
+      columnsByName['source_end_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get notBeforeUtc =>
+      columnsByName['not_before_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get timeZoneId =>
+      columnsByName['time_zone_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get requestedAmount =>
+      columnsByName['requested_amount']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get requestedUnit =>
+      columnsByName['requested_unit']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get status =>
+      columnsByName['status']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get createdAtUtc =>
+      columnsByName['created_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get expiresAtUtc =>
+      columnsByName['expires_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get revision =>
+      columnsByName['revision']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get targetSiblingBlockIdsJson =>
+      columnsByName['target_sibling_block_ids_json']!
+          as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get previewId =>
+      columnsByName['preview_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get appliedPlanVersionId =>
+      columnsByName['applied_plan_version_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get failureCode =>
+      columnsByName['failure_code']! as i1.GeneratedColumn<String>;
+}
+
+i1.GeneratedColumn<String> _column_221(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'adjustment_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_222(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'target_block_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_223(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'target_task_id',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_224(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'target_title_snapshot',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<int> _column_225(String aliasedName) =>
+    i1.GeneratedColumn<int>(
+      'source_start_utc',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.int,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<int> _column_226(String aliasedName) =>
+    i1.GeneratedColumn<int>(
+      'source_end_utc',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.int,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<int> _column_227(String aliasedName) =>
+    i1.GeneratedColumn<int>(
+      'not_before_utc',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.int,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<int> _column_228(String aliasedName) =>
+    i1.GeneratedColumn<int>(
+      'requested_amount',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.int,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_229(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'requested_unit',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_230(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'target_sibling_block_ids_json',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL DEFAULT \'[]\'',
+      defaultValue: const i1.CustomExpression('\'[]\''),
+    );
+i1.GeneratedColumn<String> _column_231(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'preview_id',
+      aliasedName,
+      true,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NULL',
+    );
+i1.GeneratedColumn<String> _column_232(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'applied_plan_version_id',
+      aliasedName,
+      true,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NULL',
+    );
+i1.GeneratedColumn<String> _column_233(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'failure_code',
+      aliasedName,
+      true,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NULL',
+    );
+
+class Shape46 extends i0.VersionedTable {
+  Shape46({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get adjustmentId =>
+      columnsByName['adjustment_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get sequence =>
+      columnsByName['sequence']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get fromStatus =>
+      columnsByName['from_status']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get toStatus =>
+      columnsByName['to_status']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get revision =>
+      columnsByName['revision']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<int> get occurredAtUtc =>
+      columnsByName['occurred_at_utc']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get reasonCode =>
+      columnsByName['reason_code']! as i1.GeneratedColumn<String>;
+}
+
+i1.GeneratedColumn<String> _column_234(
+  String aliasedName,
+) => i1.GeneratedColumn<String>(
+  'adjustment_id',
+  aliasedName,
+  false,
+  type: i1.DriftSqlType.string,
+  $customConstraints:
+      'NOT NULL REFERENCES plan_adjustments(adjustment_id)ON DELETE CASCADE',
+);
+i1.GeneratedColumn<String> _column_235(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'from_status',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_236(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'to_status',
+      aliasedName,
+      false,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NOT NULL',
+    );
+i1.GeneratedColumn<String> _column_237(String aliasedName) =>
+    i1.GeneratedColumn<String>(
+      'reason_code',
+      aliasedName,
+      true,
+      type: i1.DriftSqlType.string,
+      $customConstraints: 'NULL',
     );
 i0.MigrationStepWithVersion migrationSteps({
   required Future<void> Function(i1.Migrator m, Schema2 schema) from1To2,

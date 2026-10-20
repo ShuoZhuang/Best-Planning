@@ -6,7 +6,14 @@ import 'dart:collection';
 /// `superseded` 是被新预排替换的旧版本；`stale` 是基线、输入或算法已变化。
 enum PendingPreviewStatus { active, superseded, accepted, rejected, stale }
 
-enum PendingPreviewKind { recurringLookahead }
+/// 预览种类。
+///
+/// 1.11.0 起它承载两类操作：周期预排与**延后调整**（计划 Task 3 Step 3）。
+/// 两类共用同一套表与仓储，用 [PendingPlanPreview.operationId] 区分操作身份。
+enum PendingPreviewKind { recurringLookahead, deferAdjustment }
+
+/// 周期预排的稳定 operationId（不是临时 id：跨重启保持一致）。
+const String recurringLookaheadOperationId = 'recurring-lookahead';
 
 /// 一份持久化的待确认预排。它**不是正式计划**，不能占用正式通知或执行入口。
 final class PendingPlanPreview {
@@ -25,7 +32,14 @@ final class PendingPlanPreview {
     required this.summaryJson,
     required this.diagnosticsJson,
     required this.revision,
-  }) {
+    String operationId = recurringLookaheadOperationId,
+    String proposalJson = '{}',
+    String proposalSha256 = '',
+    int formatVersion = 1,
+  }) : operationId = _requireText(operationId, 'operationId'),
+       proposalJson = proposalJson,
+       proposalSha256 = proposalSha256,
+       formatVersion = _requireFormatVersion(formatVersion) {
     if (!windowStartUtc.isUtc || !windowEndUtc.isUtc) {
       throw ArgumentError('Preview window must be UTC.');
     }
@@ -39,10 +53,21 @@ final class PendingPlanPreview {
     if (timeZoneId.trim().isEmpty) {
       throw ArgumentError.value(timeZoneId, 'timeZoneId');
     }
+    if (kind == PendingPreviewKind.deferAdjustment && proposalJson == '{}') {
+      throw ArgumentError(
+        '延后调整的预览必须携带完整提案；只存块会让确认阶段丢掉未安排、冲突与要求。',
+      );
+    }
   }
 
   final String previewId;
   final PendingPreviewKind kind;
+
+  /// 操作身份：周期预排固定 [recurringLookaheadOperationId]，延后调整用 adjustmentId。
+  ///
+  /// "每个(种类, 操作)只能有一条 active"保证两个独立调整不会互相覆盖（DFR-004）。
+  final String operationId;
+
   final String basePlanVersionId;
   final String inputHash;
   final String algorithmVersion;
@@ -56,15 +81,31 @@ final class PendingPlanPreview {
   final String diagnosticsJson;
   final int revision;
 
+  /// 完整提案的 canonical JSON（见 `ScheduleProposalCodec`）。
+  ///
+  /// **为什么不能只存块**：确认阶段要复现 `unscheduled`、`conflicts`、
+  /// `explanations`、`metrics`、`outcome`、`ruleOverride` 与调整要求；从块重建
+  /// 提案会静默丢掉它们，并让 `PlanApplicationService` 的闸门以为"这次没有调整"。
+  final String proposalJson;
+
+  /// canonical 提案的 SHA-256（DFR-033：调整身份进入令牌）。
+  final String proposalSha256;
+
+  /// 提案编码格式版本；未知版本拒绝解码，不丢字段重建残缺提案。
+  final int formatVersion;
+
   bool get isActive => status == PendingPreviewStatus.active;
 
   PendingPlanPreview copyWith({
     PendingPreviewStatus? status,
     int? revision,
     DateTime? expiresAtUtc,
+    String? proposalJson,
+    String? proposalSha256,
   }) => PendingPlanPreview(
     previewId: previewId,
     kind: kind,
+    operationId: operationId,
     basePlanVersionId: basePlanVersionId,
     inputHash: inputHash,
     algorithmVersion: algorithmVersion,
@@ -77,6 +118,9 @@ final class PendingPlanPreview {
     summaryJson: summaryJson,
     diagnosticsJson: diagnosticsJson,
     revision: revision ?? this.revision,
+    proposalJson: proposalJson ?? this.proposalJson,
+    proposalSha256: proposalSha256 ?? this.proposalSha256,
+    formatVersion: formatVersion,
   );
 }
 
@@ -150,4 +194,17 @@ final class PreviewApplyResult {
   final String? reason;
 
   bool get isApplied => status == PreviewApplyStatus.applied;
+}
+
+String _requireText(String value, String name) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) throw ArgumentError.value(value, name, '不能为空');
+  return trimmed;
+}
+
+int _requireFormatVersion(int value) {
+  if (value < 1) {
+    throw ArgumentError.value(value, 'formatVersion', '必须 ≥ 1');
+  }
+  return value;
 }

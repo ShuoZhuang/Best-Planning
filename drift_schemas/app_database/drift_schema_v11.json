@@ -5104,6 +5104,16 @@
             "dsl_features": []
           },
           {
+            "name": "operation_id",
+            "getter_name": "operationId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('\\'recurring-lookahead\\'')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
             "name": "base_plan_version_id",
             "getter_name": "basePlanVersionId",
             "moor_type": "string",
@@ -5222,6 +5232,36 @@
             "default_dart": "const CustomExpression('1')",
             "default_client_dart": null,
             "dsl_features": []
+          },
+          {
+            "name": "proposal_json",
+            "getter_name": "proposalJson",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('\\'{}\\'')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "proposal_sha256",
+            "getter_name": "proposalSha256",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('\\'\\'')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "format_version",
+            "getter_name": "formatVersion",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('1')",
+            "default_client_dart": null,
+            "dsl_features": []
           }
         ],
         "is_virtual": false,
@@ -5229,6 +5269,8 @@
         "constraints": [
           "CHECK (window_end_utc > window_start_utc)",
           "CHECK (revision >= 1)",
+          "CHECK (format_version >= 1)",
+          "CHECK (kind IN ('recurringLookahead', 'deferAdjustment'))",
           "CHECK (status IN ('active', 'superseded', 'accepted', 'rejected', 'stale'))"
         ],
         "explicit_pk": [
@@ -5362,6 +5404,344 @@
         "explicit_pk": [
           "preview_id",
           "block_id"
+        ]
+      }
+    },
+    {
+      "id": 41,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "plan_adjustments",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "adjustment_id",
+            "getter_name": "adjustmentId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "kind",
+            "getter_name": "kind",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "target_block_id",
+            "getter_name": "targetBlockId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "target_task_id",
+            "getter_name": "targetTaskId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "target_title_snapshot",
+            "getter_name": "targetTitleSnapshot",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "base_plan_version_id",
+            "getter_name": "basePlanVersionId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "source_start_utc",
+            "getter_name": "sourceStartUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "source_end_utc",
+            "getter_name": "sourceEndUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "not_before_utc",
+            "getter_name": "notBeforeUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "time_zone_id",
+            "getter_name": "timeZoneId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "requested_amount",
+            "getter_name": "requestedAmount",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "requested_unit",
+            "getter_name": "requestedUnit",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "status",
+            "getter_name": "status",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "created_at_utc",
+            "getter_name": "createdAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "expires_at_utc",
+            "getter_name": "expiresAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "revision",
+            "getter_name": "revision",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('1')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "target_sibling_block_ids_json",
+            "getter_name": "targetSiblingBlockIdsJson",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('\\'[]\\'')",
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "preview_id",
+            "getter_name": "previewId",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "applied_plan_version_id",
+            "getter_name": "appliedPlanVersionId",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "failure_code",
+            "getter_name": "failureCode",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": false,
+        "constraints": [
+          "CHECK (source_end_utc > source_start_utc)",
+          "CHECK (not_before_utc > source_start_utc)",
+          "CHECK (expires_at_utc > created_at_utc)",
+          "CHECK (requested_amount > 0)",
+          "CHECK (revision >= 1)",
+          "CHECK (kind IN ('defer'))",
+          "CHECK (requested_unit IN ('minutes', 'hours', 'days'))",
+          "CHECK (status IN ('active', 'generating', 'previewReady', 'applying', 'applied', 'cancelled', 'failed', 'stale', 'expired'))",
+          "CHECK (failure_code IS NULL OR failure_code IN ('targetMissing', 'targetChanged', 'targetIneligible', 'basePlanChanged', 'previewExpired', 'tokenMismatch', 'noLegalSlot', 'deadlineExceeded', 'disallowedWeekday', 'taskDailyLimitReached', 'globalDailyLimitReached', 'requiredBreakUnavailable', 'fixedOrProtectedConflict', 'searchBudgetExhausted', 'invariantViolation', 'fulfilmentMissing', 'fulfilmentDurationMismatch', 'concurrentModification'))",
+          "CHECK ((status <> 'previewReady') OR preview_id IS NOT NULL)",
+          "CHECK ((status <> 'applied') OR applied_plan_version_id IS NOT NULL)"
+        ],
+        "explicit_pk": [
+          "adjustment_id"
+        ]
+      }
+    },
+    {
+      "id": 42,
+      "references": [
+        41
+      ],
+      "type": "table",
+      "data": {
+        "name": "plan_adjustment_events",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "adjustment_id",
+            "getter_name": "adjustmentId",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "defaultConstraints": "REFERENCES plan_adjustments (adjustment_id) ON DELETE CASCADE",
+            "dialectAwareDefaultConstraints": {
+              "sqlite": "REFERENCES plan_adjustments (adjustment_id) ON DELETE CASCADE"
+            },
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": [
+              {
+                "foreign_key": {
+                  "to": {
+                    "table": "plan_adjustments",
+                    "column": "adjustment_id"
+                  },
+                  "initially_deferred": false,
+                  "on_update": null,
+                  "on_delete": "cascade"
+                }
+              }
+            ]
+          },
+          {
+            "name": "sequence",
+            "getter_name": "sequence",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "from_status",
+            "getter_name": "fromStatus",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "to_status",
+            "getter_name": "toStatus",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "revision",
+            "getter_name": "revision",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "occurred_at_utc",
+            "getter_name": "occurredAtUtc",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "reason_code",
+            "getter_name": "reasonCode",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": false,
+        "constraints": [
+          "CHECK (sequence >= 1)",
+          "CHECK (revision >= 1)"
+        ],
+        "explicit_pk": [
+          "adjustment_id",
+          "sequence"
         ]
       }
     }
@@ -5723,7 +6103,7 @@
       "sql": [
         {
           "dialect": "sqlite",
-          "sql": "CREATE TABLE IF NOT EXISTS \"pending_plan_previews\" (\"preview_id\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"base_plan_version_id\" TEXT NOT NULL, \"input_hash\" TEXT NOT NULL, \"algorithm_version\" TEXT NOT NULL, \"window_start_utc\" INTEGER NOT NULL, \"window_end_utc\" INTEGER NOT NULL, \"time_zone_id\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"created_at_utc\" INTEGER NOT NULL, \"expires_at_utc\" INTEGER NOT NULL, \"summary_json\" TEXT NOT NULL DEFAULT '{}', \"diagnostics_json\" TEXT NOT NULL DEFAULT '{}', \"revision\" INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (\"preview_id\"), CHECK (window_end_utc > window_start_utc), CHECK (revision >= 1), CHECK (status IN ('active', 'superseded', 'accepted', 'rejected', 'stale')));"
+          "sql": "CREATE TABLE IF NOT EXISTS \"pending_plan_previews\" (\"preview_id\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"operation_id\" TEXT NOT NULL DEFAULT 'recurring-lookahead', \"base_plan_version_id\" TEXT NOT NULL, \"input_hash\" TEXT NOT NULL, \"algorithm_version\" TEXT NOT NULL, \"window_start_utc\" INTEGER NOT NULL, \"window_end_utc\" INTEGER NOT NULL, \"time_zone_id\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"created_at_utc\" INTEGER NOT NULL, \"expires_at_utc\" INTEGER NOT NULL, \"summary_json\" TEXT NOT NULL DEFAULT '{}', \"diagnostics_json\" TEXT NOT NULL DEFAULT '{}', \"revision\" INTEGER NOT NULL DEFAULT 1, \"proposal_json\" TEXT NOT NULL DEFAULT '{}', \"proposal_sha256\" TEXT NOT NULL DEFAULT '', \"format_version\" INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (\"preview_id\"), CHECK (window_end_utc > window_start_utc), CHECK (revision >= 1), CHECK (format_version >= 1), CHECK (kind IN ('recurringLookahead', 'deferAdjustment')), CHECK (status IN ('active', 'superseded', 'accepted', 'rejected', 'stale')));"
         }
       ]
     },
@@ -5733,6 +6113,24 @@
         {
           "dialect": "sqlite",
           "sql": "CREATE TABLE IF NOT EXISTS \"pending_plan_preview_blocks\" (\"preview_id\" TEXT NOT NULL REFERENCES pending_plan_previews (preview_id) ON DELETE CASCADE, \"block_id\" TEXT NOT NULL, \"task_id\" TEXT NULL, \"cycle_id\" TEXT NULL, \"title\" TEXT NOT NULL, \"start_utc\" INTEGER NOT NULL, \"end_utc\" INTEGER NOT NULL, \"minutes\" INTEGER NOT NULL, \"explanation_code\" TEXT NOT NULL, PRIMARY KEY (\"preview_id\", \"block_id\"), CHECK (end_utc > start_utc), CHECK (minutes > 0));"
+        }
+      ]
+    },
+    {
+      "name": "plan_adjustments",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"plan_adjustments\" (\"adjustment_id\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"target_block_id\" TEXT NOT NULL, \"target_task_id\" TEXT NOT NULL, \"target_title_snapshot\" TEXT NOT NULL, \"base_plan_version_id\" TEXT NOT NULL, \"source_start_utc\" INTEGER NOT NULL, \"source_end_utc\" INTEGER NOT NULL, \"not_before_utc\" INTEGER NOT NULL, \"time_zone_id\" TEXT NOT NULL, \"requested_amount\" INTEGER NOT NULL, \"requested_unit\" TEXT NOT NULL, \"status\" TEXT NOT NULL, \"created_at_utc\" INTEGER NOT NULL, \"expires_at_utc\" INTEGER NOT NULL, \"revision\" INTEGER NOT NULL DEFAULT 1, \"target_sibling_block_ids_json\" TEXT NOT NULL DEFAULT '[]', \"preview_id\" TEXT NULL, \"applied_plan_version_id\" TEXT NULL, \"failure_code\" TEXT NULL, PRIMARY KEY (\"adjustment_id\"), CHECK (source_end_utc > source_start_utc), CHECK (not_before_utc > source_start_utc), CHECK (expires_at_utc > created_at_utc), CHECK (requested_amount > 0), CHECK (revision >= 1), CHECK (kind IN ('defer')), CHECK (requested_unit IN ('minutes', 'hours', 'days')), CHECK (status IN ('active', 'generating', 'previewReady', 'applying', 'applied', 'cancelled', 'failed', 'stale', 'expired')), CHECK (failure_code IS NULL OR failure_code IN ('targetMissing', 'targetChanged', 'targetIneligible', 'basePlanChanged', 'previewExpired', 'tokenMismatch', 'noLegalSlot', 'deadlineExceeded', 'disallowedWeekday', 'taskDailyLimitReached', 'globalDailyLimitReached', 'requiredBreakUnavailable', 'fixedOrProtectedConflict', 'searchBudgetExhausted', 'invariantViolation', 'fulfilmentMissing', 'fulfilmentDurationMismatch', 'concurrentModification')), CHECK ((status <> 'previewReady') OR preview_id IS NOT NULL), CHECK ((status <> 'applied') OR applied_plan_version_id IS NOT NULL));"
+        }
+      ]
+    },
+    {
+      "name": "plan_adjustment_events",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"plan_adjustment_events\" (\"adjustment_id\" TEXT NOT NULL REFERENCES plan_adjustments (adjustment_id) ON DELETE CASCADE, \"sequence\" INTEGER NOT NULL, \"from_status\" TEXT NOT NULL, \"to_status\" TEXT NOT NULL, \"revision\" INTEGER NOT NULL, \"occurred_at_utc\" INTEGER NOT NULL, \"reason_code\" TEXT NULL, PRIMARY KEY (\"adjustment_id\", \"sequence\"), CHECK (sequence >= 1), CHECK (revision >= 1));"
         }
       ]
     }

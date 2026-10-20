@@ -19592,6 +19592,15 @@ class PendingPlanPreviews extends Table
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL',
   );
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'recurring-lookahead\'',
+    defaultValue: const CustomExpression('\'recurring-lookahead\''),
+  );
   late final GeneratedColumn<String> basePlanVersionId =
       GeneratedColumn<String>(
         'base_plan_version_id',
@@ -19692,10 +19701,38 @@ class PendingPlanPreviews extends Table
     $customConstraints: 'NOT NULL DEFAULT 1',
     defaultValue: const CustomExpression('1'),
   );
+  late final GeneratedColumn<String> proposalJson = GeneratedColumn<String>(
+    'proposal_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<String> proposalSha256 = GeneratedColumn<String>(
+    'proposal_sha256',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'\'',
+    defaultValue: const CustomExpression('\'\''),
+  );
+  late final GeneratedColumn<int> formatVersion = GeneratedColumn<int>(
+    'format_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     previewId,
     kind,
+    operationId,
     basePlanVersionId,
     inputHash,
     algorithmVersion,
@@ -19708,6 +19745,9 @@ class PendingPlanPreviews extends Table
     summaryJson,
     diagnosticsJson,
     revision,
+    proposalJson,
+    proposalSha256,
+    formatVersion,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -19730,6 +19770,10 @@ class PendingPlanPreviews extends Table
       kind: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}kind'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
       )!,
       basePlanVersionId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -19779,6 +19823,18 @@ class PendingPlanPreviews extends Table
         DriftSqlType.int,
         data['${effectivePrefix}revision'],
       )!,
+      proposalJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}proposal_json'],
+      )!,
+      proposalSha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}proposal_sha256'],
+      )!,
+      formatVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}format_version'],
+      )!,
     );
   }
 
@@ -19792,6 +19848,8 @@ class PendingPlanPreviews extends Table
     'PRIMARY KEY(preview_id)',
     'CHECK(window_end_utc > window_start_utc)',
     'CHECK(revision >= 1)',
+    'CHECK(format_version >= 1)',
+    'CHECK(kind IN (\'recurringLookahead\', \'deferAdjustment\'))',
     'CHECK(status IN (\'active\', \'superseded\', \'accepted\', \'rejected\', \'stale\'))',
   ];
   @override
@@ -19802,6 +19860,7 @@ class PendingPlanPreviewsData extends DataClass
     implements Insertable<PendingPlanPreviewsData> {
   final String previewId;
   final String kind;
+  final String operationId;
   final String basePlanVersionId;
   final String inputHash;
   final String algorithmVersion;
@@ -19814,9 +19873,13 @@ class PendingPlanPreviewsData extends DataClass
   final String summaryJson;
   final String diagnosticsJson;
   final int revision;
+  final String proposalJson;
+  final String proposalSha256;
+  final int formatVersion;
   const PendingPlanPreviewsData({
     required this.previewId,
     required this.kind,
+    required this.operationId,
     required this.basePlanVersionId,
     required this.inputHash,
     required this.algorithmVersion,
@@ -19829,12 +19892,16 @@ class PendingPlanPreviewsData extends DataClass
     required this.summaryJson,
     required this.diagnosticsJson,
     required this.revision,
+    required this.proposalJson,
+    required this.proposalSha256,
+    required this.formatVersion,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['preview_id'] = Variable<String>(previewId);
     map['kind'] = Variable<String>(kind);
+    map['operation_id'] = Variable<String>(operationId);
     map['base_plan_version_id'] = Variable<String>(basePlanVersionId);
     map['input_hash'] = Variable<String>(inputHash);
     map['algorithm_version'] = Variable<String>(algorithmVersion);
@@ -19847,6 +19914,9 @@ class PendingPlanPreviewsData extends DataClass
     map['summary_json'] = Variable<String>(summaryJson);
     map['diagnostics_json'] = Variable<String>(diagnosticsJson);
     map['revision'] = Variable<int>(revision);
+    map['proposal_json'] = Variable<String>(proposalJson);
+    map['proposal_sha256'] = Variable<String>(proposalSha256);
+    map['format_version'] = Variable<int>(formatVersion);
     return map;
   }
 
@@ -19854,6 +19924,7 @@ class PendingPlanPreviewsData extends DataClass
     return PendingPlanPreviewsCompanion(
       previewId: Value(previewId),
       kind: Value(kind),
+      operationId: Value(operationId),
       basePlanVersionId: Value(basePlanVersionId),
       inputHash: Value(inputHash),
       algorithmVersion: Value(algorithmVersion),
@@ -19866,6 +19937,9 @@ class PendingPlanPreviewsData extends DataClass
       summaryJson: Value(summaryJson),
       diagnosticsJson: Value(diagnosticsJson),
       revision: Value(revision),
+      proposalJson: Value(proposalJson),
+      proposalSha256: Value(proposalSha256),
+      formatVersion: Value(formatVersion),
     );
   }
 
@@ -19877,6 +19951,7 @@ class PendingPlanPreviewsData extends DataClass
     return PendingPlanPreviewsData(
       previewId: serializer.fromJson<String>(json['previewId']),
       kind: serializer.fromJson<String>(json['kind']),
+      operationId: serializer.fromJson<String>(json['operationId']),
       basePlanVersionId: serializer.fromJson<String>(json['basePlanVersionId']),
       inputHash: serializer.fromJson<String>(json['inputHash']),
       algorithmVersion: serializer.fromJson<String>(json['algorithmVersion']),
@@ -19889,6 +19964,9 @@ class PendingPlanPreviewsData extends DataClass
       summaryJson: serializer.fromJson<String>(json['summaryJson']),
       diagnosticsJson: serializer.fromJson<String>(json['diagnosticsJson']),
       revision: serializer.fromJson<int>(json['revision']),
+      proposalJson: serializer.fromJson<String>(json['proposalJson']),
+      proposalSha256: serializer.fromJson<String>(json['proposalSha256']),
+      formatVersion: serializer.fromJson<int>(json['formatVersion']),
     );
   }
   @override
@@ -19897,6 +19975,7 @@ class PendingPlanPreviewsData extends DataClass
     return <String, dynamic>{
       'previewId': serializer.toJson<String>(previewId),
       'kind': serializer.toJson<String>(kind),
+      'operationId': serializer.toJson<String>(operationId),
       'basePlanVersionId': serializer.toJson<String>(basePlanVersionId),
       'inputHash': serializer.toJson<String>(inputHash),
       'algorithmVersion': serializer.toJson<String>(algorithmVersion),
@@ -19909,12 +19988,16 @@ class PendingPlanPreviewsData extends DataClass
       'summaryJson': serializer.toJson<String>(summaryJson),
       'diagnosticsJson': serializer.toJson<String>(diagnosticsJson),
       'revision': serializer.toJson<int>(revision),
+      'proposalJson': serializer.toJson<String>(proposalJson),
+      'proposalSha256': serializer.toJson<String>(proposalSha256),
+      'formatVersion': serializer.toJson<int>(formatVersion),
     };
   }
 
   PendingPlanPreviewsData copyWith({
     String? previewId,
     String? kind,
+    String? operationId,
     String? basePlanVersionId,
     String? inputHash,
     String? algorithmVersion,
@@ -19927,9 +20010,13 @@ class PendingPlanPreviewsData extends DataClass
     String? summaryJson,
     String? diagnosticsJson,
     int? revision,
+    String? proposalJson,
+    String? proposalSha256,
+    int? formatVersion,
   }) => PendingPlanPreviewsData(
     previewId: previewId ?? this.previewId,
     kind: kind ?? this.kind,
+    operationId: operationId ?? this.operationId,
     basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
     inputHash: inputHash ?? this.inputHash,
     algorithmVersion: algorithmVersion ?? this.algorithmVersion,
@@ -19942,11 +20029,17 @@ class PendingPlanPreviewsData extends DataClass
     summaryJson: summaryJson ?? this.summaryJson,
     diagnosticsJson: diagnosticsJson ?? this.diagnosticsJson,
     revision: revision ?? this.revision,
+    proposalJson: proposalJson ?? this.proposalJson,
+    proposalSha256: proposalSha256 ?? this.proposalSha256,
+    formatVersion: formatVersion ?? this.formatVersion,
   );
   PendingPlanPreviewsData copyWithCompanion(PendingPlanPreviewsCompanion data) {
     return PendingPlanPreviewsData(
       previewId: data.previewId.present ? data.previewId.value : this.previewId,
       kind: data.kind.present ? data.kind.value : this.kind,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
       basePlanVersionId: data.basePlanVersionId.present
           ? data.basePlanVersionId.value
           : this.basePlanVersionId,
@@ -19977,6 +20070,15 @@ class PendingPlanPreviewsData extends DataClass
           ? data.diagnosticsJson.value
           : this.diagnosticsJson,
       revision: data.revision.present ? data.revision.value : this.revision,
+      proposalJson: data.proposalJson.present
+          ? data.proposalJson.value
+          : this.proposalJson,
+      proposalSha256: data.proposalSha256.present
+          ? data.proposalSha256.value
+          : this.proposalSha256,
+      formatVersion: data.formatVersion.present
+          ? data.formatVersion.value
+          : this.formatVersion,
     );
   }
 
@@ -19985,6 +20087,7 @@ class PendingPlanPreviewsData extends DataClass
     return (StringBuffer('PendingPlanPreviewsData(')
           ..write('previewId: $previewId, ')
           ..write('kind: $kind, ')
+          ..write('operationId: $operationId, ')
           ..write('basePlanVersionId: $basePlanVersionId, ')
           ..write('inputHash: $inputHash, ')
           ..write('algorithmVersion: $algorithmVersion, ')
@@ -19996,7 +20099,10 @@ class PendingPlanPreviewsData extends DataClass
           ..write('expiresAtUtc: $expiresAtUtc, ')
           ..write('summaryJson: $summaryJson, ')
           ..write('diagnosticsJson: $diagnosticsJson, ')
-          ..write('revision: $revision')
+          ..write('revision: $revision, ')
+          ..write('proposalJson: $proposalJson, ')
+          ..write('proposalSha256: $proposalSha256, ')
+          ..write('formatVersion: $formatVersion')
           ..write(')'))
         .toString();
   }
@@ -20005,6 +20111,7 @@ class PendingPlanPreviewsData extends DataClass
   int get hashCode => Object.hash(
     previewId,
     kind,
+    operationId,
     basePlanVersionId,
     inputHash,
     algorithmVersion,
@@ -20017,6 +20124,9 @@ class PendingPlanPreviewsData extends DataClass
     summaryJson,
     diagnosticsJson,
     revision,
+    proposalJson,
+    proposalSha256,
+    formatVersion,
   );
   @override
   bool operator ==(Object other) =>
@@ -20024,6 +20134,7 @@ class PendingPlanPreviewsData extends DataClass
       (other is PendingPlanPreviewsData &&
           other.previewId == this.previewId &&
           other.kind == this.kind &&
+          other.operationId == this.operationId &&
           other.basePlanVersionId == this.basePlanVersionId &&
           other.inputHash == this.inputHash &&
           other.algorithmVersion == this.algorithmVersion &&
@@ -20035,13 +20146,17 @@ class PendingPlanPreviewsData extends DataClass
           other.expiresAtUtc == this.expiresAtUtc &&
           other.summaryJson == this.summaryJson &&
           other.diagnosticsJson == this.diagnosticsJson &&
-          other.revision == this.revision);
+          other.revision == this.revision &&
+          other.proposalJson == this.proposalJson &&
+          other.proposalSha256 == this.proposalSha256 &&
+          other.formatVersion == this.formatVersion);
 }
 
 class PendingPlanPreviewsCompanion
     extends UpdateCompanion<PendingPlanPreviewsData> {
   final Value<String> previewId;
   final Value<String> kind;
+  final Value<String> operationId;
   final Value<String> basePlanVersionId;
   final Value<String> inputHash;
   final Value<String> algorithmVersion;
@@ -20054,10 +20169,14 @@ class PendingPlanPreviewsCompanion
   final Value<String> summaryJson;
   final Value<String> diagnosticsJson;
   final Value<int> revision;
+  final Value<String> proposalJson;
+  final Value<String> proposalSha256;
+  final Value<int> formatVersion;
   final Value<int> rowid;
   const PendingPlanPreviewsCompanion({
     this.previewId = const Value.absent(),
     this.kind = const Value.absent(),
+    this.operationId = const Value.absent(),
     this.basePlanVersionId = const Value.absent(),
     this.inputHash = const Value.absent(),
     this.algorithmVersion = const Value.absent(),
@@ -20070,11 +20189,15 @@ class PendingPlanPreviewsCompanion
     this.summaryJson = const Value.absent(),
     this.diagnosticsJson = const Value.absent(),
     this.revision = const Value.absent(),
+    this.proposalJson = const Value.absent(),
+    this.proposalSha256 = const Value.absent(),
+    this.formatVersion = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PendingPlanPreviewsCompanion.insert({
     required String previewId,
     required String kind,
+    this.operationId = const Value.absent(),
     required String basePlanVersionId,
     required String inputHash,
     required String algorithmVersion,
@@ -20087,6 +20210,9 @@ class PendingPlanPreviewsCompanion
     this.summaryJson = const Value.absent(),
     this.diagnosticsJson = const Value.absent(),
     this.revision = const Value.absent(),
+    this.proposalJson = const Value.absent(),
+    this.proposalSha256 = const Value.absent(),
+    this.formatVersion = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : previewId = Value(previewId),
        kind = Value(kind),
@@ -20102,6 +20228,7 @@ class PendingPlanPreviewsCompanion
   static Insertable<PendingPlanPreviewsData> custom({
     Expression<String>? previewId,
     Expression<String>? kind,
+    Expression<String>? operationId,
     Expression<String>? basePlanVersionId,
     Expression<String>? inputHash,
     Expression<String>? algorithmVersion,
@@ -20114,11 +20241,15 @@ class PendingPlanPreviewsCompanion
     Expression<String>? summaryJson,
     Expression<String>? diagnosticsJson,
     Expression<int>? revision,
+    Expression<String>? proposalJson,
+    Expression<String>? proposalSha256,
+    Expression<int>? formatVersion,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (previewId != null) 'preview_id': previewId,
       if (kind != null) 'kind': kind,
+      if (operationId != null) 'operation_id': operationId,
       if (basePlanVersionId != null) 'base_plan_version_id': basePlanVersionId,
       if (inputHash != null) 'input_hash': inputHash,
       if (algorithmVersion != null) 'algorithm_version': algorithmVersion,
@@ -20131,6 +20262,9 @@ class PendingPlanPreviewsCompanion
       if (summaryJson != null) 'summary_json': summaryJson,
       if (diagnosticsJson != null) 'diagnostics_json': diagnosticsJson,
       if (revision != null) 'revision': revision,
+      if (proposalJson != null) 'proposal_json': proposalJson,
+      if (proposalSha256 != null) 'proposal_sha256': proposalSha256,
+      if (formatVersion != null) 'format_version': formatVersion,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -20138,6 +20272,7 @@ class PendingPlanPreviewsCompanion
   PendingPlanPreviewsCompanion copyWith({
     Value<String>? previewId,
     Value<String>? kind,
+    Value<String>? operationId,
     Value<String>? basePlanVersionId,
     Value<String>? inputHash,
     Value<String>? algorithmVersion,
@@ -20150,11 +20285,15 @@ class PendingPlanPreviewsCompanion
     Value<String>? summaryJson,
     Value<String>? diagnosticsJson,
     Value<int>? revision,
+    Value<String>? proposalJson,
+    Value<String>? proposalSha256,
+    Value<int>? formatVersion,
     Value<int>? rowid,
   }) {
     return PendingPlanPreviewsCompanion(
       previewId: previewId ?? this.previewId,
       kind: kind ?? this.kind,
+      operationId: operationId ?? this.operationId,
       basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
       inputHash: inputHash ?? this.inputHash,
       algorithmVersion: algorithmVersion ?? this.algorithmVersion,
@@ -20167,6 +20306,9 @@ class PendingPlanPreviewsCompanion
       summaryJson: summaryJson ?? this.summaryJson,
       diagnosticsJson: diagnosticsJson ?? this.diagnosticsJson,
       revision: revision ?? this.revision,
+      proposalJson: proposalJson ?? this.proposalJson,
+      proposalSha256: proposalSha256 ?? this.proposalSha256,
+      formatVersion: formatVersion ?? this.formatVersion,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -20179,6 +20321,9 @@ class PendingPlanPreviewsCompanion
     }
     if (kind.present) {
       map['kind'] = Variable<String>(kind.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
     }
     if (basePlanVersionId.present) {
       map['base_plan_version_id'] = Variable<String>(basePlanVersionId.value);
@@ -20216,6 +20361,15 @@ class PendingPlanPreviewsCompanion
     if (revision.present) {
       map['revision'] = Variable<int>(revision.value);
     }
+    if (proposalJson.present) {
+      map['proposal_json'] = Variable<String>(proposalJson.value);
+    }
+    if (proposalSha256.present) {
+      map['proposal_sha256'] = Variable<String>(proposalSha256.value);
+    }
+    if (formatVersion.present) {
+      map['format_version'] = Variable<int>(formatVersion.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -20227,6 +20381,7 @@ class PendingPlanPreviewsCompanion
     return (StringBuffer('PendingPlanPreviewsCompanion(')
           ..write('previewId: $previewId, ')
           ..write('kind: $kind, ')
+          ..write('operationId: $operationId, ')
           ..write('basePlanVersionId: $basePlanVersionId, ')
           ..write('inputHash: $inputHash, ')
           ..write('algorithmVersion: $algorithmVersion, ')
@@ -20239,6 +20394,9 @@ class PendingPlanPreviewsCompanion
           ..write('summaryJson: $summaryJson, ')
           ..write('diagnosticsJson: $diagnosticsJson, ')
           ..write('revision: $revision, ')
+          ..write('proposalJson: $proposalJson, ')
+          ..write('proposalSha256: $proposalSha256, ')
+          ..write('formatVersion: $formatVersion, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -20725,6 +20883,1366 @@ class PendingPlanPreviewBlocksCompanion
   }
 }
 
+class PlanAdjustments extends Table
+    with TableInfo<PlanAdjustments, PlanAdjustmentsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustments(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetBlockId = GeneratedColumn<String>(
+    'target_block_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetTaskId = GeneratedColumn<String>(
+    'target_task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetTitleSnapshot =
+      GeneratedColumn<String>(
+        'target_title_snapshot',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> basePlanVersionId =
+      GeneratedColumn<String>(
+        'base_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> sourceStartUtc = GeneratedColumn<int>(
+    'source_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> sourceEndUtc = GeneratedColumn<int>(
+    'source_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> notBeforeUtc = GeneratedColumn<int>(
+    'not_before_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> requestedAmount = GeneratedColumn<int>(
+    'requested_amount',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> requestedUnit = GeneratedColumn<String>(
+    'requested_unit',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> expiresAtUtc = GeneratedColumn<int>(
+    'expires_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<String> targetSiblingBlockIdsJson =
+      GeneratedColumn<String>(
+        'target_sibling_block_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NOT NULL DEFAULT \'[]\'',
+        defaultValue: const CustomExpression('\'[]\''),
+      );
+  late final GeneratedColumn<String> previewId = GeneratedColumn<String>(
+    'preview_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> appliedPlanVersionId =
+      GeneratedColumn<String>(
+        'applied_plan_version_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<String> failureCode = GeneratedColumn<String>(
+    'failure_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    adjustmentId,
+    kind,
+    targetBlockId,
+    targetTaskId,
+    targetTitleSnapshot,
+    basePlanVersionId,
+    sourceStartUtc,
+    sourceEndUtc,
+    notBeforeUtc,
+    timeZoneId,
+    requestedAmount,
+    requestedUnit,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    revision,
+    targetSiblingBlockIdsJson,
+    previewId,
+    appliedPlanVersionId,
+    failureCode,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustments';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {adjustmentId};
+  @override
+  PlanAdjustmentsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentsData(
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      targetBlockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_block_id'],
+      )!,
+      targetTaskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_task_id'],
+      )!,
+      targetTitleSnapshot: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_title_snapshot'],
+      )!,
+      basePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_plan_version_id'],
+      )!,
+      sourceStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_start_utc'],
+      )!,
+      sourceEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_end_utc'],
+      )!,
+      notBeforeUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}not_before_utc'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      requestedAmount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}requested_amount'],
+      )!,
+      requestedUnit: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}requested_unit'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      expiresAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expires_at_utc'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      targetSiblingBlockIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_sibling_block_ids_json'],
+      )!,
+      previewId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_id'],
+      ),
+      appliedPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_plan_version_id'],
+      ),
+      failureCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}failure_code'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustments createAlias(String alias) {
+    return PlanAdjustments(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(adjustment_id)',
+    'CHECK(source_end_utc > source_start_utc)',
+    'CHECK(not_before_utc > source_start_utc)',
+    'CHECK(expires_at_utc > created_at_utc)',
+    'CHECK(requested_amount > 0)',
+    'CHECK(revision >= 1)',
+    'CHECK(kind IN (\'defer\'))',
+    'CHECK(requested_unit IN (\'minutes\', \'hours\', \'days\'))',
+    'CHECK(status IN (\'active\', \'generating\', \'previewReady\', \'applying\', \'applied\', \'cancelled\', \'failed\', \'stale\', \'expired\'))',
+    'CHECK(failure_code IS NULL OR failure_code IN (\'targetMissing\', \'targetChanged\', \'targetIneligible\', \'basePlanChanged\', \'previewExpired\', \'tokenMismatch\', \'noLegalSlot\', \'deadlineExceeded\', \'disallowedWeekday\', \'taskDailyLimitReached\', \'globalDailyLimitReached\', \'requiredBreakUnavailable\', \'fixedOrProtectedConflict\', \'searchBudgetExhausted\', \'invariantViolation\', \'fulfilmentMissing\', \'fulfilmentDurationMismatch\', \'concurrentModification\'))',
+    'CHECK((status <> \'previewReady\')OR preview_id IS NOT NULL)',
+    'CHECK((status <> \'applied\')OR applied_plan_version_id IS NOT NULL)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentsData extends DataClass
+    implements Insertable<PlanAdjustmentsData> {
+  final String adjustmentId;
+  final String kind;
+  final String targetBlockId;
+  final String targetTaskId;
+  final String targetTitleSnapshot;
+  final String basePlanVersionId;
+  final int sourceStartUtc;
+  final int sourceEndUtc;
+  final int notBeforeUtc;
+  final String timeZoneId;
+  final int requestedAmount;
+  final String requestedUnit;
+  final String status;
+  final int createdAtUtc;
+  final int expiresAtUtc;
+  final int revision;
+  final String targetSiblingBlockIdsJson;
+  final String? previewId;
+  final String? appliedPlanVersionId;
+  final String? failureCode;
+  const PlanAdjustmentsData({
+    required this.adjustmentId,
+    required this.kind,
+    required this.targetBlockId,
+    required this.targetTaskId,
+    required this.targetTitleSnapshot,
+    required this.basePlanVersionId,
+    required this.sourceStartUtc,
+    required this.sourceEndUtc,
+    required this.notBeforeUtc,
+    required this.timeZoneId,
+    required this.requestedAmount,
+    required this.requestedUnit,
+    required this.status,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    required this.revision,
+    required this.targetSiblingBlockIdsJson,
+    this.previewId,
+    this.appliedPlanVersionId,
+    this.failureCode,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['kind'] = Variable<String>(kind);
+    map['target_block_id'] = Variable<String>(targetBlockId);
+    map['target_task_id'] = Variable<String>(targetTaskId);
+    map['target_title_snapshot'] = Variable<String>(targetTitleSnapshot);
+    map['base_plan_version_id'] = Variable<String>(basePlanVersionId);
+    map['source_start_utc'] = Variable<int>(sourceStartUtc);
+    map['source_end_utc'] = Variable<int>(sourceEndUtc);
+    map['not_before_utc'] = Variable<int>(notBeforeUtc);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['requested_amount'] = Variable<int>(requestedAmount);
+    map['requested_unit'] = Variable<String>(requestedUnit);
+    map['status'] = Variable<String>(status);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['expires_at_utc'] = Variable<int>(expiresAtUtc);
+    map['revision'] = Variable<int>(revision);
+    map['target_sibling_block_ids_json'] = Variable<String>(
+      targetSiblingBlockIdsJson,
+    );
+    if (!nullToAbsent || previewId != null) {
+      map['preview_id'] = Variable<String>(previewId);
+    }
+    if (!nullToAbsent || appliedPlanVersionId != null) {
+      map['applied_plan_version_id'] = Variable<String>(appliedPlanVersionId);
+    }
+    if (!nullToAbsent || failureCode != null) {
+      map['failure_code'] = Variable<String>(failureCode);
+    }
+    return map;
+  }
+
+  PlanAdjustmentsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentsCompanion(
+      adjustmentId: Value(adjustmentId),
+      kind: Value(kind),
+      targetBlockId: Value(targetBlockId),
+      targetTaskId: Value(targetTaskId),
+      targetTitleSnapshot: Value(targetTitleSnapshot),
+      basePlanVersionId: Value(basePlanVersionId),
+      sourceStartUtc: Value(sourceStartUtc),
+      sourceEndUtc: Value(sourceEndUtc),
+      notBeforeUtc: Value(notBeforeUtc),
+      timeZoneId: Value(timeZoneId),
+      requestedAmount: Value(requestedAmount),
+      requestedUnit: Value(requestedUnit),
+      status: Value(status),
+      createdAtUtc: Value(createdAtUtc),
+      expiresAtUtc: Value(expiresAtUtc),
+      revision: Value(revision),
+      targetSiblingBlockIdsJson: Value(targetSiblingBlockIdsJson),
+      previewId: previewId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previewId),
+      appliedPlanVersionId: appliedPlanVersionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(appliedPlanVersionId),
+      failureCode: failureCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(failureCode),
+    );
+  }
+
+  factory PlanAdjustmentsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentsData(
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      targetBlockId: serializer.fromJson<String>(json['targetBlockId']),
+      targetTaskId: serializer.fromJson<String>(json['targetTaskId']),
+      targetTitleSnapshot: serializer.fromJson<String>(
+        json['targetTitleSnapshot'],
+      ),
+      basePlanVersionId: serializer.fromJson<String>(json['basePlanVersionId']),
+      sourceStartUtc: serializer.fromJson<int>(json['sourceStartUtc']),
+      sourceEndUtc: serializer.fromJson<int>(json['sourceEndUtc']),
+      notBeforeUtc: serializer.fromJson<int>(json['notBeforeUtc']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      requestedAmount: serializer.fromJson<int>(json['requestedAmount']),
+      requestedUnit: serializer.fromJson<String>(json['requestedUnit']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      expiresAtUtc: serializer.fromJson<int>(json['expiresAtUtc']),
+      revision: serializer.fromJson<int>(json['revision']),
+      targetSiblingBlockIdsJson: serializer.fromJson<String>(
+        json['targetSiblingBlockIdsJson'],
+      ),
+      previewId: serializer.fromJson<String?>(json['previewId']),
+      appliedPlanVersionId: serializer.fromJson<String?>(
+        json['appliedPlanVersionId'],
+      ),
+      failureCode: serializer.fromJson<String?>(json['failureCode']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'kind': serializer.toJson<String>(kind),
+      'targetBlockId': serializer.toJson<String>(targetBlockId),
+      'targetTaskId': serializer.toJson<String>(targetTaskId),
+      'targetTitleSnapshot': serializer.toJson<String>(targetTitleSnapshot),
+      'basePlanVersionId': serializer.toJson<String>(basePlanVersionId),
+      'sourceStartUtc': serializer.toJson<int>(sourceStartUtc),
+      'sourceEndUtc': serializer.toJson<int>(sourceEndUtc),
+      'notBeforeUtc': serializer.toJson<int>(notBeforeUtc),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'requestedAmount': serializer.toJson<int>(requestedAmount),
+      'requestedUnit': serializer.toJson<String>(requestedUnit),
+      'status': serializer.toJson<String>(status),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'expiresAtUtc': serializer.toJson<int>(expiresAtUtc),
+      'revision': serializer.toJson<int>(revision),
+      'targetSiblingBlockIdsJson': serializer.toJson<String>(
+        targetSiblingBlockIdsJson,
+      ),
+      'previewId': serializer.toJson<String?>(previewId),
+      'appliedPlanVersionId': serializer.toJson<String?>(appliedPlanVersionId),
+      'failureCode': serializer.toJson<String?>(failureCode),
+    };
+  }
+
+  PlanAdjustmentsData copyWith({
+    String? adjustmentId,
+    String? kind,
+    String? targetBlockId,
+    String? targetTaskId,
+    String? targetTitleSnapshot,
+    String? basePlanVersionId,
+    int? sourceStartUtc,
+    int? sourceEndUtc,
+    int? notBeforeUtc,
+    String? timeZoneId,
+    int? requestedAmount,
+    String? requestedUnit,
+    String? status,
+    int? createdAtUtc,
+    int? expiresAtUtc,
+    int? revision,
+    String? targetSiblingBlockIdsJson,
+    Value<String?> previewId = const Value.absent(),
+    Value<String?> appliedPlanVersionId = const Value.absent(),
+    Value<String?> failureCode = const Value.absent(),
+  }) => PlanAdjustmentsData(
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    kind: kind ?? this.kind,
+    targetBlockId: targetBlockId ?? this.targetBlockId,
+    targetTaskId: targetTaskId ?? this.targetTaskId,
+    targetTitleSnapshot: targetTitleSnapshot ?? this.targetTitleSnapshot,
+    basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+    sourceStartUtc: sourceStartUtc ?? this.sourceStartUtc,
+    sourceEndUtc: sourceEndUtc ?? this.sourceEndUtc,
+    notBeforeUtc: notBeforeUtc ?? this.notBeforeUtc,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    requestedAmount: requestedAmount ?? this.requestedAmount,
+    requestedUnit: requestedUnit ?? this.requestedUnit,
+    status: status ?? this.status,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+    revision: revision ?? this.revision,
+    targetSiblingBlockIdsJson:
+        targetSiblingBlockIdsJson ?? this.targetSiblingBlockIdsJson,
+    previewId: previewId.present ? previewId.value : this.previewId,
+    appliedPlanVersionId: appliedPlanVersionId.present
+        ? appliedPlanVersionId.value
+        : this.appliedPlanVersionId,
+    failureCode: failureCode.present ? failureCode.value : this.failureCode,
+  );
+  PlanAdjustmentsData copyWithCompanion(PlanAdjustmentsCompanion data) {
+    return PlanAdjustmentsData(
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      targetBlockId: data.targetBlockId.present
+          ? data.targetBlockId.value
+          : this.targetBlockId,
+      targetTaskId: data.targetTaskId.present
+          ? data.targetTaskId.value
+          : this.targetTaskId,
+      targetTitleSnapshot: data.targetTitleSnapshot.present
+          ? data.targetTitleSnapshot.value
+          : this.targetTitleSnapshot,
+      basePlanVersionId: data.basePlanVersionId.present
+          ? data.basePlanVersionId.value
+          : this.basePlanVersionId,
+      sourceStartUtc: data.sourceStartUtc.present
+          ? data.sourceStartUtc.value
+          : this.sourceStartUtc,
+      sourceEndUtc: data.sourceEndUtc.present
+          ? data.sourceEndUtc.value
+          : this.sourceEndUtc,
+      notBeforeUtc: data.notBeforeUtc.present
+          ? data.notBeforeUtc.value
+          : this.notBeforeUtc,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      requestedAmount: data.requestedAmount.present
+          ? data.requestedAmount.value
+          : this.requestedAmount,
+      requestedUnit: data.requestedUnit.present
+          ? data.requestedUnit.value
+          : this.requestedUnit,
+      status: data.status.present ? data.status.value : this.status,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      expiresAtUtc: data.expiresAtUtc.present
+          ? data.expiresAtUtc.value
+          : this.expiresAtUtc,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      targetSiblingBlockIdsJson: data.targetSiblingBlockIdsJson.present
+          ? data.targetSiblingBlockIdsJson.value
+          : this.targetSiblingBlockIdsJson,
+      previewId: data.previewId.present ? data.previewId.value : this.previewId,
+      appliedPlanVersionId: data.appliedPlanVersionId.present
+          ? data.appliedPlanVersionId.value
+          : this.appliedPlanVersionId,
+      failureCode: data.failureCode.present
+          ? data.failureCode.value
+          : this.failureCode,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentsData(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('kind: $kind, ')
+          ..write('targetBlockId: $targetBlockId, ')
+          ..write('targetTaskId: $targetTaskId, ')
+          ..write('targetTitleSnapshot: $targetTitleSnapshot, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('sourceStartUtc: $sourceStartUtc, ')
+          ..write('sourceEndUtc: $sourceEndUtc, ')
+          ..write('notBeforeUtc: $notBeforeUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('requestedAmount: $requestedAmount, ')
+          ..write('requestedUnit: $requestedUnit, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('targetSiblingBlockIdsJson: $targetSiblingBlockIdsJson, ')
+          ..write('previewId: $previewId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('failureCode: $failureCode')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    adjustmentId,
+    kind,
+    targetBlockId,
+    targetTaskId,
+    targetTitleSnapshot,
+    basePlanVersionId,
+    sourceStartUtc,
+    sourceEndUtc,
+    notBeforeUtc,
+    timeZoneId,
+    requestedAmount,
+    requestedUnit,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    revision,
+    targetSiblingBlockIdsJson,
+    previewId,
+    appliedPlanVersionId,
+    failureCode,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentsData &&
+          other.adjustmentId == this.adjustmentId &&
+          other.kind == this.kind &&
+          other.targetBlockId == this.targetBlockId &&
+          other.targetTaskId == this.targetTaskId &&
+          other.targetTitleSnapshot == this.targetTitleSnapshot &&
+          other.basePlanVersionId == this.basePlanVersionId &&
+          other.sourceStartUtc == this.sourceStartUtc &&
+          other.sourceEndUtc == this.sourceEndUtc &&
+          other.notBeforeUtc == this.notBeforeUtc &&
+          other.timeZoneId == this.timeZoneId &&
+          other.requestedAmount == this.requestedAmount &&
+          other.requestedUnit == this.requestedUnit &&
+          other.status == this.status &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.expiresAtUtc == this.expiresAtUtc &&
+          other.revision == this.revision &&
+          other.targetSiblingBlockIdsJson == this.targetSiblingBlockIdsJson &&
+          other.previewId == this.previewId &&
+          other.appliedPlanVersionId == this.appliedPlanVersionId &&
+          other.failureCode == this.failureCode);
+}
+
+class PlanAdjustmentsCompanion extends UpdateCompanion<PlanAdjustmentsData> {
+  final Value<String> adjustmentId;
+  final Value<String> kind;
+  final Value<String> targetBlockId;
+  final Value<String> targetTaskId;
+  final Value<String> targetTitleSnapshot;
+  final Value<String> basePlanVersionId;
+  final Value<int> sourceStartUtc;
+  final Value<int> sourceEndUtc;
+  final Value<int> notBeforeUtc;
+  final Value<String> timeZoneId;
+  final Value<int> requestedAmount;
+  final Value<String> requestedUnit;
+  final Value<String> status;
+  final Value<int> createdAtUtc;
+  final Value<int> expiresAtUtc;
+  final Value<int> revision;
+  final Value<String> targetSiblingBlockIdsJson;
+  final Value<String?> previewId;
+  final Value<String?> appliedPlanVersionId;
+  final Value<String?> failureCode;
+  final Value<int> rowid;
+  const PlanAdjustmentsCompanion({
+    this.adjustmentId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.targetBlockId = const Value.absent(),
+    this.targetTaskId = const Value.absent(),
+    this.targetTitleSnapshot = const Value.absent(),
+    this.basePlanVersionId = const Value.absent(),
+    this.sourceStartUtc = const Value.absent(),
+    this.sourceEndUtc = const Value.absent(),
+    this.notBeforeUtc = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.requestedAmount = const Value.absent(),
+    this.requestedUnit = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.expiresAtUtc = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.targetSiblingBlockIdsJson = const Value.absent(),
+    this.previewId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.failureCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentsCompanion.insert({
+    required String adjustmentId,
+    required String kind,
+    required String targetBlockId,
+    required String targetTaskId,
+    required String targetTitleSnapshot,
+    required String basePlanVersionId,
+    required int sourceStartUtc,
+    required int sourceEndUtc,
+    required int notBeforeUtc,
+    required String timeZoneId,
+    required int requestedAmount,
+    required String requestedUnit,
+    required String status,
+    required int createdAtUtc,
+    required int expiresAtUtc,
+    this.revision = const Value.absent(),
+    this.targetSiblingBlockIdsJson = const Value.absent(),
+    this.previewId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.failureCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : adjustmentId = Value(adjustmentId),
+       kind = Value(kind),
+       targetBlockId = Value(targetBlockId),
+       targetTaskId = Value(targetTaskId),
+       targetTitleSnapshot = Value(targetTitleSnapshot),
+       basePlanVersionId = Value(basePlanVersionId),
+       sourceStartUtc = Value(sourceStartUtc),
+       sourceEndUtc = Value(sourceEndUtc),
+       notBeforeUtc = Value(notBeforeUtc),
+       timeZoneId = Value(timeZoneId),
+       requestedAmount = Value(requestedAmount),
+       requestedUnit = Value(requestedUnit),
+       status = Value(status),
+       createdAtUtc = Value(createdAtUtc),
+       expiresAtUtc = Value(expiresAtUtc);
+  static Insertable<PlanAdjustmentsData> custom({
+    Expression<String>? adjustmentId,
+    Expression<String>? kind,
+    Expression<String>? targetBlockId,
+    Expression<String>? targetTaskId,
+    Expression<String>? targetTitleSnapshot,
+    Expression<String>? basePlanVersionId,
+    Expression<int>? sourceStartUtc,
+    Expression<int>? sourceEndUtc,
+    Expression<int>? notBeforeUtc,
+    Expression<String>? timeZoneId,
+    Expression<int>? requestedAmount,
+    Expression<String>? requestedUnit,
+    Expression<String>? status,
+    Expression<int>? createdAtUtc,
+    Expression<int>? expiresAtUtc,
+    Expression<int>? revision,
+    Expression<String>? targetSiblingBlockIdsJson,
+    Expression<String>? previewId,
+    Expression<String>? appliedPlanVersionId,
+    Expression<String>? failureCode,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (kind != null) 'kind': kind,
+      if (targetBlockId != null) 'target_block_id': targetBlockId,
+      if (targetTaskId != null) 'target_task_id': targetTaskId,
+      if (targetTitleSnapshot != null)
+        'target_title_snapshot': targetTitleSnapshot,
+      if (basePlanVersionId != null) 'base_plan_version_id': basePlanVersionId,
+      if (sourceStartUtc != null) 'source_start_utc': sourceStartUtc,
+      if (sourceEndUtc != null) 'source_end_utc': sourceEndUtc,
+      if (notBeforeUtc != null) 'not_before_utc': notBeforeUtc,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (requestedAmount != null) 'requested_amount': requestedAmount,
+      if (requestedUnit != null) 'requested_unit': requestedUnit,
+      if (status != null) 'status': status,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (expiresAtUtc != null) 'expires_at_utc': expiresAtUtc,
+      if (revision != null) 'revision': revision,
+      if (targetSiblingBlockIdsJson != null)
+        'target_sibling_block_ids_json': targetSiblingBlockIdsJson,
+      if (previewId != null) 'preview_id': previewId,
+      if (appliedPlanVersionId != null)
+        'applied_plan_version_id': appliedPlanVersionId,
+      if (failureCode != null) 'failure_code': failureCode,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentsCompanion copyWith({
+    Value<String>? adjustmentId,
+    Value<String>? kind,
+    Value<String>? targetBlockId,
+    Value<String>? targetTaskId,
+    Value<String>? targetTitleSnapshot,
+    Value<String>? basePlanVersionId,
+    Value<int>? sourceStartUtc,
+    Value<int>? sourceEndUtc,
+    Value<int>? notBeforeUtc,
+    Value<String>? timeZoneId,
+    Value<int>? requestedAmount,
+    Value<String>? requestedUnit,
+    Value<String>? status,
+    Value<int>? createdAtUtc,
+    Value<int>? expiresAtUtc,
+    Value<int>? revision,
+    Value<String>? targetSiblingBlockIdsJson,
+    Value<String?>? previewId,
+    Value<String?>? appliedPlanVersionId,
+    Value<String?>? failureCode,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentsCompanion(
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      kind: kind ?? this.kind,
+      targetBlockId: targetBlockId ?? this.targetBlockId,
+      targetTaskId: targetTaskId ?? this.targetTaskId,
+      targetTitleSnapshot: targetTitleSnapshot ?? this.targetTitleSnapshot,
+      basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+      sourceStartUtc: sourceStartUtc ?? this.sourceStartUtc,
+      sourceEndUtc: sourceEndUtc ?? this.sourceEndUtc,
+      notBeforeUtc: notBeforeUtc ?? this.notBeforeUtc,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      requestedAmount: requestedAmount ?? this.requestedAmount,
+      requestedUnit: requestedUnit ?? this.requestedUnit,
+      status: status ?? this.status,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+      revision: revision ?? this.revision,
+      targetSiblingBlockIdsJson:
+          targetSiblingBlockIdsJson ?? this.targetSiblingBlockIdsJson,
+      previewId: previewId ?? this.previewId,
+      appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+      failureCode: failureCode ?? this.failureCode,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (targetBlockId.present) {
+      map['target_block_id'] = Variable<String>(targetBlockId.value);
+    }
+    if (targetTaskId.present) {
+      map['target_task_id'] = Variable<String>(targetTaskId.value);
+    }
+    if (targetTitleSnapshot.present) {
+      map['target_title_snapshot'] = Variable<String>(
+        targetTitleSnapshot.value,
+      );
+    }
+    if (basePlanVersionId.present) {
+      map['base_plan_version_id'] = Variable<String>(basePlanVersionId.value);
+    }
+    if (sourceStartUtc.present) {
+      map['source_start_utc'] = Variable<int>(sourceStartUtc.value);
+    }
+    if (sourceEndUtc.present) {
+      map['source_end_utc'] = Variable<int>(sourceEndUtc.value);
+    }
+    if (notBeforeUtc.present) {
+      map['not_before_utc'] = Variable<int>(notBeforeUtc.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (requestedAmount.present) {
+      map['requested_amount'] = Variable<int>(requestedAmount.value);
+    }
+    if (requestedUnit.present) {
+      map['requested_unit'] = Variable<String>(requestedUnit.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (expiresAtUtc.present) {
+      map['expires_at_utc'] = Variable<int>(expiresAtUtc.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (targetSiblingBlockIdsJson.present) {
+      map['target_sibling_block_ids_json'] = Variable<String>(
+        targetSiblingBlockIdsJson.value,
+      );
+    }
+    if (previewId.present) {
+      map['preview_id'] = Variable<String>(previewId.value);
+    }
+    if (appliedPlanVersionId.present) {
+      map['applied_plan_version_id'] = Variable<String>(
+        appliedPlanVersionId.value,
+      );
+    }
+    if (failureCode.present) {
+      map['failure_code'] = Variable<String>(failureCode.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentsCompanion(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('kind: $kind, ')
+          ..write('targetBlockId: $targetBlockId, ')
+          ..write('targetTaskId: $targetTaskId, ')
+          ..write('targetTitleSnapshot: $targetTitleSnapshot, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('sourceStartUtc: $sourceStartUtc, ')
+          ..write('sourceEndUtc: $sourceEndUtc, ')
+          ..write('notBeforeUtc: $notBeforeUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('requestedAmount: $requestedAmount, ')
+          ..write('requestedUnit: $requestedUnit, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('targetSiblingBlockIdsJson: $targetSiblingBlockIdsJson, ')
+          ..write('previewId: $previewId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('failureCode: $failureCode, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustmentEvents extends Table
+    with TableInfo<PlanAdjustmentEvents, PlanAdjustmentEventsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentEvents(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES plan_adjustments(adjustment_id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> fromStatus = GeneratedColumn<String>(
+    'from_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> toStatus = GeneratedColumn<String>(
+    'to_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> occurredAtUtc = GeneratedColumn<int>(
+    'occurred_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> reasonCode = GeneratedColumn<String>(
+    'reason_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    adjustmentId,
+    sequence,
+    fromStatus,
+    toStatus,
+    revision,
+    occurredAtUtc,
+    reasonCode,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_events';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {adjustmentId, sequence};
+  @override
+  PlanAdjustmentEventsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentEventsData(
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      fromStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}from_status'],
+      )!,
+      toStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}to_status'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      occurredAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}occurred_at_utc'],
+      )!,
+      reasonCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reason_code'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustmentEvents createAlias(String alias) {
+    return PlanAdjustmentEvents(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(adjustment_id, sequence)',
+    'CHECK(sequence >= 1)',
+    'CHECK(revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentEventsData extends DataClass
+    implements Insertable<PlanAdjustmentEventsData> {
+  final String adjustmentId;
+  final int sequence;
+  final String fromStatus;
+  final String toStatus;
+  final int revision;
+  final int occurredAtUtc;
+  final String? reasonCode;
+  const PlanAdjustmentEventsData({
+    required this.adjustmentId,
+    required this.sequence,
+    required this.fromStatus,
+    required this.toStatus,
+    required this.revision,
+    required this.occurredAtUtc,
+    this.reasonCode,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['sequence'] = Variable<int>(sequence);
+    map['from_status'] = Variable<String>(fromStatus);
+    map['to_status'] = Variable<String>(toStatus);
+    map['revision'] = Variable<int>(revision);
+    map['occurred_at_utc'] = Variable<int>(occurredAtUtc);
+    if (!nullToAbsent || reasonCode != null) {
+      map['reason_code'] = Variable<String>(reasonCode);
+    }
+    return map;
+  }
+
+  PlanAdjustmentEventsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentEventsCompanion(
+      adjustmentId: Value(adjustmentId),
+      sequence: Value(sequence),
+      fromStatus: Value(fromStatus),
+      toStatus: Value(toStatus),
+      revision: Value(revision),
+      occurredAtUtc: Value(occurredAtUtc),
+      reasonCode: reasonCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reasonCode),
+    );
+  }
+
+  factory PlanAdjustmentEventsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentEventsData(
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      fromStatus: serializer.fromJson<String>(json['fromStatus']),
+      toStatus: serializer.fromJson<String>(json['toStatus']),
+      revision: serializer.fromJson<int>(json['revision']),
+      occurredAtUtc: serializer.fromJson<int>(json['occurredAtUtc']),
+      reasonCode: serializer.fromJson<String?>(json['reasonCode']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'sequence': serializer.toJson<int>(sequence),
+      'fromStatus': serializer.toJson<String>(fromStatus),
+      'toStatus': serializer.toJson<String>(toStatus),
+      'revision': serializer.toJson<int>(revision),
+      'occurredAtUtc': serializer.toJson<int>(occurredAtUtc),
+      'reasonCode': serializer.toJson<String?>(reasonCode),
+    };
+  }
+
+  PlanAdjustmentEventsData copyWith({
+    String? adjustmentId,
+    int? sequence,
+    String? fromStatus,
+    String? toStatus,
+    int? revision,
+    int? occurredAtUtc,
+    Value<String?> reasonCode = const Value.absent(),
+  }) => PlanAdjustmentEventsData(
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    sequence: sequence ?? this.sequence,
+    fromStatus: fromStatus ?? this.fromStatus,
+    toStatus: toStatus ?? this.toStatus,
+    revision: revision ?? this.revision,
+    occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+    reasonCode: reasonCode.present ? reasonCode.value : this.reasonCode,
+  );
+  PlanAdjustmentEventsData copyWithCompanion(
+    PlanAdjustmentEventsCompanion data,
+  ) {
+    return PlanAdjustmentEventsData(
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      fromStatus: data.fromStatus.present
+          ? data.fromStatus.value
+          : this.fromStatus,
+      toStatus: data.toStatus.present ? data.toStatus.value : this.toStatus,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      occurredAtUtc: data.occurredAtUtc.present
+          ? data.occurredAtUtc.value
+          : this.occurredAtUtc,
+      reasonCode: data.reasonCode.present
+          ? data.reasonCode.value
+          : this.reasonCode,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentEventsData(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('sequence: $sequence, ')
+          ..write('fromStatus: $fromStatus, ')
+          ..write('toStatus: $toStatus, ')
+          ..write('revision: $revision, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('reasonCode: $reasonCode')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    adjustmentId,
+    sequence,
+    fromStatus,
+    toStatus,
+    revision,
+    occurredAtUtc,
+    reasonCode,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentEventsData &&
+          other.adjustmentId == this.adjustmentId &&
+          other.sequence == this.sequence &&
+          other.fromStatus == this.fromStatus &&
+          other.toStatus == this.toStatus &&
+          other.revision == this.revision &&
+          other.occurredAtUtc == this.occurredAtUtc &&
+          other.reasonCode == this.reasonCode);
+}
+
+class PlanAdjustmentEventsCompanion
+    extends UpdateCompanion<PlanAdjustmentEventsData> {
+  final Value<String> adjustmentId;
+  final Value<int> sequence;
+  final Value<String> fromStatus;
+  final Value<String> toStatus;
+  final Value<int> revision;
+  final Value<int> occurredAtUtc;
+  final Value<String?> reasonCode;
+  final Value<int> rowid;
+  const PlanAdjustmentEventsCompanion({
+    this.adjustmentId = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.fromStatus = const Value.absent(),
+    this.toStatus = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.occurredAtUtc = const Value.absent(),
+    this.reasonCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentEventsCompanion.insert({
+    required String adjustmentId,
+    required int sequence,
+    required String fromStatus,
+    required String toStatus,
+    required int revision,
+    required int occurredAtUtc,
+    this.reasonCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : adjustmentId = Value(adjustmentId),
+       sequence = Value(sequence),
+       fromStatus = Value(fromStatus),
+       toStatus = Value(toStatus),
+       revision = Value(revision),
+       occurredAtUtc = Value(occurredAtUtc);
+  static Insertable<PlanAdjustmentEventsData> custom({
+    Expression<String>? adjustmentId,
+    Expression<int>? sequence,
+    Expression<String>? fromStatus,
+    Expression<String>? toStatus,
+    Expression<int>? revision,
+    Expression<int>? occurredAtUtc,
+    Expression<String>? reasonCode,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (sequence != null) 'sequence': sequence,
+      if (fromStatus != null) 'from_status': fromStatus,
+      if (toStatus != null) 'to_status': toStatus,
+      if (revision != null) 'revision': revision,
+      if (occurredAtUtc != null) 'occurred_at_utc': occurredAtUtc,
+      if (reasonCode != null) 'reason_code': reasonCode,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentEventsCompanion copyWith({
+    Value<String>? adjustmentId,
+    Value<int>? sequence,
+    Value<String>? fromStatus,
+    Value<String>? toStatus,
+    Value<int>? revision,
+    Value<int>? occurredAtUtc,
+    Value<String?>? reasonCode,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentEventsCompanion(
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      sequence: sequence ?? this.sequence,
+      fromStatus: fromStatus ?? this.fromStatus,
+      toStatus: toStatus ?? this.toStatus,
+      revision: revision ?? this.revision,
+      occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+      reasonCode: reasonCode ?? this.reasonCode,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (fromStatus.present) {
+      map['from_status'] = Variable<String>(fromStatus.value);
+    }
+    if (toStatus.present) {
+      map['to_status'] = Variable<String>(toStatus.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (occurredAtUtc.present) {
+      map['occurred_at_utc'] = Variable<int>(occurredAtUtc.value);
+    }
+    if (reasonCode.present) {
+      map['reason_code'] = Variable<String>(reasonCode.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentEventsCompanion(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('sequence: $sequence, ')
+          ..write('fromStatus: $fromStatus, ')
+          ..write('toStatus: $toStatus, ')
+          ..write('revision: $revision, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('reasonCode: $reasonCode, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class DatabaseAtV11 extends GeneratedDatabase {
   DatabaseAtV11(QueryExecutor e) : super(e);
   late final Areas areas = Areas(this);
@@ -20792,6 +22310,10 @@ class DatabaseAtV11 extends GeneratedDatabase {
   );
   late final PendingPlanPreviewBlocks pendingPlanPreviewBlocks =
       PendingPlanPreviewBlocks(this);
+  late final PlanAdjustments planAdjustments = PlanAdjustments(this);
+  late final PlanAdjustmentEvents planAdjustmentEvents = PlanAdjustmentEvents(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -20838,6 +22360,8 @@ class DatabaseAtV11 extends GeneratedDatabase {
     recurringCompletionEvidence,
     pendingPlanPreviews,
     pendingPlanPreviewBlocks,
+    planAdjustments,
+    planAdjustmentEvents,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -20934,6 +22458,13 @@ class DatabaseAtV11 extends GeneratedDatabase {
       result: [
         TableUpdate('pending_plan_preview_blocks', kind: UpdateKind.delete),
       ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'plan_adjustments',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('plan_adjustment_events', kind: UpdateKind.delete)],
     ),
   ]);
   @override

@@ -149,10 +149,17 @@ class RecurringCarryInStates extends Table {
   List<String> get customConstraints => ['CHECK (revision >= 1)'];
 }
 
-/// 待确认预排头（设计 §5.4、§11.4）。
+/// 待确认预排头（设计 §5.4、§11.4；1.11.0 计划 Task 3 Step 3 泛化）。
+///
+/// 它现在承载**所有**待确认预览：周期预排（`recurringLookahead`）与延后调整
+/// （`deferAdjustment`）。`operationId` 是操作身份——周期预排固定为
+/// `recurring-lookahead`，延后调整用 `adjustmentId`。因此"每个种类只有一条
+/// active"的旧约束换成"每个操作只有一条 active"，两个独立调整不会互相 supersede。
 class PendingPlanPreviews extends Table {
   TextColumn get previewId => text()();
   TextColumn get kind => text()();
+  TextColumn get operationId =>
+      text().withDefault(const Constant('recurring-lookahead'))();
   TextColumn get basePlanVersionId => text()();
   TextColumn get inputHash => text()();
   TextColumn get algorithmVersion => text()();
@@ -166,6 +173,16 @@ class PendingPlanPreviews extends Table {
   TextColumn get diagnosticsJson => text().withDefault(const Constant('{}'))();
   IntColumn get revision => integer().withDefault(const Constant(1))();
 
+  /// 完整提案（canonical JSON）。**不能只存块**：`unscheduled`、`conflicts`、
+  /// `explanations`、`metrics`、`outcome` 与调整要求都是确认阶段必须复用的输入。
+  TextColumn get proposalJson => text().withDefault(const Constant('{}'))();
+
+  /// canonical 提案的 SHA-256；确认时逐字比对（DFR-033）。
+  TextColumn get proposalSha256 => text().withDefault(const Constant(''))();
+
+  /// 提案编码格式版本；未知版本拒绝解码，不丢字段重建"看起来可用"的残缺提案。
+  IntColumn get formatVersion => integer().withDefault(const Constant(1))();
+
   @override
   Set<Column<Object>> get primaryKey => {previewId};
 
@@ -173,6 +190,8 @@ class PendingPlanPreviews extends Table {
   List<String> get customConstraints => [
     'CHECK (window_end_utc > window_start_utc)',
     'CHECK (revision >= 1)',
+    'CHECK (format_version >= 1)',
+    "CHECK (kind IN ('recurringLookahead', 'deferAdjustment'))",
     "CHECK (status IN ('active', 'superseded', 'accepted', 'rejected', "
         "'stale'))",
   ];
