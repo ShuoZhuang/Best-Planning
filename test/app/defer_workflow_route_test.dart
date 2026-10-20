@@ -256,4 +256,3 @@ void main() {
     expect(moves.adjustment, isNull);
   });
 }
-
