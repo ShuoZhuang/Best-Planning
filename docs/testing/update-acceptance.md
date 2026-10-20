@@ -93,3 +93,127 @@
 **结论**：代码与自动证据已覆盖除真机部署/升级矩阵以外的全部条目；按规格 §23，在 045–047
 完成前不能把整个子系统标记为“已实现”。
 
+---
+
+## 1.11.1 事故修复验收补充（2026-10-20）
+
+事故：1.10.2 客户端已下载 1.11.0 后，建立回退基线时用 tag 清单覆盖了 latest 的全局缓存，
+`latest` 的 304 读到 1.10.2，状态机把已下载的 1.11.0 判成“已是最新版”，安装入口被永久
+阻塞于“回退基线未就绪”。修复计划：
+`docs/superpowers/plans/2026-10-20-v1.11.1-update-manifest-cache-and-baseline-recovery-repair.md`。
+
+### 分层证据
+
+| 验收项 | 自动化证据 | 结果 |
+| --- | --- | --- |
+| 缓存身份隔离（latest / tag 各一文件） | `test/infrastructure/update/file_update_manifest_cache_test.dart` | PASS |
+| 304 只读同 key 缓存、缺缓存时无条件重试 | `test/infrastructure/update/http_update_manifest_repository_test.dart` | PASS |
+| 事故顺序（latest 200 → tag 200 → latest 304） | `test/application/update/update_cache_baseline_incident_test.dart` | PASS |
+| 目标单调性与显式撤回 | `test/application/update/update_state_monotonicity_test.dart` | PASS |
+| 启动复核与 ready 收养/隔离 | `test/application/update/update_startup_reconciliation_test.dart` | PASS |
+| v1 状态与旧缓存迁移 | `test/domain/update/update_state_test.dart`、`test/infrastructure/update/update_store_test.dart`、缓存测试 | PASS |
+| 基线严格校验与磁盘预算 | `test/application/update/update_baseline_service_test.dart` | PASS |
+| 触发入口矩阵与 single-flight | `test/application/update/update_controller_test.dart`、`update_orchestrator_test.dart` | PASS |
+| 安装/健康确认/基线晋升生命周期 | `update_orchestrator_test.dart`、`update_snapshot_health_test.dart` | PASS |
+| 界面文案与诊断脱敏 | `test/features/shell/**`、`test/features/settings/update_page_test.dart`、`test/architecture/update_no_popup_test.dart` | PASS |
+| 真实组合根恢复链路（真实缓存/状态/控制器/widget） | `test/app/update_cache_baseline_recovery_test.dart` | PASS |
+| 真实事故机器回放（本机数据 + 真实 GitHub） | `test/app/incident_replay_test.dart` | PASS |
+| 已安装态事故序列（Windows integration） | `integration_test/update_cache_baseline_recovery_test.dart` | PASS（`-d windows`） |
+| 签名 MSIX 覆盖升级与失败回退 | `tool/update_e2e.ps1` | NOT RUN（无正式签名证书与安装授权） |
+| 发布不可变资产门禁 | `test/tool/update_publisher_test.dart`、`update_pipeline_test.dart` | PASS |
+| 版本一致性（1.11.1+53 / MSIX 1.11.1.0 / tag v1.11.1） | `test/app/version_consistency_test.dart` | PASS |
+
+### 人工/安装态证据
+
+未执行。`docs/testing/v1.11.1-release-gate.md` 逐项记录了阻断原因，**不得**把 NOT RUN
+改写成通过。受影响的 1.10.2 用户的自愈路径是下载并覆盖安装正式安装器
+（产物实际命名 `BestPlanning_Setup_1.11.1_x64.exe`）；不需要手工删除缓存或编辑状态文件。
+
+### 维护规则（避免同类回归）
+
+1. latest 与 tag 的清单缓存**永远分文件**；任何“共享一份缓存”的改动都会让
+   `update_cache_baseline_incident_test.dart` 变红。
+2. `304` 只允许读取与本次请求同一个 `ManifestRequestKey` 的缓存项；`UpdateState.manifestEtag`
+   只是诊断字段，不得再驱动请求。
+3. 任何“最新清单更旧/相同”的结果都不得清空已有的更高 target；只有
+   `installed >= target`、清单明确撤回、或用户显式放弃才能清除。
+4. 启动时枚举受控目录里的 `.ready`：能证明身份就收养，不能证明就隔离，绝不静默删除。
+5. 基线建立与复用共用一个 `validateBaseline`；只查“存在 + 长度”一律视为缺陷。
+
+### 2026-10-20 分层与全量结果
+
+| 层 | 结果 |
+|---|---|
+| `test/domain/update` | 72 passed |
+| `test/infrastructure/update` | 114 passed |
+| `test/application/update` | 83 passed |
+| `test/features/shell` + `update_page_test.dart` | 30 passed |
+| `test/architecture`（无弹窗 + 网络边界） | 10 passed |
+| `test/app`（版本一致性 + 外壳 + 事故恢复） | 8 passed |
+| `test/tool`（发布不可变门禁） | 21 passed |
+| 全量 `flutter test test` | **3402 passed + 1 skipped（真实事故回放），退出码 0** |
+| `flutter analyze` | No issues found |
+| `dart format --set-exit-if-changed`（本次修改文件） | 0 changed |
+| `git diff --check` | 退出码 0 |
+
+Windows 桌面 integration（Developer Mode 已开启，设备 `windows`）：
+
+```powershell
+& G:\best-planing\.tooling\fx.ps1 test --no-pub -d windows integration_test/update_cache_baseline_recovery_test.dart
+# 构建 personal_planner.exe 后 +1: All tests passed!
+& G:\best-planing\.tooling\fx.ps1 test --no-pub -d windows integration_test/packaged_update_storage_test.dart
+# +1: All tests passed!（SKIP packaged assertions: unpackaged fallback）
+```
+
+**它能证明什么 / 不能证明什么**：事故序列在真实 Windows 文件系统与真实 app 进程里自愈；
+但 `flutter test` 产物没有 MSIX 包身份，所以“已安装态的受保护目录与 ACL”以及**签名 MSIX
+覆盖安装**仍必须由 `tool/update_e2e.ps1` 在签名安装环境执行（本表对应行仍是 NOT RUN）。
+
+red-first 时序证据见
+`docs/testing/v1.11.1-update-incident-red-green-evidence.md`。
+
+### 真实事故机器回放（本机，2026-10-20）
+
+事故就发生在执行本任务的这台机器上，因此除合成夹具外还做了一次**真实数据 + 真实网络**回放。
+
+现场事实（只读取，未改动）：
+
+| 事实 | 值 |
+|---|---|
+| 已安装包 | `ShuoZhuang.PersonalPlanner_1.10.2.0_x64` |
+| 更新根 | `%LOCALAPPDATA%\Packages\<PFN>\LocalCache\BestPlanning\Updates` |
+| 已下载的 1.11.0 | `1.11.0.0\package.msix.ready`，18,946,393 B，SHA-256 `e4b5294e…3842d6` |
+| 线上 latest 清单 | 1.11.0 / build 52，`sizeBytes=18946393`、`sha256=e4b5294e…3842d6`（**与磁盘逐字节一致**） |
+| 回退基线 | `baseline\BestPlanning_1.10.2.0_x64.msix`，18,575,088 B，SHA-256 `de8af8f7…3791c9`（与 state 记录一致） |
+| 状态文件 | `schemaVersion: 1`、`phase: upToDate`、`currentMsixVersion: 1.11.0.0`、**`target: null`**（目标已丢失） |
+| 旧全局缓存 | `update-manifest.cache.json`，`schemaVersion: 1`（无请求身份） |
+| 真实日志 | `UPDATE_BLOCKED_ROLLBACK_NOT_READY`、`baseline ready version=`（版本为空 → UPD-INC-022 在真实日志里复现） |
+| 助手状态 | `state: failed`、`failureCode: UPDATE_ROLLBACK_DATA_RESTORE_FAILED`（见下方遗留风险） |
+
+回放命令（把真实目录整份复制到临时目录后运行，源目录只读）：
+
+```powershell
+$env:INCIDENT_UPDATE_ROOT='%LOCALAPPDATA%\Packages\<PFN>\LocalCache\BestPlanning\Updates'
+$env:INCIDENT_APPX_MANIFEST='C:\Program Files\WindowsApps\ShuoZhuang.PersonalPlanner_1.10.2.0_x64__v9555qkaxdyym\AppxManifest.xml'
+& G:\best-planing\.tooling\fx.ps1 test --no-pub --timeout 300s test/app/incident_replay_test.dart
+```
+
+结果：`+1: All tests passed!`，关键观察：
+
+```text
+INSTALLED: 1.10.2.0 CN=Shuo Zhuang, O=Personal User, C=CN
+CHECK1: classification=updateAvailable phase=ready target=1.11.0.0
+CHECK2: classification=updateAvailable fromCache=true target=1.11.0.0 phase=ready
+LOG: ready_pending_manifest version=1.11.0.0 | ready_reused version=1.11.0.0 |
+     manifest_cache_hit key=latest-stable status=304
+```
+
+它证明了：v1 状态迁移保住基线、旧缓存被隔离、磁盘上 19 MB 的 1.11.0 被**复用（零下载）**、
+1.10.2 基线通过严格校验、真实 GitHub 304 之后目标仍是 1.11.0。
+
+它没有证明：安装 1.11.1 之后真机上的一次真实自愈——那需要签名构建，仍为 NOT RUN。
+
+> **遗留风险（本计划范围之外）**：这台机器的助手在 2026-10-20T12:32:36Z 记录
+> `UPDATE_ROLLBACK_DATA_RESTORE_FAILED`，说明 1.11.0 的安装尝试失败、随后回退数据恢复也失败。
+> 缓存/状态缺陷修好后，下次升级仍会再触发这条原生路径，需要单独的安装/回退事故排查
+> （`windows/update_helper` 与快照恢复），不能用本次修复冒充已解决。
