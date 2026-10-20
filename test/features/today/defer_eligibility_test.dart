@@ -13,6 +13,7 @@ void main() {
     ScheduleItemKind kind = ScheduleItemKind.task,
     String? taskId = 't1',
     bool completed = false,
+    bool locked = false,
     int startHour = 14,
   }) => ScheduleViewItem(
     id: id,
@@ -24,6 +25,7 @@ void main() {
     categorySortOrder: 0,
     taskId: taskId,
     isCompleted: completed,
+    isLocked: locked,
     range: TimeRange(
       startUtc: day.add(Duration(hours: startHour)),
       endUtc: day.add(Duration(hours: startHour + 1)),
@@ -81,6 +83,18 @@ void main() {
       isFalse,
       reason: '缺 taskId 的任务块没有可延后的任务',
     );
+  });
+
+  test('锁定块可见但禁用，并说明原因', () {
+    final eligibility = DeferEligibility.forItem(
+      item: item(locked: true),
+      nowUtc: now,
+    );
+
+    expect(eligibility.isVisible, isTrue);
+    expect(eligibility.isEnabled, isFalse);
+    expect(eligibility.reason, DeferEntryReason.locked);
+    expect(eligibility.disabledLabel, '这一块已锁定，不能延后');
   });
 
   test('块结束之后同样按"已开始"处理（历史块不提供入口）', () {

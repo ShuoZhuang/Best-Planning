@@ -468,6 +468,7 @@ final class RepositoryScheduleViewSource implements ScheduleViewSource {
             // 找到任务。这里本来就有 `block.taskId`，直接带出去，省得页面去拆 `id` 前缀。
             taskId: block.taskId,
             isCompleted: completedIds.contains(block.taskId),
+            isLocked: block.locked,
             // M6（§3.3 最后一条）：周期目标的卡片要显示这一周的进度，且**安排与完成用不同
             // 文案**。数据在这里查一次，页面只负责画。
             recurringGoal: badges[block.taskId],

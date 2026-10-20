@@ -223,6 +223,9 @@ final class _TodayPageState extends State<TodayPage> {
                         // "按钮不见了"而不是报错——最难查的那种。
                         taskId: item.taskId,
                         isCompleted: item.isCompleted,
+                        // 同一类缺陷的第四次：副本漏掉 `isLocked` 会让锁定块
+                        // 的"延后"入口重新变成可点，服务层再拒绝一次。
+                        isLocked: item.isLocked,
                         areaId: item.areaId,
                         // M6（§3.3 最后一条）：同一类缺陷的第三次——副本漏字段的症状是
                         // "这一页永远看不到周期进度"，而条目本身明明有。

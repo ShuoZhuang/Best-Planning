@@ -11,6 +11,7 @@ enum DeferEntryReason {
   notInCurrentPlan,
   completed,
   alreadyStarted,
+  locked,
 }
 
 final class DeferEligibility {
@@ -50,6 +51,13 @@ final class DeferEligibility {
         reason: DeferEntryReason.completed,
       );
     }
+    if (item.isLocked) {
+      return const DeferEligibility._(
+        isVisible: true,
+        isEnabled: false,
+        reason: DeferEntryReason.locked,
+      );
+    }
     if (!item.range.startUtc.isAfter(nowUtc)) {
       return const DeferEligibility._(
         isVisible: true,
@@ -67,6 +75,7 @@ final class DeferEligibility {
   /// 禁用项的文案：说明**为什么**不能延后，而不是一句"不可用"。
   String? get disabledLabel => switch (reason) {
     DeferEntryReason.completed => '任务已完成，不能延后',
+    DeferEntryReason.locked => '这一块已锁定，不能延后',
     DeferEntryReason.alreadyStarted => '这一块已经开始，不能延后',
     DeferEntryReason.notInCurrentPlan => '计划已变化，请刷新',
     DeferEntryReason.notTask => null,
