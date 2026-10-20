@@ -17,6 +17,7 @@ import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/plan_adjustment_service.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -64,6 +65,7 @@ import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/application/onboarding_progress.dart';
 import 'package:personal_planner/features/onboarding/onboarding_home_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
+import 'package:personal_planner/features/planning/adjustment_recovery_prompt.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -601,10 +603,36 @@ final class _PlannerAppState extends State<PlannerApp>
     // Windows 通知插件在 initialize() 内会同步回调 Dart。若在 initState 的
     // persistentCallbacks 阶段进入原生初始化，该回调会让渲染器在首帧尚未准备好时
     // compositeFrame，Release 随后以 0xc0000409 退出。等首帧结束后再读取启动详情，
+    // 1.11.0：进程被强制结束时留下的未确认延后，启动后给出"继续查看／放弃"。
+    // 不自动取消、也不自动确认：两者都会替用户做决定（DFR-009/018）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_recoverAdjustments());
+    });
     // 导航语义不变，但原生回调不再重入正在挂载的渲染树。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_handleLaunchPayload());
     });
+  }
+
+  Future<void> _recoverAdjustments() async {
+    final service = widget.adjustmentService;
+    if (service == null) return;
+    List<PlanAdjustment> items;
+    try {
+      items = await service.recoverable();
+    } on Exception {
+      return;
+    }
+    if (!mounted || items.isEmpty) return;
+    final context = _router.routerDelegate.navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await showAdjustmentRecoveryPrompt(
+      context,
+      port: service,
+      items: items,
+      onOpen: (adjustmentId) =>
+          _router.go('/planning/adjustment/$adjustmentId'),
+    );
   }
 
   Future<void> _handleLaunchPayload() async {
