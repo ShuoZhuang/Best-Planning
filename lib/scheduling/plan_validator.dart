@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/scheduling/daily_scheduling_policy.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 enum ConflictCode {
@@ -569,32 +570,51 @@ final class PlanValidator {
     // 因此不计入本上限。AvailabilityBuilder 同样先把锁定块从可用时间中扣除，
     // 再把当日预算花在剩余空闲上；若此处再把锁定块计入，同一段时长会被计算两次，
     // 产生虚假的 dailyLimitExceeded，并使 PlanApplicationService 把合法提案判为 invalid。
-    final minutesByLocalDate = <String, int>{};
+    // **逐日上限必须按块所在本地日查当天的策略**（DFR-027/031）：用窗口首日的
+    // `problem.rules` 检查所有日期，会让"周末上限更高"被周一的上限判成超限，也会让
+    // "周末上限更低"被放过。缺某天策略是装配不变量破坏，直接报输入错误，不偷偷套默认值。
+    final minutesByLocalDate = <DateTime, int>{};
     for (final block in blocks) {
       if (block.locked) continue;
-      final local = _zones.toLocal(block.startUtc, problem.timeZoneId);
-      final key = '${local.year}-${local.month}-${local.day}';
+      final localDate = normalizeLocalDate(
+        _zones.toLocal(block.startUtc, problem.timeZoneId),
+      );
       minutesByLocalDate.update(
-        key,
+        localDate,
         (value) => value + block.durationMinutes,
         ifAbsent: () => block.durationMinutes,
       );
     }
     for (final entry in minutesByLocalDate.entries) {
-      if (entry.value > problem.rules.dailyMovableTaskLimitMinutes) {
+      final policy = problem.dailyPolicies[entry.key];
+      if (policy == null) {
+        conflicts.add(
+          PlanningConflict(
+            code: ConflictCode.invalidInput,
+            blockingInput: 'missingDailyPolicy',
+            details: {
+              'localDate':
+                  '${entry.key.year}-${entry.key.month}-${entry.key.day}',
+            },
+          ),
+        );
+        continue;
+      }
+      final limit = policy.resolvedRules.dailyMovableTaskLimitMinutes;
+      if (entry.value > limit) {
         conflicts.add(
           PlanningConflict(
             code: ConflictCode.dailyLimitExceeded,
             details: {
-              'localDate': entry.key,
+              'localDate':
+                  '${entry.key.year}-${entry.key.month}-${entry.key.day}',
               'scheduledMinutes': entry.value,
-              'limitMinutes': problem.rules.dailyMovableTaskLimitMinutes,
+              'limitMinutes': limit,
             },
           ),
         );
       }
     }
-
     return List.unmodifiable(conflicts);
   }
 
