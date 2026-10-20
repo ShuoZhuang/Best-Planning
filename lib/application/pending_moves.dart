@@ -1,6 +1,11 @@
 import 'dart:collection';
 
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/defer_unit.dart';
+
+// `DeferUnit` 已迁到 domain（持久调整对象要把它写进数据库），这里 re-export，
+// 既有 `import 'pending_moves.dart'` 的调用点不需要改动。
+export 'package:personal_planner/domain/models/defer_unit.dart';
 
 /// 用户**手动拖动**一个已确认计划块所产生的"这次要把它放到哪一天"的意图（FR-CAL-05）。
 ///
@@ -66,12 +71,6 @@ final class RequestedMove {
 abstract interface class MoveDraftSink {
   void setRequestedMove(RequestedMove move);
 }
-
-/// 延后的单位（1.8.0，设计规范 §11.1）。
-///
-/// **分钟与小时按"经过时长"算，天按"本地日历日"算**——这是规范 §11.2 的分界线，
-/// 也是"延后 1 天遇 DST 保持本地钟点"能成立的前提。
-enum DeferUnit { minutes, hours, days }
 
 /// 一次**块级延后请求**（规范 §11.3）。
 ///
