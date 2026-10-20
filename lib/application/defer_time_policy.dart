@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/defer_unit.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -82,13 +84,14 @@ final class DeferTimePolicy {
   ///
   /// [granularityForDate] 接收**目标本地日期**（只含年月日）并返回该日粒度分钟数。
   /// 之所以是函数而不是常量：学习/周末/特殊日本来就可能用不同粒度（DFR-022）。
-  DateTime computeNotBefore({
+  Future<DateTime> computeNotBefore({
     required DateTime sourceStartUtc,
     required int amount,
     required DeferUnit unit,
     required String timeZoneId,
-    required int Function(DateTime normalizedLocalDate) granularityForDate,
-  }) {
+    required FutureOr<int> Function(DateTime normalizedLocalDate)
+    granularityForDate,
+  }) async {
     final validation = validateAmount(amount, unit);
     if (!validation.isValid) {
       throw ArgumentError.value(
@@ -132,13 +135,13 @@ final class DeferTimePolicy {
   }
 
   /// 目标本地日期（只含年月日）。用于按日查粒度与展示"最早可开始"。
-  DateTime targetLocalDate({
+  Future<DateTime> targetLocalDate({
     required DateTime sourceStartUtc,
     required int amount,
     required DeferUnit unit,
     required String timeZoneId,
-  }) {
-    final notBefore = computeNotBefore(
+  }) async {
+    final notBefore = await computeNotBefore(
       sourceStartUtc: sourceStartUtc,
       amount: amount,
       unit: unit,
@@ -166,16 +169,16 @@ final class DeferTimePolicy {
   ///
   /// 跨日进位时在新的一天重新解析并继续对齐；每一轮都必须让 UTC 严格增加，
   /// 否则 DST 缺失/重复日会退化成原地循环。
-  DateTime _alignUpToGrid(
+  Future<DateTime> _alignUpToGrid(
     DateTime instantUtc,
     String timeZoneId,
-    int Function(DateTime normalizedLocalDate) granularityForDate,
-  ) {
+    FutureOr<int> Function(DateTime normalizedLocalDate) granularityForDate,
+  ) async {
     var candidate = instantUtc;
     for (var guard = 0; guard < 4; guard++) {
       final local = zones.toLocal(candidate, timeZoneId);
       final localDate = DateTime(local.year, local.month, local.day);
-      final grid = granularityForDate(localDate);
+      final grid = await granularityForDate(localDate);
       if (grid <= 1) return candidate;
       final minutesFromMidnight = local.hour * 60 + local.minute;
       final withinGrid = minutesFromMidnight % grid;
@@ -232,3 +235,4 @@ TimeRange deferBoundPreview({
   startUtc: notBeforeUtc,
   endUtc: notBeforeUtc.add(Duration(minutes: durationMinutes)),
 );
+

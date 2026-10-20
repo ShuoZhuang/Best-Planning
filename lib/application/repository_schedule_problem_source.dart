@@ -1,6 +1,7 @@
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/confirmed_block_partition.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -12,10 +13,12 @@ import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_adjustment_repository.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
@@ -51,7 +54,8 @@ import 'package:personal_planner/scheduling/recurring_pace_curve.dart';
 /// 已知缺口：`PreferenceProfile` 目前传入空值。学习偏好已由
 /// `SettingsService.resolveForDate` 合并进 `rules`，但计划模型中的
 /// `preferences` 字段（常用专注长度、偏好精力区间）尚无公开读取路径。
-final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
+final class RepositoryScheduleProblemSource
+    implements ScheduleProblemSource, AdjustmentProblemSource {
   RepositoryScheduleProblemSource({
     required this.tasks,
     required this.lifeAreas,
@@ -67,6 +71,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.pendingSkips,
     this.recurring,
     this.recurringSnapshots,
+    this.adjustments,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
   final TaskRepository tasks;
@@ -96,10 +101,18 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   final RecurringTaskService? recurring;
   final DriftRecurringExecutionRepository? recurringSnapshots;
 
+  /// 调整仓储：`loadForAdjustment` 用它读取**调整自己的基线**（计划 Task 5 Step 4）。
+  ///
+  /// 为空时普通 `load` 行为完全不变；只有调整路径需要它，因此不给全部测试夹具
+  /// 增加一个必须装配的依赖。
+  final PlanAdjustmentRepository? adjustments;
+
   @override
   Future<ScheduleProblem> load({
     ScheduleRuleOverride? override,
     TimeRange? window,
+    BlockAdjustmentContext? adjustmentContext,
+    DateTime? windowEndUtc,
   }) async {
     final nowUtc = clock.nowUtc();
     final windowStartUtc = window?.startUtc ?? nowUtc;
@@ -139,12 +152,18 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
             granularityMinutes: resolvedRules.granularityMinutes,
           )
         : (window.startUtc.isAfter(nowUtc) ? window.startUtc : nowUtc);
-    final endUtc =
+    final defaultEndUtc =
         window?.endUtc ??
         zones.localMidnightToUtc(
           startLocalDate.add(Duration(days: days)),
           timeZoneId,
         );
+    // 调整专属窗口只能**扩大**：`max(默认窗口终点, adjustmentWindowEnd)`。
+    // 缩小会让延后 1–7 天的合法目标被截掉，表现为莫名其妙的无解。
+    final endUtc =
+        windowEndUtc != null && windowEndUtc.isAfter(defaultEndUtc)
+        ? windowEndUtc
+        : defaultEndUtc;
 
     // ── 逐日规则与逐周生活配额（算法 17，计划 Task 2 Step 3）─────────────────────
     //
@@ -200,8 +219,11 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     //
     // 现在只组装一个**块级**上下文交给引擎。目标块必须真实存在于确认计划里，
     // 否则这条请求无法表达为块级调整——**也不退回任务级模拟**。
-    BlockAdjustmentContext? adjustment;
-    final deferDrafts = pendingMoves;
+    //
+    // 1.11.0 起调整走 `loadForAdjustment` 显式传入 [adjustmentContext]；内存草稿
+    // 只保留给尚未迁移的旧路径（生产 router 不再写它）。
+    BlockAdjustmentContext? adjustment = adjustmentContext;
+    final deferDrafts = adjustment == null ? pendingMoves : null;
     final confirmedBlocksForDefer = confirmed?.blocks ?? const <PlannedBlock>[];
     if (deferDrafts != null) {
       final request = deferDrafts.adjustment;
@@ -768,6 +790,54 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     );
 
     return withCurrentInputHash(pricedProblem, snapshots);
+  }
+
+  /// 按**调整自己的基线**装配排程输入（计划 Task 5 Step 4）。
+  ///
+  /// 三条纪律：
+  /// 1. 读的是 adjustment 保存的 `basePlanVersionId`，并且**当前计划必须仍是它**；
+  ///    版本已切换时返回 `basePlanChanged`，绝不在新计划上"接着延后"。
+  /// 2. 窗口至少覆盖 `adjustmentWindowEnd`；
+  /// 3. 只给目标块一个 `notBeforeUtc` 下界，绝不改写任务级 `availableFromUtc`。
+  @override
+  Future<ScheduleProblem> loadForAdjustment({
+    required PlanAdjustmentToken token,
+    required DateTime windowEndUtc,
+  }) async {
+    final repository = adjustments;
+    if (repository == null) {
+      throw StateError('loadForAdjustment 需要装配 PlanAdjustmentRepository。');
+    }
+    final adjustment = await repository.byId(token.adjustmentId);
+    if (adjustment == null ||
+        adjustment.revision != token.revision ||
+        adjustment.basePlanVersionId != token.basePlanVersionId) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.tokenMismatch,
+      );
+    }
+    final confirmed = await plans.current();
+    if (confirmed == null || confirmed.id != adjustment.basePlanVersionId) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.basePlanChanged,
+      );
+    }
+    final target = confirmed.blocks
+        .where((block) => block.id == adjustment.targetBlockId)
+        .firstOrNull;
+    if (target == null) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.targetMissing,
+      );
+    }
+    return load(
+      adjustmentContext: BlockAdjustmentContext(
+        targetBlockId: target.id,
+        notBeforeUtc: adjustment.notBeforeUtc,
+        kind: BlockAdjustmentKind.defer,
+      ),
+      windowEndUtc: windowEndUtc,
+    );
   }
 
   /// 为 [problem] 的每一天算出**软恢复余量目标**并返回一个新问题

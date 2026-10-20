@@ -42,9 +42,9 @@ void main() {
       expect(eight.reasonCode, 'longerThanOneWeek');
     });
 
-    test('非法延后量在计算下界时抛 ArgumentError，不静默取整', () {
-      expect(
-        () => policy.computeNotBefore(
+    test('非法延后量在计算下界时抛 ArgumentError，不静默取整', () async {
+      await expectLater(
+        policy.computeNotBefore(
           sourceStartUtc: DateTime.utc(2026, 10, 19, 2),
           amount: 0,
           unit: DeferUnit.minutes,
@@ -53,8 +53,8 @@ void main() {
         ),
         throwsArgumentError,
       );
-      expect(
-        () => policy.computeNotBefore(
+      await expectLater(
+        policy.computeNotBefore(
           sourceStartUtc: DateTime.utc(2026, 10, 19, 2),
           amount: 8,
           unit: DeferUnit.days,
@@ -67,9 +67,9 @@ void main() {
   });
 
   group('分钟与小时', () {
-    test('自定义 7 分钟在 5 分钟粒度下向上为 10 分钟', () {
+    test('自定义 7 分钟在 5 分钟粒度下向上为 10 分钟', () async {
       // 本地 10:00（= 02:00Z）加 7 分钟 = 10:07，向上吸附到 10:10。
-      final result = policy.computeNotBefore(
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 10, 19, 2),
         amount: 7,
         unit: DeferUnit.minutes,
@@ -80,8 +80,8 @@ void main() {
       expect(result, DateTime.utc(2026, 10, 19, 2, 10));
     });
 
-    test('小时按绝对经过时长计算，落在网格上时不被多推', () {
-      final result = policy.computeNotBefore(
+    test('小时按绝对经过时长计算，落在网格上时不被多推', () async {
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 10, 19, 2),
         amount: 2,
         unit: DeferUnit.hours,
@@ -92,10 +92,10 @@ void main() {
       expect(result, DateTime.utc(2026, 10, 19, 4));
     });
 
-    test('跨日时使用**目标日**的粒度，而不是源日粒度', () {
+    test('跨日时使用**目标日**的粒度，而不是源日粒度', () async {
       // 源日 10-19 的粒度是 5，目标日 10-20 的粒度是 10：
       // 本地 23:55 + 10 分钟 = 次日 00:05，必须吸附到次日 00:10。
-      final result = policy.computeNotBefore(
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 10, 19, 15, 55),
         amount: 10,
         unit: DeferUnit.minutes,
@@ -110,8 +110,8 @@ void main() {
   });
 
   group('天', () {
-    test('保持本地钟面，而不是固定加 24 小时', () {
-      final result = policy.computeNotBefore(
+    test('保持本地钟面，而不是固定加 24 小时', () async {
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 10, 19, 2),
         amount: 1,
         unit: DeferUnit.days,
@@ -123,9 +123,9 @@ void main() {
       expect(zones.toLocal(result, shanghai).hour, 10);
     });
 
-    test('柏林夏令时切换日：本地钟点不变，UTC 只前进 23 小时', () {
+    test('柏林夏令时切换日：本地钟点不变，UTC 只前进 23 小时', () async {
       // 2026-03-28 本地 03:00 CET = 02:00Z；次日切换，03:00 CEST = 01:00Z。
-      final result = policy.computeNotBefore(
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 3, 28, 2),
         amount: 1,
         unit: DeferUnit.days,
@@ -140,9 +140,9 @@ void main() {
       );
     });
 
-    test('纽约春季前跳：缺失的 02:30 推进到第一个有效本地时刻 03:00', () {
+    test('纽约春季前跳：缺失的 02:30 推进到第一个有效本地时刻 03:00', () async {
       // 2026-03-07 本地 02:30 EST = 07:30Z；+1 天后 03-08 02:30 不存在。
-      final result = policy.computeNotBefore(
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 3, 7, 7, 30),
         amount: 1,
         unit: DeferUnit.days,
@@ -155,8 +155,8 @@ void main() {
       expect(result, DateTime.utc(2026, 3, 8, 7));
     });
 
-    test('纽约秋季回拨：重复的 01:30 选择较早实例', () {
-      final result = policy.computeNotBefore(
+    test('纽约秋季回拨：重复的 01:30 选择较早实例', () async {
+      final result = await policy.computeNotBefore(
         sourceStartUtc: DateTime.utc(2026, 10, 31, 5, 30),
         amount: 1,
         unit: DeferUnit.days,
@@ -197,8 +197,8 @@ void main() {
       expect(end, DateTime.utc(2026, 11, 30));
     });
 
-    test('目标本地日期按传入时区计算', () {
-      final date = policy.targetLocalDate(
+    test('目标本地日期按传入时区计算', () async {
+      final date = await policy.targetLocalDate(
         sourceStartUtc: DateTime.utc(2026, 10, 19, 20),
         amount: 1,
         unit: DeferUnit.days,
@@ -210,3 +210,4 @@ void main() {
     });
   });
 }
+
