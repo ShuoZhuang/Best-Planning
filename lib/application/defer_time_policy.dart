@@ -110,7 +110,7 @@ final class DeferTimePolicy {
     final raw = switch (unit) {
       DeferUnit.minutes => sourceStartUtc.add(Duration(minutes: amount)),
       DeferUnit.hours => sourceStartUtc.add(Duration(hours: amount)),
-      DeferUnit.days => _addLocalDays(
+      DeferUnit.days => _resolveLocalDayShift(
         sourceStartUtc: sourceStartUtc,
         days: amount,
         timeZoneId: timeZoneId,
@@ -158,7 +158,7 @@ final class DeferTimePolicy {
     return DateTime(local.year, local.month, local.day);
   }
 
-  DateTime _addLocalDays({
+  DateTime _resolveLocalDayShift({
     required DateTime sourceStartUtc,
     required int days,
     required String timeZoneId,
