@@ -403,6 +403,50 @@ void main() {
       );
     });
 
+    test('目标注定放不下时生成失败：零计划写入、零预览、调整进入 failed', () async {
+      final dueSoon = PlannerTask(
+        id: 'research',
+        title: '科研实验',
+        priority: TaskPriority.high,
+        estimatedMinutes: 180,
+        remainingMinutes: 180,
+        energyLevel: TaskEnergyLevel.high,
+        splitMode: TaskSplitMode.splittable,
+        minChunkMinutes: 30,
+        maxChunkMinutes: 90,
+        status: TaskStatus.open,
+        dueAtUtc: DateTime.utc(2026, 10, 5, 2, 5),
+        createdAtUtc: created,
+        updatedAtUtc: created,
+      );
+      await build(task: dueSoon);
+      final begun = await service.beginDefer(
+        currentPlanVersionId: 'plan-1',
+        targetBlockId: 'block-1',
+        amount: 2,
+        unit: DeferUnit.hours,
+      );
+      expect(begun.status, BeginDeferStatus.created);
+
+      final generated = await service.generate(begun.adjustment!.adjustmentId);
+
+      expect(
+        generated.status,
+        isNot(GenerateAdjustmentPreviewStatus.previewReady),
+      );
+      expect(
+        (await adjustments.byId(begun.adjustment!.adjustmentId))!.status,
+        PlanAdjustmentStatus.failed,
+      );
+      expect((await plans.current())!.id, 'plan-1');
+      expect(
+        await previews.active(
+          PendingPreviewKind.deferAdjustment,
+          operationId: begun.adjustment!.adjustmentId,
+        ),
+        isNull,
+      );
+    });
     test('目标块在生成前被移动：标记 stale，不产出普通生成', () async {
       await build();
       final begun = await service.beginDefer(
