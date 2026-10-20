@@ -35,6 +35,7 @@ String conflictLabel(ConflictCode code) => switch (code) {
   ConflictCode.invalidInput => '排程输入无效',
   // 用户第 72 轮要求的文案（原文）："无法按要求延后，当前计划未更改。"
   ConflictCode.requestedAdjustmentUnsatisfied => '无法按要求延后，当前计划未更改',
+  ConflictCode.requiredBreakUnavailable => '任务之间需要更长的休息',
   // 1.8.0 专项 §2.4：**固定文案**，与 `unscheduledReasonLabel` 的同一句保持一字不差。
   // 两处各写一句就迟早会漂，而这条文案是用户唯一的行动指引。
   ConflictCode.schedulingInvariantViolation =>

@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
@@ -35,6 +36,15 @@ enum ConflictCode {
   /// - 不允许自动应用，也不给"应用可安排部分"这个入口；
   /// - 预览不显示"可用时间不足"，只显示固定异常文案。
   ///
+  /// 相邻任务块之间的**休息间隔**不满足当天策略（DFR-025/031）。
+  ///
+  /// 判定口径：
+  /// - 只比较**相邻**（按开始时间排序后的前后两块）；
+  /// - **同一任务**的连续片段不在此列（连续/拆分规则另有判定）；
+  /// - 跨越本地日时取两天中**更严格**的 `breakMinutes`；
+  /// - 缺某天策略时不在这里猜：`missingDailyPolicy` 已经单独报出。
+  requiredBreakUnavailable,
+
   /// **只能有一条用户可见问题**：引擎把它作为一条 blocker 放进 `conflicts`，
   /// 对应的 `UnscheduledTask` 主原因用 `unexplainedSchedulingFailure`，
   /// 预览层把两者**合成一条**呈现（见 `buildPreviewIssues`），不得 warning＋blocker 各显示一遍。
@@ -614,6 +624,48 @@ final class PlanValidator {
           ),
         );
       }
+    }
+
+    // 相邻任务块之间的休息间隔（DFR-025/031）。同一任务的连续片段不在此列：
+    // 连续/拆分规则另有判定，把同任务也要求休息会让合法的连续片段被判非法。
+    final orderedForBreak = [...blocks]
+      ..sort((a, b) {
+        final byStart = a.startUtc.compareTo(b.startUtc);
+        return byStart != 0 ? byStart : a.id.compareTo(b.id);
+      });
+    for (var index = 1; index < orderedForBreak.length; index++) {
+      final previous = orderedForBreak[index - 1];
+      final next = orderedForBreak[index];
+      if (previous.taskId == next.taskId) continue;
+      final gap = next.startUtc.difference(previous.endUtc).inMinutes;
+      // 重叠由 `blockOverlap` 单独报告；这里只判断"分离但不够远"。
+      if (gap < 0) continue;
+      final previousDate = normalizeLocalDate(
+        _zones.toLocal(previous.startUtc, problem.timeZoneId),
+      );
+      final nextDate = normalizeLocalDate(
+        _zones.toLocal(next.startUtc, problem.timeZoneId),
+      );
+      final previousPolicy = problem.dailyPolicies[previousDate];
+      final nextPolicy = problem.dailyPolicies[nextDate];
+      if (previousPolicy == null || nextPolicy == null) continue;
+      final required = math.max(
+        previousPolicy.resolvedRules.breakMinutes,
+        nextPolicy.resolvedRules.breakMinutes,
+      );
+      if (required <= 0 || gap >= required) continue;
+      conflicts.add(
+        PlanningConflict(
+          code: ConflictCode.requiredBreakUnavailable,
+          taskId: next.taskId,
+          relatedEntityIds: [previous.id, next.id],
+          details: {
+            'gapMinutes': gap,
+            'breakMinutes': required,
+            'localDate': '${nextDate.year}-${nextDate.month}-${nextDate.day}',
+          },
+        ),
+      );
     }
     return List.unmodifiable(conflicts);
   }
