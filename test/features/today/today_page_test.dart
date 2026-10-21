@@ -70,6 +70,110 @@ void main() {
     return counters;
   }
 
+  testWidgets('延后入口按资格禁用并说明原因；未来块可点', (tester) async {
+    final day = DateTime.utc(2026, 10, 5);
+    var deferCalls = 0;
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              _item(
+                'block:started',
+                '已开始',
+                ScheduleItemKind.task,
+                day,
+                10,
+                taskId: 't-started',
+              ),
+              _item(
+                'block:done',
+                '已完成',
+                ScheduleItemKind.task,
+                day,
+                14,
+                taskId: 't-done',
+                isCompleted: true,
+              ),
+              _item(
+                'block:locked',
+                '已锁定',
+                ScheduleItemKind.task,
+                day,
+                12,
+                taskId: 't-locked',
+                isLocked: true,
+              ),
+              _item(
+                'block:later',
+                '稍后',
+                ScheduleItemKind.task,
+                day,
+                16,
+                taskId: 't-later',
+              ),
+            ]),
+          ),
+          day: day,
+          nowUtc: day.add(const Duration(hours: 10, minutes: 30)),
+          onDefer: (_) => deferCalls++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('today-more-block:started')));
+    await tester.pumpAndSettle();
+    expect(find.text('这一块已经开始，不能延后'), findsOneWidget);
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('today-more-block:done')));
+    await tester.pumpAndSettle();
+    expect(find.text('任务已完成，不能延后'), findsOneWidget);
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('today-more-block:later')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('延后本次'));
+    await tester.pumpAndSettle();
+    expect(deferCalls, 1);
+  });
+  testWidgets('延后入口：锁定块可见但禁用并说明原因', (tester) async {
+    final day = DateTime.utc(2026, 10, 5);
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TodayPage(
+          source: _Source(
+            Stream.value([
+              _item(
+                'block:locked',
+                '已锁定',
+                ScheduleItemKind.task,
+                day,
+                12,
+                taskId: 't-locked',
+                isLocked: true,
+              ),
+            ]),
+          ),
+          day: day,
+          nowUtc: day.add(const Duration(hours: 10, minutes: 30)),
+          onDefer: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('today-more-block:locked')));
+    await tester.pumpAndSettle();
+    expect(find.text('这一块已锁定，不能延后'), findsOneWidget);
+  });
   testWidgets('M4 当前安排卡片上有「开始专注」与「完成」两个主动作，不在菜单里', (tester) async {
     await pumpActions(tester);
 
@@ -961,6 +1065,8 @@ ScheduleViewItem _item(
   int? categoryColorArgb,
   int? categorySortOrder,
   String? taskId,
+  bool isCompleted = false,
+  bool isLocked = false,
 }) => ScheduleViewItem(
   id: id,
   title: title,
@@ -970,6 +1076,8 @@ ScheduleViewItem _item(
   categoryColorArgb: categoryColorArgb ?? 0xff456789,
   categorySortOrder: categorySortOrder ?? kind.index,
   taskId: taskId,
+  isCompleted: isCompleted,
+  isLocked: isLocked,
   range: TimeRange(
     startUtc: day.add(Duration(hours: hour)),
     endUtc: day.add(Duration(hours: hour + 1)),

@@ -1,9 +1,7 @@
 import 'package:personal_planner/application/focus_service.dart';
-import 'package:personal_planner/application/preference_evidence_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
-import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/repositories/preference_evidence_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
@@ -59,31 +57,21 @@ final class FocusEvidenceRecorder {
   /// 见 §13.0 的 C8）。要让那类特殊日也进入排除，得先让它们落地成按日事实。
   final Future<bool> Function(DateTime localDate)? isSpecialDay;
 
-  /// 记录一次已结束的专注；返回是否真的写入了。
-  ///
-  /// 算法 20 起**没有领域的任务写入 `global`**，不再静默丢弃；同时写整数效果分与
-  /// 完整 v2 元数据，使新分析器可以只消费 v2 样本。
+  /// 记录一次已结束的专注；返回是否真的写入了（任务无归属领域时为 false）。
   Future<bool> recordCompletedFocus(FocusSession session) async {
     final subjectKey = await _subjectKeyFor(session.taskId);
+    if (subjectKey == null) return false;
+
     final localStart = zones.toLocal(session.startedAtUtc, timeZoneId);
     final minutes = session.activeDuration.inMinutes;
+    // 按**会话开始的那个本地日**判定：跨午夜的专注算在开始那天，与元数据里的
+    // `timeBucket`／`startedAtLocalHour` 取自同一时刻，不会出现"时段算今天、特殊日算明天"。
     final localDate = DateTime(
       localStart.year,
       localStart.month,
       localStart.day,
     );
     final specialDay = await isSpecialDay?.call(localDate) ?? false;
-    final task = await tasks.getById(session.taskId);
-    final planned = task?.estimatedMinutes ?? minutes;
-    final bucket = bucketForMinuteOfDay(
-      localStart.hour * 60 + localStart.minute,
-    );
-    final effect = focusEffectScore(
-      plannedMinutes: planned,
-      actualFocusMinutes: minutes,
-      completedMinutes: minutes,
-      interruptionCount: 0,
-    );
 
     await evidence.save(
       PreferenceEvidence(
@@ -92,22 +80,11 @@ final class FocusEvidenceRecorder {
         subjectKey: subjectKey,
         observedAtUtc: clock.nowUtc(),
         numericValue: minutes.toDouble(),
+        // FR-PREF-07 要求特殊日降低权重或排除。
         specialDay: specialDay,
         metadata: {
-          'evidenceVersion': 2,
-          'timeBucket': bucket.name,
-          'bucketMinutes': {bucket.name: minutes},
-          'observedLocalDate': formatLocalDate(localDate),
-          'plannedMinutes': planned,
-          'actualFocusMinutes': minutes,
-          'completedMinutes': minutes,
-          'pauseMinutes': 0,
-          'interruptionCount': 0,
-          'completed': true,
-          'effectScorePermille': effect,
-          'excludedReason': specialDay ? 'specialDay' : null,
-          'sourceVersion': 2,
-          'source': 'focus',
+          'timeBucket': _bucketOf(localStart.hour),
+          'minutes': minutes,
           'startedAtLocalHour': localStart.hour,
         },
       ),
@@ -115,12 +92,19 @@ final class FocusEvidenceRecorder {
     return true;
   }
 
-  Future<String> _subjectKeyFor(String taskId) async {
+  Future<String?> _subjectKeyFor(String taskId) async {
     final projectId = (await tasks.getById(taskId))?.projectId;
-    if (projectId == null) return 'global';
+    if (projectId == null) return null;
     final project = (await workspace.listProjects())
         .where((item) => item.id == projectId)
         .firstOrNull;
-    return project == null ? 'global' : 'area:${project.areaId}';
+    return project == null ? null : 'area:${project.areaId}';
+  }
+
+  /// 与既有测试取值一致的三分法（`morning`/`evening` 已在分析器测试中使用）。
+  static String _bucketOf(int hour) {
+    if (hour >= 5 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'afternoon';
+    return 'evening';
   }
 }

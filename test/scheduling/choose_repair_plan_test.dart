@@ -390,4 +390,26 @@ void main() {
       );
     });
   });
+
+  test('**唯一合法方案即使坏空档多也照常采用**（评分不是可行性判据）', () {
+    final only = LocalRepairPlan(
+      // 目标与另一块之间留出一个 70 分钟的空档：按最小片段 30 分钟算它是"坏空档"，
+      // 但它是这份输入里唯一合法的方案，不能被评分拒绝。
+      blocks: [block('b1', 570, 60), block('b2', 700, 60)],
+      movedBlockIds: const {},
+    );
+
+    final outcome = chooseRepairPlan(
+      candidates: [only],
+      reference: const {},
+      targetBlockId: 'b1',
+      notBeforeUtc: at(570),
+      tasks: [task()],
+      dayStartUtc: at(0),
+      dayEndUtc: at(24 * 60),
+    );
+
+    expect(outcome.feasible, isTrue, reason: '评分只能排序，不能把唯一合法方案判成无解');
+    expect(outcome.blocks.map((b) => b.id), containsAll(['b1', 'b2']));
+  });
 }

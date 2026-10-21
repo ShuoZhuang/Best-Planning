@@ -1,4 +1,5 @@
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 final class PlanUndoResult {
   const PlanUndoResult({
@@ -13,7 +14,11 @@ final class PlanUndoResult {
 }
 
 final class PlanUndoService {
-  const PlanUndoService({required this.repository, this.onPlanChanged});
+  const PlanUndoService({
+    required this.repository,
+    this.onPlanChanged,
+    this.updateSafety,
+  });
 
   final PlanHistoryRepository repository;
 
@@ -22,7 +27,19 @@ final class PlanUndoService {
   /// 被撤销的那一版计划上。
   final Future<void> Function()? onPlanChanged;
 
+  /// 撤销/恢复计划期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
+
   Future<PlanUndoResult> undoLastAppliedPlan() async {
+    final lease = updateSafety?.begin(UpdateBlocker.planApplying);
+    try {
+      return await _undoLastAppliedPlan();
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<PlanUndoResult> _undoLastAppliedPlan() async {
     final current = await repository.current();
     final previous = await repository.previous();
     if (current == null || previous == null) {

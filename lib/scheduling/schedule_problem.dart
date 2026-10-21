@@ -1,8 +1,6 @@
 import 'dart:collection';
 
-import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
-import 'package:personal_planner/domain/models/preference_snapshot.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -21,11 +19,11 @@ final class SchedulableTask {
     this.priority = TaskPriority.medium,
     this.energyLevel = TaskEnergyLevel.medium,
     this.isLifeTask = false,
-    this.areaId,
     this.preferredWindow,
     this.allowedWeekdaysMask = allWeekdaysMask,
     this.maxMinutesPerLocalDay,
     this.distributionPolicy = TaskDistributionPolicy.unconstrained,
+    this.preferLater = false,
   });
 
   final String id;
@@ -38,12 +36,6 @@ final class SchedulableTask {
   final TaskPriority priority;
   final TaskEnergyLevel energyLevel;
   final bool isLifeTask;
-
-  /// 任务所属领域（`areas.id`）；为空表示未分类。
-  ///
-  /// 学习偏好快照按它查找 `area:<id>` 规则；排程内核不读数据库，因此领域身份必须
-  /// 随任务进入问题（规范 §9.5 / ALG20-065）。
-  final String? areaId;
 
   /// 任务的期望时段，本地分钟区间；为空表示用户没有表达偏好。
   ///
@@ -73,6 +65,9 @@ final class SchedulableTask {
   /// 默认 [TaskDistributionPolicy.unconstrained]，因此既有调用点无需改动，
   /// 而"周期目标的均匀分布"必须**显式**声明，不再依赖 `maxMinutesPerLocalDay` 是否为空。
   final TaskDistributionPolicy distributionPolicy;
+
+  /// 同分候选的平局顺序：为真时偏后，而不是默认的最早。
+  final bool preferLater;
 
   /// 该掩码是否允许某个本地星期（`DateTime.monday` … `DateTime.sunday`）。
   bool allowsWeekday(int weekday) =>
@@ -252,14 +247,11 @@ final class ScheduleProblem {
     Map<DateTime, int> weeklyLifeQuotaByWeekStart = const {},
     required this.preferences,
     required this.inputHash,
-    this.preferenceSnapshot,
     Set<String> pinnedUnlockedBlockIds = const {},
     Map<String, DateTime> referenceBlocks = const {},
     this.adjustment,
-    this.adjustmentLocallyRepaired = false,
     List<PlannedBlock> confirmedBlocks = const [],
     List<PlanningConflict> admissionConflicts = const [],
-    List<DayException> dayExceptions = const [],
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        fixedIntervals = UnmodifiableListView(List.of(fixedIntervals)),
        protectedIntervals = UnmodifiableListView(List.of(protectedIntervals)),
@@ -271,12 +263,6 @@ final class ScheduleProblem {
        referenceBlocks = UnmodifiableMapView(Map.of(referenceBlocks)),
        confirmedBlocks = UnmodifiableListView(List.of(confirmedBlocks)),
        admissionConflicts = UnmodifiableListView(List.of(admissionConflicts)),
-       dayExceptions = UnmodifiableListView(
-         [...dayExceptions]..sort((a, b) {
-           final dateOrder = a.localDate.compareTo(b.localDate);
-           return dateOrder != 0 ? dateOrder : a.id.compareTo(b.id);
-         }),
-       ),
        dailyPolicies = UnmodifiableMapView(
          _validatedDailyPolicies(dailyPolicies),
        ),
@@ -379,11 +365,6 @@ final class ScheduleProblem {
   final PreferenceProfile preferences;
   final String inputHash;
 
-  /// 已确认学习偏好的不可变快照（算法 20，规范 §9.5）。
-  ///
-  /// **排程内核不从设置仓储读取偏好**；为空表示这次输入没有可用偏好（与算法 19 行为一致）。
-  final PreferenceSnapshot? preferenceSnapshot;
-
   /// 被**手动拖动钉住、但用户选择不锁定**的计划块 id（FR-CAL-05）。  ///
   /// 这些块同时出现在 `lockedBlocks` 里，而且在那里带着 `locked: true`——这是**故意的**：
   /// 引擎把 `lockedBlocks` 原样收进计划，且 `_improve` 会跳过 `locked` 的块，因此只有在
@@ -418,12 +399,6 @@ final class ScheduleProblem {
   /// 不是"哪些时间可用"的输入。把它算进哈希会让同一次调整在确认阶段被判为过期。
   final BlockAdjustmentContext? adjustment;
 
-  /// 块级延后的 `localRepairCascade` 是否已经产出了可行落点（算法 20，ALG20-038）。
-  ///
-  /// 为 `true` 时引擎**不启动全局搜索**；为 `false` 时允许一次有界全局搜索。
-  /// 该标记由装配层写入，排程器不再靠"lockedBlocks 里有没有目标 ID"猜测。
-  final bool adjustmentLocallyRepaired;
-
   /// **当前确认计划里的块**（1.8.0，裁定第 1、4 点；设计 §5.2）。
   ///
   /// 生成本身**不读它**（从零生成的结构不变）；它是给"生成**之后**建立来源关联"
@@ -452,12 +427,6 @@ final class ScheduleProblem {
   /// **不进 `inputHash`**：它与 `tasks` 是同一批输入的两种表达（`tasks` 已经排除了这些
   /// 任务），把它算进哈希只会让同一份输入得到两个哈希。
   final List<PlanningConflict> admissionConflicts;
-
-  /// 本次规划窗口内**已确认**的特殊日 / 临时延长日事实（规范 §5.1/§8.1）。
-  ///
-  /// 它们同时进入逐日策略（改变当天睡眠开始）与输入哈希。草稿、撤销与过期的记录
-  /// 由装配层过滤掉，不得出现在这里。
-  final List<DayException> dayExceptions;
 }
 
 /// 校验并复制每日策略表：非空、键已归一、按日连续且不重复。

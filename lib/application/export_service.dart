@@ -124,6 +124,34 @@ final class ExportService {
     yield utf8.encode('}}');
   }
 
+  String _recordId(Map<String, Object?> record) {
+    for (final key in const [
+      'id',
+      'key',
+      'cycleId',
+      'fragmentId',
+      'evidenceId',
+      'previewId',
+      'blockId',
+      'eventId',
+      'sessionId',
+      'segmentId',
+      'occurrenceId',
+    ]) {
+      final value = record[key];
+      if (value != null && value.toString().isNotEmpty) return value.toString();
+    }
+    // 复合身份必须在 CSV 中显式且非空，不能用空字符串让两行看起来相同。
+    final template = record['templateId'];
+    final period = record['periodStartLocalDate'];
+    if (template != null && period != null) return '$template@$period';
+    final plan = record['planVersionId'];
+    final block = record['blockId'];
+    if (plan != null && block != null) return '$plan#$block';
+    return '${record['dataEpoch'] ?? 'unknown'}:'
+        '${record['operationId'] ?? record.values.first}';
+  }
+
   Stream<List<int>> _csvBytes(
     Map<String, List<Map<String, Object?>>> facts,
   ) async* {
@@ -150,7 +178,7 @@ final class ExportService {
         final actualMinutes = isActual ? _actualMinutes(record) : null;
         final values = <Object?>[
           entry.key,
-          record['id'] ?? record['key'],
+          _recordId(record),
           record['taskId'],
           record['title'],
           record['notes'],

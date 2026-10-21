@@ -160,8 +160,10 @@ void main() {
         id: 'block-B',
         taskId: 'task',
         range: TimeRange(
-          startUtc: DateTime.utc(2026, 10, 5, 14),
-          endUtc: DateTime.utc(2026, 10, 5, 15),
+          // 与目标块之间留出休息：同任务的相邻片段同样受 breakMinutes 约束
+          // （引擎契约：任意两个任务块之间保留休息）。
+          startUtc: DateTime.utc(2026, 10, 5, 13, 50),
+          endUtc: DateTime.utc(2026, 10, 5, 14, 50),
         ),
       ),
     ],
@@ -263,8 +265,10 @@ final class _Source implements ScheduleProblemSource {
   final ScheduleProblem problem;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      problem;
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => problem;
 }
 
 final class _Repository implements PlanRepository {

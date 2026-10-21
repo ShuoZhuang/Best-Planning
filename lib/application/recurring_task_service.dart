@@ -5,6 +5,9 @@ import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
+import 'package:personal_planner/domain/execution/execution_fragment.dart';
+import 'package:personal_planner/domain/models/recurring_cycle_snapshot.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
@@ -70,13 +73,15 @@ final class RecurringTaskService {
     required String timeZoneId,
     TaskRepository? tasks,
     void Function(ScheduleInputChange change)? onScheduleInputChanged,
+    DriftRecurringExecutionRepository? snapshots,
   }) : _repository = repository,
        _clock = clock,
        _idGenerator = idGenerator,
        _zones = zones,
        _timeZoneId = timeZoneId,
        _tasks = tasks,
-       _onScheduleInputChanged = onScheduleInputChanged;
+       _onScheduleInputChanged = onScheduleInputChanged,
+       _snapshots = snapshots;
 
   final RecurringTaskRepository _repository;
   final Clock _clock;
@@ -87,6 +92,9 @@ final class RecurringTaskService {
   /// 普通任务仓储。为 `null` 时**不改写**周期任务的剩余时长（只读场景），
   /// 生成与结算照常——它们写的是周期表。
   final TaskRepository? _tasks;
+
+  /// 1.12.0：周实例完整快照；为 `null` 时保持 1.11 行为。
+  final DriftRecurringExecutionRepository? _snapshots;
 
   /// 与任务/日历共用的"排程输入变了"入口（见 `replanning_coordinator.dart`）。
   final void Function(ScheduleInputChange change)? _onScheduleInputChanged;
@@ -139,24 +147,15 @@ final class RecurringTaskService {
     );
 
     var createdCount = 0;
-    final touchedTemplates = <String>{};
     for (final period in periods) {
-      final generatable = await _repository.listGeneratableTemplates(
+      final generatable = await _repository.listTemplatesIntersecting(
         period.startLocalDate,
+        period.endLocalDate,
       );
       for (final template in generatable) {
-        if (template.isPausedOn(period.startLocalDate)) continue;
         final creation = await _ensureCycle(template, period, nowUtc);
         if (creation.created) createdCount++;
       }
-      // 重算要遍历**全部落在这一周里的实例**，而不是只遍历刚刚生成的那一批：
-      // 已经被补记过分钟的本周实例是上一次调用留下的，它同样需要按最新分钟对齐。
-      touchedTemplates.addAll(
-        (await _repository.listCyclesInRange(
-          period.startLocalDate,
-          period.startLocalDate,
-        )).map((cycle) => cycle.templateId),
-      );
     }
 
     // 本周任务按"已记录分钟"重算剩余：专注记录随时可能新增（例如刚跑完一次专注），
@@ -164,16 +163,16 @@ final class RecurringTaskService {
     //
     // **重算之前先定下结转**：结转会改变本周的有效目标，先算任务就会把不含结转的数字
     // 写进任务，而任务正是排程输入。
-    for (final templateId in touchedTemplates) {
-      final template = templates[templateId];
-      if (template == null) continue;
-      final cycle = await _repository.findCycle(
-        templateId,
-        periods.first.startLocalDate,
-      );
-      if (cycle == null) continue;
-      final withCarry = await _applyCarryIn(template, cycle, nowUtc);
-      await _syncTaskWithProgress(template, withCarry);
+    for (final period in periods) {
+      for (final template in templates.values) {
+        final cycle = await _repository.findCycle(
+          template.id,
+          period.startLocalDate,
+        );
+        if (cycle == null) continue;
+        final withCarry = await _applyCarryIn(template, cycle, nowUtc);
+        await _syncTaskWithProgress(template, withCarry);
+      }
     }
 
     final cycles = <RecurringTaskCycle>[];
@@ -277,6 +276,40 @@ final class RecurringTaskService {
       updatedAtUtc: _clock.nowUtc(),
     );
     await _repository.saveTemplate(updated);
+    final snapshots = _snapshots;
+    if (until != null && snapshots != null) {
+      final now = _clock.nowUtc();
+      final pauseEnd = _zones.localMidnightToUtc(
+        shiftLocalDate(localDateOnly(until), 1),
+        _timeZoneId,
+      );
+      for (final snapshot in await snapshots.cycleSnapshotsIntersecting(
+        now,
+        pauseEnd,
+      )) {
+        for (final fragment in await snapshots.fragmentsForCycle(
+          snapshot.cycleId,
+        )) {
+          if (fragment.state != ExecutionFragmentState.planned ||
+              fragment.plannedStartUtc.isBefore(now) ||
+              fragment.plannedStartUtc.isAfter(pauseEnd)) {
+            continue;
+          }
+          await snapshots.updateFragment(
+            fragment.copyWith(
+              state: ExecutionFragmentState.withdrawn,
+              revision: fragment.revision + 1,
+            ),
+          );
+        }
+      }
+    }
+    _onScheduleInputChanged?.call(
+      const ScheduleInputChange(
+        label: '暂停周期目标',
+        kind: DomainChangeKind.taskSchedulingChanged,
+      ),
+    );
     return updated;
   }
 
@@ -304,6 +337,10 @@ final class RecurringTaskService {
   /// 其实还在统计里；反过来把删除当归档用，则永久丢掉他以为已经丢掉的东西。
   Future<void> deleteTemplate(String templateId) =>
       _repository.deleteTemplate(templateId: templateId);
+
+  /// 删除的软语义：保留周期/任务/计划历史，只隐藏并匿名化模板。
+  Future<void> anonymizeTemplate(String templateId) =>
+      _repository.anonymizeTemplate(templateId: templateId);
 
   /// 恢复生成（取消归档）。
   Future<RecurringTaskTemplate> resumeGenerating(String templateId) async {
@@ -520,6 +557,12 @@ final class RecurringTaskService {
         ? task
         : (await _readTask(stored.taskId) ??
               _taskFor(template, stored, period, nowUtc));
+    await _ensureCycleSnapshot(
+      template: template,
+      period: period,
+      cycle: stored,
+      nowUtc: nowUtc,
+    );
     _onScheduleInputChanged?.call(
       const ScheduleInputChange(
         label: '生成本周周期目标',
@@ -530,6 +573,67 @@ final class RecurringTaskService {
       cycle: stored,
       task: effectiveTask,
       created: stored.taskId == cycle.taskId,
+    );
+  }
+
+  /// 为周实例写入一次完整快照；已存在则**绝不覆盖**，历史周因此不受模板后续编辑影响。
+  Future<void> _ensureCycleSnapshot({
+    required RecurringTaskTemplate template,
+    required WeeklyPeriod period,
+    required RecurringTaskCycle cycle,
+    required DateTime nowUtc,
+  }) async {
+    final snapshots = _snapshots;
+    if (snapshots == null) return;
+    final cycleId = '${template.id}:${formatLocalDate(period.startLocalDate)}';
+    if (await snapshots.findCycleSnapshot(cycleId) != null) return;
+    final startLocal = template.startsOnLocalDate.isAfter(period.startLocalDate)
+        ? template.startsOnLocalDate
+        : period.startLocalDate;
+    var endLocal = period.endLocalDate;
+    final templateEnd = template.endsOnLocalDate;
+    if (templateEnd != null) {
+      // 结束日是包含的：有效区间到结束日次日 00:00。
+      final inclusiveEnd = shiftLocalDate(templateEnd, 1);
+      if (inclusiveEnd.isBefore(endLocal)) endLocal = inclusiveEnd;
+    }
+    if (!endLocal.isAfter(startLocal)) return;
+    final startUtc = _zones.localMidnightToUtc(startLocal, _timeZoneId);
+    final endUtc = _zones.localMidnightToUtc(endLocal, _timeZoneId);
+    if (!endUtc.isAfter(startUtc)) return;
+    await snapshots.upsertCycleSnapshot(
+      RecurringCycleSnapshot(
+        cycleId: cycleId,
+        templateId: template.id,
+        transportTaskId: cycle.taskId,
+        periodStartLocalDate: period.startLocalDate,
+        periodStartUtc: period.startUtc,
+        periodEndUtc: period.endUtc,
+        effectiveStartUtc: startUtc,
+        effectiveEndUtc: endUtc,
+        timeZoneId: _timeZoneId,
+        templateRevision: 1,
+        title: template.title,
+        notes: template.notes,
+        areaId: template.areaId,
+        projectId: template.projectId,
+        priority: template.priority,
+        energyLevel: template.energyLevel,
+        splitMode: template.splitMode,
+        minChunkMinutes: template.minChunkMinutes,
+        maxChunkMinutes: template.maxChunkMinutes,
+        preferredStartMinute: template.preferredStartMinute,
+        preferredEndMinute: template.preferredEndMinute,
+        pace: template.pace,
+        allowedWeekdaysMask: template.allowedWeekdaysMask,
+        targetMinutes: cycle.baseTargetMinutes,
+        carryInMinutes: cycle.carryInMinutes,
+        state: cycle.status,
+        revision: 1,
+        createdAtUtc: nowUtc,
+        updatedAtUtc: nowUtc,
+        settledAtUtc: null,
+      ),
     );
   }
 
@@ -638,7 +742,18 @@ final class RecurringTaskService {
     // 已定案的周期（达标、跳过、已判未达标）不再改目标：那是用户看过、系统记过的结果。
     if (cycle.status != RecurringCycleStatus.open) return cycle;
     final derived = await _deriveCarryIn(template, cycle.periodStartLocalDate);
-    if (derived == null || derived == cycle.carryInMinutes) return cycle;
+    final cycleId =
+        '${template.id}:${formatLocalDate(cycle.periodStartLocalDate)}';
+    if (derived == null) {
+      if (_snapshots != null && !await _snapshots.carryInProvisional(cycleId)) {
+        await _snapshots.setCarryInProvisional(cycleId, true);
+      }
+      return cycle;
+    }
+    if (_snapshots != null) {
+      await _snapshots.setCarryInProvisional(cycleId, false);
+    }
+    if (derived == cycle.carryInMinutes) return cycle;
     final updated = cycle.copyWith(
       carryInMinutes: derived,
       updatedAtUtc: nowUtc,

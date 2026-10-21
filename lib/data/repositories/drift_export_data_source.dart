@@ -89,15 +89,102 @@ final class DriftExportDataSource implements ExportDataSource {
         (row) => row.toJson(),
       ),
     ),
+    // 1.11.0 周期与执行事实：导出必须能还原周实例、片段、证据与预排链。
+    'recurringTaskTemplates': _sorted(
+      (await database.select(database.recurringTaskTemplates).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'recurringTaskCycles': _sorted(
+      (await database.select(database.recurringTaskCycles).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'recurringCycleSnapshots': _sorted(
+      (await database.select(database.recurringCycleSnapshots).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'recurringCompletionEvidence': _sorted(
+      (await database.select(database.recurringCompletionEvidence).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionOccurrences': _sorted(
+      (await database.select(database.executionOccurrences).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionFragments': _sorted(
+      (await database.select(database.executionFragments).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionBlockLinks': _sorted(
+      (await database.select(database.executionBlockLinks).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionEvents': _sorted(
+      (await database.select(database.executionEvents).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionSessionLinks': _sorted(
+      (await database.select(database.executionSessionLinks).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionActivitySegments': _sorted(
+      (await database.select(database.executionActivitySegments).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionCreditAllocations': _sorted(
+      (await database.select(database.executionCreditAllocations).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'executionReminderIntents': _sorted(
+      (await database.select(database.executionReminderIntents).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'pendingPlanPreviews': _sorted(
+      (await database.select(database.pendingPlanPreviews).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
+    'pendingPlanPreviewBlocks': _sorted(
+      (await database.select(database.pendingPlanPreviewBlocks).get()).map(
+        (row) => row.toJson(),
+      ),
+    ),
   };
 }
 
 List<Map<String, Object?>> _sorted(Iterable<Map<String, Object?>> records) {
   final result = records.toList(growable: false);
-  result.sort(
-    (left, right) => ((left['id'] ?? left['key']) as String? ?? '').compareTo(
-      (right['id'] ?? right['key']) as String? ?? '',
-    ),
-  );
+  String keyOf(Map<String, Object?> row) {
+    for (final key in const [
+      'id',
+      'key',
+      'cycle_id',
+      'fragment_id',
+      'evidence_id',
+      'preview_id',
+      'block_id',
+      'event_id',
+      'session_id',
+      'segment_id',
+      'occurrence_id',
+    ]) {
+      final value = row[key];
+      if (value != null) return value.toString();
+    }
+    return row.values.isEmpty ? '' : row.values.first.toString();
+  }
+
+  result.sort((left, right) => keyOf(left).compareTo(keyOf(right)));
   return result;
 }

@@ -1,0 +1,12 @@
+{
+  "StandardTest": [
+    "1.10.2.0 Ok"
+  ],
+  "AdminTest": [],
+  "zs200": [],
+  "trustedPeople": [
+    "9E157ECE535D16A224593CA39C084705A4FD3C13 HasPrivateKey=False"
+  ],
+  "queriedAt": "2026-10-18T22:14:16+08:00",
+  "queryAccount": "zs的asusrog\\zs200 (elevated)"
+}

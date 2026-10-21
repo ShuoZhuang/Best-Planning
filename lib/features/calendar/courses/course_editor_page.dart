@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:personal_planner/application/course_management_service.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/design/planner_editor_scaffold.dart';
 import 'package:personal_planner/domain/models/course_edit.dart';
 import 'package:personal_planner/domain/models/course_series.dart';
@@ -34,6 +35,7 @@ final class CourseEditorPage extends StatefulWidget {
     this.loadProjects,
     this.onSaved,
     this.onCancel,
+    this.updateSafety,
     super.key,
   });
 
@@ -47,6 +49,9 @@ final class CourseEditorPage extends StatefulWidget {
 
   final VoidCallback? onSaved;
   final VoidCallback? onCancel;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   @override
   State<CourseEditorPage> createState() => _CourseEditorPageState();
@@ -102,6 +107,7 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
     _title.dispose();
     _teacher.dispose();
     _location.dispose();
@@ -171,6 +177,9 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
 
   /// 标题／教师／地点不属于任何一条安排，因此脏标记落在页面上。
   bool _profileDirty = false;
+
+  bool get _hasUnsavedEdits =>
+      _profileDirty || _preview != null || _rows.any((row) => row.dirty);
 
   void _onTextChanged() {
     // **必须无条件重建**：标题文本决定"旧版占位标题"那条核对提示是否还该出现
@@ -461,6 +470,10 @@ final class _CourseEditorPageState extends State<CourseEditorPage> {
     if (!_loaded) {
       return const Center(child: CircularProgressIndicator());
     }
+    // 与规则页同一做法：脏状态由多处编辑产生，build 是唯一稳定的汇报点。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_hasUnsavedEdits);
+    });
     final detail = _detail;
     if (detail == null) {
       return Center(

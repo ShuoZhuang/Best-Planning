@@ -30,6 +30,12 @@ abstract interface class RecurringTaskRepository {
     DateTime periodStartLocalDate,
   );
 
+  /// 与 `[periodStart, periodEnd)` 有效区间相交的模板；周中开始/结束也生成该周。
+  Future<List<RecurringTaskTemplate>> listTemplatesIntersecting(
+    DateTime periodStartLocalDate,
+    DateTime periodEndLocalDate,
+  );
+
   // ── 周期实例 ─────────────────────────────────────────────────────────────
   /// 按 `(templateId, periodStartLocalDate)` 读取单个周期，不存在时为 `null`。
   Future<RecurringTaskCycle?> findCycle(
@@ -152,4 +158,7 @@ abstract interface class RecurringTaskRepository {
   ///
   /// **只删这个模板的东西**：`time_entries` 与 `task_corrections` 里其它任务的行不能碰。
   Future<void> deleteTemplate({required EntityId templateId});
+
+  /// 删除的软语义：隐藏并匿名化模板，保留周期、任务与计划/执行历史引用。
+  Future<void> anonymizeTemplate({required EntityId templateId});
 }

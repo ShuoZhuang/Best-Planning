@@ -238,36 +238,16 @@ final class AvailabilityBuilder {
     // 睡眠上"是不是冲突），两者是**同一份展开结果**，`_merge` 会把重叠并掉，
     // 因此"同一分钟只扣一次"依然成立。
     final sleepRaw = <TimeRange>[];
-    final sleepDates = _localDatesOf(
-      input.planningWindow,
-      input.timeZoneId,
-    ).toList();
-    if (sleepDates.isNotEmpty) {
-      // **起点前一天也要展开**：窗口若从本地 00:00 开始，"00:00–07:30" 属于
-      // **前一天** 23:30 开始的那一夜。逐日只展开当天会把它整段漏掉。
-      sleepDates.insert(
-        0,
-        DateTime(
-          sleepDates.first.year,
-          sleepDates.first.month,
-          sleepDates.first.day - 1,
-        ),
-      );
-    }
-    for (final date in sleepDates) {
-      final policy =
-          input.dailyPolicies[date] ?? input.dailyPolicies[sleepDates[1]];
-      final rules = policy?.resolvedRules;
+    for (final date in _localDatesOf(input.planningWindow, input.timeZoneId)) {
+      final rules = input.dailyPolicies[date]?.resolvedRules;
       if (rules == null) continue;
-      // **按日调用 `sleepForDate`**：它只展开这一天的睡眠，因此"周末睡眠不同"
-      // 与"特殊日只覆盖当天"都不会被前后各一天的循环带偏。
       sleepRaw.addAll(
         ProtectedTimeExpander(_zones)
-            .sleepForDate(
-              localDate: date,
+            .sleep(
               rules: rules,
+              startUtc: input.planningWindow.startUtc,
+              endUtc: input.planningWindow.endUtc,
               timeZoneId: input.timeZoneId,
-              dayException: policy?.dayException,
             )
             .map((interval) => interval.range),
       );

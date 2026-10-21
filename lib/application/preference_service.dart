@@ -4,7 +4,6 @@ import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
-import 'package:personal_planner/domain/repositories/preference_rule_repository.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 
@@ -45,7 +44,7 @@ final class MemoryPreferenceStore implements PreferenceStore {
 
   @override
   Future<void> clearLearned() async {
-    _profile = const PreferenceProfile();
+    _profile = const PreferenceProfile(enabled: false);
     _suggestions.clear();
     _autoHistory.clear();
   }
@@ -119,10 +118,10 @@ final class SettingsPreferenceStore implements PreferenceStore {
     // 学习偏好由 SettingsService 持有，清除时必须一并改写该键，否则"清除学习结果"
     // 只清掉建议列表，排程仍在消费旧偏好。
     //
-    // **不关闭学习开关**：清空结果 ≠ 永久停用；总开关只由设置页单独保存
-    // （规范 §9.4 / ALG20-063）。
+    // 这里写入的是显式的"已停用"档案，而不是删除键：删除会让状态回到"从未学习"，
+    // 而用户需要能区分"我清空过学习结果"与"我还没用过这个功能"。
     await _settings.saveLearnedPreferences(
-      const PreferenceProfile(enabled: true),
+      const PreferenceProfile(enabled: false),
     );
     await _save({'suggestions': <Object?>[], 'autoHistory': <Object?>[]});
   }
@@ -163,20 +162,10 @@ final class SettingsPreferenceStore implements PreferenceStore {
 }
 
 final class PreferenceService {
-  const PreferenceService({
-    required this.analyzer,
-    required this.store,
-    this.ruleRepository,
-  });
+  const PreferenceService({required this.analyzer, required this.store});
 
   final PreferenceAnalyzer analyzer;
   final PreferenceStore store;
-
-  /// 已确认规则的唯一持久化源（算法 20，规范 §9.4）。
-  ///
-  /// 为空时保持算法 19 行为（只写设置档案），仅用于旧测试与轻量装配；生产组合根
-  /// 必须注入它，否则"确认建议"不会进入排程快照。
-  final PreferenceRuleRepository? ruleRepository;
 
   Future<List<PreferenceSuggestion>> refresh(
     List<PreferenceEvidence> evidence, {
@@ -184,11 +173,6 @@ final class PreferenceService {
   }) async {
     final current = await store.loadProfile();
     final suggestions = analyzer.analyze(evidence, current);
-    final existingRules = {
-      for (final rule
-          in await ruleRepository?.listAll() ?? const <LearnedPreferenceRule>[])
-        rule.id: rule,
-    };
     for (final suggestion in suggestions) {
       var value = suggestion;
       if (autoApply) {
@@ -199,20 +183,6 @@ final class PreferenceService {
         );
       }
       await store.saveSuggestion(value);
-      // **不得把已确认/拒绝/停用/编辑降回 suggested**（规范 §9.4 / ALG20-061）。
-      final existing = existingRules[suggestion.id];
-      if (existing != null &&
-          existing.status != LearnedPreferenceStatus.suggested) {
-        continue;
-      }
-      await ruleRepository?.save(
-        _ruleFromSuggestion(
-          value,
-          status: value.status == PreferenceSuggestionStatus.autoApplied
-              ? LearnedPreferenceStatus.confirmed
-              : LearnedPreferenceStatus.suggested,
-        ),
-      );
     }
     return [
       for (final suggestion in suggestions)
@@ -261,21 +231,18 @@ final class PreferenceService {
         suggestedStartMinute: suggestedStartMinute,
         suggestedEndMinute: suggestedEndMinute,
         suggestedFocusMinutes: suggestedFocusMinutes,
-        status: PreferenceSuggestionStatus.edited,
+        status: PreferenceSuggestionStatus.suggested,
       ),
     );
   }
 
   Future<void> disable(String id) async {
     await _change(id, PreferenceSuggestionStatus.disabled);
+    final current = await store.loadProfile();
+    await store.saveProfile(current.copyWith(enabled: false));
   }
 
-  Future<void> clearLearned() async {
-    // 清除结果**不关闭学习**：总开关单独保存在 settings，用户可以再次开启
-    // （规范 §9.4 / ALG20-063）。
-    await ruleRepository?.clearLearnedRules();
-    await store.clearLearned();
-  }
+  Future<void> clearLearned() => store.clearLearned();
 
   Future<bool> undoLastAutoApply() async {
     final previous = await store.takeLastAutoApply();
@@ -293,49 +260,8 @@ final class PreferenceService {
     if (apply) {
       await store.saveProfile(_apply(await store.loadProfile(), suggestion));
     }
-    final updated = suggestion.copyWith(status: status);
-    await store.saveSuggestion(updated);
-    await ruleRepository?.save(
-      _ruleFromSuggestion(
-        updated,
-        status: switch (status) {
-          PreferenceSuggestionStatus.confirmed =>
-            LearnedPreferenceStatus.confirmed,
-          PreferenceSuggestionStatus.rejected =>
-            LearnedPreferenceStatus.rejected,
-          PreferenceSuggestionStatus.disabled =>
-            LearnedPreferenceStatus.disabled,
-          PreferenceSuggestionStatus.autoApplied =>
-            LearnedPreferenceStatus.confirmed,
-          _ => LearnedPreferenceStatus.suggested,
-        },
-      ),
-    );
+    await store.saveSuggestion(suggestion.copyWith(status: status));
   }
-
-  LearnedPreferenceRule _ruleFromSuggestion(
-    PreferenceSuggestion suggestion, {
-    required LearnedPreferenceStatus status,
-  }) => LearnedPreferenceRule(
-    id: suggestion.id,
-    kind: suggestion.kind == PreferenceSuggestionKind.preferredTimeWindow
-        ? LearnedPreferenceKind.preferredTimeWindow
-        : LearnedPreferenceKind.preferredFocusMinutes,
-    subjectKey: suggestion.subjectKey,
-    status: status,
-    confidencePermille: (suggestion.effectDifference * 1000).round().clamp(
-      0,
-      1000,
-    ),
-    source: suggestion.explanationCode.startsWith('v2_')
-        ? 'analyzerV2'
-        : 'analyzer',
-    evidenceVersion: suggestion.observedToUtc.toIso8601String(),
-    updatedAtUtc: suggestion.observedToUtc,
-    preferredStartMinute: suggestion.suggestedStartMinute,
-    preferredEndMinute: suggestion.suggestedEndMinute,
-    preferredFocusMinutes: suggestion.suggestedFocusMinutes,
-  );
 
   PreferenceProfile _apply(
     PreferenceProfile current,

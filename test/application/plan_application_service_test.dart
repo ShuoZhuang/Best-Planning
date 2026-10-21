@@ -12,6 +12,7 @@ import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/services/default_settings.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
@@ -409,6 +410,40 @@ void main() {
       expect(calls, 0);
     });
   });
+
+  test('计划应用期间阻塞更新，成功或异常后解除（UPD-029）', () async {
+    final problem = _applyProblem();
+    const snapshots = InputSnapshotBuilder();
+    final hash = snapshots.hash(InputSnapshot(problem: problem));
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final service = PlanApplicationService(
+      source: _ProblemSource(problem),
+      repository: repository,
+      zones: TimeZoneDatabase(),
+      snapshots: snapshots,
+      updateSafety: safety,
+    );
+    final applying = service.apply(
+      _applyProposal(
+        inputHash: hash,
+        algorithmVersion: DeterministicScheduleEngine.algorithmVersion,
+      ),
+    );
+    expect(safety.status.blockers, contains(UpdateBlocker.planApplying));
+    final result = await applying;
+    expect(result.status, ApplyPlanStatus.applied);
+    expect(safety.status.canInstall, isTrue);
+
+    final stale = await service.apply(
+      _applyProposal(
+        inputHash: hash,
+        algorithmVersion: 'algorithm-from-an-older-release',
+      ),
+    );
+    expect(stale.status, ApplyPlanStatus.staleProposal);
+    expect(safety.status.canInstall, isTrue, reason: '被拒绝也必须解除阻塞');
+  });
 }
 
 /// 一天的半开窗口。**每个夹具用自己 problem 的窗口**，不填任意假窗口。
@@ -498,8 +533,10 @@ final class _ProblemSource implements ScheduleProblemSource {
   const _ProblemSource(this.problem);
   final ScheduleProblem problem;
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async =>
-      problem;
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async => problem;
 }
 
 /// 按传入的一次性覆盖重新装配规则，模拟生产用 `RepositoryScheduleProblemSource`
@@ -510,7 +547,10 @@ final class _OverrideAwareSource implements ScheduleProblemSource {
   ScheduleRuleOverride? received;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) async {
     received = override;
     if (override == null) return base;
     return _withRules(base, override.patch.applyTo(base.rules));

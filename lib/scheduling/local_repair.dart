@@ -369,8 +369,24 @@ LocalRepairOutcome localRepairCascade({
   /// 不看"我这样放会在周围留下什么"。规范 §11.4 第 6 条要求在**方案之间**
   /// 比较坏空档，因此必须先能产出多份方案。
   DateTime? targetAnchorOverride,
+
+  /// 目标日本地日的**实际粒度**来源（DFR-026）。
+  ///
+  /// 只在"候选因为障碍被推后"时使用：`09:03` 这种非网格障碍结束点必须吸附到
+  /// 该日下一个网格点，而不是把 `09:03` 当成合法起点。为空时保持旧行为
+  /// （仅供不关心粒度的纯算法测试）。
+  TimeZoneDatabase? zones,
+  String? timeZoneId,
+  int Function(DateTime localDate)? granularityForDate,
 }) {
   assert(notBeforeUtc.isUtc && dayStartUtc.isUtc && dayEndUtc.isUtc);
+
+  DateTime alignToGrid(DateTime instant) => _alignLocalGrid(
+    instant,
+    zones: zones,
+    timeZoneId: timeZoneId,
+    granularityForDate: granularityForDate,
+  );
 
   final target = blocks.where((block) => block.id == targetBlockId).firstOrNull;
   if (target == null) {
@@ -413,7 +429,10 @@ LocalRepairOutcome localRepairCascade({
         }
       }
       if (blockingEnd == null) return candidate;
-      candidate = blockingEnd;
+      // 绕开障碍后**重新吸附到当前候选所在本地日的网格**：09:03 结束的固定日程
+      // 不能让候选从 09:03 开始（DFR-026）。吸附后严格推进，否则用网格步长兜底。
+      final aligned = alignToGrid(blockingEnd);
+      candidate = aligned.isAfter(candidate) ? aligned : blockingEnd;
     }
     return null;
   }
@@ -840,6 +859,9 @@ LocalRepairOutcome repairBestPlan({
   List<TimeRange> protectedRanges = const [],
   int breakMinutes = 0,
   int maxCandidates = maxRepairCandidates,
+  TimeZoneDatabase? zones,
+  String? timeZoneId,
+  int Function(DateTime localDate)? granularityForDate,
 }) {
   final anchors = repairCandidateAnchors(
     notBeforeUtc: notBeforeUtc,
@@ -865,6 +887,9 @@ LocalRepairOutcome repairBestPlan({
       dayStartUtc: dayStartUtc,
       dayEndUtc: dayEndUtc,
       targetAnchorOverride: anchor,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      granularityForDate: granularityForDate,
     );
     if (!outcome.feasible) continue;
     final movedIds = <String>{};
@@ -918,4 +943,38 @@ final class _ProvenancePair {
     if (byGeneratedId != 0) return byGeneratedId;
     return a.confirmedId.compareTo(b.confirmedId);
   }
+}
+
+/// 把一个时刻向上吸附到它所在**本地日**的粒度网格（DFR-026）。
+///
+/// 没有时区/粒度信息时原样返回：这个函数的调用者必须显式提供"那一天"的粒度，
+/// 不允许在这里回退到固定 5 分钟（那正是缺陷本身）。
+DateTime _alignLocalGrid(
+  DateTime instantUtc, {
+  required TimeZoneDatabase? zones,
+  required String? timeZoneId,
+  required int Function(DateTime localDate)? granularityForDate,
+}) {
+  final zone = zones;
+  final zoneId = timeZoneId;
+  final granularity = granularityForDate;
+  if (zone == null || zoneId == null || granularity == null) return instantUtc;
+  final local = zone.toLocal(instantUtc, zoneId);
+  final localDate = DateTime(local.year, local.month, local.day);
+  final grid = granularity(localDate);
+  if (grid <= 1) return instantUtc;
+  final minuteOfDay = local.hour * 60 + local.minute;
+  final remainder = minuteOfDay % grid;
+  final hasSubMinute =
+      local.second != 0 || local.millisecond != 0 || local.microsecond != 0;
+  if (remainder == 0 && !hasSubMinute) return instantUtc;
+  final add = remainder == 0 ? grid : grid - remainder;
+  final target = minuteOfDay + add;
+  // 越过本地午夜时不在这里跨天：交给调用方的 `dayEndUtc` 判定为放不下。
+  if (target >= 24 * 60) return instantUtc;
+  return zone.resolveLocalWallTime(
+    localDate: localDate,
+    minuteOfDay: target,
+    timeZoneId: zoneId,
+  );
 }

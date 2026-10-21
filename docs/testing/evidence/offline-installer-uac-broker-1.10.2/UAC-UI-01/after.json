@@ -1,0 +1,17 @@
+{
+  "whoami": "zs的asusrog\\zs200",
+  "isAdmin": true,
+  "integrity": "medium",
+  "osBuild": "26200",
+  "package": null,
+  "trustedPeople": null,
+  "exitCode": 31,
+  "capturedAt": "2026-10-18T22:31:15+08:00",
+  "finalState": "NotInstalled",
+  "lastFailure": "2026-10-18T14:30:28Z failure INSTALLER_ELEVATION_FAILED detail=elevated-child-exited exit=4",
+  "channelLines": [
+    "2026-10-18T14:30:28Z elevation launch succeeded pid=60200",
+    "2026-10-18T14:30:28Z elevation helper exited code=4",
+    "2026-10-18T14:30:28Z elevation channel failed status=elevated-child-exited win32=0"
+  ]
+}

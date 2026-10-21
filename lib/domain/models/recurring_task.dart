@@ -61,6 +61,12 @@ enum RecurringEditScope {
 
 const int recurringAllWeekdaysMask = 0x7F;
 
+/// 内部排程载体的稳定 id 前缀；普通任务列表/搜索必须排除，深链应转向周期详情。
+const String recurringTransportTaskPrefix = 'recurring:';
+
+bool isRecurringTransportTaskId(String id) =>
+    id.startsWith(recurringTransportTaskPrefix);
+
 /// 七个星期全部允许的掩码，按 `DateTime.monday`（1）到 `DateTime.sunday`（7）编号。
 bool isWeekdayAllowed(int mask, int weekday) {
   if (weekday < DateTime.monday || weekday > DateTime.sunday) {

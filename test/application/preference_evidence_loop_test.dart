@@ -189,9 +189,8 @@ void main() {
     expect(evidence.observedAtUtc, clock.value);
   });
 
-  test('归属不到领域的任务写入 global 样本，不再静默丢弃', () async {
-    // 算法 20 规范 §9.2：无领域记录进入 global 样本；全局样本不会反推领域偏好，
-    // 但也不能让用户的专注行为凭空消失。
+  test('归属不到领域的任务不写证据', () async {
+    // 没有项目就没有领域，也就没有可归组的主体：凭空写一条会把不同性质的行为混在一起。
     final recorder = recorderFor(const _Workspace());
     final written = await recorder.recordCompletedFocus(
       _session(
@@ -201,10 +200,8 @@ void main() {
       ),
     );
 
-    expect(written, isTrue);
-    final evidence = (await repository.since(DateTime.utc(2026, 1, 1))).single;
-    expect(evidence.subjectKey, 'global');
-    expect(evidence.metadata['evidenceVersion'], 2);
+    expect(written, isFalse);
+    expect(await repository.since(DateTime.utc(2026, 1, 1)), isEmpty);
   });
 
   group('FR-PREF-07 特殊日排除', () {
@@ -307,13 +304,9 @@ void main() {
 
     // 这正是"输入端与触发端都断"的时期里不可能出现的结果。
     expect(suggestions, isNotEmpty);
-    final timeSuggestion = suggestions.singleWhere(
-      (suggestion) =>
-          suggestion.kind == PreferenceSuggestionKind.preferredTimeWindow,
-    );
-    expect(timeSuggestion.id, startsWith('time:area:area-1'));
-    expect(timeSuggestion.evidenceCount, 20);
-    expect(timeSuggestion.activeDayCount, 14);
+    expect(suggestions.single.id, startsWith('time:area:area-1'));
+    expect(suggestions.single.evidenceCount, 20);
+    expect(suggestions.single.activeDayCount, 14);
   });
 
   test('专注服务在结束时把证据交出去，且回调失败不影响计时结果', () async {

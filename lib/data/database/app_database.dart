@@ -1,7 +1,11 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:personal_planner/data/database/daos/task_dao.dart';
+import 'package:personal_planner/data/database/tables/execution_tables.dart';
+import 'package:personal_planner/data/database/tables/plan_adjustment_tables.dart';
+import 'package:personal_planner/data/database/tables/plan_change_tables.dart';
 import 'package:personal_planner/data/database/tables/planner_tables.dart';
+import 'package:personal_planner/data/database/tables/recurring_execution_tables.dart';
 
 part 'app_database.g.dart';
 
@@ -40,7 +44,34 @@ DateTime _systemNowUtc() => DateTime.now().toUtc();
     ChangeLog,
     RecurringTaskTemplates,
     RecurringTaskCycles,
-    DayExceptions,
+    // v11：执行实例、事件、会话归属、活动段、进度检查点与提醒（规范 §19.2）。
+    ExecutionRuntimeState,
+    ExecutionWriteSequence,
+    ExecutionOperations,
+    ExecutionOccurrences,
+    ExecutionBlockLinks,
+    ExecutionEvents,
+    ExecutionSessionLinks,
+    ExecutionActivitySegments,
+    ExecutionProgressAnchors,
+    ExecutionCreditAllocations,
+    ExecutionReminderIntents,
+    ExecutionDayHolds,
+    ExecutionOutbox,
+    // v12：周期快照、执行片段、完成证据与持久预排（1.12.0 设计 §5）。
+    RecurringCycleSnapshots,
+    RecurringCarryInStates,
+    ExecutionFragments,
+    RecurringCompletionEvidence,
+    PendingPlanPreviews,
+    PendingPlanPreviewBlocks,
+    // v11：块级调整操作与状态审计（1.11.0「延后本次」事务化修复）。
+    PlanAdjustments,
+    PlanAdjustmentEvents,
+    // v11：应用回执、撤销快照与提交后 outbox（计划 Task 10/11）。
+    PlanAdjustmentApplyReceipts,
+    PlanAdjustmentUndoReceipts,
+    PlanChangeOutbox,
   ],
   daos: [TaskDao],
 )
@@ -103,7 +134,12 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (migrator) async {
       await migrator.createAll();
       await _createRecurringTaskIndexes();
-      await _createDayExceptionIndexes();
+      // 全新库也要有执行/周期/调整三组索引：它们承载的是**跨行唯一性**
+      // （如"每个任务只有一个当前检查点""一个预览只能被一个调整认领"），
+      // 只在迁移里创建会让新装用户失去这些约束。
+      await _createExecutionIndexes();
+      await _createRecurringExecutionIndexes();
+      await _createPlanAdjustmentIndexes();
     },
     onUpgrade: (migrator, from, to) async {
       if (from < 2 && to >= 2) {
@@ -145,6 +181,8 @@ class AppDatabase extends _$AppDatabase {
       // 另一条分支，两条分支各建一次索引就是两处需要同步维护的 SQL。`IF NOT EXISTS`
       // 让这里成为唯一一份定义——迁移与全新库都靠它。
       await _createRecurringTaskIndexes();
+      await _createExecutionIndexes();
+      await _createRecurringExecutionIndexes();
     },
   );
 
@@ -247,29 +285,139 @@ class AppDatabase extends _$AppDatabase {
     await migrator.alterTable(TableMigration(timetableImportBatches));
   }
 
-  /// v11：新增特殊日表与索引（算法 20，规范 §8.1/§11 ALG20-074）。
+  /// v11：执行实例、事件、会话关联、活动段、进度检查点、分配、提醒、dayHold 与 outbox
+  /// （规范 §15、§19.2）。
   ///
-  /// **只新增表和索引**。既有任务、日历、计划、专注与偏好证据行逐值保留；
-  /// 本迁移不执行任何 `UPDATE`/`DELETE`，也不重建既有表。
+  /// **只新增表，不改既有列**：v10 用户的 tasks、time_entries、calendar_events、计划版本与
+  /// 设置必须逐值不变。新功能首次启用不为一期旧安排补造"未启动"记录，旧计时记录也不强行
+  /// 关联到原始安排（§15）。
+  ///
+  /// 建表顺序按外键依赖排列；全部在 `onUpgrade` 的同一个事务里，失败整体回滚并保留旧库。
   Future<void> _upgradeToV11(Migrator migrator) async {
-    await migrator.createTable(dayExceptions);
-    await _createDayExceptionIndexes();
+    await migrator.createTable(executionRuntimeState);
+    await migrator.createTable(executionWriteSequence);
+    await migrator.createTable(executionOperations);
+    await migrator.createTable(executionOccurrences);
+    await migrator.createTable(executionBlockLinks);
+    await migrator.createTable(executionEvents);
+    await migrator.createTable(executionSessionLinks);
+    await migrator.createTable(executionActivitySegments);
+    await migrator.createTable(executionProgressAnchors);
+    await migrator.createTable(executionCreditAllocations);
+    await migrator.createTable(executionReminderIntents);
+    await migrator.createTable(executionDayHolds);
+    await migrator.createTable(executionOutbox);
+    // 1.11.0 周期单次执行与预排（原 1.12 设计已并入未发布的 1.11.0）。
+    await migrator.createTable(recurringCycleSnapshots);
+    await migrator.createTable(recurringCarryInStates);
+    await migrator.createTable(executionFragments);
+    await migrator.createTable(recurringCompletionEvidence);
+    await migrator.createTable(pendingPlanPreviews);
+    await migrator.createTable(pendingPlanPreviewBlocks);
+    await migrator.createTable(planAdjustments);
+    await migrator.createTable(planAdjustmentEvents);
+    await migrator.createTable(planAdjustmentApplyReceipts);
+    await migrator.createTable(planAdjustmentUndoReceipts);
+    await migrator.createTable(planChangeOutbox);
+    await _createExecutionIndexes();
+    await _createRecurringExecutionIndexes();
+    await _createPlanAdjustmentIndexes();
   }
 
-  /// 特殊日查询所需的两条索引：按本地日找当日记录、按恢复日找"影响这一天"
-  /// 的记录。`listAffecting` 的 OR 条件因此两条都能走索引。
-  Future<void> _createDayExceptionIndexes() async {
+  /// 1.11.0 调整操作的索引与跨行唯一性（计划 Task 3 Step 2）。
+  ///
+  /// `UNIQUE (preview_id) WHERE preview_id IS NOT NULL` 与
+  /// `UNIQUE (applied_plan_version_id) WHERE ...` 是**跨行**约束：SQLite 的
+  /// 行级 CHECK 管不了，只能用部分唯一索引表达。它们保证一个预览、一个新计划版本
+  /// 只能被一个调整认领（事务不变量 2）。
+  Future<void> _createPlanAdjustmentIndexes() async {
     const statements = [
-      'CREATE INDEX IF NOT EXISTS idx_day_exceptions_local_date '
-          'ON day_exceptions (local_date, status, updated_at_utc)',
-      'CREATE INDEX IF NOT EXISTS idx_day_exceptions_recovery_date '
-          'ON day_exceptions (recovery_local_date, status, updated_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustments_status_expiry '
+          'ON plan_adjustments (status, expires_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustments_base_target '
+          'ON plan_adjustments (base_plan_version_id, target_block_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_adjustment_preview '
+          'ON plan_adjustments (preview_id) WHERE preview_id IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_adjustment_applied_plan '
+          'ON plan_adjustments (applied_plan_version_id) '
+          'WHERE applied_plan_version_id IS NOT NULL',
+      'CREATE INDEX IF NOT EXISTS idx_plan_adjustment_events_time '
+          'ON plan_adjustment_events (occurred_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_plan_change_outbox_pending '
+          'ON plan_change_outbox (completed_at_utc, next_attempt_at_utc)',
     ];
     for (final statement in statements) {
       try {
         await customStatement(statement);
       } on Exception {
-        // 与周期索引同一约定：只有"表还不存在"会走到这里（逐版本迁移测试）。
+        // 与其它索引同口径：只有"目标表尚不存在"会走到这里（逐版本迁移校验）。
+      }
+    }
+  }
+
+  /// 1.11.0 周期/片段/证据/预排索引。
+  Future<void> _createRecurringExecutionIndexes() async {
+    const statements = [
+      'CREATE INDEX IF NOT EXISTS idx_execution_fragments_occurrence '
+          'ON execution_fragments (occurrence_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_fragments_cycle '
+          'ON execution_fragments (cycle_id)',
+      'CREATE INDEX IF NOT EXISTS idx_recurring_evidence_cycle '
+          'ON recurring_completion_evidence (cycle_id, effective_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_recurring_evidence_fragment '
+          'ON recurring_completion_evidence (fragment_id)',
+      'CREATE INDEX IF NOT EXISTS idx_pending_previews_status '
+          'ON pending_plan_previews (status, created_at_utc)',
+      // 1.11.0：旧约束"每种 kind 只有一条 active"改为"每个操作只有一条 active"。
+      // 否则两个独立调整会互相 supersede（DFR-004），而周期预排仍按稳定 operationId
+      // `recurring-lookahead` 保持"只有一条"。
+      'DROP INDEX IF EXISTS idx_pending_preview_active_kind',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_preview_active_operation '
+          "ON pending_plan_previews (kind, operation_id) WHERE status = 'active'",
+      'CREATE INDEX IF NOT EXISTS idx_pending_preview_operation '
+          'ON pending_plan_previews (operation_id, created_at_utc)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与执行索引同口径：只忽略“目标表尚不存在”的中间版本校验。
+      }
+    }
+  }
+
+  /// 执行表的索引。
+  ///
+  /// `execution_progress_anchors` 的"每任务只有一个当前检查点"用**部分唯一索引**表达：
+  /// SQLite 的行级 CHECK 管不了跨行唯一性，而把 `is_current` 放进联合主键又允许两个 true。
+  /// 索引在 `beforeOpen` 里用 `IF NOT EXISTS` 补，因此迁移与全新库共用一份定义。
+  Future<void> _createExecutionIndexes() async {
+    const statements = [
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_progress_anchor_current '
+          'ON execution_progress_anchors (task_id) WHERE is_current = 1',
+      'CREATE INDEX IF NOT EXISTS idx_execution_occurrences_task '
+          'ON execution_occurrences (task_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_occurrences_plan '
+          'ON execution_occurrences (origin_plan_version_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_events_occurrence '
+          'ON execution_events (occurrence_id, occurred_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_segments_session '
+          'ON execution_activity_segments (session_id, start_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_credits_target '
+          'ON execution_credit_allocations (target_kind, target_id)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_reminder_occurrence '
+          'ON execution_reminder_intents (occurrence_id, revision)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_outbox_pending '
+          'ON execution_outbox (processed_at_utc, next_attempt_at_utc)',
+      'CREATE INDEX IF NOT EXISTS idx_execution_operations_subject '
+          'ON execution_operations (subject_kind, subject_id)',
+    ];
+    for (final statement in statements) {
+      try {
+        await customStatement(statement);
+      } on Exception {
+        // 与周期索引同口径：只有"目标表还不存在"会走到这里（中间版本的 schema verifier）。
+        // 其它失败会在紧随其后的真实查询上以更准确的形式暴露。
       }
     }
   }

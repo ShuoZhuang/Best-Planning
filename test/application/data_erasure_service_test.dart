@@ -3,6 +3,7 @@ import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 void main() {
   test('只有明确确认短语才清除数据库、索引、通知和锁凭据', () async {
@@ -10,11 +11,14 @@ void main() {
     final index = _BackupIndex();
     final notifications = _Notifications();
     final credentials = InMemoryAppLockCredentialStore('hash-only');
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
     final service = DataErasureService(
       database: database,
       backupIndex: index,
       notifications: notifications,
       credentials: credentials,
+      updateSafety: safety,
     );
 
     expect(await service.eraseAll('删除'), ErasureStatus.confirmationMismatch);
@@ -29,6 +33,7 @@ void main() {
     expect(notifications.cancelled, {'planner.one', 'planner.two'});
     expect(await credentials.read(), isNull);
     expect(index.externalExportsDeleted, isFalse);
+    expect(safety.status.canInstall, isTrue);
   });
 }
 

@@ -9,6 +9,7 @@ import 'package:personal_planner/domain/models/calendar_event.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/design/planner_localization.dart';
 import 'package:personal_planner/features/calendar/event_editor/event_editor_form.dart';
 
@@ -388,6 +389,49 @@ void main() {
       isNull,
       reason: '原项目属于学业，换到科研后必须清掉，而不是留下跨领域的组合',
     );
+  });
+
+  testWidgets('编辑固定日程时报告未保存，保存后清除（UPD-028）', (tester) async {
+    final repository = _MemoryCalendarRepository();
+    final service = CalendarService(
+      repository: repository,
+      recurringRepository: repository,
+      clock: _Clock(),
+      idGenerator: _Ids(),
+      zones: TimeZoneDatabase(),
+    );
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: PlannerLocalization.locale,
+        localizationsDelegates: PlannerLocalization.delegates,
+        supportedLocales: PlannerLocalization.supportedLocales,
+        home: Scaffold(
+          body: EventEditorForm(
+            service: service,
+            initialStartUtc: DateTime.utc(2026, 10, 2, 1),
+            initialEndUtc: DateTime.utc(2026, 10, 2, 3),
+            timeZoneId: 'Europe/Berlin',
+            zones: TimeZoneDatabase(),
+            updateSafety: safety,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(safety.status.canInstall, isTrue, reason: '纯查看不应阻塞更新');
+
+    await tester.enterText(find.byKey(const Key('event-title')), '社团会议');
+    await tester.pumpAndSettle();
+    expect(safety.status.blockers, contains(UpdateBlocker.unsavedChanges));
+
+    await tester.ensureVisible(find.text('保存日程'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存日程'));
+    await tester.pumpAndSettle();
+
+    expect(safety.status.canInstall, isTrue);
   });
 }
 

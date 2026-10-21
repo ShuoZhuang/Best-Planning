@@ -10,35 +10,65 @@ import 'package:personal_planner/application/academic_calendar_service.dart';
 import 'package:personal_planner/application/app_version_provider.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
-import 'package:personal_planner/application/day_exception_service.dart';
-import 'package:personal_planner/application/extension_day_service.dart';
-import 'package:personal_planner/application/extension_rejection_store.dart';
+import 'package:personal_planner/application/execution/execution_availability.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
+import 'package:personal_planner/application/execution/execution_plan_linker.dart';
+import 'package:personal_planner/application/execution/execution_recovery_service.dart';
+import 'package:personal_planner/application/execution/execution_reminder_coordinator.dart';
+import 'package:personal_planner/application/execution/execution_service.dart';
+import 'package:personal_planner/application/execution/settings_execution_notifications.dart';
 import 'package:personal_planner/application/export_service.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/focus_evidence_recorder.dart';
 import 'package:personal_planner/application/notification_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/defer_time_policy.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
+import 'package:personal_planner/application/plan_change_outbox_dispatcher.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
 import 'package:personal_planner/application/recurring_notification_service.dart';
+import 'package:personal_planner/application/pending_plan_preview_service.dart';
+import 'package:personal_planner/application/recurring_cycle_maintenance_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
+import 'package:personal_planner/application/recurring_startup_coordinator.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
-import 'package:personal_planner/application/preference_evidence_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/repository_schedule_problem_source.dart';
 import 'package:personal_planner/application/repository_recurring_cycle_reader.dart';
 import 'package:personal_planner/application/settings_service.dart';
-import 'package:personal_planner/application/special_day_planning_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_check_scheduler.dart';
-import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/update/update_baseline_service.dart';
+import 'package:personal_planner/application/update/update_feature_flag.dart';
+import 'package:personal_planner/application/update/update_check_scheduler.dart';
+import 'package:personal_planner/application/update/update_health_service.dart';
+import 'package:personal_planner/application/update/update_install_service.dart';
+import 'package:personal_planner/application/update/update_snapshot_service.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/application/update/update_orchestrator.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
+import 'package:personal_planner/domain/update/update_settings.dart';
+import 'package:personal_planner/infrastructure/update/ed25519_manifest_verifier.dart';
+import 'package:personal_planner/infrastructure/update/file_update_manifest_cache.dart';
+import 'package:personal_planner/infrastructure/update/file_update_lock.dart';
+import 'package:personal_planner/infrastructure/update/file_update_state_store.dart';
+import 'package:personal_planner/infrastructure/update/http_update_manifest_repository.dart';
+import 'package:personal_planner/infrastructure/update/resumable_package_downloader.dart';
+import 'package:personal_planner/infrastructure/update/update_log_store.dart';
+import 'package:personal_planner/infrastructure/update/update_package_verifier.dart';
+import 'package:personal_planner/infrastructure/update/update_storage_layout.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/app/planner_app.dart';
@@ -53,13 +83,17 @@ import 'package:personal_planner/data/repositories/drift_calendar_repository.dar
 import 'package:personal_planner/data/repositories/drift_course_series_repository.dart';
 import 'package:personal_planner/data/repositories/drift_academic_calendar_repository.dart';
 import 'package:personal_planner/data/repositories/drift_analytics_event_log.dart';
-import 'package:personal_planner/data/repositories/drift_day_exception_repository.dart';
 import 'package:personal_planner/data/repositories/drift_export_data_source.dart';
 import 'package:personal_planner/data/repositories/drift_focus_entry_store.dart';
 import 'package:personal_planner/data/repositories/drift_life_area_lookup.dart';
+import 'package:personal_planner/data/repositories/drift_adjustment_execution_evidence.dart';
+import 'package:personal_planner/data/repositories/drift_pending_plan_preview_repository.dart';
+import 'package:personal_planner/data/repositories/drift_plan_adjustment_repository.dart';
 import 'package:personal_planner/data/repositories/drift_plan_repository.dart';
 import 'package:personal_planner/data/repositories/drift_preference_evidence_repository.dart';
-import 'package:personal_planner/data/repositories/drift_preference_rule_repository.dart';
+import 'package:personal_planner/domain/models/recurring_task.dart'
+    show formatLocalDate;
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_settings_repository.dart';
 import 'package:personal_planner/data/repositories/drift_tag_repository.dart';
@@ -78,7 +112,13 @@ import 'package:personal_planner/platform/diagnostics/file_diagnostic_log.dart';
 import 'package:personal_planner/platform/notifications/diagnostic_notification_port.dart';
 import 'package:personal_planner/platform/notifications/windows_notification_adapter.dart';
 import 'package:personal_planner/platform/ocr/windows_timetable_ocr.dart';
-import 'package:personal_planner/platform/update/github_release_client.dart';
+import 'package:personal_planner/platform/update/network_status_monitor.dart';
+import 'package:personal_planner/platform/update/windows_disk_space_probe.dart';
+import 'package:personal_planner/platform/update/windows_package_info.dart';
+import 'package:personal_planner/platform/update/windows_process_probe.dart';
+import 'package:personal_planner/platform/update/windows_update_helper.dart';
+import 'package:personal_planner/platform/update/update_storage_selftest.dart';
+import 'package:personal_planner/platform/update/windows_update_storage.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
 import 'package:personal_planner/platform/files/file_appearance_mode_store.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -95,6 +135,15 @@ import 'package:personal_planner/scheduling/schedule_proposal.dart';
 /// `EmptyScheduleViewSource`，因此排程链路在真实运行中完全不可达（偏差 W1–W2）。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 已安装 MSIX 内的更新落盘自检（实施计划 §9.6）：只在设置了报告路径时运行，
+  // 跑完直接退出，不进入界面。正式用户环境不会触发。
+  final updateStorageSelfTestReport =
+      Platform.environment[updateStorageSelfTestEnvironmentKey];
+  if (updateStorageSelfTestReport != null &&
+      updateStorageSelfTestReport.isNotEmpty) {
+    exit(await runPackagedUpdateStorageSelfTest(updateStorageSelfTestReport));
+  }
 
   final appUserModelId = currentApplicationUserModelId(
     onProbeFailure: (error) => debugPrint('AUMID 探针不可用：$error'),
@@ -156,10 +205,12 @@ Future<void> main() async {
   //
   // 失败时**直接中止启动**（异常带可操作的中文提示）：迁移前的那份库是用户唯一的
   // 一份数据，宁可这次打不开，也不要带病迁过去。
+  final updateSafety = InMemoryUpdateSafetyCoordinator();
   try {
     final snapshot = await createPreMigrationSnapshotIfNeeded(
       databasePath,
       plannerSchemaVersion,
+      updateSafety: updateSafety,
     );
     diagnostics.write(
       snapshot == null
@@ -208,6 +259,7 @@ Future<void> main() async {
   final appVersions = const PackageInfoAppVersionProvider();
   final backups = await buildBackupService(
     database: database,
+    updateSafety: updateSafety,
     clock: clock,
     databasePath: databasePath,
     versions: () async {
@@ -278,27 +330,158 @@ Future<void> main() async {
     ),
   );
   final planRepository = DriftPlanRepository(database, clock: clock);
-  final dayExceptionRepository = DriftDayExceptionRepository(database);
-  final preferenceRuleRepository = DriftPreferenceRuleRepository(database);
   final settingsRepository = DriftSettingsRepository(database, clock);
 
-  // ── 更新检查（M8，路线图 §3.6 / Task 10／11）────────────────────────────────
+  // ── 原生自更新（2026-10-18 设计规格 §5 / §7 / §8）──────────────────────────
   //
-  // **这是本应用唯一的出网口**（见 `github_release_client.dart` 与
-  // `test/architecture/update_network_boundary_test.dart`）。三件事在此定下：
-  //   ① 版本来源是**安装包元数据**（`appVersions`），不是 `backup_assembly.dart` 的手写常量；
-  //   ② 自动检查由 `UpdateCheckScheduler` 在**启动约 10 秒后**跑一次，生命周期跟着
-  //      `PlannerApp`（`start()`／`dispose()`），**不建计划任务、不建常驻服务**；
-  //   ③ GitHub 匿名额度按 IP 共用，因此 10 秒延迟 + 24 小时窗口是必要的克制。
-  final updateService = UpdateService(
-    client: GithubReleaseClientImpl(),
-    clock: clock,
-    settings: settingsRepository,
-    versions: appVersions,
+  // 装配顺序固定：缓存根 → 目录 → 清单来源（验签 + 缓存）→ 状态/日志 → 编排器 → 界面控制器。
+  // 更新目录之外的业务数据不参与，也不允许被这条链读写。
+  //
+  // **缓存根必须先按包身份解析**（实施计划 §9.2.1）：已安装的 MSIX 下 `%LOCALAPPDATA%`
+  // 会被文件系统重定向到受保护目录，`.partial → .ready` 与 `state.json` 替换都会被拒绝。
+  // 已打包但原生解析失败时**不回退**：本次启动关闭应用内更新，并留下诊断。
+  ResolvedUpdateRoot? resolvedUpdateRoot;
+  UpdateStorageException? updateStorageFailure;
+  try {
+    resolvedUpdateRoot = await WindowsUpdateStorage().resolveRoot();
+  } on UpdateStorageException catch (error) {
+    updateStorageFailure = error;
+  }
+  final nativeUpdaterAvailable =
+      nativeUpdaterEnabled && resolvedUpdateRoot != null;
+  diagnostics.write(
+    resolvedUpdateRoot != null
+        ? '更新目录：root=${resolvedUpdateRoot.path} '
+              'source=${resolvedUpdateRoot.source}'
+              '${resolvedUpdateRoot.reason.isEmpty ? '' : ' reason=${resolvedUpdateRoot.reason}'}'
+        : '更新目录不可用：${updateStorageFailure?.diagnostic}（应用内更新本次不启用）',
   );
-  final updateCheckScheduler = UpdateCheckScheduler(
-    service: updateService,
+  final updateLayout = UpdateStorageLayout(
+    root: Directory(
+      resolvedUpdateRoot?.path ??
+          [
+            Directory.systemTemp.path,
+            'BestPlanning',
+            'Updates',
+            'disabled',
+          ].join(Platform.pathSeparator),
+    ),
+  );
+  final updateManifestVerifier = Ed25519ManifestVerifier();
+  final updateMainHelper = WindowsUpdateHelper(layout: updateLayout);
+  final updateInstalledPackages = WindowsInstalledPackageProvider(
+    updateMainHelper,
+  );
+  final updateManifestCache = FileUpdateManifestCache(
+    layout: updateLayout,
+    verifier: updateManifestVerifier,
+  );
+  // 1.11.0 的全局缓存没有请求身份：启动时先隔离，绝不把它当成 latest 复用。
+  await updateManifestCache.migrateLegacyIfNeeded();
+  final updateLog = FileUpdateLogStore(directory: updateLayout.logsDirectory);
+  final updateManifestSource = HttpUpdateManifestRepository(
+    cache: updateManifestCache,
+    verifier: updateManifestVerifier,
+    log: updateLog,
+  );
+  final updateHealth = UpdateHealthService(layout: updateLayout, clock: clock);
+  final updateSnapshotService = UpdateSnapshotService(
+    layout: updateLayout,
+    sources: defaultSnapshotSources(
+      databasePath: databasePath,
+      layout: updateLayout,
+    ),
     clock: clock,
+    // 冻结写入后的检查点：把 WAL 落盘，快照才是一致状态（规格 §13.1）。
+    checkpoint: () =>
+        database.customStatement('PRAGMA wal_checkpoint(TRUNCATE)'),
+  );
+  final updateProcessProbe = WindowsProcessIdentityProbe();
+  final updateLock = FileUpdateLock(
+    file: File('${updateLayout.root.path}${Platform.pathSeparator}update.lock'),
+    processProbe: updateProcessProbe,
+  );
+  final updateInstallService = UpdateInstallService(
+    layout: updateLayout,
+    helper: updateMainHelper,
+    snapshotService: updateSnapshotService,
+    processProbe: updateProcessProbe,
+    clock: clock,
+    dataDirectory: dataDirectoryFor(databasePath),
+    onRequestExit: () async {
+      // 助手已确认取得请求；先关数据库再退出，避免下次启动看到未刷新的 WAL。
+      await database.close();
+      exit(0);
+    },
+  );
+  final updateDownloader = ResumablePackageDownloader();
+  // 主程序侧的三层校验：大小、SHA-256、包身份；签名由助手再做一次（§10.2）。
+  final updatePackageVerifier = ZipUpdatePackageVerifier(
+    helper: updateMainHelper,
+  );
+  final updateBaselineService = UpdateBaselineService(
+    layout: updateLayout,
+    manifestSource: updateManifestSource,
+    downloader: updateDownloader,
+    verifier: updatePackageVerifier,
+    clock: clock,
+    diskSpace: WindowsDiskSpaceProbe(),
+  );
+  final updateOrchestrator = UpdateOrchestrator(
+    manifestSource: updateManifestSource,
+    stateStore: FileUpdateStateStore(file: updateLayout.stateFile),
+    installedPackages: updateInstalledPackages,
+    downloader: updateDownloader,
+    verifier: updatePackageVerifier,
+    layout: updateLayout,
+    safety: updateSafety,
+    log: updateLog,
+    clock: clock,
+    diskSpace: WindowsDiskSpaceProbe(),
+    windowsBuild: const WindowsBuildProbe().current,
+    helper: updateMainHelper,
+    installCoordinator: updateInstallService,
+    baselineService: updateBaselineService,
+    updateLock: updateLock,
+    processProbe: updateProcessProbe,
+  );
+  final updateController = UpdateController(
+    orchestrator: updateOrchestrator,
+    settings: JsonUpdateSettingsStore(settings: settingsRepository),
+    safety: updateSafety,
+  );
+  // 启动恢复只读状态文件与包身份，不发网络请求；失败也不阻止应用启动。
+  // 缓存根解析失败时不初始化：宁可这次不检查更新，也不写进一个会被重定向的目录。
+  if (nativeUpdaterAvailable) {
+    await updateController.initialize();
+  }
+  // 如果这次启动正是"助手装完新版后拉起来"的那一次，写健康确认（规格 §13.2）。
+  // `initialize()` 会把 installing/launchingNewVersion/waitingForHealth 收敛成 succeeded，
+  // 因此"这次是升级后首启"的证据由编排器单独保留，而不是靠已收敛的阶段判断。
+  final pendingHealthTransaction = updateController.pendingHealthTransaction;
+  final pendingHealthVersion = updateController.pendingHealthVersion;
+  if (nativeUpdaterAvailable &&
+      pendingHealthTransaction != null &&
+      pendingHealthVersion != null) {
+    await updateHealth.writeConfirmation(
+      transactionId: pendingHealthTransaction,
+      version: pendingHealthVersion,
+    );
+  }
+  // 健康确认写完之后才把目标包晋升为下一次更新所需的当前基线（INV-09）：
+  // 晋升失败只保留旧基线，不阻止应用启动。
+  if (nativeUpdaterAvailable) {
+    await updateController.confirmHealth();
+  }
+  // 后台建立回退基线（规格 §13.3）：基线完成前禁止安装，但允许下载新版本。
+  if (nativeUpdaterAvailable && updateController.autoUpdateEnabled) {
+    unawaited(updateController.ensureBaseline());
+  }
+
+  final updateCheckScheduler = UpdateCheckScheduler(
+    controller: updateController,
+    clock: clock,
+    networkMonitor: NetworkInterfaceStatusMonitor(),
   );
 
   // 规划规则（作息／保护时间规则／按日例外）会改变日历上的保护时间区间，因此成功保存后
@@ -332,16 +515,31 @@ Future<void> main() async {
     database,
     RecurringTaskDao(database),
   );
+  final recurringExecutionRepository = DriftRecurringExecutionRepository(
+    database,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final recurringTasks = RecurringTaskService(
     repository: recurringTaskRepository,
     clock: clock,
     idGenerator: UuidIdGenerator(),
     zones: zones,
     timeZoneId: timeZoneId,
+    snapshots: recurringExecutionRepository,
     // 与任务详情页共用同一个任务仓储：周期实例**就是**一件普通任务，它的剩余时长也是
     // 排程输入，因此必须是同一个写入口。
     tasks: taskRepository,
     onScheduleInputChanged: (change) => onScheduleInputChange(change),
+  );
+
+  final adjustmentRepository = DriftPlanAdjustmentRepository(
+    database,
+    clock: clock,
+  );
+  final planPreviewRepository = DriftPendingPlanPreviewRepository(
+    database,
+    clock: clock,
   );
 
   final problemSource = RepositoryScheduleProblemSource(
@@ -355,10 +553,11 @@ Future<void> main() async {
     zones: zones,
     pendingMoves: pendingMoves,
     pendingSkips: pendingSkips,
+    // 1.11.0：`loadForAdjustment` 要按调整自己的基线读取计划与目标块。
+    adjustments: adjustmentRepository,
     // M6（§3.4）：周期实例以"本周视角"进排程（截止＝本周末、只送剩余、允许星期）。
     recurring: recurringTasks,
-    dayExceptions: dayExceptionRepository,
-    preferenceRules: preferenceRuleRepository,
+    recurringSnapshots: recurringExecutionRepository,
   );
 
   // 通知此前完全没有生产装配：`NotificationService` 的四类通知、提前时间的钳制修正
@@ -508,6 +707,7 @@ Future<void> main() async {
   );
   final timetableImport = TimetableImportService(
     calendarRepository: calendarRepository,
+    updateSafety: updateSafety,
     zones: zones,
     importRepository: DriftTimetableImportRepository(
       database,
@@ -546,6 +746,7 @@ Future<void> main() async {
   // 因此界面必须如实说"重启后生效"。
   final erasure = buildDataErasureService(
     database: database,
+    updateSafety: updateSafety,
     databasePath: databasePath,
     notifications: notifications,
     credentials: SettingsAppLockCredentialStore(settingsRepository),
@@ -572,14 +773,6 @@ Future<void> main() async {
   // （只有测试调用），因此建议永远不会被生成。这里把两端接上——专注结束时写证据，
   // 打开偏好页时按证据重新分析。
   final preferenceEvidence = DriftPreferenceEvidenceRepository(database);
-  final preferenceEvidenceService = PreferenceEvidenceService(
-    evidence: preferenceEvidence,
-    clock: clock,
-    zones: zones,
-    timeZoneId: timeZoneId,
-    idGenerator: UuidIdGenerator(),
-    dayExceptions: dayExceptionRepository,
-  );
   final focusEvidence = FocusEvidenceRecorder(
     evidence: preferenceEvidence,
     tasks: taskRepository,
@@ -592,13 +785,8 @@ Future<void> main() async {
     // 那条排除逻辑一直都在——于是它永远筛不掉任何东西（结构就绪、数据恒为常量）。
     // 这里的口径与 spec §8.9 写下的一致：**当天存在按日例外即视为特殊日**，而按日例外的
     // 唯一写入方就是"临时放宽每日上限"那条入口（`SettingsService.saveDateOverride`）。
-    isSpecialDay: (localDate) async {
-      if ((await settingsService.loadDateOverride(localDate)) != null) {
-        return true;
-      }
-      // 算法 20：持久特殊日与把这一天作为恢复日的记录同样排除。
-      return (await dayExceptionRepository.listAffecting(localDate)).isNotEmpty;
-    },
+    isSpecialDay: (localDate) async =>
+        (await settingsService.loadDateOverride(localDate)) != null,
   );
   final focusService = FocusService(
     store: DriftFocusEntryStore(database),
@@ -660,30 +848,11 @@ Future<void> main() async {
     }
   }());
 
-  // 特殊日生命周期与配额（算法 20）。它与计划提交共用同一个数据库，但真正的
-  // "特殊日 + 计划 + 审计"原子性由 `DriftPlanRepository.commit` 保证。
-  final dayExceptionService = DayExceptionService(
-    repository: dayExceptionRepository,
-    settings: settingsService,
-    clock: clock,
-    zones: zones,
-    timeZoneId: timeZoneId,
-  );
-  final extensionDayService = ExtensionDayService(
-    settings: settingsService,
-    dayExceptions: dayExceptionService,
-    zones: zones,
-    clock: clock,
-    rejectionStore: SettingsExtensionRejectionStore(settingsRepository),
-    evidence: preferenceEvidenceService,
-  );
-
   // 排程服务：每次生成提案后把最近一份交给上面那个持有者，冲突通知因此有了真实来源。
   final planningService = PlanningService(
     source: problemSource,
     engine: DeterministicScheduleEngine(zones),
     onProposalCreated: (proposal) => latestProposal = proposal,
-    extensionDays: extensionDayService,
   );
   // 特殊日与次日恢复保护（Task 11）。C8 修复后例外是**提案输入**而不是持久设置，
   // 因此这条链路必须真正可达：页面早已存在，却从来没有路由（W3）。
@@ -694,31 +863,160 @@ Future<void> main() async {
 
   // 计划应用（FR-REPLAN-05 的过期拒绝也在这里）。提成具名变量是因为**自动重排也要用它**：
   // 与顶栏"生成计划"按钮走的是同一个应用入口，"信任自动调整"的两条路径因此不会各写一份。
+  //
+  // 1.11.0：计划写入与执行实例/块关联在**同一个事务**里提交（规范 §19.4、§19.5）。
+  final executionRepository = DriftExecutionRepository(
+    database,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  final executionMetrics = ExecutionMetricsQuery(
+    repository: executionRepository,
+    clock: clock,
+  );
+  final executionLinker = ExecutionPlanLinker(
+    repository: executionRepository,
+    zones: zones,
+    idGenerator: UuidIdGenerator(),
+    clock: clock,
+    recurringRepository: recurringExecutionRepository,
+    cycleIdForTask: (taskId) async {
+      final cycle = await recurringTaskRepository.findCycleByTaskId(taskId);
+      if (cycle == null) return null;
+      return '${cycle.templateId}:'
+          '${formatLocalDate(cycle.periodStartLocalDate)}';
+    },
+  );
+  final executionNotifications = SettingsExecutionNotifications(
+    settings: settingsService,
+    zones: zones,
+    timeZoneId: timeZoneId,
+  );
+  final executionAvailability = ScheduleExecutionAvailability(
+    source: problemSource,
+    tasks: taskRepository,
+    clock: clock,
+  );
+  late final ExecutionReminderCoordinator executionReminders;
+  final executionService = DriftExecutionService(
+    repository: executionRepository,
+    tasks: taskRepository,
+    clock: clock,
+    monotonicClock: StopwatchMonotonicClock(),
+    idGenerator: UuidIdGenerator(),
+    availability: executionAvailability,
+    notificationSettings: executionNotifications,
+    updateSafety: updateSafety,
+    onChanged: () => unawaited(executionReminders.reconcile()),
+  );
+  executionReminders = ExecutionReminderCoordinator(
+    repository: executionRepository,
+    notifications: notifications,
+    clock: clock,
+    settings: executionNotifications,
+  );
+  final executionController = ExecutionController(
+    service: executionService,
+    tasks: taskRepository,
+    notifications: executionNotifications,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+    availability: executionAvailability,
+  );
+  final transportGuard = InternalTransportTaskGuard(recurringTaskRepository);
+  final recurringProgressService = RecurringProgressService(
+    repository: recurringExecutionRepository,
+    executionRepository: executionRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
+  final executionRecoveryController = ExecutionRecoveryController(
+    service: DriftExecutionRecoveryService(
+      repository: executionRepository,
+      tasks: taskRepository,
+      plans: planRepository,
+      baseSource: problemSource,
+      engine: DeterministicScheduleEngine(zones),
+      zones: zones,
+      timeZoneId: timeZoneId,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+      linker: executionLinker,
+    ),
+    repository: executionRepository,
+    tasks: taskRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
+  );
   final planApplication = PlanApplicationService(
     source: problemSource,
+    updateSafety: updateSafety,
     repository: planRepository,
     zones: zones,
+    planTransactionApplier: planRepository,
+    afterApplied: (plan, proposal, current) => executionLinker.linkAppliedPlan(
+      plan: plan,
+      proposal: proposal,
+      timeZoneId: current.timeZoneId,
+    ),
     // B5：计划被真的改变后重新同步提醒。
     //
     // **先同步提醒，再发失效信号**（计划 §2.6）：提醒同步失败（它内部已经吞掉平台错误，
     // 但仓储层仍可能抛）**不得**让"计划已经落库"这件事在界面上变成没发生。
     // `try/finally` 保证信号一定发出去，页面因此读回真实的已提交结果。
     onPlanChanged: invalidation.planAfter(resyncNotifications),
-    preferenceEvidence: preferenceEvidenceService,
-    areaIdForTask: (taskId) async =>
-        (await taskRepository.getById(taskId))?.areaId,
   );
-  // 特殊日确认编排：特殊日事实 + 新计划 + 审计由一个事务提交（规范 §8.3）。
-  final specialDayPlanning = SpecialDayPlanningService(
-    planning: planningService,
+
+  // 提交后副作用：事务只入队，dispatcher 负责重试（DFR-016）。
+  final planChangeOutbox = PlanChangeOutboxDispatcher(
+    database: database,
+    clock: clock,
+    onPlanChanged: (_) async => resyncNotifications(),
+  );
+
+  // 1.11.0：「延后本次」的持久服务。生成、确认、撤销与重启恢复都走它；
+  // 今日页只在装配了它时才显示"持久预览"入口（否则退回 1.8.0 内存路径）。
+  final planAdjustmentService = PlanAdjustmentService(
+    plans: planRepository,
+    tasks: taskRepository,
+    adjustments: adjustmentRepository,
+    previews: planPreviewRepository,
+    source: problemSource,
+    engine: DeterministicScheduleEngine(zones),
+    policy: DeferTimePolicy(zones),
+    clock: clock,
+    ids: UuidIdGenerator(),
+    // 粒度只能从**规则服务**读取：写死 5 分钟会让"周末 10 分钟"在延后路径上失效。
+    granularityForDate: (localDate) async =>
+        (await settingsService.resolveForDate(localDate))
+            .rules
+            .granularityMinutes,
+    zones: zones,
+    applier: planRepository,
+    executionEvidence: DriftAdjustmentExecutionEvidence(database),
+    // 应用成功后立刻消费一次 outbox；失败不影响已提交结果。
+    onAppliedSideEffects: planChangeOutbox.dispatch,
+    timeZoneId: timeZoneId,
+  );
+
+  final pendingPreviewService = PendingPlanPreviewService(
+    repository: recurringExecutionRepository,
+    plans: planRepository,
+    clock: clock,
+    idGenerator: UuidIdGenerator(),
     application: planApplication,
-    settings: settingsService,
+    titleForTask: (taskId) async =>
+        (await taskRepository.getById(taskId))?.title,
+  );
+  final recurringMaintenance = RecurringCycleMaintenanceService(
+    cycles: recurringTasks,
+    previews: pendingPreviewService,
+    plans: planRepository,
+    creator: planningService,
     zones: zones,
     timeZoneId: timeZoneId,
     clock: clock,
-    dayExceptionService: dayExceptionService,
-    problemSource: problemSource,
-    extensionDays: extensionDayService,
+    trustAutoAdjust: () => autoAdjustStore.enabled,
   );
 
   // "领域变化 → 自动重排"（FR-REPLAN-01/03/04/05；§13.0 的 W9 的 (b)）。
@@ -756,27 +1054,8 @@ Future<void> main() async {
   // **不 await**：周期目标不是启动的必要条件，且它的生成会触发一次重排（走上面的 lambda）。
   // 但**必须记诊断**——"这周没有目标实例"是用户会报的现象，而 Release 里没有其它线索。
   //
-  // 窗口取滚动七天（与排程窗口同形），因此跨周不重启也会在下次生成计划时补齐；
-  // 幂等由 `(模板, 周)` 主键保证，重复启动不会重复生成。
-  unawaited(() async {
-    try {
-      final nowUtc = clock.nowUtc();
-      final run = await recurringTasks.ensureCycles(
-        TimeRange(
-          startUtc: nowUtc,
-          endUtc: nowUtc.add(const Duration(days: 7)),
-        ),
-        nowUtc,
-      );
-      diagnostics.write(
-        '周期目标：新建 ${run.createdCount} 个，结算 ${run.settledCount} 个，'
-        '窗口内共 ${run.cycles.length} 个',
-      );
-    } on Object catch (error, stackTrace) {
-      debugPrint('生成周期目标失败：$error');
-      diagnostics.write('生成周期目标失败：$error\n$stackTrace');
-    }
-  }());
+  // 实际执行已移入 `RecurringStartupCoordinator`（fragmentBackfill → creditCheck →
+  // horizonMaintenance → previewRefresh → reminderReconcile），保证顺序与 typed stage。
 
   // 启动时就把**已存的**关闭行为下发给宿主窗口。放在这里而不是等用户打开设置页：用户上次
   // 若选了"收进后台"，这次启动点关闭却直接退出，就等于设置没生效。
@@ -794,6 +1073,61 @@ Future<void> main() async {
       diagnostics.write('窗口行为下发失败：$error');
     }
   }());
+
+  // 1.11.0：启动时把上次未结束的实时会话标成"待确认"，不结算未知停机时长。
+  unawaited(executionController.recoverOnStart());
+
+  // 1.11.0 Task 17：启动/恢复按固定顺序执行 typed stage；任一阶段失败即停，
+  // 已提交阶段保持幂等，下次启动可继续。
+  final startupCoordinator = RecurringStartupCoordinator(
+    stages: {
+      RecurringStartupStage.fragmentBackfill: () async {
+        final currentPlan = await planRepository.current();
+        if (currentPlan != null) {
+          await executionLinker.backfillFragments(currentPlan.id);
+        }
+      },
+      RecurringStartupStage.creditCheck: () async {
+        final issues = await executionRepository.creditOverAllocations();
+        if (issues.isNotEmpty) {
+          throw StateError('信用超额分配：${issues.join(', ')}');
+        }
+      },
+      RecurringStartupStage.horizonMaintenance: () async {
+        final nowUtc = clock.nowUtc();
+        final run = await recurringTasks.ensureCycles(
+          TimeRange(
+            startUtc: nowUtc,
+            endUtc: nowUtc.add(const Duration(days: 7)),
+          ),
+          nowUtc,
+        );
+        diagnostics.write(
+          '周期目标：新建 ${run.createdCount} 个，结算 ${run.settledCount} 个，'
+          '窗口内共 ${run.cycles.length} 个',
+        );
+      },
+      RecurringStartupStage.previewRefresh: () async {
+        await recurringMaintenance.maintain();
+      },
+      RecurringStartupStage.reminderReconcile: () =>
+          executionReminders.reconcile(),
+    },
+  );
+  unawaited(() async {
+    final report = await startupCoordinator.run();
+    diagnostics.write(
+      report.succeeded
+          ? '启动编排完成：${report.completed.map((stage) => stage.name).join(' → ')}'
+          : '启动编排失败于 ${report.failedStage?.name}：${report.error}；'
+                '已完成 ${report.completed.map((stage) => stage.name).join(' → ')}',
+    );
+  }());
+
+  // 启动后消费一次上次遗留的提交后副作用（通知重排等）；失败只留在 outbox 里重试。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(planChangeOutbox.dispatch());
+  });
 
   runApp(
     ProviderScope(
@@ -823,6 +1157,14 @@ Future<void> main() async {
         exportService: exportService,
         // 任务详情页的"开始专注"入口与 /focus/:taskId 路由（FR-FOCUS-01）。
         focusService: focusService,
+        // 1.11.0：今日页执行卡与轻量执行条。
+        execution: executionController,
+        executionRecovery: executionRecoveryController,
+        recurringProgress: recurringProgressService,
+        recurringFragments: recurringExecutionRepository,
+        executionOutbox: executionRepository,
+        transportGuard: transportGuard,
+        executionMetrics: executionMetrics,
         // 偏好页的分析输入（FR-PREF-03 的样本积累靠历史证据，因此给一个足够长的窗口）。
         loadPreferenceEvidence: () => preferenceEvidence.since(
           clock.nowUtc().subtract(const Duration(days: 180)),
@@ -876,6 +1218,8 @@ Future<void> main() async {
         pendingMoves: pendingMoves,
         // M4「跳过本次」：同样与排程输入来源共用同一实例。
         pendingSkips: pendingSkips,
+        // 1.11.0：持久化「延后本次」服务（确认、撤销、重启恢复都由它提供）。
+        adjustmentService: planAdjustmentService,
         analytics: AnalyticsService(
           // 固定日程的展开与例外处理复用同一个日历仓储：统计层的「领域时间分配」必须把课表算进去，
           // 而展开规则（重复、跨午夜例外、"这一次被删除"的零长度标记）只应有一份实现。
@@ -892,14 +1236,16 @@ Future<void> main() async {
         backups: backups,
         erasure: erasure,
         // M8：更新检查。服务给设置页与路由用，调度器只负责启动后的那一次自动检查。
-        updateService: updateService,
+        updateController: nativeUpdaterAvailable ? updateController : null,
         // M6：周期目标的生成、结算与三条路由（§3.3）。
         recurringTasks: recurringTasks,
-        updateCheckScheduler: updateCheckScheduler,
+        onAppResumed: () => recurringMaintenance.maintain(),
+        updateCheckScheduler: nativeUpdaterAvailable
+            ? updateCheckScheduler
+            : null,
         preferences: PreferenceService(
           analyzer: const RuleBasedPreferenceAnalyzer(),
           store: SettingsPreferenceStore(settingsRepository),
-          ruleRepository: preferenceRuleRepository,
         ),
         zones: zones,
         timeZoneId: timeZoneId,
@@ -912,7 +1258,6 @@ Future<void> main() async {
         timetableOcr: WindowsTimetableOcr(),
         timetableImport: timetableImport,
         planApplication: planApplication,
-        specialDayPlanning: specialDayPlanning,
         // 同一份失效总线交给数据源（Plan §2.6）：三个日历视图共用一个 app-scoped 实例，
         // 因此任何一处成功写入都让它们同时刷新。
         scheduleInvalidation: scheduleInvalidation,
@@ -928,6 +1273,7 @@ Future<void> main() async {
           timeZoneId: timeZoneId,
           // M6（§3.3 最后一条）：卡片上那一行"本周已完成 x/y 分钟"。
           recurring: recurringTasks,
+          recurringFragments: recurringExecutionRepository,
           // **生产装配必须传**：不传就退回"只在任务流变化时重载"，固定日程、计划、
           // 规划规则、配色与领域的写入都不会刷新（那正是 R9 的形态）。
           invalidation: scheduleInvalidation,

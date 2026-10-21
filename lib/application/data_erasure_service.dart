@@ -1,6 +1,7 @@
 import 'package:personal_planner/application/backup_service.dart';
 import 'package:personal_planner/domain/repositories/notification_port.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 enum ErasureStatus { completed, confirmationMismatch }
 
@@ -10,6 +11,7 @@ final class DataErasureService {
     this.backupIndex,
     required this.notifications,
     required this.credentials,
+    this.updateSafety,
   });
 
   static const confirmationPhrase = '永久删除我的全部本地数据';
@@ -24,6 +26,9 @@ final class DataErasureService {
   final NotificationPort notifications;
   final AppLockCredentialStore credentials;
 
+  /// 永久清除期间的更新阻塞端口（UPD-029，归入数据库事务）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
+
   /// 执行永久清除。
   ///
   /// **最后一步是"安排删库"，不是"当场删库"**：见 `lib/app/backup_assembly.dart` 的
@@ -35,6 +40,15 @@ final class DataErasureService {
     if (confirmation != confirmationPhrase) {
       return ErasureStatus.confirmationMismatch;
     }
+    final lease = updateSafety?.begin(UpdateBlocker.databaseTransaction);
+    try {
+      return await _eraseAll();
+    } finally {
+      lease?.release();
+    }
+  }
+
+  Future<ErasureStatus> _eraseAll() async {
     final pending = await notifications.pendingNotifications();
     for (final notification in pending) {
       await notifications.cancel(notification.id);

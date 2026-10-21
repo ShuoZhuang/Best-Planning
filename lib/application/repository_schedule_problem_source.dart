@@ -1,6 +1,7 @@
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/planning_rule_resolver.dart';
 import 'package:personal_planner/application/confirmed_block_partition.dart';
 import 'package:personal_planner/application/planning_service.dart';
@@ -10,17 +11,17 @@ import 'package:personal_planner/application/schedule_window_admission.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/core/clock.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/day_exception.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/preferences.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_adjustment_repository.dart';
 import 'package:personal_planner/domain/repositories/calendar_repository.dart';
-import 'package:personal_planner/domain/repositories/day_exception_repository.dart';
 import 'package:personal_planner/domain/repositories/life_area_lookup.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
-import 'package:personal_planner/domain/repositories/preference_rule_repository.dart';
 import 'package:personal_planner/domain/repositories/task_repository.dart';
 import 'package:personal_planner/scheduling/availability_builder.dart';
 import 'package:personal_planner/scheduling/course_transition.dart';
@@ -30,6 +31,8 @@ import 'package:personal_planner/scheduling/local_repair.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/protected_time_expander.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/scheduling/recurring_cycle_capacity.dart';
+import 'package:personal_planner/scheduling/recurring_pace_curve.dart';
 
 /// 生产用的排程输入来源：把持久化的事实数据装配成 `ScheduleProblem`。
 ///
@@ -51,7 +54,8 @@ import 'package:personal_planner/scheduling/schedule_problem.dart';
 /// 已知缺口：`PreferenceProfile` 目前传入空值。学习偏好已由
 /// `SettingsService.resolveForDate` 合并进 `rules`，但计划模型中的
 /// `preferences` 字段（常用专注长度、偏好精力区间）尚无公开读取路径。
-final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
+final class RepositoryScheduleProblemSource
+    implements ScheduleProblemSource, AdjustmentProblemSource {
   RepositoryScheduleProblemSource({
     required this.tasks,
     required this.lifeAreas,
@@ -66,8 +70,8 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     this.pendingMoves,
     this.pendingSkips,
     this.recurring,
-    this.dayExceptions,
-    this.preferenceRules,
+    this.recurringSnapshots,
+    this.adjustments,
   }) : protectedTimes = ProtectedTimeExpander(zones),
        rules = PlanningRuleResolver(settings);
   final TaskRepository tasks;
@@ -95,17 +99,24 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
   /// 周期目标的生成与进度（M6）。**为空时行为与从前完全一致**：周期实例仍会作为普通任务
   /// 参与排程（它本来就在 `tasks` 里），只是不带"本周视角"的截止时间与剩余量。
   final RecurringTaskService? recurring;
+  final DriftRecurringExecutionRepository? recurringSnapshots;
 
-  /// 特殊日事实来源（算法 20，规范 §5.1）。为空时行为与算法 19 完全一致。
-  final DayExceptionRepository? dayExceptions;
-
-  /// 已确认学习偏好规则来源（算法 20，规范 §9.5）。为空时快照为空。
-  final PreferenceRuleRepository? preferenceRules;
+  /// 调整仓储：`loadForAdjustment` 用它读取**调整自己的基线**（计划 Task 5 Step 4）。
+  ///
+  /// 为空时普通 `load` 行为完全不变；只有调整路径需要它，因此不给全部测试夹具
+  /// 增加一个必须装配的依赖。
+  final PlanAdjustmentRepository? adjustments;
 
   @override
-  Future<ScheduleProblem> load({ScheduleRuleOverride? override}) async {
+  Future<ScheduleProblem> load({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+    BlockAdjustmentContext? adjustmentContext,
+    DateTime? windowEndUtc,
+  }) async {
     final nowUtc = clock.nowUtc();
-    final startLocalDate = _dateOnly(zones.toLocal(nowUtc, timeZoneId));
+    final windowStartUtc = window?.startUtc ?? nowUtc;
+    final startLocalDate = _dateOnly(zones.toLocal(windowStartUtc, timeZoneId));
     // ── 窗口起点是"现在"，不是当天本地午夜（路线图 Task 12A Step 5）──────────────
     //
     // 引擎判断"现在"用的就是 `planningWindow.startUtc`（`_targetFor` 里
@@ -135,83 +146,40 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       override: override,
     );
     final dayStartUtc = zones.localMidnightToUtc(startLocalDate, timeZoneId);
-    final startUtc = _ceilToGranularity(
-      nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
-      granularityMinutes: resolvedRules.granularityMinutes,
-    );
-    final endUtc = zones.localMidnightToUtc(
-      startLocalDate.add(Duration(days: days)),
-      timeZoneId,
-    );
+    final startUtc = window == null
+        ? _ceilToGranularity(
+            nowUtc.isAfter(dayStartUtc) ? nowUtc : dayStartUtc,
+            granularityMinutes: resolvedRules.granularityMinutes,
+          )
+        : (window.startUtc.isAfter(nowUtc) ? window.startUtc : nowUtc);
+    final defaultEndUtc =
+        window?.endUtc ??
+        zones.localMidnightToUtc(
+          startLocalDate.add(Duration(days: days)),
+          timeZoneId,
+        );
+    // 调整专属窗口只能**扩大**：`max(默认窗口终点, adjustmentWindowEnd)`。
+    // 缩小会让延后 1–7 天的合法目标被截掉，表现为莫名其妙的无解。
+    final endUtc = windowEndUtc != null && windowEndUtc.isAfter(defaultEndUtc)
+        ? windowEndUtc
+        : defaultEndUtc;
 
     // ── 逐日规则与逐周生活配额（算法 17，计划 Task 2 Step 3）─────────────────────
     //
     // **这一段必须排在"硬占用区间"之前**：保护时间与睡眠此后按**当天规则**展开，
     // 而"当天规则"就是这里算出来的。修复前它们用 `resolvedRules`（窗口首日）展开，
     // 于是"周末睡眠不同""周末上限更高"这类设置整周都不生效（计划 §1.2 第 1 条）。
-    // ── 特殊日事实：只读取已确认、且日期落在本次窗口内的记录 ────────────────────
-    //
-    // 读取范围向前后各扩一天：前一天的记录可能把今天作为恢复日；后一天的恢复日可能
-    // 落在窗口最后一天。草稿/撤销/过期一律在这里过滤掉——**只有 confirmed 才生效**
-    // （规范 §8.1 / ALG20-008）。
-    final windowFirstDate = startLocalDate;
-    final windowLastDate = DateTime(
-      startLocalDate.year,
-      startLocalDate.month,
-      startLocalDate.day + days - 1,
-    );
-    final dayExceptionRepository = dayExceptions;
-    final confirmedDayExceptions = <DayException>[
-      if (dayExceptionRepository != null)
-        ...(await dayExceptionRepository.listBetween(
-          DateTime(
-            windowFirstDate.year,
-            windowFirstDate.month,
-            windowFirstDate.day - 1,
-          ),
-          DateTime(
-            windowLastDate.year,
-            windowLastDate.month,
-            windowLastDate.day + 1,
-          ),
-        )).where((value) => value.status == DayExceptionStatus.confirmed),
-    ];
-    // 本次生成的**一次性特殊日事实**（确认前的草稿只在内存里）：它必须先并入
-    // 逐日策略与输入哈希，确认阶段才能用同一个 override 重放出同一份提案。
-    final overrideDayException = override?.dayException;
-    if (overrideDayException != null &&
-        overrideDayException.status == DayExceptionStatus.confirmed &&
-        !confirmedDayExceptions.any(
-          (value) => value.id == overrideDayException.id,
-        )) {
-      confirmedDayExceptions.add(overrideDayException);
-    }
-    final dayExceptionByDate = <DateTime, DayException>{
-      for (final value in confirmedDayExceptions)
-        if (value.localDate == normalizeLocalDate(value.localDate))
-          value.localDate: value,
-    };
-
-    // ── 学习偏好快照：一次读取，之后不再查库 ──────────────────────────────────
-    final preferenceRuleRepository = preferenceRules;
-    final learningEnabled = await settings.loadLearningEnabled();
-    final learnedRules = preferenceRuleRepository == null
-        ? const <LearnedPreferenceRule>[]
-        : await preferenceRuleRepository.listAll();
-    final preferenceSnapshot = buildPreferenceSnapshot(
-      enabled: learningEnabled,
-      rules: learnedRules,
-    );
-
     final dailyPoliciesResult = await _dailyPoliciesFor(
       startUtc: startUtc,
       endUtc: endUtc,
       override: override,
-      dayExceptionByDate: dayExceptionByDate,
     );
     final windowDates = dailyPoliciesResult.windowDates;
     final dailyPolicies = dailyPoliciesResult.policies;
     final weeklyLifeQuotaByWeekStart = dailyPoliciesResult.weeklyLifeQuota;
+
+    // **先维护周期、再读 open tasks**：否则库中尚无本周载体时，首次生成计划会漏掉它。
+    final recurringInputs = await _recurringInputs(nowUtc);
 
     final openTasks = await tasks.watchOpenTasks().first;
     final lifeTaskIds = await lifeAreas.lifeTaskIds();
@@ -250,8 +218,11 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     //
     // 现在只组装一个**块级**上下文交给引擎。目标块必须真实存在于确认计划里，
     // 否则这条请求无法表达为块级调整——**也不退回任务级模拟**。
-    BlockAdjustmentContext? adjustment;
-    final deferDrafts = pendingMoves;
+    //
+    // 1.11.0 起调整走 `loadForAdjustment` 显式传入 [adjustmentContext]；内存草稿
+    // 只保留给尚未迁移的旧路径（生产 router 不再写它）。
+    BlockAdjustmentContext? adjustment = adjustmentContext;
+    final deferDrafts = adjustment == null ? pendingMoves : null;
     final confirmedBlocksForDefer = confirmed?.blocks ?? const <PlannedBlock>[];
     if (deferDrafts != null) {
       final request = deferDrafts.adjustment;
@@ -320,7 +291,6 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         continue;
       }
       if (!admission.entersSchedule) continue;
-      final learned = preferenceSnapshot.forTask(areaId: task.areaId);
       schedulable.add(
         SchedulableTask(
           id: task.id,
@@ -336,10 +306,7 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           energyLevel: task.energyLevel,
           // 生活配额因子此前恒为 0，因为这里从未设置该字段。
           isLifeTask: lifeTaskIds.contains(task.id),
-          areaId: task.areaId,
-          // **用户长期手动设置优先于学习偏好**（规范 §4.1/§9.5）：任务自己有期望
-          // 时段时不再被领域偏好覆盖。
-          preferredWindow: task.preferredWindow ?? learned?.preferredWindow,
+          preferredWindow: task.preferredWindow,
         ),
       );
     }
@@ -359,10 +326,28 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 不同 id、本次窗口根本不覆盖的幽灵任务 —— 预览因此显示两条一模一样的缺口。
     //
     // **过滤掉而不是重复添加**：同一个 id 出现两次会让引擎把同一份剩余时长安排两遍。
-    final recurringInputs = await _recurringInputs(nowUtc);
     if (recurringInputs.isNotEmpty) {
+      final capacityBusy = <TimeRange>[
+        for (final block in confirmed?.blocks ?? const <PlannedBlock>[])
+          block.range,
+        for (final occurrence in occurrences) occurrence.range,
+        for (final interval in protectedTimes.sleep(
+          rules: resolvedRules,
+          startUtc: nowUtc,
+          endUtc: endUtc,
+          timeZoneId: timeZoneId,
+        ))
+          interval.range,
+      ];
       for (final input in recurringInputs) {
-        final expanded = recurringSchedulableTasks(input: input, zones: zones);
+        final paced = _paceInput(
+          input,
+          capacityBusy,
+          nowUtc,
+          endUtc,
+          resolvedRules.dailyMovableTaskLimitMinutes,
+        );
+        final expanded = recurringSchedulableTasks(input: paced, zones: zones);
         for (final task in expanded) {
           // 只在与普通任务同 id 的那一份已经被移除后才加入；同时处理"同一 id 的多个窗口"
           // （selectedWeekdays）——它们**必须都留下**，否则只有第一天能被安排。
@@ -500,22 +485,12 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
         ),
     ];
     final sleepIntervals = <BusyInterval>[
-      // 窗口从本地 00:00 开始时，00:00–起床 属于**前一天**的睡眠。
-      ...protectedTimes.sleepForDate(
-        localDate: DateTime(
-          windowDates.first.year,
-          windowDates.first.month,
-          windowDates.first.day - 1,
-        ),
-        rules: dailyPolicies[windowDates.first]!.resolvedRules,
-        timeZoneId: timeZoneId,
-      ),
       for (final date in windowDates)
-        ...protectedTimes.sleepForDate(
-          localDate: date,
+        ...protectedTimes.sleep(
           rules: dailyPolicies[date]!.resolvedRules,
+          startUtc: zones.localMidnightToUtc(date, timeZoneId),
+          endUtc: zones.localMidnightToUtc(_nextLocalDate(date), timeZoneId),
           timeZoneId: timeZoneId,
-          dayException: dailyPolicies[date]!.dayException,
         ),
     ];
     final protectedIntervalsAll = [
@@ -780,20 +755,16 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
       dailyPolicies: dailyPolicies,
       weeklyLifeQuotaByWeekStart: weeklyLifeQuotaByWeekStart,
       preferences: const PreferenceProfile(),
-      preferenceSnapshot: preferenceSnapshot,
       inputHash: '',
       pinnedUnlockedBlockIds: pinnedUnlocked,
       referenceBlocks: referenceBlocks,
       // 块级调整上下文（裁定第 3 点）：延后经它进入引擎，而不是折算成任务级下界。
       adjustment: adjustment,
-      adjustmentLocallyRepaired: adjustedTarget != null,
       // 当前确认计划里的块（裁定第 1、4 点）：生成**之后**用它建立来源关联，
       // 好让预览把"同一块换了时间"报成「移动」而不是删除＋新增。
       confirmedBlocks: confirmedBlocks,
       // 准入期就判定为阻断的输入错误（§1.7）：它们不进 `tasks`，但必须走到预览。
       admissionConflicts: admissionConflicts,
-      // 特殊日事实进入问题本体：哈希、审计与延长日提案都要读它。
-      dayExceptions: confirmedDayExceptions,
     );
     // **装配层用 `TimeZoneDatabase` 证明逐日策略精确覆盖窗口**（计划 Task 2 Step 4）：
     // "覆盖窗口涉及的每一个本地日期"这件事需要时区换算，因此它不能伪装成
@@ -818,6 +789,54 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     );
 
     return withCurrentInputHash(pricedProblem, snapshots);
+  }
+
+  /// 按**调整自己的基线**装配排程输入（计划 Task 5 Step 4）。
+  ///
+  /// 三条纪律：
+  /// 1. 读的是 adjustment 保存的 `basePlanVersionId`，并且**当前计划必须仍是它**；
+  ///    版本已切换时返回 `basePlanChanged`，绝不在新计划上"接着延后"。
+  /// 2. 窗口至少覆盖 `adjustmentWindowEnd`；
+  /// 3. 只给目标块一个 `notBeforeUtc` 下界，绝不改写任务级 `availableFromUtc`。
+  @override
+  Future<ScheduleProblem> loadForAdjustment({
+    required PlanAdjustmentToken token,
+    required DateTime windowEndUtc,
+  }) async {
+    final repository = adjustments;
+    if (repository == null) {
+      throw StateError('loadForAdjustment 需要装配 PlanAdjustmentRepository。');
+    }
+    final adjustment = await repository.byId(token.adjustmentId);
+    if (adjustment == null ||
+        adjustment.revision != token.revision ||
+        adjustment.basePlanVersionId != token.basePlanVersionId) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.tokenMismatch,
+      );
+    }
+    final confirmed = await plans.current();
+    if (confirmed == null || confirmed.id != adjustment.basePlanVersionId) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.basePlanChanged,
+      );
+    }
+    final target = confirmed.blocks
+        .where((block) => block.id == adjustment.targetBlockId)
+        .firstOrNull;
+    if (target == null) {
+      throw const AdjustmentSourceException(
+        PlanAdjustmentFailureCode.targetMissing,
+      );
+    }
+    return load(
+      adjustmentContext: BlockAdjustmentContext(
+        targetBlockId: target.id,
+        notBeforeUtc: adjustment.notBeforeUtc,
+        kind: BlockAdjustmentKind.defer,
+      ),
+      windowEndUtc: windowEndUtc,
+    );
   }
 
   /// 为 [problem] 的每一天算出**软恢复余量目标**并返回一个新问题
@@ -885,9 +904,6 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
               // 粒度来自**这一天自己的**规则，而不是窗口首日。
               granularityMinutes: entry.value.resolvedRules.granularityMinutes,
             ),
-            // **必须逐值保留**：特殊日覆盖的是当天的睡眠开始，丢掉它会让
-            // "确认特殊日 → 生成计划"这条路径静默回到原作息。
-            dayException: entry.value.dayException,
           ),
       },
     );
@@ -931,7 +947,6 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     required DateTime startUtc,
     required DateTime endUtc,
     required ScheduleRuleOverride? override,
-    Map<DateTime, DayException> dayExceptionByDate = const {},
   }) async {
     final windowDates = _enumerateLocalDates(
       zones,
@@ -973,7 +988,6 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
           localDate: date,
           resolvedRules: _requireRulesFor(rulesByDate, date),
           softReserveTargetMinutes: 0,
-          dayException: dayExceptionByDate[date],
         ),
     };
     return DailyRulesForWindow(
@@ -1050,32 +1064,65 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     if (templates.isEmpty) return const [];
     // 与排程窗口同形的滚动七天：跨周不重启也会在下次生成计划时补齐。
     // 结算排在生成之前（`ensureCycles` 内部保证顺序），因此结转读得到上一周的真实状态。
-    await service.ensureCycles(
+    final run = await service.ensureCycles(
       TimeRange(startUtc: nowUtc, endUtc: nowUtc.add(const Duration(days: 7))),
       nowUtc,
     );
-    final period = service.periodContaining(nowUtc);
     final inputs = <RecurringScheduleInput>[];
-    for (final template in templates) {
-      final cycle = await service.repository.findCycle(
-        template.id,
-        period.startLocalDate,
+    final templatesById = {
+      for (final template in templates) template.id: template,
+    };
+    for (final cycle in run.cycles) {
+      final template = templatesById[cycle.templateId];
+      if (template == null || cycle.status.isSettled) continue;
+      final period = WeeklyPeriod.startingAt(
+        cycle.periodStartLocalDate,
+        service.timeZoneId,
+        service.zones,
       );
-      if (cycle == null) continue;
       final progress = await service.progressForCycle(
         template.id,
         period.startLocalDate,
       );
       if (progress.remainingMinutes <= 0) continue;
+      final snapshot = await recurringSnapshots?.findCycleSnapshot(
+        '${template.id}:${formatLocalDate(period.startLocalDate)}',
+      );
+      final effectiveTemplate = snapshot == null
+          ? template
+          : template.copyWith(
+              title: snapshot.title,
+              targetMinutes: snapshot.targetMinutes,
+              priority: snapshot.priority,
+              energyLevel: snapshot.energyLevel,
+              splitMode: snapshot.splitMode,
+              minChunkMinutes: snapshot.minChunkMinutes,
+              maxChunkMinutes: snapshot.maxChunkMinutes,
+              preferredStartMinute: snapshot.preferredStartMinute,
+              preferredEndMinute: snapshot.preferredEndMinute,
+              pace: snapshot.pace,
+              allowedWeekdaysMask: snapshot.allowedWeekdaysMask,
+            );
+      final planningStart = [
+        nowUtc,
+        period.startUtc,
+        if (snapshot != null) snapshot.effectiveStartUtc,
+        if (template.pausedUntilLocalDate != null)
+          service.zones.localMidnightToUtc(
+            shiftLocalDate(template.pausedUntilLocalDate!, 1),
+            service.timeZoneId,
+          ),
+      ].reduce((a, b) => a.isAfter(b) ? a : b);
+      final deadline = snapshot?.effectiveEndUtc ?? period.endUtc;
+      if (!planningStart.isBefore(deadline)) continue;
       inputs.add(
         RecurringScheduleInput(
-          template: template,
+          template: effectiveTemplate,
           cycle: cycle,
           progress: progress,
           period: period,
-          planningStartUtc: nowUtc.isAfter(period.startUtc)
-              ? nowUtc
-              : period.startUtc,
+          planningStartUtc: planningStart,
+          effectiveEndUtc: snapshot?.effectiveEndUtc,
         ),
       );
     }
@@ -1083,6 +1130,40 @@ final class RepositoryScheduleProblemSource implements ScheduleProblemSource {
     // 引擎内部的 `_compareTasks` 再排一次，两道都不依赖顺序。
     inputs.sort((a, b) => a.template.id.compareTo(b.template.id));
     return inputs;
+  }
+
+  /// 用周期剩余区间的硬约束容量计算 `targetNow`（Task 10）。
+  ///
+  /// `visibleWindow` 是当前计划窗口与周期剩余区间的交集；`C_after` 是交集之后到周期结束的
+  /// 合法容量。当前周通常 `C_after = 0`，因此退回整个剩余量；下周实例只先承担可见部分的份额。
+  RecurringScheduleInput _paceInput(
+    RecurringScheduleInput input,
+    List<TimeRange> busyIntervals,
+    DateTime nowUtc,
+    DateTime planningEndUtc,
+    int maxMinutesPerDay,
+  ) {
+    final cycleStart = input.planningStartUtc;
+    final cycleEnd = input.deadlineUtc;
+    if (!cycleEnd.isAfter(cycleStart)) return input;
+    final visibleStart = cycleStart.isAfter(nowUtc) ? cycleStart : nowUtc;
+    final visibleEnd = cycleEnd.isBefore(planningEndUtc)
+        ? cycleEnd
+        : planningEndUtc;
+    if (!visibleEnd.isAfter(visibleStart)) return input;
+    final curve = curveForPace(input.template.pace);
+    final decision = recurringPaceForCycle(
+      remainingMinutes: input.progress.remainingMinutes,
+      cycleRange: TimeRange(startUtc: cycleStart, endUtc: cycleEnd),
+      visibleWindow: TimeRange(startUtc: visibleStart, endUtc: visibleEnd),
+      busyIntervals: busyIntervals,
+      minChunkMinutes: input.template.minChunkMinutes,
+      curve: curve,
+      zones: zones,
+      timeZoneId: timeZoneId,
+      maxMinutesPerDay: maxMinutesPerDay,
+    );
+    return input.withTargetNow(decision.targetNowMinutes);
   }
 }
 
@@ -1112,6 +1193,8 @@ final class RecurringScheduleInput {
     required this.progress,
     required this.period,
     required this.planningStartUtc,
+    this.effectiveEndUtc,
+    this.targetNowMinutes,
   });
 
   final RecurringTaskTemplate template;
@@ -1119,6 +1202,22 @@ final class RecurringScheduleInput {
   final RecurringProgress progress;
   final WeeklyPeriod period;
   final DateTime planningStartUtc;
+  final DateTime? effectiveEndUtc;
+
+  /// 按整周容量算出的“现在应完成”的累计分钟；为空时退回整个剩余量。
+  final int? targetNowMinutes;
+
+  RecurringScheduleInput withTargetNow(int? value) => RecurringScheduleInput(
+    template: template,
+    cycle: cycle,
+    progress: progress,
+    period: period,
+    planningStartUtc: planningStartUtc,
+    effectiveEndUtc: effectiveEndUtc,
+    targetNowMinutes: value,
+  );
+
+  DateTime get deadlineUtc => effectiveEndUtc ?? period.endUtc;
 }
 
 /// 把一个周期实例展开成排程输入（见 [RecurringScheduleInput] 的说明）。
@@ -1133,6 +1232,11 @@ List<SchedulableTask> recurringSchedulableTasks({
   if (remaining <= 0) return const [];
   // 已跳过的这一周**不产生任何排程输入**：跳过是"这周不想做"，继续安排会与用户的动作相悖。
   if (input.cycle.status == RecurringCycleStatus.skipped) return const [];
+  final targetNow = input.targetNowMinutes;
+  final required = targetNow == null
+      ? remaining
+      : (targetNow - input.progress.recordedMinutes).clamp(0, remaining);
+  if (required <= 0) return const [];
   final template = input.template;
 
   SchedulableTask base({
@@ -1152,10 +1256,10 @@ List<SchedulableTask> recurringSchedulableTasks({
     availableFromUtc: availableFromUtc,
     priority: template.priority,
     energyLevel: template.energyLevel,
-    areaId: template.areaId,
     preferredWindow: template.preferredWindow,
     allowedWeekdaysMask: allowedWeekdaysMask,
     distributionPolicy: distributionPolicy,
+    preferLater: template.pace == RecurringPace.deadlineWeighted,
   );
 
   // ── 节奏 → 排程策略（1.7.1 计划 Task 5 Step 1/2）─────────────────────────────
@@ -1175,8 +1279,8 @@ List<SchedulableTask> recurringSchedulableTasks({
     case RecurringPace.even:
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
           availableFromUtc: null,
           distributionPolicy: TaskDistributionPolicy.even,
         ),
@@ -1184,21 +1288,21 @@ List<SchedulableTask> recurringSchedulableTasks({
     case RecurringPace.deadlineWeighted:
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
           availableFromUtc: null,
         ),
       ];
     case RecurringPace.early:
       // **尽早完成**：把截止时间提前到"本周开始 + 2 天"（不早于窗口终点时才提前），
       // 于是同一个 `PressureCalculator` 会算出更高的近期推进量。窗口不足两天时保持原样。
-      final earlyDue = input.period.startUtc.add(const Duration(days: 2));
+      final earlyDue = input.planningStartUtc.add(const Duration(days: 2));
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: earlyDue.isBefore(input.period.endUtc)
+          requiredMinutes: required,
+          dueAtUtc: earlyDue.isBefore(input.deadlineUtc)
               ? earlyDue
-              : input.period.endUtc,
+              : input.deadlineUtc,
           availableFromUtc: null,
         ),
       ];
@@ -1207,9 +1311,9 @@ List<SchedulableTask> recurringSchedulableTasks({
       final mask = weekdayMaskOf(weekdays);
       return [
         base(
-          requiredMinutes: remaining,
-          dueAtUtc: input.period.endUtc,
-          availableFromUtc: input.period.startUtc,
+          requiredMinutes: required,
+          dueAtUtc: input.deadlineUtc,
+          availableFromUtc: input.planningStartUtc,
           allowedWeekdaysMask: mask,
           distributionPolicy: TaskDistributionPolicy.even,
         ),

@@ -9,7 +9,6 @@ import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/domain/repositories/task_title_lookup.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/scheduling/explanations.dart';
-import 'package:personal_planner/scheduling/extension_day_policy.dart';
 import 'package:personal_planner/scheduling/proposal_disposition.dart';
 import 'package:personal_planner/scheduling/task_placement_diagnostics.dart';
 // `unnamedTaskLabel` 由 `plan_preview_issues.dart` 转发（同一个概念只有一个名字），
@@ -137,11 +136,9 @@ final class PlanPreviewModel {
     required List<PreviewIssue> issues,
     required this.isStale,
     List<CapacityShortfall> shortfalls = const [],
-    List<ExtensionDayCandidate> extensionCandidates = const [],
   }) : changes = UnmodifiableListView(List.of(changes)),
        issues = UnmodifiableListView(List.of(issues)),
-       shortfalls = UnmodifiableListView(List.of(shortfalls)),
-       extensionCandidates = UnmodifiableListView(List.of(extensionCandidates));
+       shortfalls = UnmodifiableListView(List.of(shortfalls));
 
   final String proposalId;
   final List<PreviewChange> changes;
@@ -155,9 +152,6 @@ final class PlanPreviewModel {
 
   /// 周期目标的容量缺口（M6，§3.4）。为空时那一组卡片不渲染。
   final List<CapacityShortfall> shortfalls;
-
-  /// 临时延长日建议（规范 §8.3）：页面只显示一张建议卡，不自动弹窗。
-  final List<ExtensionDayCandidate> extensionCandidates;
 
   bool get hasBlockingIssues => issues.any((issue) => issue.isBlocking);
   bool get hasWarnings => issues.any((issue) => !issue.isBlocking);
@@ -189,7 +183,6 @@ final class PlanPreviewModel {
     issues: issues,
     isStale: true,
     shortfalls: shortfalls,
-    extensionCandidates: extensionCandidates,
   );
 }
 
@@ -226,9 +219,6 @@ final class PlanPreviewPage extends StatefulWidget {
     this.availableRecoveryActions = const {},
     this.zones,
     this.timeZoneId,
-    this.onConfirmExtension,
-    this.onRejectExtension,
-    this.onCustomExtension,
     super.key,
   });
 
@@ -257,17 +247,6 @@ final class PlanPreviewPage extends StatefulWidget {
   /// 装配层两者都会传（它本来就持有 `zones` 与 `timeZoneId`）。
   final TimeZoneDatabase? zones;
   final String? timeZoneId;
-
-  /// 确认临时延长日（规范 §8.3）。为空时建议卡只展示、不提供按钮。
-  final Future<void> Function(ExtensionDayCandidate candidate)?
-  onConfirmExtension;
-
-  /// 拒绝本次延长建议；由装配层写入按输入哈希的拒绝记忆。
-  final Future<void> Function()? onRejectExtension;
-
-  /// 自定义延长日期与结束时间；由装配层校验并生成新的预览提案。
-  final Future<void> Function(DateTime localDate, int endMinute)?
-  onCustomExtension;
 
   /// 确认应用。**入参是授权范围，返回是应用结果**（1.8.0，冻结决策 §1.6）。
   ///
@@ -324,7 +303,6 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
   /// 存在的理由与 `_applying` 相同：一次点击必须只发生一次动作。
   /// `editTask` 这一类会一直等到用户从那个页面回来，因此期间必须挡住重复点击。
   bool _recovering = false;
-  bool _extensionsRejected = false;
 
   /// 上一次应用失败的**具体原因**（为空表示没有失败过）。
   ///
@@ -367,25 +345,6 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
   ///
   /// **动作本身不在这里实现**：页面把（动作，问题）交给装配层，由它决定打开哪一页、
   /// 以及回到预览之后这份提案还算不算数（计划 Task 6 Step 2）。
-  Future<void> _pickCustomExtension(ExtensionDayCandidate candidate) async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: candidate.localDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      helpText: '选择延长日日期',
-    );
-    if (date == null || !mounted) return;
-    final minute = candidate.temporarySleepStartOffsetMinutes % (24 * 60);
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: minute ~/ 60, minute: minute % 60),
-      helpText: '选择入睡时间',
-    );
-    if (time == null || !mounted) return;
-    await widget.onCustomExtension!(date, time.hour * 60 + time.minute);
-  }
-
   Future<void> _runRecovery(
     PreviewRecoveryAction action,
     PreviewIssue issue,
@@ -553,27 +512,6 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
                   child: Text('没有计划时间变更'),
                 ),
               ),
-            if (!_extensionsRejected)
-              for (final candidate in model.extensionCandidates)
-                _ExtensionSuggestionCard(
-                  candidate: candidate,
-                  timeZoneId: widget.timeZoneId,
-                  zones: widget.zones,
-                  onConfirm: widget.onConfirmExtension == null
-                      ? null
-                      : () => widget.onConfirmExtension!(candidate),
-                  onReject: widget.onRejectExtension == null
-                      ? null
-                      : () async {
-                          await widget.onRejectExtension!();
-                          if (mounted) {
-                            setState(() => _extensionsRejected = true);
-                          }
-                        },
-                  onCustom: widget.onCustomExtension == null
-                      ? null
-                      : () => _pickCustomExtension(candidate),
-                ),
             if (model.shortfalls.isNotEmpty)
               _ShortfallGroup(
                 shortfalls: model.shortfalls,
@@ -629,91 +567,6 @@ final class _PlanPreviewPageState extends State<PlanPreviewPage> {
         ),
       ),
     );
-  }
-}
-
-/// 临时延长日建议卡（规范 §8.3）。
-///
-/// **只显示一张卡，不自动弹窗**：打开预览不写任何设置；用户必须到特殊日页
-/// 选择候选并确认，应用层才在同一事务里写特殊日与计划。
-final class _ExtensionSuggestionCard extends StatelessWidget {
-  const _ExtensionSuggestionCard({
-    required this.candidate,
-    this.zones,
-    this.timeZoneId,
-    this.onConfirm,
-    this.onReject,
-    this.onCustom,
-  });
-
-  final ExtensionDayCandidate candidate;
-  final TimeZoneDatabase? zones;
-  final String? timeZoneId;
-  final Future<void> Function()? onConfirm;
-  final Future<void> Function()? onReject;
-  final Future<void> Function()? onCustom;
-
-  @override
-  Widget build(BuildContext context) {
-    final date = '${candidate.localDate.month} 月 ${candidate.localDate.day} 日';
-    final sleep = _clockLabel(candidate.temporarySleepStartOffsetMinutes);
-    final wake = _clockLabel(candidate.fixedWakeOffsetMinutes);
-    return Card(
-      key: ValueKey('extension-day-${candidate.stableKey}'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.bedtime_outlined),
-            title: Text('可以临时延长 $date 的入睡时间'),
-            subtitle: Text(
-              '入睡 $sleep，固定起床仍为 $wake；预计可多安排 '
-              '${candidate.addedPlaceableMinutes} 分钟。'
-              '确认前不会改动计划。',
-            ),
-          ),
-          if (onConfirm != null || onReject != null || onCustom != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (onCustom != null)
-                    TextButton.icon(
-                      key: const Key('custom-extension-day'),
-                      onPressed: onCustom,
-                      icon: const Icon(Icons.edit_calendar_outlined),
-                      label: const Text('自定义日期和时间'),
-                    ),
-                  if (onReject != null)
-                    TextButton.icon(
-                      key: const Key('reject-extension-day'),
-                      onPressed: onReject,
-                      icon: const Icon(Icons.close),
-                      label: const Text('本次不采用'),
-                    ),
-                  if (onConfirm != null)
-                    FilledButton.icon(
-                      key: const Key('confirm-extension-day'),
-                      onPressed: onConfirm,
-                      icon: const Icon(Icons.check),
-                      label: const Text('确认延长并应用'),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  String _clockLabel(int offsetMinutes) {
-    final minute = offsetMinutes % (24 * 60);
-    final hour = (minute ~/ 60).toString().padLeft(2, '0');
-    final rest = (minute % 60).toString().padLeft(2, '0');
-    return '$hour:$rest';
   }
 }
 

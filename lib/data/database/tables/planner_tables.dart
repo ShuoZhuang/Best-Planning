@@ -337,52 +337,6 @@ class PreferenceRules extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-/// 特殊日 / 临时延长日（算法 20，规范 §8.1；schema v11）。
-///
-/// **只新增，不改写任何既有业务行**（规范 §11/§14 ALG20-074）。睡眠时刻存
-/// "相对本地日 00:00 的分钟偏移"，允许到 2880（次日 24:00），从而能把
-/// "22:00 延到次日 01:00" 与固定起床 07:30 表达成同一个本地日上的有序事实，
-/// 而不是用 0–1439 的钟面分钟去猜跨日关系。
-class DayExceptions extends Table {
-  TextColumn get id => text()();
-  TextColumn get localDate => text()();
-  TextColumn get kind => text()();
-  TextColumn get status => text()();
-  IntColumn get originalSleepStartOffsetMinutes => integer()();
-  IntColumn get temporarySleepStartOffsetMinutes => integer()();
-  IntColumn get fixedWakeOffsetMinutes => integer()();
-  IntColumn get absoluteMinimumSleepMinutes => integer()();
-  TextColumn get recoveryChoice => text()();
-  TextColumn get recoveryLocalDate => text().nullable()();
-  TextColumn get source => text()();
-  TextColumn get triggeringProposalId => text().nullable()();
-  TextColumn get auditNote => text().withDefault(const Constant(''))();
-  IntColumn get createdAtUtc => integer()();
-  IntColumn get updatedAtUtc => integer()();
-  IntColumn get revokedAtUtc => integer().nullable()();
-
-  @override
-  Set<Column<Object>> get primaryKey => {id};
-
-  @override
-  List<String> get customConstraints => [
-    "CHECK (kind IN ('userSpecialDay', 'temporaryExtensionDay'))",
-    "CHECK (status IN ('draft', 'confirmed', 'revoked', 'expired'))",
-    "CHECK (recovery_choice IN ("
-        "'nextDayRest', 'nextNightEarlierSleep', "
-        "'reduceNextDayLoad', 'none'))",
-    'CHECK (original_sleep_start_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK (temporary_sleep_start_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK (fixed_wake_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK (original_sleep_start_offset_minutes '
-        '<= temporary_sleep_start_offset_minutes)',
-    'CHECK (temporary_sleep_start_offset_minutes < fixed_wake_offset_minutes)',
-    'CHECK (absolute_minimum_sleep_minutes BETWEEN 0 AND 1440)',
-    'CHECK (length(local_date) = 10 AND length(recovery_local_date) = 10 '
-        'OR recovery_local_date IS NULL)',
-  ];
-}
-
 class ChangeLog extends Table {
   TextColumn get id => text()();
   TextColumn get entityType => text()();

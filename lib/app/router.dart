@@ -11,33 +11,40 @@ import 'package:personal_planner/application/analytics_service.dart';
 import 'package:personal_planner/application/calendar_service.dart';
 import 'package:personal_planner/application/course_management_service.dart';
 import 'package:personal_planner/application/data_erasure_service.dart';
-import 'package:personal_planner/application/day_exception_service.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
 import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
 import 'package:personal_planner/application/pending_skips.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/plan_generation_flow.dart';
 import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/core/ids.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/week_view_preference_service.dart';
-import 'package:personal_planner/application/special_day_planning_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_service.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
 import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
+import 'package:personal_planner/features/planning/adjustment_preview_page.dart';
 import 'package:personal_planner/design/planner_glass.dart';
 import 'package:personal_planner/design/planner_snack_bar.dart';
 import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/capacity_shortfall.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
@@ -67,6 +74,8 @@ import 'package:personal_planner/features/calendar/schedule_item_open_target.dar
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
 import 'package:personal_planner/features/calendar/week_view/week_view_page.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/features/focus/focus_page.dart';
 import 'package:personal_planner/features/planning/plan_preview_issues.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
@@ -78,12 +87,14 @@ import 'package:personal_planner/features/settings/data/backup_page.dart';
 import 'package:personal_planner/features/settings/window/window_background_page.dart';
 import 'package:personal_planner/features/settings/data/export_page.dart';
 import 'package:personal_planner/platform/files/file_selector_adapter.dart';
+import 'package:personal_planner/platform/update/url_launcher_adapter.dart';
 import 'package:personal_planner/features/settings/planning_rules/planning_rules_page.dart';
 import 'package:personal_planner/features/settings/preferences/preferences_page.dart';
 import 'package:personal_planner/features/settings/relaxation/relaxation_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_reopen_page.dart';
 import 'package:personal_planner/features/settings/settings_hub_page.dart';
 import 'package:personal_planner/features/settings/update/update_page.dart';
+import 'package:personal_planner/features/shell/update_indicator.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/features/tasks/task_detail_page.dart';
 import 'package:personal_planner/features/tasks/task_editor_page.dart';
@@ -202,10 +213,16 @@ Widget _recurringDetailRoute(
   RecurringTaskService service,
   String templateId,
   DateTime nowUtc,
+  RecurringProgressService? recurringProgress,
+  DriftRecurringExecutionRepository? recurringFragments,
+  DriftExecutionRepository? executionOutbox,
 ) => RecurringTaskDetailPage(
   service: service,
   templateId: templateId,
   nowUtc: nowUtc,
+  recurringProgress: recurringProgress,
+  recurringFragments: recurringFragments,
+  executionOutbox: executionOutbox,
   // 「开始专注」**刻意不接**：专心路由要 `FocusService`，而这里注入一个只会跳到
   // 任务详情的按钮，等于给了一个名不副实的入口。页面在端口为空时不渲染它。
   onStartFocus: null,
@@ -219,7 +236,7 @@ Widget _recurringDetailRoute(
   // 顺序是"**先删再导航**"，且导航放在删除之后：反过来会先离开页面，而删除还没发生，
   // 用户看到的是"回到列表、东西还在"。
   onDelete: (template) async {
-    await service.deleteTemplate(template.id);
+    await service.anonymizeTemplate(template.id);
     if (context.mounted) context.go('/tasks');
   },
 );
@@ -367,6 +384,11 @@ GoRouter createPlannerRouter({
   /// 「延后本次」的一次性计划块位移意图。为 `null` 时今日页不显示该入口。
   PendingMoveDrafts? pendingMoves,
 
+  /// 1.11.0：持久调整服务。提供时今日页的「延后本次」走
+  /// `beginDefer → generate → /planning/adjustment/:id`，并支持确认、取消与撤销；
+  /// 为空时退回 1.8.0 的内存路径（测试与未装配排程时）。
+  PlanAdjustmentService? adjustmentService,
+
   /// 「跳过本次」的落点（M4，2026-10-07 用户定义）。为 `null` 时今日页**不显示**该入口。
   PendingSkipDrafts? pendingSkips,
   required DateTime todayStartUtc,
@@ -407,12 +429,24 @@ GoRouter createPlannerRouter({
   BackupService? backupService,
   DataErasureService? erasure,
   FocusService? focusService,
+
+  /// 1.11.0 今日页执行卡与轻量执行条（规范 §7）。为空时页面不显示执行入口。
+  ExecutionController? execution,
+
+  /// 1.11.0 局部恢复预览（规范 §9）。为空时不显示"安排剩余"。
+  ExecutionRecoveryController? executionRecovery,
+
+  /// 1.11.0 周期片段的“完成本次”入口；为空时退化为普通任务完成。
+  RecurringProgressService? recurringProgress,
+  DriftRecurringExecutionRepository? recurringFragments,
+  DriftExecutionRepository? executionOutbox,
+  InternalTransportTaskGuard? transportGuard,
+
+  /// 1.11.0 执行指标查询（规范 §14）。为空时统计页不显示执行摘要。
+  ExecutionMetricsQuery? executionMetrics,
   Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence,
   void Function(String action, String suggestionId)? onSuggestionAction,
   RecoveryPlanningService? recovery,
-
-  /// 持久特殊日确认（算法 20）。为空时页面不显示“保存特殊日并应用”。
-  SpecialDayPlanningService? specialDayPlanning,
   CalendarRepository? calendar,
   CalendarService? calendarService,
   AcademicCalendarService? academicCalendar,
@@ -437,11 +471,11 @@ GoRouter createPlannerRouter({
   /// 与"不给点了没反应的入口"同一口径：它不会假装同步过。
   Future<void> Function()? reconcileNotifications,
 
-  /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。
+  /// 更新控制器（2026-10-18 原生自更新规格 §11）。
   ///
-  /// **为空时设置入口页不显示「检查更新」**，直达 `/settings/update` 也只会说明服务未装配——
+  /// **为空时设置入口页不显示「更新」**，直达 `/settings/update` 也只会说明服务未装配——
   /// 与本仓库既有的"不给一个点了才知道没装的入口"同一条约定。
-  UpdateService? updateService,
+  UpdateController? updateController,
 
   /// 周期目标的生成、结算与进度（M4～M6，路线图 §3.3）。
   ///
@@ -457,6 +491,7 @@ GoRouter createPlannerRouter({
       ShellRoute(
         builder: (context, state, child) => _PlannerShell(
           location: state.uri.path,
+          updateController: updateController,
           onGeneratePlan: planningService == null
               ? null
               : (shellContext) => _generatePlan(
@@ -478,6 +513,8 @@ GoRouter createPlannerRouter({
               day: todayStartUtc,
               toLocal: (instantUtc) => zones.toLocal(instantUtc, timeZoneId),
               nowUtc: nowUtc ?? todayStartUtc,
+              execution: execution,
+              executionRecovery: executionRecovery,
               // ── M4（路线图 §8）今日页的执行动作 ──────────────────────────────────
               //
               // 与 `TaskDetailPage` 同一套做法：**页面不认识路由，导航由这里注入**。
@@ -490,6 +527,33 @@ GoRouter createPlannerRouter({
                   ? null
                   : (item) => context.go('/focus/${item.taskId!}'),
               onComplete: (item) async {
+                // 周期块先走“完成本次”：只改当前 fragment，不联动同 occurrence 的兄弟块。
+                if (item.recurringGoal != null &&
+                    recurringProgress != null &&
+                    recurringFragments != null) {
+                  final blockId = movableTaskBlockId(item);
+                  if (blockId != null) {
+                    final fragment = await recurringFragments
+                        .findLatestFragmentForBlock(blockId);
+                    if (fragment?.cycleId != null) {
+                      final runtime = await recurringProgress
+                          .executionRepository
+                          .ensureRuntimeState();
+                      final result = await recurringProgress.completeFragment(
+                        CompleteExecutionFragmentCommand(
+                          operationId: UuidIdGenerator().next(),
+                          dataEpoch: runtime.dataEpoch,
+                          fragmentId: fragment!.fragmentId,
+                          planVersionId: fragment.planVersionId,
+                          blockId: fragment.blockId,
+                          expectedFragmentRevision: fragment.revision,
+                          occurredAtUtc: nowUtc ?? todayStartUtc,
+                        ),
+                      );
+                      if (result.isApplied) return;
+                    }
+                  }
+                }
                 // 与任务详情页的"完成"共用同一个服务方法，因此统计记录、重排原因标签
                 // 与别处完全一致——不在这一页另造一套状态变更。
                 final taskId = item.taskId;
@@ -521,7 +585,15 @@ GoRouter createPlannerRouter({
               //    并在 `finally` 里销毁（`endAdjustment`），因此"生成失败"这条路径也不会
               //    把它留给下一次生成（全局不变量第 4 条）；
               // 3. 对话框提供分钟／小时／天三种单位（§11.1），天的语义是**本地日历日**。
-              onDefer: pendingMoves == null || planningService == null
+              onDefer: adjustmentService != null
+                  ? (item) => _deferThroughAdjustment(
+                      context,
+                      item: item,
+                      service: adjustmentService,
+                      plans: plans,
+                      timeZoneId: timeZoneId,
+                    )
+                  : pendingMoves == null || planningService == null
                   ? null
                   : (item) async {
                       final blockId = movableTaskBlockId(item);
@@ -735,6 +807,7 @@ GoRouter createPlannerRouter({
               onSaved: (task) => context.go('/tasks/${task.id}'),
               // 规范 §7.1：返回按钮回到**发起入口**，而不是回到一个中间页。
               onCancel: () => context.go('/new'),
+              updateSafety: updateController?.safety,
             ),
           ),
           if (recurringTasks != null) ...[
@@ -749,6 +822,7 @@ GoRouter createPlannerRouter({
                 onSaved: (template) =>
                     context.go('/tasks/recurring/${template.id}'),
                 onCancel: () => context.go('/new'),
+                updateSafety: updateController?.safety,
               ),
             ),
             GoRoute(
@@ -765,6 +839,7 @@ GoRouter createPlannerRouter({
                 onCancel: () => context.go(
                   '/tasks/recurring/${state.pathParameters['templateId']}',
                 ),
+                updateSafety: updateController?.safety,
               ),
             ),
             GoRoute(
@@ -777,6 +852,9 @@ GoRouter createPlannerRouter({
                 recurringTasks,
                 state.pathParameters['templateId'] ?? '',
                 nowUtc ?? todayStartUtc,
+                recurringProgress,
+                recurringFragments,
+                executionOutbox,
               ),
             ),
           ],
@@ -793,6 +871,7 @@ GoRouter createPlannerRouter({
               onSaved: (task) => context.go('/tasks/${task.id}'),
               onCancel: () =>
                   context.go('/tasks/${state.pathParameters['taskId']}'),
+              updateSafety: updateController?.safety,
             ),
           ),
           GoRoute(
@@ -811,6 +890,7 @@ GoRouter createPlannerRouter({
                         context.go('/focus/${state.pathParameters['taskId']!}'),
               taskId: state.pathParameters['taskId']!,
               nowUtc: nowUtc ?? todayStartUtc,
+              updateSafety: updateController?.safety,
               // FR-REPLAN-07 的"设置截止时间"。页面把**本地**日期与"当天第几分钟"交回，
               // 时区换算是这里的事——路由持有 `zones` 与 `timeZoneId`，页面两者都不需要。
               onSetDueDate: (localDate, minute) async {
@@ -913,6 +993,31 @@ GoRouter createPlannerRouter({
                   timeZoneId,
                 );
                 _openScheduleItemDetail(context, item, day);
+              },
+              onCompleteItem: (item) async {
+                if (recurringProgress == null ||
+                    recurringFragments == null ||
+                    item.recurringGoal == null) {
+                  return;
+                }
+                final blockId = movableTaskBlockId(item);
+                if (blockId == null) return;
+                final fragment = await recurringFragments
+                    .findLatestFragmentForBlock(blockId);
+                if (fragment?.cycleId == null) return;
+                final runtime = await recurringProgress.executionRepository
+                    .ensureRuntimeState();
+                await recurringProgress.completeFragment(
+                  CompleteExecutionFragmentCommand(
+                    operationId: UuidIdGenerator().next(),
+                    dataEpoch: runtime.dataEpoch,
+                    fragmentId: fragment!.fragmentId,
+                    planVersionId: fragment.planVersionId,
+                    blockId: fragment.blockId,
+                    expectedFragmentRevision: fragment.revision,
+                    occurredAtUtc: nowUtc ?? todayStartUtc,
+                  ),
+                );
               },
               onProposalCreated: (proposalId) =>
                   context.go('/planning/preview/$proposalId'),
@@ -1044,6 +1149,7 @@ GoRouter createPlannerRouter({
                           initialTitle:
                               state.uri.queryParameters['title'] ?? '',
                           onSaved: () => context.go('/calendar'),
+                          updateSafety: updateController?.safety,
                         ),
                       ],
                     ),
@@ -1162,6 +1268,7 @@ GoRouter createPlannerRouter({
               return CourseEditorPage(
                 service: service,
                 logicalCourseId: logicalCourseId,
+                updateSafety: updateController?.safety,
                 // 保存与取消都回**同一门课的详情**，而不是列表：
                 // 用户刚改完这门课，最可能想做的就是核对改后的样子（Task 5 Step 6）。
                 onSaved: () => context.go('/calendar/courses/$logicalCourseId'),
@@ -1268,6 +1375,7 @@ GoRouter createPlannerRouter({
                 workspace: workspaceService,
                 onSaved: () => context.go(destination),
                 onCancel: () => context.go(destination),
+                updateSafety: updateController?.safety,
               );
             },
           ),
@@ -1497,23 +1605,19 @@ GoRouter createPlannerRouter({
                     subtitle: '备份本地数据库，或从备份恢复（恢复在重启后生效）',
                     onOpen: () => context.go('/settings/backup'),
                   ),
-                // M8（路线图 §3.6）：更新检查的入口。
+                // 2026-10-18 原生自更新：更新入口与诊断页。
                 //
                 // **放在「通知与隐私」这一组**：它是本应用唯一会联网的功能，用户想知道"这个程序
-                // 什么时候会联网"时应该在这一组里找得到它，而不是埋在数据备份旁边。
-                //
-                // 入口右侧展示自动检查的开关状态（§12「每个入口展示一项当前关键值」）：用户不点
-                // 进去就能看出"它到底会不会自己联网"——而这正是这一项最需要被一眼看到的信息。
-                if (updateService != null)
+                // 什么时候会联网"时应该在这一组里找得到它。
+                if (updateController != null)
                   SettingsHubEntry(
                     key: const ValueKey<String>('settings-update'),
-                    title: '检查更新',
+                    title: '更新',
                     group: SettingsGroup.notification,
-                    subtitle: '查看当前版本，手动检查或关闭自动检查（只请求版本信息）',
-                    currentValue: () async =>
-                        (await updateService.loadSettings()).autoCheckEnabled
-                        ? '自动检查已开启'
-                        : '自动检查已关闭',
+                    subtitle: '查看更新状态、手动检查，或关闭自动检查与下载（只请求签名清单）',
+                    currentValue: () async => updateController.autoUpdateEnabled
+                        ? '自动更新已开启'
+                        : '自动更新已关闭',
                     onOpen: () => context.go('/settings/update'),
                   ),
                 // **首次引导也要有一个"随时重看"的入口**（用户 2026-10-08 反馈后补）。
@@ -1669,30 +1773,28 @@ GoRouter createPlannerRouter({
               service: settingsService,
               autoAdjustStore: autoAdjustStore,
               reconcileNotifications: reconcileNotifications,
+              updateSafety: updateController?.safety,
             ),
           ),
           GoRoute(
-            // M8（路线图 §3.6 / Task 11）：更新设置页。
+            // 更新状态与诊断页（2026-10-18 规格 §11.6）。
             //
             // 未装配时给出说明而不是空白页：深链接（通知 payload、用户手改地址）可能直接落在这里。
             path: '/settings/update',
             builder: (context, state) {
-              final service = updateService;
-              if (service == null) {
+              final controller = updateController;
+              if (controller == null) {
                 return const _UnavailablePage(
-                  title: '检查更新',
+                  title: '更新',
                   message: '更新服务未装配，暂无法检查更新。',
                 );
               }
               return UpdatePage(
-                // **控制器在这里建、在这里交给页面**：页面只认 `UpdatePageController`
-                // （见 `update_page.dart` 的说明），因此六种状态都能脱离真服务测试。
-                //
-                // 每进入一次新建一个：控制器是有状态的（上次结论、最后一次是谁触发的），
-                // 复用同一个实例会让"上一次的失败原因"出现在这一次的页面上。既然是在这里 new 的，
-                // 释放也交给页面（`disposeController`）——这一层没有别的持有者。
-                controller: ServiceUpdatePageController.production(service),
-                disposeController: true,
+                controller: controller,
+                // 只打开**已验证清单里的** Release 页面；页面本身不做地址拼接。
+                openUrl: openUpdateUrlExternally,
+                readLogs: controller.readLogs,
+                clearLogs: controller.clearLogs,
               );
             },
           ),
@@ -1751,6 +1853,7 @@ GoRouter createPlannerRouter({
                 // 选择只在本次会话内生效，而不是让整页不可用。
                 loadChartKinds: chartPreferences?.load,
                 saveChartKind: chartPreferences?.save,
+                executionMetrics: executionMetrics,
                 // 空状态的下一步动作（§11 Task 12 Step 3）。两个端口都只在对应服务装配时传，
                 // 页面据此决定是否渲染按钮——给一个点了没反应的入口比没有入口更糟。
                 onGeneratePlan: planningService == null
@@ -1782,15 +1885,6 @@ GoRouter createPlannerRouter({
                 loadEvidence: loadPreferenceEvidence,
                 // FR-STAT 的"建议采纳行为"来源（W5）。
                 onSuggestionAction: onSuggestionAction,
-                // 确认偏好只影响下一次生成；用户必须显式点这个入口（规范 §9.5）。
-                onRegenerate: planningService == null
-                    ? null
-                    : () => _generatePlan(
-                        context,
-                        planningService,
-                        planApplication,
-                        autoAdjustStore,
-                      ),
               );
             },
           ),
@@ -1814,12 +1908,23 @@ GoRouter createPlannerRouter({
                 zones: zones,
                 timeZoneId: timeZoneId,
                 nowUtc: nowUtc ?? todayStartUtc,
-                specialDayPlanning: specialDayPlanning,
                 onOpenPreview: (proposalId) =>
                     context.go('/planning/preview/$proposalId'),
               );
             },
           ),
+          if (adjustmentService != null)
+            GoRoute(
+              // 只携带 adjustmentId：页面启动后重新读仓储（DFR-001/018）。
+              path: '/planning/adjustment/:adjustmentId',
+              builder: (context, state) => AdjustmentPreviewPage(
+                key: ValueKey(state.pathParameters['adjustmentId']),
+                adjustmentId: state.pathParameters['adjustmentId']!,
+                port: adjustmentService,
+                zones: zones,
+                timeZoneId: timeZoneId,
+              ),
+            ),
           GoRoute(
             path: '/planning/preview/:proposalId',
             builder: (context, state) => _PlanPreviewLoader(
@@ -1842,7 +1947,6 @@ GoRouter createPlannerRouter({
               recurring: recurringTasks,
               settings: settingsService,
               autoAdjustStore: autoAdjustStore,
-              specialDayPlanning: specialDayPlanning,
               zones: zones,
               timeZoneId: timeZoneId,
               // 保护时间管理页需要**写入服务与系列读模型**两者；缺一它就只是一句
@@ -1851,6 +1955,7 @@ GoRouter createPlannerRouter({
               // （计划 §2.8：路由未装配则不显示该动作）。
               protectedTimeRouteWired:
                   calendarService != null && protectedTimeSeries != null,
+              updateSafety: updateController?.safety,
             ),
           ),
         ],
@@ -1872,7 +1977,6 @@ final class _SpecialDayLoader extends StatelessWidget {
     required this.timeZoneId,
     required this.nowUtc,
     required this.onOpenPreview,
-    this.specialDayPlanning,
   });
 
   final RecoveryPlanningService recovery;
@@ -1882,7 +1986,6 @@ final class _SpecialDayLoader extends StatelessWidget {
   final String timeZoneId;
   final DateTime nowUtc;
   final ValueChanged<String> onOpenPreview;
-  final SpecialDayPlanningService? specialDayPlanning;
 
   @override
   Widget build(BuildContext context) => FutureBuilder<_SpecialDayInputs>(
@@ -1899,23 +2002,6 @@ final class _SpecialDayLoader extends StatelessWidget {
         timeZoneId: timeZoneId,
         onCreateOverride: recovery.createOverride,
         onOpenPreview: onOpenPreview,
-        onConfirmPersistent: specialDayPlanning == null
-            ? null
-            : ({
-                required localDate,
-                required originalSleepStartOffsetMinutes,
-                required temporarySleepStartOffsetMinutes,
-                required fixedWakeOffsetMinutes,
-                required recoveryChoice,
-              }) => specialDayPlanning!.confirm(
-                localDate: localDate,
-                originalSleepStartOffsetMinutes:
-                    originalSleepStartOffsetMinutes,
-                temporarySleepStartOffsetMinutes:
-                    temporarySleepStartOffsetMinutes,
-                fixedWakeOffsetMinutes: fixedWakeOffsetMinutes,
-                recoveryChoice: recoveryChoice,
-              ),
       );
     },
   );
@@ -2319,12 +2405,16 @@ final class _PlannerShell extends StatelessWidget {
   const _PlannerShell({
     required this.location,
     required this.child,
+    this.updateController,
     this.onGeneratePlan,
     this.onSpecialDay,
   });
 
   final String location;
   final Widget child;
+
+  /// 左下角更新入口的数据源。为空时（测试/未装配）不显示入口。
+  final UpdateController? updateController;
   final Future<void> Function(BuildContext context)? onGeneratePlan;
 
   /// 特殊日与恢复保护的入口。为空时不显示该动作——未装配恢复服务时不留死按钮。
@@ -2420,50 +2510,64 @@ final class _PlannerShell extends StatelessWidget {
       body: Row(
         children: [
           PlannerGlassChrome(
-            child: NavigationRail(
-              extended: true,
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                context.go(switch (index) {
-                  1 => '/tasks',
-                  2 => '/workspace',
-                  3 => '/calendar',
-                  4 => '/analytics',
-                  5 => '/settings',
-                  _ => '/today',
-                });
-              },
-              destinations: const [
-                NavigationRailDestination(
-                  icon: Icon(Icons.today_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.today),
-                  label: Text('今日'),
+            child: Column(
+              children: [
+                Expanded(
+                  child: NavigationRail(
+                    extended: true,
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: (index) {
+                      context.go(switch (index) {
+                        1 => '/tasks',
+                        2 => '/workspace',
+                        3 => '/calendar',
+                        4 => '/analytics',
+                        5 => '/settings',
+                        _ => '/today',
+                      });
+                    },
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.today_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.today),
+                        label: Text('今日'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.checklist_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.checklist),
+                        label: Text('任务'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.account_tree_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.account_tree),
+                        label: Text('领域'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.calendar_view_week_outlined),
+                        selectedIcon: _SelectedNavIcon(
+                          Icons.calendar_view_week,
+                        ),
+                        label: Text('日历'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.insights_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.insights),
+                        label: Text('统计'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.tune_outlined),
+                        selectedIcon: _SelectedNavIcon(Icons.tune),
+                        label: Text('设置'),
+                      ),
+                    ],
+                  ),
                 ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.checklist_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.checklist),
-                  label: Text('任务'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.account_tree_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.account_tree),
-                  label: Text('领域'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.calendar_view_week_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.calendar_view_week),
-                  label: Text('日历'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.insights_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.insights),
-                  label: Text('统计'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.tune_outlined),
-                  selectedIcon: _SelectedNavIcon(Icons.tune),
-                  label: Text('设置'),
-                ),
+                // 规格 §11.1：更新入口固定在主导航左下角，页面切换时位置与状态不变。
+                if (updateController case final controller?)
+                  UpdateIndicator(
+                    controller: controller,
+                    onOpenDetails: () => context.go('/settings/update'),
+                  ),
               ],
             ),
           ),
@@ -2589,8 +2693,8 @@ final class _PlanPreviewLoader extends StatefulWidget {
     this.settings,
     this.taskTitles,
     this.onRememberUndo,
-    this.specialDayPlanning,
     this.protectedTimeRouteWired = false,
+    this.updateSafety,
     super.key,
   });
 
@@ -2619,11 +2723,11 @@ final class _PlanPreviewLoader extends StatefulWidget {
   /// 与设置页共用同一个服务（"临时放宽每日上限"是**设置**，不在这里另造一份）。
   final SettingsService? settings;
 
-  /// 临时延长日确认（算法 20）。为空时建议卡不显示确认按钮。
-  final SpecialDayPlanningService? specialDayPlanning;
-
   /// 保护时间管理页这次是否真的接线（写入服务 ＋ 系列读模型都在）。
   final bool protectedTimeRouteWired;
+
+  /// 撤销计划时的更新阻塞端口（UPD-029）。
+  final UpdateSafetyCoordinator? updateSafety;
 
   @override
   State<_PlanPreviewLoader> createState() => _PlanPreviewLoaderState();
@@ -2721,7 +2825,6 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
 
     return PlanPreviewModel(
       proposalId: widget.proposalId,
-      extensionCandidates: proposal.extensionCandidates,
       changes: [
         for (final change in diff.changes)
           PreviewChange(
@@ -2826,69 +2929,6 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
         zones: widget.zones,
         timeZoneId: widget.timeZoneId,
         onConfirm: (mode) => _confirm(context, model, mode),
-        onConfirmExtension: widget.specialDayPlanning == null
-            ? null
-            : (candidate) async {
-                final result = await widget.specialDayPlanning!.confirm(
-                  localDate: candidate.localDate,
-                  originalSleepStartOffsetMinutes:
-                      candidate.originalSleepStartOffsetMinutes,
-                  temporarySleepStartOffsetMinutes:
-                      candidate.temporarySleepStartOffsetMinutes,
-                  fixedWakeOffsetMinutes: candidate.fixedWakeOffsetMinutes,
-                  recoveryChoice: RecoveryChoice.none,
-                  triggeringProposalId: widget.proposalId,
-                );
-                if (!context.mounted) return;
-                showPlannerMessage(
-                  context,
-                  message: result.status == ApplyPlanStatus.applied
-                      ? '临时延长日已保存，新计划已生效'
-                      : '未应用：${result.status.name}',
-                );
-                if (result.status == ApplyPlanStatus.applied) {
-                  context.go('/today');
-                }
-              },
-        onRejectExtension:
-            widget.planning == null ||
-                widget.specialDayPlanning?.extensionDays == null
-            ? null
-            : () async {
-                final current = widget.planning!.preview(widget.proposalId);
-                if (current == null) return;
-                await widget.specialDayPlanning!.extensionDays!.reject(
-                  inputHash: current.inputHash,
-                  candidates: current.extensionCandidates,
-                );
-              },
-        onCustomExtension:
-            widget.specialDayPlanning == null ||
-                widget.specialDayPlanning!.problemSource == null
-            ? null
-            : (date, endMinute) async {
-                final current = widget.planning!.preview(widget.proposalId);
-                if (current == null) return;
-                try {
-                  final prepared = await widget.specialDayPlanning!
-                      .prepareCustom(
-                        localDate: date,
-                        endMinute: endMinute,
-                        triggeringTaskIds: [
-                          for (final item in current.unscheduled) item.taskId,
-                        ],
-                      );
-                  if (context.mounted) {
-                    context.go('/planning/preview/${prepared.proposalId}');
-                  }
-                } on DayExceptionValidationException catch (error) {
-                  if (!context.mounted) return;
-                  showPlannerMessage(
-                    context,
-                    message: error.fieldErrors.values.first,
-                  );
-                }
-              },
         // 恢复动作的落点（计划 §2.8 / Task 6 Step 2）。
         onRecover: (action, issue) => _recover(context, action, issue),
         // **只报真的能到达的动作**：`/tasks/:taskId/edit` 与 `/settings/rules` 的路由
@@ -2939,6 +2979,7 @@ final class _PlanPreviewLoaderState extends State<_PlanPreviewLoader> {
                     // main→PlannerApp→router 的参数链——上一行注释就是这条先例（那要多 4 处装配），
                     // 而且两处要做的本来就是同一件事。
                     onPlanChanged: widget.application?.onPlanChanged,
+                    updateSafety: widget.updateSafety,
                   ).undoLastAppliedPlan();
                   return true;
                 } on StateError {
@@ -3123,3 +3164,83 @@ String planChangeTitle({
   return '$name  ${two(start.month)}-${two(start.day)} '
       '${two(start.hour)}:${two(start.minute)}–${two(end.hour)}:${two(end.minute)}';
 }
+
+/// 1.11.0：把今日页的「延后本次」接到持久调整服务。
+///
+/// **导航只携带 adjustmentId**：生成结束之后请求仍然活着（DFR-001），预览页从仓储
+/// 重新读取，因此重启、返回或重新打开都不会退回成"普通生成"。
+Future<void> _deferThroughAdjustment(
+  BuildContext context, {
+  required ScheduleViewItem item,
+  required PlanAdjustmentService service,
+  required PlanRepository? plans,
+  required String timeZoneId,
+}) async {
+  final blockId = movableTaskBlockId(item);
+  if (blockId == null) return;
+  final repository = plans;
+  final current = repository == null ? null : await repository.current();
+  if (!context.mounted) return;
+  if (current == null) {
+    showPlannerMessage(context, message: '还没有确认计划，无法延后这一块。');
+    return;
+  }
+  final choice = await _showDeferCurrentDialog(
+    context,
+    sourceStartUtc: item.range.startUtc,
+    timeZoneId: timeZoneId,
+  );
+  if (choice == null || !context.mounted) return;
+  final begun = await service.beginDefer(
+    currentPlanVersionId: current.id,
+    targetBlockId: blockId,
+    amount: choice.amount,
+    unit: choice.unit,
+  );
+  if (!context.mounted) return;
+  if (begun.status != BeginDeferStatus.created || begun.adjustment == null) {
+    showPlannerMessage(context, message: _deferBeginMessage(begun.status));
+    return;
+  }
+  final generated = await service.generate(begun.adjustment!.adjustmentId);
+  if (!context.mounted) return;
+  if (generated.status != GenerateAdjustmentPreviewStatus.previewReady) {
+    showPlannerMessage(context, message: _deferGenerateMessage(generated));
+    return;
+  }
+  context.go('/planning/adjustment/${begun.adjustment!.adjustmentId}');
+}
+
+String _deferBeginMessage(BeginDeferStatus status) => switch (status) {
+  BeginDeferStatus.created => '',
+  BeginDeferStatus.targetMissing => '这一块已经不在当前计划里，请刷新后重试。',
+  BeginDeferStatus.targetChanged => '计划已经变化，请刷新后再延后。',
+  BeginDeferStatus.targetIneligible => '这一块已经开始、完成或已锁定，不能延后。',
+  BeginDeferStatus.operationConflict => '这一块已有一次延后正在进行。',
+  BeginDeferStatus.invalidAmount => '延后量超出允许范围。',
+};
+
+String _deferGenerateMessage(GenerateAdjustmentPreviewResult result) =>
+    switch (result.status) {
+      GenerateAdjustmentPreviewStatus.previewReady => '',
+      GenerateAdjustmentPreviewStatus.stale => '计划或目标块已经变化，请重新发起延后。',
+      GenerateAdjustmentPreviewStatus.notFound => '找不到这次延后。',
+      GenerateAdjustmentPreviewStatus.terminal => '这次延后已经结束。',
+      GenerateAdjustmentPreviewStatus.failed => switch (result.failureCode) {
+        PlanAdjustmentFailureCode.deadlineExceeded => '延后会超过任务截止时间，当前计划未改变。',
+        PlanAdjustmentFailureCode.disallowedWeekday => '目标日期不允许安排这项任务，当前计划未改变。',
+        PlanAdjustmentFailureCode.taskDailyLimitReached ||
+        PlanAdjustmentFailureCode.globalDailyLimitReached =>
+          '那一天的可安排上限已用完，当前计划未改变。',
+        PlanAdjustmentFailureCode.fixedOrProtectedConflict =>
+          '目标时段与固定日程或保护时间冲突，当前计划未改变。',
+        PlanAdjustmentFailureCode.requiredBreakUnavailable =>
+          '找不到满足任务间休息的位置，当前计划未改变。',
+        PlanAdjustmentFailureCode.searchBudgetExhausted => '未能在计算限制内找到方案，可以重试。',
+        PlanAdjustmentFailureCode.concurrentModification =>
+          '另一个操作先修改了这次延后，请重试。',
+        PlanAdjustmentFailureCode.targetChanged => '目标块已经变化，请重新发起延后。',
+        PlanAdjustmentFailureCode.invariantViolation => '生成过程中出现内部异常，当前计划未改变。',
+        _ => '这次延后没有找到合法位置，当前计划未改变。',
+      },
+    };

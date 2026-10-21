@@ -4,6 +4,7 @@ import 'package:personal_planner/application/workspace_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/models/workspace.dart';
 
@@ -23,6 +24,7 @@ final class RecurringTaskEditorPage extends StatefulWidget {
     required this.timeZoneId,
     required this.nowUtc,
     required this.onSaved,
+    this.updateSafety,
     required this.onCancel,
     this.workspace,
     this.templateId,
@@ -39,6 +41,9 @@ final class RecurringTaskEditorPage extends StatefulWidget {
   final String? templateId;
 
   final ValueChanged<RecurringTaskTemplate> onSaved;
+
+  /// 未保存编辑的汇报端口（2026-10-18 自更新规格 §11.4）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
   final VoidCallback onCancel;
 
   @override
@@ -71,15 +76,42 @@ final class _RecurringTaskEditorPageState
   String? _failure;
   bool _loading = true;
   bool _saving = false;
+  bool _dirty = false;
+
+  void _markDirty() {
+    if (_loading || _dirty) return;
+    _dirty = true;
+    setState(() {});
+  }
+
+  void _attachDirtyListeners() {
+    for (final controller in [
+      _title,
+      _minutes,
+      _notes,
+      _minChunk,
+      _maxChunk,
+      _window,
+    ]) {
+      var previous = controller.text;
+      controller.addListener(() {
+        if (controller.text == previous) return;
+        previous = controller.text;
+        _markDirty();
+      });
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _attachDirtyListeners();
     _load();
   }
 
   @override
   void dispose() {
+    widget.updateSafety?.setUnsavedChanges(false);
     for (final controller in [
       _title,
       _minutes,
@@ -141,6 +173,7 @@ final class _RecurringTaskEditorPageState
             : '${_minuteLabel(window.startMinute)}-'
                   '${_minuteLabel(window.endMinute)}';
         _loading = false;
+        _dirty = false;
       });
     } on Object catch (error) {
       if (mounted) {
@@ -250,6 +283,8 @@ final class _RecurringTaskEditorPageState
         );
       }
       if (!mounted) return;
+      _dirty = false;
+      widget.updateSafety?.setUnsavedChanges(false);
       widget.onSaved(saved);
     } on ArgumentError catch (error) {
       // 领域模型自己会拒绝非法组合（目标为 0、片段范围倒挂、期望时段只给一端…）。
@@ -280,6 +315,9 @@ final class _RecurringTaskEditorPageState
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.updateSafety?.setUnsavedChanges(_dirty);
+    });
     if (_loading) return const Center(child: CircularProgressIndicator());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -341,9 +379,10 @@ final class _RecurringTaskEditorPageState
                           decoration: const InputDecoration(labelText: '节奏'),
                           onChanged: _saving
                               ? null
-                              : (value) => setState(
-                                  () => _pace = value ?? RecurringPace.even,
-                                ),
+                              : (value) => setState(() {
+                                  _dirty = true;
+                                  _pace = value ?? RecurringPace.even;
+                                }),
                           items: const [
                             DropdownMenuItem(
                               value: RecurringPace.even,
@@ -374,7 +413,10 @@ final class _RecurringTaskEditorPageState
                           value: _carryOver,
                           onChanged: _saving
                               ? null
-                              : (value) => setState(() => _carryOver = value),
+                              : (value) => setState(() {
+                                  _dirty = true;
+                                  _carryOver = value;
+                                }),
                           title: const Text('结转未完成分钟'),
                           subtitle: const Text('默认关闭：新的一周按原目标重新开始，上周的未达标记录保留。'),
                         ),
@@ -386,7 +428,10 @@ final class _RecurringTaskEditorPageState
                           fieldKey: 'recurring-ends-on',
                           buttonKey: 'recurring-pick-ends-on',
                           onPick: _pickEndsOn,
-                          onClear: () => setState(() => _endsOn = null),
+                          onClear: () => setState(() {
+                            _dirty = true;
+                            _endsOn = null;
+                          }),
                         ),
                       ],
                     ),
@@ -415,10 +460,10 @@ final class _RecurringTaskEditorPageState
                           decoration: const InputDecoration(labelText: '拆分方式'),
                           onChanged: _saving
                               ? null
-                              : (value) => setState(
-                                  () => _split =
-                                      value ?? TaskSplitMode.splittable,
-                                ),
+                              : (value) => setState(() {
+                                  _dirty = true;
+                                  _split = value ?? TaskSplitMode.splittable;
+                                }),
                           items: const [
                             DropdownMenuItem(
                               value: TaskSplitMode.splittable,
@@ -547,6 +592,7 @@ final class _RecurringTaskEditorPageState
       onChanged: _saving
           ? null
           : (value) => setState(() {
+              _dirty = true;
               _areaId = value;
               // 领域先于项目：换领域时旧项目未必属于新领域，留着会让保存被
               // "所选项目不属于当前领域"拒绝，而用户看不出为什么。
@@ -570,7 +616,10 @@ final class _RecurringTaskEditorPageState
         ),
         onChanged: _saving
             ? null
-            : (value) => setState(() => _projectId = value),
+            : (value) => setState(() {
+                _dirty = true;
+                _projectId = value;
+              }),
         items: [
           const DropdownMenuItem(value: null, child: Text('不归属项目')),
           for (final project in _projectsOfArea)
@@ -599,6 +648,7 @@ final class _RecurringTaskEditorPageState
             onSelected: _saving
                 ? null
                 : (selected) => setState(() {
+                    _dirty = true;
                     _weekdaysMask = selected
                         ? _weekdaysMask | (1 << (weekday - 1))
                         : _weekdaysMask & ~(1 << (weekday - 1));
@@ -617,7 +667,10 @@ final class _RecurringTaskEditorPageState
       lastDate: DateTime(now.year + 5),
     );
     if (picked == null || !mounted) return;
-    setState(() => _endsOn = picked);
+    setState(() {
+      _dirty = true;
+      _endsOn = picked;
+    });
   }
 
   Widget _dateField(

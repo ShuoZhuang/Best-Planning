@@ -16,19 +16,24 @@ import 'package:personal_planner/application/export_service.dart';
 import 'package:personal_planner/application/focus_service.dart';
 import 'package:personal_planner/application/plan_application_service.dart';
 import 'package:personal_planner/application/pending_moves.dart';
+import 'package:personal_planner/application/plan_adjustment_service.dart';
+import 'package:personal_planner/domain/models/plan_adjustment.dart';
 import 'package:personal_planner/application/pending_skips.dart';
 import 'package:personal_planner/application/replanning_coordinator.dart';
 import 'package:personal_planner/application/planning_service.dart';
 import 'package:personal_planner/application/preference_service.dart';
 import 'package:personal_planner/application/recovery_planning_service.dart';
+import 'package:personal_planner/application/internal_transport_task_guard.dart';
+import 'package:personal_planner/application/recurring_progress_service.dart';
 import 'package:personal_planner/application/recurring_task_service.dart';
+import 'package:personal_planner/data/repositories/drift_execution_repository.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/application/schedule_color_service.dart';
 import 'package:personal_planner/application/schedule_view_invalidation.dart';
 import 'package:personal_planner/application/task_service.dart';
 import 'package:personal_planner/application/timetable_import_service.dart';
-import 'package:personal_planner/application/update_check_scheduler.dart';
-import 'package:personal_planner/application/update_service.dart';
-import 'package:personal_planner/application/special_day_planning_service.dart';
+import 'package:personal_planner/application/update/update_check_scheduler.dart';
+import 'package:personal_planner/application/update/update_controller.dart';
 import 'package:personal_planner/application/settings_service.dart';
 import 'package:personal_planner/application/tag_service.dart';
 import 'package:personal_planner/application/window_behavior_service.dart';
@@ -51,12 +56,16 @@ import 'package:personal_planner/domain/ocr/timetable_ocr.dart';
 import 'package:personal_planner/domain/repositories/workspace_repository.dart';
 import 'package:personal_planner/domain/services/preference_analyzer.dart';
 import 'package:personal_planner/domain/repositories/settings_repository.dart';
+import 'package:personal_planner/application/execution/execution_metrics_query.dart';
 import 'package:personal_planner/features/calendar/week_view/schedule_view_models.dart';
+import 'package:personal_planner/features/execution/execution_controller.dart';
+import 'package:personal_planner/features/execution/execution_recovery_controller.dart';
 import 'package:personal_planner/features/calendar/timetable_import/timetable_import_controller.dart';
 import 'package:personal_planner/features/tutorial/tutorial_page.dart';
 import 'package:personal_planner/application/onboarding_progress.dart';
 import 'package:personal_planner/features/onboarding/onboarding_home_page.dart';
 import 'package:personal_planner/features/onboarding/onboarding_page.dart';
+import 'package:personal_planner/features/planning/adjustment_recovery_prompt.dart';
 import 'package:personal_planner/features/planning/plan_preview_page.dart';
 import 'package:personal_planner/features/settings/app_lock/app_lock_unlock_view.dart';
 import 'package:personal_planner/platform/app_lock/app_lock_service.dart';
@@ -70,7 +79,6 @@ final class PlannerApp extends StatefulWidget {
     this.scheduleSource,
     this.planningService,
     this.planApplication,
-    this.specialDayPlanning,
     this.planRepository,
     this.correctionLog,
     this.analytics,
@@ -90,6 +98,15 @@ final class PlannerApp extends StatefulWidget {
     /// 永久清除服务（FR-DATA-04）。为空时备份页不显示该入口（不给一个点了不生效的按钮）。
     this.erasure,
     this.focusService,
+
+    /// 1.11.0 今日页执行卡与轻量执行条（规范 §7）。
+    this.execution,
+    this.executionRecovery,
+    this.recurringProgress,
+    this.recurringFragments,
+    this.executionOutbox,
+    this.transportGuard,
+    this.executionMetrics,
     this.loadPreferenceEvidence,
     this.onSuggestionAction,
 
@@ -120,12 +137,18 @@ final class PlannerApp extends StatefulWidget {
     /// 手动拖动产生的待处理移动（FR-CAL-05）。为空即拖动被禁用（测试与未装配排程时）。
     this.pendingMoves,
 
+    /// 1.11.0：持久化的「延后本次」服务。
+    ///
+    /// **为空时退回 1.8.0 的内存路径**（测试与未装配排程时）：那条路径仍然可用，
+    /// 但不会持久化调整、也拿不到确认/撤销与重启恢复。
+    this.adjustmentService,
+
     /// 「跳过本次」产生的待处理跳过（M4，2026-10-07 用户定义）。
     /// 为空即该入口不显示（测试与未装配排程时）——与 [pendingMoves] 同一口径。
     this.pendingSkips,
 
-    /// 更新检查服务（M8，路线图 §3.6 / Task 10／11）。为空时设置入口页不显示「检查更新」。
-    this.updateService,
+    /// 更新控制器（2026-10-18 自更新规格）。为空时设置入口页不显示「更新」，/settings/update 只说明未装配。
+    this.updateController,
 
     /// 启动约 10 秒后的那一次自动检查（§3.6）。
     ///
@@ -140,6 +163,7 @@ final class PlannerApp extends StatefulWidget {
     /// **为空时 `/tasks/new` 不显示「周期目标」那张卡，三条周期路由也不注册**——
     /// 与 [updateService] 同一条约定：不给一个点了才知道没装的入口。
     this.recurringTasks,
+    this.onAppResumed,
 
     this.zones,
     // 必填：此前默认 'Asia/Shanghai'，忘记传就会把整个应用按东八区解释用户看到的所有
@@ -161,7 +185,6 @@ final class PlannerApp extends StatefulWidget {
   /// 排程链路；为空时隐藏"生成计划"入口，预览页明确提示未装配。
   final PlanningService? planningService;
   final PlanApplicationService? planApplication;
-  final SpecialDayPlanningService? specialDayPlanning;
   final PlanRepository? planRepository;
 
   /// 剩余时长修正记录的写入端口（FR-TASK-05）。为空时修正照常生效，但不留历史，
@@ -218,6 +241,21 @@ final class PlannerApp extends StatefulWidget {
   /// 专注计时服务（FR-FOCUS）。为空时任务详情页不显示"开始专注"，`/focus/:taskId`
   /// 也会说明服务未装配。
   final FocusService? focusService;
+
+  /// 今日页执行卡与轻量执行条。为空时不显示执行入口。
+  final ExecutionController? execution;
+
+  /// 局部恢复预览。为空时不显示"安排剩余"。
+  final ExecutionRecoveryController? executionRecovery;
+
+  /// 1.11.0 周期片段“完成本次”服务与强身份查询。
+  final RecurringProgressService? recurringProgress;
+  final DriftRecurringExecutionRepository? recurringFragments;
+  final DriftExecutionRepository? executionOutbox;
+  final InternalTransportTaskGuard? transportGuard;
+
+  /// 执行指标查询；为空时统计页不显示执行摘要。
+  final ExecutionMetricsQuery? executionMetrics;
 
   /// 偏好页重新分析所需的历史证据（FR-PREF-01/03）。为空时偏好页只列出已保存的建议。
   final Future<List<PreferenceEvidence>> Function()? loadPreferenceEvidence;
@@ -277,15 +315,21 @@ final class PlannerApp extends StatefulWidget {
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingMoveDrafts? pendingMoves;
 
+  /// 持久调整服务（1.11.0）。导航只携带 adjustmentId，页面从仓储重新读取。
+  final PlanAdjustmentService? adjustmentService;
+
   /// 「跳过本次」的落点（M4）。组合根把**同一个实例**也交给
   /// `RepositoryScheduleProblemSource`，因此这里记下的意图真的会进排程输入。
   final PendingSkipDrafts? pendingSkips;
 
-  /// 更新检查（§3.6）。为空时设置页不显示该入口，直达路由会说明服务未装配。
-  final UpdateService? updateService;
+  /// 更新控制器。为空时设置页不显示该入口，直达路由会说明服务未装配。
+  final UpdateController? updateController;
 
   /// 周期目标的生成、结算与进度（M6）。
   final RecurringTaskService? recurringTasks;
+
+  /// 应用回到前台时补跑滚动维护（跨过本地日界时重新生成与预排）。
+  final Future<void> Function()? onAppResumed;
 
   /// 启动后的那一次自动检查。由组合根构造，**生命周期跟着这一层**。
   final UpdateCheckScheduler? updateCheckScheduler;
@@ -299,7 +343,8 @@ final class PlannerApp extends StatefulWidget {
   State<PlannerApp> createState() => _PlannerAppState();
 }
 
-final class _PlannerAppState extends State<PlannerApp> {
+final class _PlannerAppState extends State<PlannerApp>
+    with WidgetsBindingObserver {
   late final TaskRepository _repository;
   late final SettingsRepository _settingsRepository;
   late final AppearanceService _appearance;
@@ -376,6 +421,8 @@ final class _PlannerAppState extends State<PlannerApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startLocalDayWatch();
     final replanOutcome = widget.replanOutcome;
     if (replanOutcome != null) {
       _replanListener = _onReplanOutcomeChanged;
@@ -466,6 +513,7 @@ final class _PlannerAppState extends State<PlannerApp> {
         idGenerator: UuidIdGenerator(),
         correctionLog: widget.correctionLog,
         onScheduleInputChanged: widget.onScheduleInputChanged,
+        transportGuard: widget.transportGuard,
       ),
       settingsService: SettingsService(repository: _settingsRepository),
       appearance: _appearance,
@@ -490,6 +538,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       // 且日历工具栏不显示「管理课程」。
       courseManagement: widget.courseManagement,
       pendingMoves: widget.pendingMoves,
+      adjustmentService: widget.adjustmentService,
       // M4「跳过本次」：与 `pendingMoves` 同一口径——未装配排程服务时传 null，
       // 今日页据此**不显示**该入口，而不是给一个点了没反应的菜单项。
       pendingSkips: widget.planningService == null ? null : widget.pendingSkips,
@@ -498,7 +547,6 @@ final class _PlannerAppState extends State<PlannerApp> {
       timeZoneId: widget.timeZoneId,
       planningService: widget.planningService,
       planApplication: widget.planApplication,
-      specialDayPlanning: widget.specialDayPlanning,
       plans: widget.planRepository,
       // 撤销（FR-REPLAN-08）只在这份仓储**同时**提供计划历史时才有入口。真实装配里
       // `DriftPlanRepository` 两者都实现；测试里只实现 `PlanRepository` 的替身则没有撤销
@@ -517,6 +565,13 @@ final class _PlannerAppState extends State<PlannerApp> {
       backupService: widget.backups,
       erasure: widget.erasure,
       focusService: widget.focusService,
+      execution: widget.execution,
+      executionRecovery: widget.executionRecovery,
+      recurringProgress: widget.recurringProgress,
+      recurringFragments: widget.recurringFragments,
+      executionOutbox: widget.executionOutbox,
+      transportGuard: widget.transportGuard,
+      executionMetrics: widget.executionMetrics,
       loadPreferenceEvidence: widget.loadPreferenceEvidence,
       onSuggestionAction: widget.onSuggestionAction,
       recovery: widget.recovery,
@@ -529,7 +584,7 @@ final class _PlannerAppState extends State<PlannerApp> {
       preferences: widget.preferences,
       // 统计页若拿到当天 00:00 而不是真实时刻，会把"现在"显示成零点。
       nowUtc: clock.nowUtc(),
-      updateService: widget.updateService,
+      updateController: widget.updateController,
       recurringTasks: widget.recurringTasks,
     );
     // ── M8：启动后的自动更新检查（§3.6）──────────────────────────────────────
@@ -548,10 +603,36 @@ final class _PlannerAppState extends State<PlannerApp> {
     // Windows 通知插件在 initialize() 内会同步回调 Dart。若在 initState 的
     // persistentCallbacks 阶段进入原生初始化，该回调会让渲染器在首帧尚未准备好时
     // compositeFrame，Release 随后以 0xc0000409 退出。等首帧结束后再读取启动详情，
+    // 1.11.0：进程被强制结束时留下的未确认延后，启动后给出"继续查看／放弃"。
+    // 不自动取消、也不自动确认：两者都会替用户做决定（DFR-009/018）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_recoverAdjustments());
+    });
     // 导航语义不变，但原生回调不再重入正在挂载的渲染树。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_handleLaunchPayload());
     });
+  }
+
+  Future<void> _recoverAdjustments() async {
+    final service = widget.adjustmentService;
+    if (service == null) return;
+    List<PlanAdjustment> items;
+    try {
+      items = await service.recoverable();
+    } on Exception {
+      return;
+    }
+    if (!mounted || items.isEmpty) return;
+    final context = _router.routerDelegate.navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await showAdjustmentRecoveryPrompt(
+      context,
+      port: service,
+      items: items,
+      onOpen: (adjustmentId) =>
+          _router.go('/planning/adjustment/$adjustmentId'),
+    );
   }
 
   Future<void> _handleLaunchPayload() async {
@@ -567,12 +648,57 @@ final class _PlannerAppState extends State<PlannerApp> {
   }
 
   @override
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkLocalDay();
+      final callback = widget.onAppResumed;
+      if (callback != null) unawaited(callback());
+    }
+  }
+
+  Timer? _localDayTimer;
+  DateTime? _lastLocalDate;
+
+  DateTime _localDate() {
+    final zones = widget.zones;
+    final local = zones == null
+        ? DateTime.now()
+        : zones.toLocal(DateTime.now().toUtc(), widget.timeZoneId);
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  void _startLocalDayWatch() {
+    if (widget.onAppResumed == null) return;
+    _lastLocalDate = _localDate();
+    _localDayTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkLocalDay(),
+    );
+  }
+
+  void _checkLocalDay() {
+    final today = _localDate();
+    final previous = _lastLocalDate;
+    if (previous == null) {
+      _lastLocalDate = today;
+      return;
+    }
+    if (today == previous) return;
+    _lastLocalDate = today;
+    final callback = widget.onAppResumed;
+    if (callback != null) unawaited(callback());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _localDayTimer?.cancel();
     final listener = _replanListener;
     if (listener != null) widget.replanOutcome?.removeListener(listener);
     // 先释放调度器再拆别的：它是唯一持有**定时器**的东西，晚一步释放就意味着"应用已经在关了，
     // 那一发请求还在路上"。`dispose()` 是幂等的，重复释放不会出错。
-    widget.updateCheckScheduler?.dispose();
+    unawaited(widget.updateCheckScheduler?.dispose() ?? Future<void>.value());
     // 日历失效总线同样跟着应用释放（唯一的 app-scoped 实例，计划 §2.6）：
     // 之后到达的 `notify()` 会被安全忽略，不再产生"controller 已关闭"的未捕获异常。
     // 它的 `dispose()` 是幂等的；这里不 await——释放时机对关闭路径没有意义。

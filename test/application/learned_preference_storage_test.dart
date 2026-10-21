@@ -58,14 +58,14 @@ void main() {
 
     await store.clearLearned();
 
-    // 清除结果**不关闭学习**：学习总开关单独保存，用户可以继续积累新证据
-    // （算法 20 规范 §9.4 / ALG20-063）。
+    // 清除会写入显式的"已停用"档案，而不是删除键：用户需要能区分
+    // "我清空过学习结果"与"我还没用过这个功能"。
     final cleared = await settings.loadLearnedPreferences();
     expect(cleared, isNotNull);
-    expect(cleared!.enabled, isTrue);
+    expect(cleared!.enabled, isFalse);
     expect(cleared.preferredFocusMinutes, isNull);
     expect((await settings.resolveForDate(day)).rules.defaultFocusMinutes, 50);
-    expect((await store.loadProfile()).enabled, isTrue);
+    expect((await store.loadProfile()).enabled, isFalse);
   });
 
   test('用户主动设置优先于学习偏好', () async {

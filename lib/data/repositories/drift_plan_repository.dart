@@ -1,19 +1,21 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:personal_planner/core/clock.dart';
-import 'package:personal_planner/data/database/app_database.dart'
-    hide DayException;
-import 'package:personal_planner/domain/models/calendar_event.dart';
-import 'package:personal_planner/domain/models/day_exception.dart';
+import 'package:personal_planner/data/database/app_database.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
+import 'package:personal_planner/domain/repositories/plan_adjustment_transaction.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
-import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/schedule_proposal.dart';
 
 final class DriftPlanRepository
-    implements PlanStore, PlanBlockHistory, PlanningCommitRepository {
+    implements
+        PlanStore,
+        PlanBlockHistory,
+        PlanTransactionApplier,
+        PlanAdjustmentTransactionApplier {
   DriftPlanRepository(this._database, {this.clock = const SystemClock()});
 
   final AppDatabase _database;
@@ -156,34 +158,76 @@ final class DriftPlanRepository
             OrderingTerm.asc(blocks.id),
           ]);
     final rows = await query.get();
+    final allVersions = await _database.select(versions).get();
+    final versionTimes = {
+      for (final version in allVersions) version.id: version.createdAtUtc,
+    };
+    final frozen = <String>{};
+    for (final fragment
+        in await _database.select(_database.executionFragments).get()) {
+      if (fragment.state == 'started' || fragment.state == 'completed') {
+        frozen.add('${fragment.planVersionId}|${fragment.blockId}');
+      }
+    }
+    DateTime? nextVersionInstant(String versionId) {
+      final current = versionTimes[versionId];
+      if (current == null) return null;
+      int? next;
+      for (final value in versionTimes.values) {
+        if (value > current && (next == null || value < next)) next = value;
+      }
+      return next == null
+          ? null
+          : DateTime.fromMicrosecondsSinceEpoch(next, isUtc: true);
+    }
+
     return [
       for (final row in rows)
         if (row.readTableOrNull(blocks) case final block?)
           if (row.readTableOrNull(versions) case final version?)
-            HistoricalPlanBlock(
-              versionId: version.id,
-              versionCreatedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
-                version.createdAtUtc,
-                isUtc: true,
-              ),
-              block: PlannedBlock(
-                id: block.id,
-                taskId: block.taskId,
-                range: TimeRange(
-                  startUtc: DateTime.fromMicrosecondsSinceEpoch(
-                    block.startAtUtc,
-                    isUtc: true,
-                  ),
-                  endUtc: DateTime.fromMicrosecondsSinceEpoch(
-                    block.endAtUtc,
-                    isUtc: true,
-                  ),
+            if (_keepHistoricalBlock(
+              block: block,
+              nextVersionUtc: nextVersionInstant(version.id),
+              frozen: frozen.contains('${version.id}|${block.id}'),
+            ))
+              HistoricalPlanBlock(
+                versionId: version.id,
+                versionCreatedAtUtc: DateTime.fromMicrosecondsSinceEpoch(
+                  version.createdAtUtc,
+                  isUtc: true,
                 ),
-                explanationCode: block.explanationCode,
-                locked: block.locked,
+                block: PlannedBlock(
+                  id: block.id,
+                  taskId: block.taskId,
+                  range: TimeRange(
+                    startUtc: DateTime.fromMicrosecondsSinceEpoch(
+                      block.startAtUtc,
+                      isUtc: true,
+                    ),
+                    endUtc: DateTime.fromMicrosecondsSinceEpoch(
+                      block.endAtUtc,
+                      isUtc: true,
+                    ),
+                  ),
+                  explanationCode: block.explanationCode,
+                  locked: block.locked,
+                ),
               ),
-            ),
     ];
+  }
+
+  bool _keepHistoricalBlock({
+    required ScheduleBlock block,
+    required DateTime? nextVersionUtc,
+    required bool frozen,
+  }) {
+    if (frozen || nextVersionUtc == null) return true;
+    final endUtc = DateTime.fromMicrosecondsSinceEpoch(
+      block.endAtUtc,
+      isUtc: true,
+    );
+    // 新版本生效前已经结束的块是当时的历史事实；生效后才发生的旧块不保留。
+    return !endUtc.isAfter(nextVersionUtc);
   }
 
   Future<ConfirmedPlan> _loadVersion(PlanVersion version) async {
@@ -224,231 +268,543 @@ final class DriftPlanRepository
   Future<ApplyPlanResult> applyProposal(
     ScheduleProposal proposal,
     String expectedInputHash,
-  ) => commit(
-    PlanningCommitRequest(
-      proposal: proposal,
-      expectedInputHash: expectedInputHash,
-    ),
+  ) => applyProposalWithSideEffects(
+    proposal,
+    expectedInputHash,
+    onApplied: (_) async {},
   );
 
-  /// **唯一事务提交**（规范 §8.3 / ALG20-053）。
-  ///
-  /// 普通应用与特殊日确认走同一段代码：特殊日、恢复效果、计划版本、块与审计
-  /// 要么全部落库，要么全部回滚。任何一步抛异常都会让 Drift 回滚整笔事务。
   @override
-  Future<ApplyPlanResult> commit(PlanningCommitRequest request) async {
-    final proposal = request.proposal;
-    if (proposal.inputHash != request.expectedInputHash) {
+  Future<ApplyPlanResult> applyProposalWithSideEffects(
+    ScheduleProposal proposal,
+    String expectedInputHash, {
+    required Future<void> Function(ConfirmedPlan plan) onApplied,
+  }) async {
+    if (proposal.inputHash != expectedInputHash) {
       return ApplyPlanResult.stale();
     }
     final now = clock.nowUtc();
     if (!now.isUtc) {
       throw StateError('Plan repository clock must return UTC.');
     }
-    return _database.transaction(() async {
-      final exception = request.confirmedDayException;
-      if (exception != null) {
-        await _writeDayException(exception, now);
-      }
-      final effect = request.recoveryEffect;
-      if (effect != null) {
-        await _writeRecoveryEffect(effect, exception, now);
-      }
-      return _writePlan(proposal, now);
-    });
-  }
 
-  Future<void> _writeDayException(DayException value, DateTime now) async {
-    final confirmed = value.status == DayExceptionStatus.confirmed
-        ? value
-        : value.copyWith(
-            status: DayExceptionStatus.confirmed,
-            updatedAtUtc: now,
+    return _database.transaction(() async {
+      await (_database.update(_database.planVersions)
+            ..where((row) => row.status.equals('confirmed')))
+          .write(const PlanVersionsCompanion(status: Value('superseded')));
+      await _database
+          .into(_database.planVersions)
+          .insert(
+            PlanVersionsCompanion.insert(
+              id: proposal.proposalId,
+              createdAtUtc: now.microsecondsSinceEpoch,
+              inputHash: proposal.inputHash,
+              algorithmVersion: proposal.algorithmVersion,
+              status: 'confirmed',
+              summaryJson: jsonEncode({
+                'isFullyFeasible': proposal.metrics.isFullyFeasible,
+                'scheduledMinutes': proposal.metrics.scheduledMinutes,
+                'unscheduledMinutes': proposal.metrics.unscheduledMinutes,
+              }),
+            ),
           );
-    final sameDate =
-        await (_database.select(_database.dayExceptions)..where(
-              (row) =>
-                  row.localDate.equals(formatLocalDate(confirmed.localDate)) &
-                  row.status.equals(DayExceptionStatus.confirmed.name) &
-                  row.id.equals(confirmed.id).not(),
-            ))
-            .get();
-    for (final row in sameDate) {
-      await (_database.update(
-        _database.dayExceptions,
-      )..where((item) => item.id.equals(row.id))).write(
-        DayExceptionsCompanion(
-          status: Value(DayExceptionStatus.revoked.name),
-          revokedAtUtc: Value(now.microsecondsSinceEpoch),
-          updatedAtUtc: Value(now.microsecondsSinceEpoch),
-        ),
-      );
       await _database
           .into(_database.changeLog)
           .insert(
             ChangeLogCompanion.insert(
-              id: '${row.id}:revoke:${now.microsecondsSinceEpoch}',
-              entityType: 'dayException',
-              entityId: row.id,
-              operation: 'revokedByConfirmation',
+              id: '${proposal.proposalId}:change:0',
+              entityType: 'planVersion',
+              entityId: proposal.proposalId,
+              operation: 'confirm',
               changedAtUtc: now.microsecondsSinceEpoch,
               revision: 1,
             ),
           );
-    }
-    await _database
-        .into(_database.dayExceptions)
-        .insertOnConflictUpdate(
-          DayExceptionsCompanion(
-            id: Value(confirmed.id),
-            localDate: Value(formatLocalDate(confirmed.localDate)),
-            kind: Value(confirmed.kind.name),
-            status: Value(confirmed.status.name),
-            originalSleepStartOffsetMinutes: Value(
-              confirmed.originalSleepStartOffsetMinutes,
-            ),
-            temporarySleepStartOffsetMinutes: Value(
-              confirmed.temporarySleepStartOffsetMinutes,
-            ),
-            fixedWakeOffsetMinutes: Value(confirmed.fixedWakeOffsetMinutes),
-            absoluteMinimumSleepMinutes: Value(
-              confirmed.absoluteMinimumSleepMinutes,
-            ),
-            recoveryChoice: Value(confirmed.recoveryChoice.name),
-            recoveryLocalDate: Value(
-              confirmed.recoveryLocalDate == null
-                  ? null
-                  : formatLocalDate(confirmed.recoveryLocalDate!),
-            ),
-            source: Value(confirmed.source),
-            triggeringProposalId: Value(confirmed.triggeringProposalId),
-            auditNote: Value(confirmed.auditNote),
-            createdAtUtc: Value(confirmed.createdAtUtc.microsecondsSinceEpoch),
-            updatedAtUtc: Value(now.microsecondsSinceEpoch),
-            revokedAtUtc: Value(confirmed.revokedAtUtc?.microsecondsSinceEpoch),
-          ),
-        );
-    await _database
-        .into(_database.changeLog)
-        .insert(
-          ChangeLogCompanion.insert(
-            id: '${confirmed.id}:confirm:${now.microsecondsSinceEpoch}',
-            entityType: 'dayException',
-            entityId: confirmed.id,
-            operation: 'confirm',
-            changedAtUtc: now.microsecondsSinceEpoch,
-            revision: 1,
-          ),
-        );
-  }
 
-  Future<void> _writeRecoveryEffect(
-    RecoveryCommitEffect effect,
-    DayException? exception,
-    DateTime now,
-  ) async {
-    switch (effect.choice) {
-      case RecoveryChoice.nextDayRest:
-        final range = effect.protectedRestUtc;
-        if (range == null) {
-          throw ArgumentError('nextDayRest 必须提供保护休息区间');
-        }
-        final id =
-            'recovery:${exception?.id ?? effect.nextLocalDate.microsecondsSinceEpoch}';
+      final persistedBlocks = <PlannedBlock>[];
+      for (var index = 0; index < proposal.blocks.length; index++) {
+        final block = proposal.blocks[index];
+        final persistedId = '${proposal.proposalId}:${block.id}';
         await _database
-            .into(_database.calendarEvents)
-            .insertOnConflictUpdate(
-              CalendarEventsCompanion.insert(
-                id: id,
-                title: effect.title,
-                startAtUtc: range.startUtc.microsecondsSinceEpoch,
-                endAtUtc: range.endUtc.microsecondsSinceEpoch,
-                timeZoneId: effect.timeZoneId,
-                locked: const Value(true),
-                sourceKind: const Value('recovery'),
-                kind: Value(CalendarEventKind.protected.name),
+            .into(_database.scheduleBlocks)
+            .insert(
+              ScheduleBlocksCompanion.insert(
+                id: persistedId,
+                planVersionId: proposal.proposalId,
+                taskId: block.taskId,
+                startAtUtc: block.startUtc.microsecondsSinceEpoch,
+                endAtUtc: block.endUtc.microsecondsSinceEpoch,
+                locked: Value(block.locked),
+                explanationCode: block.explanationCode ?? 'scheduled',
                 createdAtUtc: Value(now.microsecondsSinceEpoch),
-                updatedAtUtc: now.microsecondsSinceEpoch,
+                updatedAtUtc: Value(now.microsecondsSinceEpoch),
               ),
             );
-      case RecoveryChoice.nextNightEarlierSleep:
-        final start = effect.nextNightSleepStartMinute;
-        if (start == null) {
-          throw ArgumentError('nextNightEarlierSleep 必须提供提前入睡分钟');
-        }
-        await _mergeDateOverride(effect, now, (value) {
-          final existing = value['sleepRange'];
-          final end = existing is Map<String, Object?>
-              ? existing['endMinute']
-              : 7 * 60 + 30;
-          value['sleepRange'] = {
-            'startMinute': start,
-            'endMinute': end is int ? end : 7 * 60 + 30,
-          };
-        });
-      case RecoveryChoice.reduceNextDayLoad:
-        final cap = effect.nextDayMovableLoadCapMinutes;
-        if (cap == null) {
-          throw ArgumentError('reduceNextDayLoad 必须提供可移动负载上限');
-        }
-        await _mergeDateOverride(
-          effect,
-          now,
-          (value) => value['dailyMovableTaskLimitMinutes'] = cap,
-        );
-      case RecoveryChoice.none:
-        break;
-    }
-    await _database
-        .into(_database.changeLog)
-        .insert(
-          ChangeLogCompanion.insert(
-            id:
-                'recovery:${exception?.id ?? now.microsecondsSinceEpoch}:'
-                '${effect.choice.name}',
-            entityType: 'recoveryEffect',
-            entityId: exception?.id ?? formatLocalDate(effect.nextLocalDate),
-            operation: effect.choice.name,
-            changedAtUtc: now.microsecondsSinceEpoch,
-            revision: 1,
+        await _database
+            .into(_database.changeLog)
+            .insert(
+              ChangeLogCompanion.insert(
+                id: '${proposal.proposalId}:change:${index + 1}',
+                entityType: 'scheduleBlock',
+                entityId: persistedId,
+                operation: 'create',
+                changedAtUtc: now.microsecondsSinceEpoch,
+                revision: 1,
+              ),
+            );
+        persistedBlocks.add(
+          PlannedBlock(
+            id: persistedId,
+            taskId: block.taskId,
+            range: block.range,
+            locked: block.locked,
+            explanationCode: block.explanationCode ?? 'scheduled',
           ),
         );
+      }
+      final plan = ConfirmedPlan(
+        id: proposal.proposalId,
+        inputHash: proposal.inputHash,
+        algorithmVersion: proposal.algorithmVersion,
+        blocks: persistedBlocks,
+      );
+      // 执行来源关联与计划写入同事务：关联失败时计划也必须回滚（规范 §19.4）。
+      await onApplied(plan);
+      return ApplyPlanResult.applied(plan);
+    });
   }
 
-  Future<void> _mergeDateOverride(
-    RecoveryCommitEffect effect,
-    DateTime now,
-    void Function(Map<String, Object?> value) mutate,
-  ) async {
-    final key =
-        'planning.dateOverride.${formatLocalDate(effect.nextLocalDate)}';
-    final row = await (_database.select(
-      _database.settings,
-    )..where((item) => item.key.equals(key))).getSingleOrNull();
-    final value = <String, Object?>{};
-    if (row != null) {
-      final decoded = jsonDecode(row.jsonValue);
-      if (decoded is Map<String, Object?>) value.addAll(decoded);
-    }
-    mutate(value);
-    await _database
-        .into(_database.settings)
-        .insertOnConflictUpdate(
-          SettingsCompanion.insert(
-            key: key,
-            jsonValue: jsonEncode(value),
-            createdAtUtc: Value(
-              row?.createdAtUtc ?? now.microsecondsSinceEpoch,
+  // ── 调整的原子应用与精确撤销（计划 Task 10/11）──────────────────────────────
+
+  /// 单事务应用一份调整提案。
+  ///
+  /// 固定顺序（计划 Task 10 Step 4）：读回执 → 读 adjustment/preview/当前计划 →
+  /// 校验完整令牌与 TTL → CAS `previewReady -> applying` → 旧计划 supersede →
+  /// 新计划 + 块 + 变更日志 → preview `accepted` → adjustment `applied` + 事件 →
+  /// 应用回执 + 撤销快照 + outbox。任一步失败整体回滚。
+  @override
+  Future<AdjustmentApplyReceipt> applyAdjustmentProposal({
+    required AdjustmentApplyCommand command,
+    required ScheduleProposal proposal,
+    required DateTime nowUtc,
+  }) async {
+    final tokenHash = _applyTokenHash(command);
+    final nowMicros = nowUtc.microsecondsSinceEpoch;
+    return _database.transaction(() async {
+      final existingReceipt = await _applyReceiptByToken(tokenHash);
+      if (existingReceipt != null) {
+        return AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.alreadyApplied,
+          planVersionId: existingReceipt.planVersionId,
+          undoReceiptId: existingReceipt.undoReceiptId,
+        );
+      }
+      final adjustmentRow = await _adjustmentRow(command.adjustmentId);
+      if (adjustmentRow == null) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.notFound,
+          reasonCode: 'adjustmentNotFound',
+        );
+      }
+      final receiptByAdjustment = await _applyReceiptByAdjustment(
+        command.adjustmentId,
+      );
+      if (receiptByAdjustment != null) {
+        return AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.alreadyApplied,
+          planVersionId: receiptByAdjustment.planVersionId,
+          undoReceiptId: receiptByAdjustment.undoReceiptId,
+        );
+      }
+      if (adjustmentRow.status != 'previewReady' ||
+          adjustmentRow.revision != command.adjustmentRevision ||
+          adjustmentRow.basePlanVersionId != command.basePlanVersionId ||
+          adjustmentRow.previewId != command.previewId) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.concurrentModification,
+          reasonCode: 'adjustmentTokenMismatch',
+        );
+      }
+      final previewRow = await _previewRow(command.previewId);
+      if (previewRow == null) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'previewMissing',
+        );
+      }
+      if (previewRow.status != 'active') {
+        return AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'preview${previewRow.status}',
+        );
+      }
+      if (previewRow.operationId != command.adjustmentId ||
+          previewRow.proposalSha256 != command.contentHash ||
+          previewRow.basePlanVersionId != command.basePlanVersionId ||
+          previewRow.revision != command.previewRevision) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'previewTokenMismatch',
+        );
+      }
+      if (previewRow.expiresAtUtc <= nowMicros) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'previewExpired',
+        );
+      }
+      if (proposal.proposalId != command.proposalId ||
+          proposal.inputHash != command.inputHash ||
+          proposal.algorithmVersion != command.algorithmVersion) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'proposalTokenMismatch',
+        );
+      }
+      final base = await current();
+      if (base == null || base.id != command.basePlanVersionId) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.stale,
+          reasonCode: 'basePlanChanged',
+        );
+      }
+      // CAS `previewReady -> applying`：条件更新交给 SQLite，两个连接只有一个能写。
+      final claimed =
+          await (_database.update(_database.planAdjustments)..where(
+                (row) =>
+                    row.adjustmentId.equals(command.adjustmentId) &
+                    row.revision.equals(command.adjustmentRevision) &
+                    row.basePlanVersionId.equals(command.basePlanVersionId) &
+                    row.status.equals('previewReady'),
+              ))
+              .write(const PlanAdjustmentsCompanion(status: Value('applying')));
+      if (claimed != 1) {
+        return const AdjustmentApplyReceipt(
+          status: AdjustmentApplyStatus.concurrentModification,
+          reasonCode: 'casLost',
+        );
+      }
+      final baselineBlocksJson = _encodeBlocks(base.blocks);
+      final plan = await _writePlanVersion(
+        id: proposal.proposalId,
+        inputHash: proposal.inputHash,
+        algorithmVersion: proposal.algorithmVersion,
+        blocks: proposal.blocks,
+        nowUtc: nowUtc,
+        summaryJson: jsonEncode({
+          'operation': 'deferAdjustment',
+          'adjustmentId': command.adjustmentId,
+          'basePlanVersionId': command.basePlanVersionId,
+        }),
+        changePrefix: 'adjustment',
+      );
+      await (_database.update(_database.pendingPlanPreviews)
+            ..where((row) => row.previewId.equals(command.previewId)))
+          .write(const PendingPlanPreviewsCompanion(status: Value('accepted')));
+      final appliedCount =
+          await (_database.update(_database.planAdjustments)..where(
+                (row) =>
+                    row.adjustmentId.equals(command.adjustmentId) &
+                    row.status.equals('applying'),
+              ))
+              .write(
+                PlanAdjustmentsCompanion(
+                  status: const Value('applied'),
+                  appliedPlanVersionId: Value(plan.id),
+                  failureCode: const Value(null),
+                ),
+              );
+      if (appliedCount != 1) {
+        throw StateError('调整在 applying 期间被并发改写；整个应用事务回滚。');
+      }
+      await _appendAdjustmentEvent(
+        adjustmentId: command.adjustmentId,
+        fromStatus: 'applying',
+        toStatus: 'applied',
+        revision: command.adjustmentRevision,
+        occurredAtUtc: nowUtc,
+        reasonCode: null,
+      );
+      final receiptId = '${command.adjustmentId}:apply';
+      final undoReceiptId = '${command.adjustmentId}:undo';
+      await _database
+          .into(_database.planAdjustmentApplyReceipts)
+          .insert(
+            PlanAdjustmentApplyReceiptsCompanion.insert(
+              receiptId: receiptId,
+              adjustmentId: command.adjustmentId,
+              tokenHash: tokenHash,
+              planVersionId: plan.id,
+              undoReceiptId: undoReceiptId,
+              createdAtUtc: nowMicros,
             ),
-            updatedAtUtc: now.microsecondsSinceEpoch,
+          );
+      await _database
+          .into(_database.planAdjustmentUndoReceipts)
+          .insert(
+            PlanAdjustmentUndoReceiptsCompanion.insert(
+              receiptId: undoReceiptId,
+              adjustmentId: command.adjustmentId,
+              baselinePlanVersionId: command.basePlanVersionId,
+              appliedPlanVersionId: plan.id,
+              state: 'available',
+              baselineBlocksJson: baselineBlocksJson,
+              appliedBlockIdsJson: jsonEncode([
+                for (final block in plan.blocks) block.id,
+              ]),
+              createdAtUtc: nowMicros,
+            ),
+          );
+      await _enqueueOutbox(
+        planVersionId: plan.id,
+        nowUtc: nowUtc,
+        operation: 'deferAdjustment',
+      );
+      return AdjustmentApplyReceipt(
+        status: AdjustmentApplyStatus.applied,
+        planVersionId: plan.id,
+        undoReceiptId: undoReceiptId,
+      );
+    });
+  }
+
+  /// 精确撤销：只有"当前 confirmed 计划正好是本次 applied 版本"且没有任何块开始
+  /// 执行时才允许自动恢复（DFR-017/021）。
+  @override
+  Future<PlanUndoResult> undoAdjustment({
+    required String adjustmentId,
+    required DateTime nowUtc,
+  }) async {
+    final nowMicros = nowUtc.microsecondsSinceEpoch;
+    return _database.transaction(() async {
+      final undoRow =
+          await (_database.select(_database.planAdjustmentUndoReceipts)
+                ..where((row) => row.adjustmentId.equals(adjustmentId)))
+              .getSingleOrNull();
+      if (undoRow == null) {
+        return const PlanUndoResult(status: PlanUndoStatus.notFound);
+      }
+      if (undoRow.state == 'completed') {
+        return const PlanUndoResult(status: PlanUndoStatus.alreadyUndone);
+      }
+      final confirmed = await current();
+      if (confirmed == null || confirmed.id != undoRow.appliedPlanVersionId) {
+        return const PlanUndoResult(
+          status: PlanUndoStatus.supersededByAnotherPlan,
+          reasonCode: 'currentPlanChanged',
+        );
+      }
+      // 执行证据：已开始的实例或已开始/完成的片段都不允许自动撤销。
+      final startedOccurrences =
+          await (_database.select(_database.executionOccurrences)..where(
+                (row) =>
+                    (row.originPlanVersionId.equals(
+                          undoRow.appliedPlanVersionId,
+                        ) |
+                        row.currentPlanVersionId.equals(
+                          undoRow.appliedPlanVersionId,
+                        )) &
+                    row.firstStartEvidenceId.isNotNull(),
+              ))
+              .get();
+      final startedFragments =
+          await (_database.select(_database.executionFragments)..where(
+                (row) =>
+                    row.planVersionId.equals(undoRow.appliedPlanVersionId) &
+                    row.state.isIn(['started', 'completed']),
+              ))
+              .get();
+      if (startedOccurrences.isNotEmpty || startedFragments.isNotEmpty) {
+        await (_database.update(
+          _database.planAdjustmentUndoReceipts,
+        )..where((row) => row.receiptId.equals(undoRow.receiptId))).write(
+          const PlanAdjustmentUndoReceiptsCompanion(state: Value('blocked')),
+        );
+        return const PlanUndoResult(
+          status: PlanUndoStatus.executionAlreadyStarted,
+          reasonCode: 'executionStarted',
+        );
+      }
+      final baselineVersion =
+          await (_database.select(_database.planVersions)
+                ..where((row) => row.id.equals(undoRow.baselinePlanVersionId)))
+              .getSingleOrNull();
+      final restoreId = 'undo-$nowMicros-${adjustmentId.replaceAll(':', '-')}';
+      final baselineBlocks = _decodeBlocks(undoRow.baselineBlocksJson);
+      final restored = await _writePlanVersion(
+        id: restoreId,
+        inputHash: baselineVersion?.inputHash ?? confirmed.inputHash,
+        algorithmVersion:
+            baselineVersion?.algorithmVersion ?? confirmed.algorithmVersion,
+        blocks: baselineBlocks,
+        nowUtc: nowUtc,
+        summaryJson: jsonEncode({
+          'operation': 'undoAdjustment',
+          'adjustmentId': adjustmentId,
+          'restoredFrom': undoRow.baselinePlanVersionId,
+          'replaced': undoRow.appliedPlanVersionId,
+        }),
+        changePrefix: 'undo',
+      );
+      // 未开始的当前关联重新指向恢复版本；执行证据只重定向，不删除。
+      await (_database.update(_database.executionOccurrences)..where(
+            (row) =>
+                row.currentPlanVersionId.equals(undoRow.appliedPlanVersionId),
+          ))
+          .write(
+            ExecutionOccurrencesCompanion(
+              currentPlanVersionId: Value(restored.id),
+            ),
+          );
+      await (_database.update(_database.executionFragments)..where(
+            (row) =>
+                row.planVersionId.equals(undoRow.appliedPlanVersionId) &
+                row.state.equals('planned'),
+          ))
+          .write(
+            ExecutionFragmentsCompanion(planVersionId: Value(restored.id)),
+          );
+      // 未开始 occurrence 的块关联也要指向恢复版本：旧行**保留**（历史证据），
+      // 新版本新增一行。能走到这里说明该 occurrence 没有任何开始证据，
+      // 因此"新增关联"不会篡改执行事实。
+      final appliedLinks =
+          await (_database.select(_database.executionBlockLinks)..where(
+                (row) => row.planVersionId.equals(undoRow.appliedPlanVersionId),
+              ))
+              .get();
+      for (final link in appliedLinks) {
+        final occurrence = await (_database.select(
+          _database.executionOccurrences,
+        )..where((row) => row.id.equals(link.occurrenceId))).getSingleOrNull();
+        final taskId = occurrence?.taskId;
+        if (taskId == null) continue;
+        PlannedBlock? mapped;
+        for (final block in restored.blocks) {
+          if (block.taskId != taskId) continue;
+          if (occurrence != null &&
+              block.startUtc.microsecondsSinceEpoch ==
+                  occurrence.baselineStartUtc) {
+            mapped = block;
+            break;
+          }
+          mapped ??= block;
+        }
+        if (mapped == null) continue;
+        await _database
+            .into(_database.executionBlockLinks)
+            .insert(
+              ExecutionBlockLinksCompanion.insert(
+                dataEpoch: link.dataEpoch,
+                planVersionId: restored.id,
+                blockId: mapped.id,
+                occurrenceId: link.occurrenceId,
+                sourceBlockId: Value(link.sourceBlockId),
+                reservedMicros: link.reservedMicros,
+                createdAtUtc: nowMicros,
+                fragmentId: Value(link.fragmentId),
+              ),
+            );
+      }
+      await (_database.update(
+        _database.planAdjustmentUndoReceipts,
+      )..where((row) => row.receiptId.equals(undoRow.receiptId))).write(
+        PlanAdjustmentUndoReceiptsCompanion(
+          state: const Value('completed'),
+          completedAtUtc: Value(nowMicros),
+        ),
+      );
+      await _enqueueOutbox(
+        planVersionId: restored.id,
+        nowUtc: nowUtc,
+        operation: 'undoAdjustment',
+      );
+      return PlanUndoResult(
+        status: PlanUndoStatus.undone,
+        planVersionId: restored.id,
+      );
+    });
+  }
+
+  // ── 内部：调整事务 ────────────────────────────────────────────────────────
+
+  Future<PlanAdjustment?> _adjustmentRow(String adjustmentId) =>
+      (_database.select(_database.planAdjustments)
+            ..where((row) => row.adjustmentId.equals(adjustmentId)))
+          .getSingleOrNull();
+
+  Future<PendingPlanPreview?> _previewRow(String previewId) =>
+      (_database.select(
+        _database.pendingPlanPreviews,
+      )..where((row) => row.previewId.equals(previewId))).getSingleOrNull();
+
+  Future<PlanAdjustmentApplyReceipt?> _applyReceiptByToken(String tokenHash) =>
+      (_database.select(
+        _database.planAdjustmentApplyReceipts,
+      )..where((row) => row.tokenHash.equals(tokenHash))).getSingleOrNull();
+
+  Future<PlanAdjustmentApplyReceipt?> _applyReceiptByAdjustment(
+    String adjustmentId,
+  ) => (_database.select(
+    _database.planAdjustmentApplyReceipts,
+  )..where((row) => row.adjustmentId.equals(adjustmentId))).getSingleOrNull();
+
+  String _applyTokenHash(AdjustmentApplyCommand command) => sha256
+      .convert(
+        utf8.encode(
+          [
+            command.adjustmentId,
+            command.adjustmentRevision,
+            command.previewId,
+            command.previewRevision,
+            command.proposalId,
+            command.contentHash,
+            command.basePlanVersionId,
+            command.inputHash,
+            command.algorithmVersion,
+          ].join('|'),
+        ),
+      )
+      .toString();
+
+  Future<void> _appendAdjustmentEvent({
+    required String adjustmentId,
+    required String fromStatus,
+    required String toStatus,
+    required int revision,
+    required DateTime occurredAtUtc,
+    required String? reasonCode,
+  }) async {
+    final last =
+        await (_database.select(_database.planAdjustmentEvents)
+              ..where((row) => row.adjustmentId.equals(adjustmentId))
+              ..orderBy([(row) => OrderingTerm.desc(row.sequence)])
+              ..limit(1))
+            .getSingleOrNull();
+    await _database
+        .into(_database.planAdjustmentEvents)
+        .insert(
+          PlanAdjustmentEventsCompanion.insert(
+            adjustmentId: adjustmentId,
+            sequence: (last?.sequence ?? 0) + 1,
+            fromStatus: fromStatus,
+            toStatus: toStatus,
+            revision: revision,
+            occurredAtUtc: occurredAtUtc.microsecondsSinceEpoch,
+            reasonCode: Value(reasonCode),
           ),
         );
   }
 
-  Future<ApplyPlanResult> _writePlan(
-    ScheduleProposal proposal,
-    DateTime now,
-  ) async {
+  Future<ConfirmedPlan> _writePlanVersion({
+    required String id,
+    required String inputHash,
+    required String algorithmVersion,
+    required List<PlannedBlock> blocks,
+    required DateTime nowUtc,
+    required String summaryJson,
+    required String changePrefix,
+  }) async {
+    final nowMicros = nowUtc.microsecondsSinceEpoch;
     await (_database.update(_database.planVersions)
           ..where((row) => row.status.equals('confirmed')))
         .write(const PlanVersionsCompanion(status: Value('superseded')));
@@ -456,64 +812,46 @@ final class DriftPlanRepository
         .into(_database.planVersions)
         .insert(
           PlanVersionsCompanion.insert(
-            id: proposal.proposalId,
-            createdAtUtc: now.microsecondsSinceEpoch,
-            inputHash: proposal.inputHash,
-            algorithmVersion: proposal.algorithmVersion,
+            id: id,
+            createdAtUtc: nowMicros,
+            inputHash: inputHash,
+            algorithmVersion: algorithmVersion,
             status: 'confirmed',
-            summaryJson: jsonEncode({
-              'isFullyFeasible': proposal.metrics.isFullyFeasible,
-              'scheduledMinutes': proposal.metrics.scheduledMinutes,
-              'unscheduledMinutes': proposal.metrics.unscheduledMinutes,
-              'outcome': proposal.outcome.name,
-            }),
+            summaryJson: summaryJson,
           ),
         );
-    await _database
-        .into(_database.changeLog)
-        .insert(
-          ChangeLogCompanion.insert(
-            id: '${proposal.proposalId}:change:0',
-            entityType: 'planVersion',
-            entityId: proposal.proposalId,
-            operation: 'confirm',
-            changedAtUtc: now.microsecondsSinceEpoch,
-            revision: 1,
-          ),
-        );
-
-    final persistedBlocks = <PlannedBlock>[];
-    for (var index = 0; index < proposal.blocks.length; index++) {
-      final block = proposal.blocks[index];
-      final persistedId = '${proposal.proposalId}:${block.id}';
+    final persisted = <PlannedBlock>[];
+    for (var index = 0; index < blocks.length; index++) {
+      final block = blocks[index];
+      final persistedId = '$id:${block.id}';
       await _database
           .into(_database.scheduleBlocks)
           .insert(
             ScheduleBlocksCompanion.insert(
               id: persistedId,
-              planVersionId: proposal.proposalId,
+              planVersionId: id,
               taskId: block.taskId,
               startAtUtc: block.startUtc.microsecondsSinceEpoch,
               endAtUtc: block.endUtc.microsecondsSinceEpoch,
               locked: Value(block.locked),
               explanationCode: block.explanationCode ?? 'scheduled',
-              createdAtUtc: Value(now.microsecondsSinceEpoch),
-              updatedAtUtc: Value(now.microsecondsSinceEpoch),
+              createdAtUtc: Value(nowMicros),
+              updatedAtUtc: Value(nowMicros),
             ),
           );
       await _database
           .into(_database.changeLog)
           .insert(
             ChangeLogCompanion.insert(
-              id: '${proposal.proposalId}:change:${index + 1}',
+              id: '$id:change:${index + 1}',
               entityType: 'scheduleBlock',
               entityId: persistedId,
-              operation: 'create',
-              changedAtUtc: now.microsecondsSinceEpoch,
+              operation: '$changePrefix:create',
+              changedAtUtc: nowMicros,
               revision: 1,
             ),
           );
-      persistedBlocks.add(
+      persisted.add(
         PlannedBlock(
           id: persistedId,
           taskId: block.taskId,
@@ -523,12 +861,83 @@ final class DriftPlanRepository
         ),
       );
     }
-    final plan = ConfirmedPlan(
-      id: proposal.proposalId,
-      inputHash: proposal.inputHash,
-      algorithmVersion: proposal.algorithmVersion,
-      blocks: persistedBlocks,
+    await _database
+        .into(_database.changeLog)
+        .insert(
+          ChangeLogCompanion.insert(
+            id: '$id:change:0',
+            entityType: 'planVersion',
+            entityId: id,
+            operation: changePrefix,
+            changedAtUtc: nowMicros,
+            revision: 1,
+          ),
+        );
+    return ConfirmedPlan(
+      id: id,
+      inputHash: inputHash,
+      algorithmVersion: algorithmVersion,
+      blocks: persisted,
     );
-    return ApplyPlanResult.applied(plan);
+  }
+
+  Future<void> _enqueueOutbox({
+    required String planVersionId,
+    required DateTime nowUtc,
+    required String operation,
+  }) async {
+    final micros = nowUtc.microsecondsSinceEpoch;
+    await _database
+        .into(_database.planChangeOutbox)
+        .insert(
+          PlanChangeOutboxCompanion.insert(
+            id: 'planChanged:$planVersionId',
+            dedupeKey: 'planChanged:$planVersionId',
+            kind: 'planChanged',
+            payloadJson: Value(
+              jsonEncode({
+                'planVersionId': planVersionId,
+                'operation': operation,
+              }),
+            ),
+            nextAttemptAtUtc: micros,
+            createdAtUtc: micros,
+          ),
+        );
+  }
+
+  String _encodeBlocks(List<PlannedBlock> blocks) => jsonEncode([
+    for (final block in blocks)
+      {
+        'taskId': block.taskId,
+        'start': block.startUtc.microsecondsSinceEpoch,
+        'end': block.endUtc.microsecondsSinceEpoch,
+        'locked': block.locked,
+        'explanationCode': block.explanationCode,
+      },
+  ]);
+
+  List<PlannedBlock> _decodeBlocks(String json) {
+    final raw = jsonDecode(json);
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw.whereType<Map<String, Object?>>())
+        PlannedBlock(
+          id: 'restored:${item['taskId']}:${item['start']}',
+          taskId: item['taskId']! as String,
+          range: TimeRange(
+            startUtc: DateTime.fromMicrosecondsSinceEpoch(
+              (item['start']! as num).toInt(),
+              isUtc: true,
+            ),
+            endUtc: DateTime.fromMicrosecondsSinceEpoch(
+              (item['end']! as num).toInt(),
+              isUtc: true,
+            ),
+          ),
+          locked: item['locked'] == true,
+          explanationCode: item['explanationCode'] as String?,
+        ),
+    ];
   }
 }

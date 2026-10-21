@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_planner/app/backup_assembly.dart';
 import 'package:personal_planner/data/database/app_database.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// 升级前快照（路线图 §4.3）。
@@ -216,10 +218,38 @@ void main() {
     // 两处必须是同一个数字：装配层在**打开连接之前**问不到实例，只能读常量；
     // 常量与 `schemaVersion` 漂移的后果是"该备份时不备份"，而那条规则正是本文件守护的。
     expect(database.schemaVersion, plannerSchemaVersion);
-    expect(
+    expect(plannerSchemaVersion, 11, reason: 'v11 并入周期快照、片段、证据与持久预排（1.11.0）');
+  });
+
+  test('迁移前备份运行期间阻塞更新，成功或失败后解除（UPD-029）', () async {
+    final path = await writeDatabaseAtVersion(6);
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final gate = Completer<void>();
+    final pending = createPreMigrationSnapshotIfNeeded(
+      path,
       plannerSchemaVersion,
-      11,
-      reason: 'v11 只新增 day_exceptions 表与索引（算法 20 规范 §8.1/§11）',
+      updateSafety: safety,
+      snapshotDirectory: () async {
+        await gate.future;
+        return snapshots;
+      },
     );
+    await Future<void>.delayed(Duration.zero);
+    expect(safety.status.blockers, contains(UpdateBlocker.backupRunning));
+    gate.complete();
+    await pending;
+    expect(safety.status.canInstall, isTrue);
+
+    await expectLater(
+      createPreMigrationSnapshotIfNeeded(
+        path,
+        plannerSchemaVersion,
+        updateSafety: safety,
+        snapshotDirectory: () async => throw StateError('no disk'),
+      ),
+      throwsA(anything),
+    );
+    expect(safety.status.canInstall, isTrue, reason: '失败也必须解除阻塞');
   });
 }

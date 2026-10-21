@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/models/task.dart';
+import 'package:personal_planner/scheduling/plan_hard_constraint_evaluator.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 
 enum ConflictCode {
@@ -34,6 +35,15 @@ enum ConflictCode {
   /// - 不允许自动应用，也不给"应用可安排部分"这个入口；
   /// - 预览不显示"可用时间不足"，只显示固定异常文案。
   ///
+  /// 相邻任务块之间的**休息间隔**不满足当天策略（DFR-025/031）。
+  ///
+  /// 判定口径：
+  /// - 只比较**相邻**（按开始时间排序后的前后两块）；
+  /// - **同一任务**的连续片段不在此列（连续/拆分规则另有判定）；
+  /// - 跨越本地日时取两天中**更严格**的 `breakMinutes`；
+  /// - 缺某天策略时不在这里猜：`missingDailyPolicy` 已经单独报出。
+  requiredBreakUnavailable,
+
   /// **只能有一条用户可见问题**：引擎把它作为一条 blocker 放进 `conflicts`，
   /// 对应的 `UnscheduledTask` 主原因用 `unexplainedSchedulingFailure`，
   /// 预览层把两者**合成一条**呈现（见 `buildPreviewIssues`），不得 warning＋blocker 各显示一遍。
@@ -569,32 +579,54 @@ final class PlanValidator {
     // 因此不计入本上限。AvailabilityBuilder 同样先把锁定块从可用时间中扣除，
     // 再把当日预算花在剩余空闲上；若此处再把锁定块计入，同一段时长会被计算两次，
     // 产生虚假的 dailyLimitExceeded，并使 PlanApplicationService 把合法提案判为 invalid。
-    final minutesByLocalDate = <String, int>{};
-    for (final block in blocks) {
-      if (block.locked) continue;
-      final local = _zones.toLocal(block.startUtc, problem.timeZoneId);
-      final key = '${local.year}-${local.month}-${local.day}';
-      minutesByLocalDate.update(
-        key,
-        (value) => value + block.durationMinutes,
-        ifAbsent: () => block.durationMinutes,
-      );
-    }
-    for (final entry in minutesByLocalDate.entries) {
-      if (entry.value > problem.rules.dailyMovableTaskLimitMinutes) {
-        conflicts.add(
-          PlanningConflict(
-            code: ConflictCode.dailyLimitExceeded,
-            details: {
-              'localDate': entry.key,
-              'scheduledMinutes': entry.value,
-              'limitMinutes': problem.rules.dailyMovableTaskLimitMinutes,
-            },
+    // 逐日上限与任务间休息由**统一判定器**给出（计划 Task 6，DFR-024/025/031）：
+    // 这里只做"稳定码 -> 冲突码"的翻译，不再保留第二份判断。
+    final evaluatorViolations = PlanHardConstraintEvaluator(_zones)
+        .validatePlan(
+          blocks: blocks,
+          context: HardConstraintContext(
+            problem: problem,
+            // 校验阶段没有独立时钟：窗口起点就是引擎与装配层共同的"现在"。
+            nowUtc: problem.planningWindow.startUtc,
           ),
         );
+    for (final violation in evaluatorViolations) {
+      switch (violation.code) {
+        case HardConstraintCode.taskDailyLimitReached:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.dailyLimitExceeded,
+              details: {
+                'localDate': _dateKey(violation.localDate),
+                'scheduledMinutes': violation.requiredMinutes,
+                'limitMinutes': violation.availableMinutes,
+              },
+            ),
+          );
+        case HardConstraintCode.requiredBreakUnavailable:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.requiredBreakUnavailable,
+              details: {
+                'gapMinutes': violation.availableMinutes,
+                'breakMinutes': violation.requiredMinutes,
+                'localDate': _dateKey(violation.localDate),
+              },
+            ),
+          );
+        case HardConstraintCode.missingDailyPolicy:
+          conflicts.add(
+            PlanningConflict(
+              code: ConflictCode.invalidInput,
+              blockingInput: 'missingDailyPolicy',
+              details: {'localDate': _dateKey(violation.localDate)},
+            ),
+          );
+        default:
+          // 其余码由逐块循环或片段集合校验负责归因；这里不重复报。
+          break;
       }
     }
-
     return List.unmodifiable(conflicts);
   }
 
@@ -630,4 +662,8 @@ final class PlanValidator {
     // 它的值是**枚举名**，不是自由文本。
     details: {'reason': reason.name, ...details},
   );
+
+  /// 把本地日期写成既有的 `yyyy-m-d` 键（与 DFR-027 的 details 口径一致）。
+  static String _dateKey(DateTime? date) =>
+      date == null ? '' : '${date.year}-${date.month}-${date.day}';
 }

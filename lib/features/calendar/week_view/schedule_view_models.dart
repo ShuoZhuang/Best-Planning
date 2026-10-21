@@ -82,6 +82,7 @@ final class ScheduleViewItem {
     this.areaId,
     this.taskId,
     this.isCompleted = false,
+    this.isLocked = false,
     this.recurringGoal,
     this.notes = '',
     this.repeats = false,
@@ -110,6 +111,12 @@ final class ScheduleViewItem {
   /// 分类「无领域任务」，看起来像"勾完之后任务变成了另一个分类"。现在这类块照常显示真实标题与
   /// 领域色，只多一个"已完成"标记。
   final bool isCompleted;
+
+  /// 这一块被用户**锁定**（`PlannedBlock.locked`）。
+  ///
+  /// 延后入口据此在页面层就给出"已锁定"的禁用原因；此前只有服务层拒绝，
+  /// 用户点了才知道不能延后（DFR-007/020）。
+  final bool isLocked;
 
   /// 这一条属于某个**周期目标**那一周的实例时的展示数据（M6，§3.3 最后一条）。
   ///

@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "timetable_ocr_channel.cpp"
+  "update_storage_channel.cpp"
   "tray_icon.cpp"
   "utils.cpp"
   "win32_window.cpp"

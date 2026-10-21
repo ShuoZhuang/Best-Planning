@@ -1,12 +1,9 @@
 import 'package:personal_planner/application/input_snapshot_builder.dart';
 import 'package:personal_planner/application/planning_service.dart';
-import 'package:personal_planner/application/preference_evidence_service.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
-import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
-import 'package:personal_planner/domain/models/day_exception.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
-import 'package:personal_planner/scheduling/extension_day_policy.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/schedule_engine.dart';
 import 'package:personal_planner/scheduling/search_outcome.dart';
@@ -20,8 +17,9 @@ final class PlanApplicationService {
     required TimeZoneDatabase zones,
     this.snapshots = const InputSnapshotBuilder(),
     this.onPlanChanged,
-    this.preferenceEvidence,
-    this.areaIdForTask,
+    this.updateSafety,
+    this.planTransactionApplier,
+    this.afterApplied,
   }) : _validator = PlanValidator(zones);
 
   final ScheduleProblemSource source;
@@ -29,11 +27,20 @@ final class PlanApplicationService {
   final PlanValidator _validator;
   final InputSnapshotBuilder snapshots;
 
-  /// 手动移动证据端口（算法 20，规范 §9.2）。为空时不写证据。
-  final PreferenceEvidenceService? preferenceEvidence;
+  /// 把"计划写入 + 执行来源关联"一次提交的端口（规范 §19.4）。
+  ///
+  /// 生产装配传入真实的 `DriftPlanRepository`；测试替身不实现它，因此仍走
+  /// [PlanRepository.applyProposal]，并在提交之后执行 [afterApplied]。
+  final PlanTransactionApplier? planTransactionApplier;
 
-  /// 任务 → 领域 id，用于把移动证据归到正确 subject；为空时落 `global`。
-  final Future<String?> Function(String taskId)? areaIdForTask;
+  /// 计划真正写入后的执行来源关联。生产装配用它在**同一事务内**写入实例与块链接；
+  /// 没有事务端口时退化为提交后回调，仅用于测试替身。
+  final Future<void> Function(
+    ConfirmedPlan plan,
+    ScheduleProposal proposal,
+    ScheduleProblem current,
+  )?
+  afterApplied;
 
   /// 计划被**真正改变**之后的回调（B5）。
   ///
@@ -41,6 +48,9 @@ final class PlanApplicationService {
   /// `syncNextSevenDays()`），因此**应用开着的时候新建任务、改计划都不会重排提醒**——已排的
   /// 提醒会与当前计划不一致。组合根用它来重新同步。
   final Future<void> Function()? onPlanChanged;
+
+  /// 计划应用期间的更新阻塞端口（UPD-029）。为空时不汇报。
+  final UpdateSafetyCoordinator? updateSafety;
 
   /// 应用一份提案（1.8.0，2026-10-12 故障；冻结决策 §1.6）。
   ///
@@ -63,30 +73,18 @@ final class PlanApplicationService {
   Future<ApplyPlanResult> apply(
     ScheduleProposal proposal, {
     PlanApplyMode mode = PlanApplyMode.completeOnly,
-  }) => _applyInternal(proposal, mode: mode);
+  }) async {
+    final lease = updateSafety?.begin(UpdateBlocker.planApplying);
+    try {
+      return await _apply(proposal, mode: mode);
+    } finally {
+      lease?.release();
+    }
+  }
 
-  /// 特殊日确认：**计划 + 特殊日事实 + 恢复效果 + 审计同一事务**（规范 §8.3）。
-  ///
-  /// [proposal] 必须是用同一个 `ScheduleRuleOverride.dayException` 生成的提案；
-  /// 本方法先按普通应用的全部闸门校验，再把特殊日与计划交给
-  /// `PlanningCommitRepository.commit` 一次写入。
-  Future<ApplyPlanResult> applySpecialDay(
-    ScheduleProposal proposal, {
-    required DayException dayException,
-    RecoveryCommitEffect? recoveryEffect,
-    PlanApplyMode mode = PlanApplyMode.completeOnly,
-  }) => _applyInternal(
-    proposal,
-    mode: mode,
-    dayException: dayException,
-    recoveryEffect: recoveryEffect,
-  );
-
-  Future<ApplyPlanResult> _applyInternal(
+  Future<ApplyPlanResult> _apply(
     ScheduleProposal proposal, {
     PlanApplyMode mode = PlanApplyMode.completeOnly,
-    DayException? dayException,
-    RecoveryCommitEffect? recoveryEffect,
   }) async {
     // 必须重放生成该提案时用过的同一个一次性规则覆盖（如特殊日恢复的睡眠例外），
     // 否则重新装配出的规则与提案不一致，哈希必然不同，合法提案会被误判为过期。
@@ -196,83 +194,35 @@ final class PlanApplicationService {
           ),
       ]);
     }
-    final effectiveDayException =
-        dayException ?? proposal.confirmedDayException;
-    final effectiveRecoveryEffect = recoveryEffect ?? proposal.recoveryEffect;
-    final ApplyPlanResult result;
-    if (repository is PlanningCommitRepository) {
-      result = await (repository as PlanningCommitRepository).commit(
-        PlanningCommitRequest(
-          proposal: proposal,
-          expectedInputHash: current.inputHash,
-          confirmedDayException: effectiveDayException,
-          recoveryEffect: effectiveRecoveryEffect,
-        ),
-      );
-    } else if (effectiveDayException != null ||
-        effectiveRecoveryEffect != null) {
-      // 没有原子提交端口时**拒绝**特殊日确认：先写特殊日再写计划会留下半成品。
-      return ApplyPlanResult.invalid([
-        PlanningConflict(code: ConflictCode.schedulingInvariantViolation),
-      ]);
-    } else {
-      result = await repository.applyProposal(proposal, current.inputHash);
-    }
+    final result = await _commitPlan(proposal, current);
     // **只在真的应用了之后**同步：过期与非法提案都没有改变当前计划，同步一次既是白跑，
     // 更糟的是会掩盖"这次确认其实失败了"。
     if (result.status == ApplyPlanStatus.applied) {
-      await _recordAppliedMoves(proposal, current.confirmedBlocks);
-      await _recordExtensionAcceptance(proposal);
       await onPlanChanged?.call();
     }
     return result;
   }
 
-  /// 接受延长日建议后写一条建议接受证据（规范 §9.2 / ALG20-048）。
-  Future<void> _recordExtensionAcceptance(ScheduleProposal proposal) async {
-    final exception = proposal.confirmedDayException;
-    final service = preferenceEvidence;
-    if (exception == null || service == null) return;
-    try {
-      await service.recordSuggestionAction(
-        suggestionId: dayExceptionSuggestionId(exception),
-        action: 'accepted',
-        suggestionKind: 'temporaryExtensionDay',
-      );
-    } on Object {
-      // 证据是旁路：写失败不影响已确认计划。
-    }
-  }
-
-  /// 计划真正落库后，把手动移动写成学习证据（规范 §9.2）。
-  ///
-  /// **只在 `applied` 之后写**：预览、过期、非法与部分授权被拒绝时都不产生证据。
-  /// 证据写入失败不得让"计划已确认"看起来失败，因此逐条吞掉异常。
-  Future<void> _recordAppliedMoves(
+  Future<ApplyPlanResult> _commitPlan(
     ScheduleProposal proposal,
-    List<PlannedBlock> confirmedBlocks,
+    ScheduleProblem current,
   ) async {
-    final service = preferenceEvidence;
-    if (service == null) return;
-    final before = {for (final block in confirmedBlocks) block.id: block};
-    for (final block in proposal.blocks) {
-      final sourceId = block.continuedFromId;
-      if (sourceId == null) continue;
-      final previous = before[sourceId];
-      if (previous == null || previous.range == block.range) continue;
-      try {
-        final areaId = await areaIdForTask?.call(block.taskId);
-        await service.recordManualMove(
-          fromUtc: previous.startUtc,
-          toUtc: block.startUtc,
-          areaId: areaId,
-          taskId: block.taskId,
-          source: 'planApplication',
-        );
-      } on Object {
-        // 证据是旁路：写失败不能回滚已经确认的计划。
-      }
+    final hook = afterApplied;
+    final applier = planTransactionApplier;
+    if (applier != null) {
+      return applier.applyProposalWithSideEffects(
+        proposal,
+        current.inputHash,
+        onApplied: (plan) async {
+          if (hook != null) await hook(plan, proposal, current);
+        },
+      );
     }
+    final result = await repository.applyProposal(proposal, current.inputHash);
+    if (result.status == ApplyPlanStatus.applied && hook != null) {
+      await hook(result.plan!, proposal, current);
+    }
+    return result;
   }
 
   /// 本次延后有没有兑现；兑现（或本次不是调整）时返回 null。

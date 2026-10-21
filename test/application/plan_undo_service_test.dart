@@ -3,6 +3,7 @@ import 'package:personal_planner/application/plan_undo_service.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
 import 'package:personal_planner/domain/repositories/plan_repository.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
+import 'package:personal_planner/domain/update/update_safety.dart';
 
 void main() {
   test('应用计划 B 后撤销会以新版本恢复 A，不删除历史', () async {
@@ -47,6 +48,26 @@ void main() {
     await expectLater(service.undoLastAppliedPlan(), throwsStateError);
 
     expect(calls, 0);
+  });
+
+  test('撤销计划期间阻塞更新，成功或异常后解除（UPD-029）', () async {
+    final safety = InMemoryUpdateSafetyCoordinator();
+    addTearDown(safety.dispose);
+    final service = PlanUndoService(
+      repository: _HistoryRepository([_plan('A', 9), _plan('B', 11)]),
+      updateSafety: safety,
+    );
+    final undo = service.undoLastAppliedPlan();
+    expect(safety.status.blockers, contains(UpdateBlocker.planApplying));
+    await undo;
+    expect(safety.status.canInstall, isTrue);
+
+    final failing = PlanUndoService(
+      repository: _HistoryRepository([_plan('A', 9)]),
+      updateSafety: safety,
+    );
+    await expectLater(failing.undoLastAppliedPlan(), throwsStateError);
+    expect(safety.status.canInstall, isTrue);
   });
 }
 

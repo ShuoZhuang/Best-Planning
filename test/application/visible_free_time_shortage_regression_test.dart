@@ -432,12 +432,11 @@ void main() {
 
     expect(ids, contains(goal.currentCycle), reason: '本周实例必须进入本次规划');
     expect(
-      ids,
-      isNot(contains(goal.nextCycle)),
+      ids.where((id) => id == goal.nextCycle),
+      hasLength(1),
       reason:
-          '下周实例的滚动窗口已被 `ensureCycles` 生成，但**本次规划只加回本周周期实例**；'
-          '它不得作为普通任务进入排程。泄漏时用户看到的是同名周期目标出现两条、'
-          '各还缺同一份分钟数。\n'
+          '与执行窗口相交的下周实例只以周期输入出现一次；'
+          '它不得同时作为普通任务泄漏，否则同名周期目标会出现两条。'
           '实际输入：$ids',
     );
     expect(

@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # 版本规则与历史回填见 docs/release/version-policy.md。这一行是**唯一数值来源**：
 # msix_config.msix_version 与 lib/app/backup_assembly.dart 的 appVersion 都由它派生，
 # 并由 test/app/version_consistency_test.dart 守着必须一致。
-version: 1.8.1+45
+version: 1.11.1+53
 
 environment:
   sdk: ^3.13.4
@@ -73,6 +73,9 @@ dependencies:
   # 备份要定位应用自己的数据库文件。`drift_flutter` 内部就用它解析目录（版本已在
   # pubspec.lock 中锁定为 2.1.6），这里提升为直接依赖以便按同一条规则算出路径。
   path_provider: ^2.1.6
+  # 读取 MSIX 内的 AppxManifest.xml：包身份/发布者/架构/版本必须从成品里读，
+  # 而不是从清单或常量推断（规格 §10.1 第三层信任）。
+  xml: ^7.1.0
 
   # ── 更新检查（路线图 §3.6 / Task 10）────────────────────────────────────────────
   #
@@ -230,8 +233,8 @@ msix_config:
   # 能真正装进本机，按本文档自己那条规则把第四段 +1。**代码、`version`、包身份都没变**：
   # 判定是否真的换了内容要看已安装副本的 `data/app.so` 指纹（本批 = `C474317B…`），不看版本号。
   # 规则与历史回填见 docs/release/version-policy.md。
-  msix_version: 1.8.1.0
-  output_name: personal_planner_1.8.1.0_x64
+  msix_version: 1.11.1.0
+  output_name: personal_planner_1.11.1.0_x64
   # 通知点击的**激活器**（A②）。打包应用走的是**清单声明**，不是插件那套
   # `HKCU\Software\Classes\AppUserModelId\<aumid>` 注册表约定——这正是"点通知只把窗口带到
   # 前台、不跳转"的原因之一（实测证据见 `docs/testing/flow-verification.md` 第九节）。
@@ -245,4 +248,5 @@ msix_config:
     display_name: 优计主义
   # 构建过程不得静默修改本机的受信任证书库；安装测试单独请求用户授权。
   install_certificate: false
+
 

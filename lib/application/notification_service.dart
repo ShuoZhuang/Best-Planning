@@ -44,6 +44,12 @@ final class NotificationService {
   static const _recurringPrefix = RecurringNotificationService.managedPrefix;
   static const _window = Duration(days: 7);
 
+  /// 执行提醒的稳定 ID 前缀（1.11.0，规范 §13）。
+  ///
+  /// 它属于"任务开始"类别但不参与本类的期望集合：对账由 `ExecutionReminderCoordinator`
+  /// 按执行实例与提醒修订完成，两个服务不能各发一条，也不能互相取消。
+  static const executionReminderPrefix = 'planner.task_start.exec.';
+
   /// 本应用会自己排队的所有通知 id 前缀。
   ///
   /// **注意：它不是取消逻辑的输入。** 取消判据是"`_categoryOf` 识别出类别 → 看该类开不开"
@@ -339,6 +345,10 @@ final class NotificationService {
     //   · 类别开启但已不在期望集合 → 取消（它是过期事实：计划已改，这条提醒已无意义）
     //   · 类别开启且在期望集合   → 保留
     final cancelledCount = await _cancelPending((id) {
+      // 执行提醒由 `ExecutionReminderCoordinator` 对账（1.11.0，规范 §21）。
+      // 它们共用"任务开始"类别，但生命周期与计划块不同；在这里按"不在期望集合里"
+      // 取消会让用户每生成一次计划就丢掉刚设置的稍后提醒。
+      if (id.startsWith(executionReminderPrefix)) return false;
       final category = _categoryOf(id);
       if (category == null) return false;
       if (!_categoryEnabled(resolved, category)) return true;

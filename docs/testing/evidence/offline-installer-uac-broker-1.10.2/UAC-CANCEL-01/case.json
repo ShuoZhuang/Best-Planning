@@ -1,0 +1,15 @@
+{
+  "id": "UAC-CANCEL-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "filtered-admin",
+  "exitCode": 10,
+  "finalState": "NotInstalled",
+  "note": "UAC 点否：退出码 10、INSTALLER_ELEVATION_DECLINED detail=uac-declined、证书与包都不存在、finalState NotInstalled",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-CANCEL-01/setup.log",
+  "logSha256": "08755995656f22e711b60190c692df8ffeba4e856409118e1079830a526beb18",
+  "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-CANCEL-01/screenshot-after.png",
+  "screenshotSha256": "cf1571ee21df44dd27e1a09c7af44568fe3e1ae9d4fad35f754fc599b442744f"
+}

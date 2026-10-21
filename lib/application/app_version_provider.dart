@@ -7,7 +7,7 @@
 // 或者拿到的是别人转发的构建产物），程序就会拿一个错误的数字去和 GitHub 上的 tag 比大小，
 // 而表现是"明明有新版本却一直说已是最新"——**用户完全看不出原因**。
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:personal_planner/domain/models/app_update.dart';
+import 'package:personal_planner/domain/models/app_version.dart';
 
 /// 当前**安装**版本的读取端口。
 ///

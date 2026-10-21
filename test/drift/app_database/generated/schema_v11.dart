@@ -9979,12 +9979,1053 @@ class RecurringTaskCyclesCompanion
   }
 }
 
-class DayExceptions extends Table
-    with TableInfo<DayExceptions, DayExceptionsData> {
+class ExecutionRuntimeState extends Table
+    with TableInfo<ExecutionRuntimeState, ExecutionRuntimeStateData> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  DayExceptions(this.attachedDatabase, [this._alias]);
+  ExecutionRuntimeState(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> activeSessionId = GeneratedColumn<String>(
+    'active_session_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL REFERENCES time_entries(id)ON DELETE SET NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<int> featureEnabledAtUtc = GeneratedColumn<int>(
+    'feature_enabled_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    dataEpoch,
+    activeSessionId,
+    revision,
+    featureEnabledAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_runtime_state';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ExecutionRuntimeStateData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionRuntimeStateData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      activeSessionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}active_session_id'],
+      ),
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      featureEnabledAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}feature_enabled_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionRuntimeState createAlias(String alias) {
+    return ExecutionRuntimeState(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(id)',
+    'CHECK(id = 1)',
+    'CHECK(revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionRuntimeStateData extends DataClass
+    implements Insertable<ExecutionRuntimeStateData> {
+  final int id;
+  final String dataEpoch;
+  final String? activeSessionId;
+  final int revision;
+  final int featureEnabledAtUtc;
+  final int updatedAtUtc;
+  const ExecutionRuntimeStateData({
+    required this.id,
+    required this.dataEpoch,
+    this.activeSessionId,
+    required this.revision,
+    required this.featureEnabledAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    if (!nullToAbsent || activeSessionId != null) {
+      map['active_session_id'] = Variable<String>(activeSessionId);
+    }
+    map['revision'] = Variable<int>(revision);
+    map['feature_enabled_at_utc'] = Variable<int>(featureEnabledAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  ExecutionRuntimeStateCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionRuntimeStateCompanion(
+      id: Value(id),
+      dataEpoch: Value(dataEpoch),
+      activeSessionId: activeSessionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(activeSessionId),
+      revision: Value(revision),
+      featureEnabledAtUtc: Value(featureEnabledAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory ExecutionRuntimeStateData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionRuntimeStateData(
+      id: serializer.fromJson<int>(json['id']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      activeSessionId: serializer.fromJson<String?>(json['activeSessionId']),
+      revision: serializer.fromJson<int>(json['revision']),
+      featureEnabledAtUtc: serializer.fromJson<int>(
+        json['featureEnabledAtUtc'],
+      ),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'activeSessionId': serializer.toJson<String?>(activeSessionId),
+      'revision': serializer.toJson<int>(revision),
+      'featureEnabledAtUtc': serializer.toJson<int>(featureEnabledAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  ExecutionRuntimeStateData copyWith({
+    int? id,
+    String? dataEpoch,
+    Value<String?> activeSessionId = const Value.absent(),
+    int? revision,
+    int? featureEnabledAtUtc,
+    int? updatedAtUtc,
+  }) => ExecutionRuntimeStateData(
+    id: id ?? this.id,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    activeSessionId: activeSessionId.present
+        ? activeSessionId.value
+        : this.activeSessionId,
+    revision: revision ?? this.revision,
+    featureEnabledAtUtc: featureEnabledAtUtc ?? this.featureEnabledAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  ExecutionRuntimeStateData copyWithCompanion(
+    ExecutionRuntimeStateCompanion data,
+  ) {
+    return ExecutionRuntimeStateData(
+      id: data.id.present ? data.id.value : this.id,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      activeSessionId: data.activeSessionId.present
+          ? data.activeSessionId.value
+          : this.activeSessionId,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      featureEnabledAtUtc: data.featureEnabledAtUtc.present
+          ? data.featureEnabledAtUtc.value
+          : this.featureEnabledAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionRuntimeStateData(')
+          ..write('id: $id, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('activeSessionId: $activeSessionId, ')
+          ..write('revision: $revision, ')
+          ..write('featureEnabledAtUtc: $featureEnabledAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    dataEpoch,
+    activeSessionId,
+    revision,
+    featureEnabledAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionRuntimeStateData &&
+          other.id == this.id &&
+          other.dataEpoch == this.dataEpoch &&
+          other.activeSessionId == this.activeSessionId &&
+          other.revision == this.revision &&
+          other.featureEnabledAtUtc == this.featureEnabledAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class ExecutionRuntimeStateCompanion
+    extends UpdateCompanion<ExecutionRuntimeStateData> {
+  final Value<int> id;
+  final Value<String> dataEpoch;
+  final Value<String?> activeSessionId;
+  final Value<int> revision;
+  final Value<int> featureEnabledAtUtc;
+  final Value<int> updatedAtUtc;
+  const ExecutionRuntimeStateCompanion({
+    this.id = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.activeSessionId = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.featureEnabledAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+  });
+  ExecutionRuntimeStateCompanion.insert({
+    this.id = const Value.absent(),
+    required String dataEpoch,
+    this.activeSessionId = const Value.absent(),
+    this.revision = const Value.absent(),
+    required int featureEnabledAtUtc,
+    required int updatedAtUtc,
+  }) : dataEpoch = Value(dataEpoch),
+       featureEnabledAtUtc = Value(featureEnabledAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<ExecutionRuntimeStateData> custom({
+    Expression<int>? id,
+    Expression<String>? dataEpoch,
+    Expression<String>? activeSessionId,
+    Expression<int>? revision,
+    Expression<int>? featureEnabledAtUtc,
+    Expression<int>? updatedAtUtc,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (activeSessionId != null) 'active_session_id': activeSessionId,
+      if (revision != null) 'revision': revision,
+      if (featureEnabledAtUtc != null)
+        'feature_enabled_at_utc': featureEnabledAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+    });
+  }
+
+  ExecutionRuntimeStateCompanion copyWith({
+    Value<int>? id,
+    Value<String>? dataEpoch,
+    Value<String?>? activeSessionId,
+    Value<int>? revision,
+    Value<int>? featureEnabledAtUtc,
+    Value<int>? updatedAtUtc,
+  }) {
+    return ExecutionRuntimeStateCompanion(
+      id: id ?? this.id,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      activeSessionId: activeSessionId ?? this.activeSessionId,
+      revision: revision ?? this.revision,
+      featureEnabledAtUtc: featureEnabledAtUtc ?? this.featureEnabledAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (activeSessionId.present) {
+      map['active_session_id'] = Variable<String>(activeSessionId.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (featureEnabledAtUtc.present) {
+      map['feature_enabled_at_utc'] = Variable<int>(featureEnabledAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionRuntimeStateCompanion(')
+          ..write('id: $id, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('activeSessionId: $activeSessionId, ')
+          ..write('revision: $revision, ')
+          ..write('featureEnabledAtUtc: $featureEnabledAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionWriteSequence extends Table
+    with TableInfo<ExecutionWriteSequence, ExecutionWriteSequenceData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionWriteSequence(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> nextValue = GeneratedColumn<int>(
+    'next_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, nextValue, updatedAtUtc];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_write_sequence';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ExecutionWriteSequenceData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionWriteSequenceData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      nextValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_value'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionWriteSequence createAlias(String alias) {
+    return ExecutionWriteSequence(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(id)',
+    'CHECK(id = 1)',
+    'CHECK(next_value >= 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionWriteSequenceData extends DataClass
+    implements Insertable<ExecutionWriteSequenceData> {
+  final int id;
+  final int nextValue;
+  final int updatedAtUtc;
+  const ExecutionWriteSequenceData({
+    required this.id,
+    required this.nextValue,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['next_value'] = Variable<int>(nextValue);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  ExecutionWriteSequenceCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionWriteSequenceCompanion(
+      id: Value(id),
+      nextValue: Value(nextValue),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory ExecutionWriteSequenceData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionWriteSequenceData(
+      id: serializer.fromJson<int>(json['id']),
+      nextValue: serializer.fromJson<int>(json['nextValue']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'nextValue': serializer.toJson<int>(nextValue),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  ExecutionWriteSequenceData copyWith({
+    int? id,
+    int? nextValue,
+    int? updatedAtUtc,
+  }) => ExecutionWriteSequenceData(
+    id: id ?? this.id,
+    nextValue: nextValue ?? this.nextValue,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  ExecutionWriteSequenceData copyWithCompanion(
+    ExecutionWriteSequenceCompanion data,
+  ) {
+    return ExecutionWriteSequenceData(
+      id: data.id.present ? data.id.value : this.id,
+      nextValue: data.nextValue.present ? data.nextValue.value : this.nextValue,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionWriteSequenceData(')
+          ..write('id: $id, ')
+          ..write('nextValue: $nextValue, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, nextValue, updatedAtUtc);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionWriteSequenceData &&
+          other.id == this.id &&
+          other.nextValue == this.nextValue &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class ExecutionWriteSequenceCompanion
+    extends UpdateCompanion<ExecutionWriteSequenceData> {
+  final Value<int> id;
+  final Value<int> nextValue;
+  final Value<int> updatedAtUtc;
+  const ExecutionWriteSequenceCompanion({
+    this.id = const Value.absent(),
+    this.nextValue = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+  });
+  ExecutionWriteSequenceCompanion.insert({
+    this.id = const Value.absent(),
+    this.nextValue = const Value.absent(),
+    required int updatedAtUtc,
+  }) : updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<ExecutionWriteSequenceData> custom({
+    Expression<int>? id,
+    Expression<int>? nextValue,
+    Expression<int>? updatedAtUtc,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (nextValue != null) 'next_value': nextValue,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+    });
+  }
+
+  ExecutionWriteSequenceCompanion copyWith({
+    Value<int>? id,
+    Value<int>? nextValue,
+    Value<int>? updatedAtUtc,
+  }) {
+    return ExecutionWriteSequenceCompanion(
+      id: id ?? this.id,
+      nextValue: nextValue ?? this.nextValue,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (nextValue.present) {
+      map['next_value'] = Variable<int>(nextValue.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionWriteSequenceCompanion(')
+          ..write('id: $id, ')
+          ..write('nextValue: $nextValue, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionOperations extends Table
+    with TableInfo<ExecutionOperations, ExecutionOperationsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionOperations(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> requestHash = GeneratedColumn<String>(
+    'request_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> commandType = GeneratedColumn<String>(
+    'command_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> subjectKind = GeneratedColumn<String>(
+    'subject_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> subjectId = GeneratedColumn<String>(
+    'subject_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> resultJson = GeneratedColumn<String>(
+    'result_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    dataEpoch,
+    operationId,
+    requestHash,
+    commandType,
+    subjectKind,
+    subjectId,
+    resultJson,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_operations';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {dataEpoch, operationId};
+  @override
+  ExecutionOperationsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionOperationsData(
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
+      )!,
+      requestHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}request_hash'],
+      )!,
+      commandType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}command_type'],
+      )!,
+      subjectKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}subject_kind'],
+      )!,
+      subjectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}subject_id'],
+      ),
+      resultJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}result_json'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionOperations createAlias(String alias) {
+    return ExecutionOperations(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(data_epoch, operation_id)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionOperationsData extends DataClass
+    implements Insertable<ExecutionOperationsData> {
+  final String dataEpoch;
+  final String operationId;
+  final String requestHash;
+  final String commandType;
+  final String subjectKind;
+  final String? subjectId;
+  final String resultJson;
+  final int createdAtUtc;
+  const ExecutionOperationsData({
+    required this.dataEpoch,
+    required this.operationId,
+    required this.requestHash,
+    required this.commandType,
+    required this.subjectKind,
+    this.subjectId,
+    required this.resultJson,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['operation_id'] = Variable<String>(operationId);
+    map['request_hash'] = Variable<String>(requestHash);
+    map['command_type'] = Variable<String>(commandType);
+    map['subject_kind'] = Variable<String>(subjectKind);
+    if (!nullToAbsent || subjectId != null) {
+      map['subject_id'] = Variable<String>(subjectId);
+    }
+    map['result_json'] = Variable<String>(resultJson);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  ExecutionOperationsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionOperationsCompanion(
+      dataEpoch: Value(dataEpoch),
+      operationId: Value(operationId),
+      requestHash: Value(requestHash),
+      commandType: Value(commandType),
+      subjectKind: Value(subjectKind),
+      subjectId: subjectId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(subjectId),
+      resultJson: Value(resultJson),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory ExecutionOperationsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionOperationsData(
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      operationId: serializer.fromJson<String>(json['operationId']),
+      requestHash: serializer.fromJson<String>(json['requestHash']),
+      commandType: serializer.fromJson<String>(json['commandType']),
+      subjectKind: serializer.fromJson<String>(json['subjectKind']),
+      subjectId: serializer.fromJson<String?>(json['subjectId']),
+      resultJson: serializer.fromJson<String>(json['resultJson']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'operationId': serializer.toJson<String>(operationId),
+      'requestHash': serializer.toJson<String>(requestHash),
+      'commandType': serializer.toJson<String>(commandType),
+      'subjectKind': serializer.toJson<String>(subjectKind),
+      'subjectId': serializer.toJson<String?>(subjectId),
+      'resultJson': serializer.toJson<String>(resultJson),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  ExecutionOperationsData copyWith({
+    String? dataEpoch,
+    String? operationId,
+    String? requestHash,
+    String? commandType,
+    String? subjectKind,
+    Value<String?> subjectId = const Value.absent(),
+    String? resultJson,
+    int? createdAtUtc,
+  }) => ExecutionOperationsData(
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    operationId: operationId ?? this.operationId,
+    requestHash: requestHash ?? this.requestHash,
+    commandType: commandType ?? this.commandType,
+    subjectKind: subjectKind ?? this.subjectKind,
+    subjectId: subjectId.present ? subjectId.value : this.subjectId,
+    resultJson: resultJson ?? this.resultJson,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  ExecutionOperationsData copyWithCompanion(ExecutionOperationsCompanion data) {
+    return ExecutionOperationsData(
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
+      requestHash: data.requestHash.present
+          ? data.requestHash.value
+          : this.requestHash,
+      commandType: data.commandType.present
+          ? data.commandType.value
+          : this.commandType,
+      subjectKind: data.subjectKind.present
+          ? data.subjectKind.value
+          : this.subjectKind,
+      subjectId: data.subjectId.present ? data.subjectId.value : this.subjectId,
+      resultJson: data.resultJson.present
+          ? data.resultJson.value
+          : this.resultJson,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOperationsData(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('requestHash: $requestHash, ')
+          ..write('commandType: $commandType, ')
+          ..write('subjectKind: $subjectKind, ')
+          ..write('subjectId: $subjectId, ')
+          ..write('resultJson: $resultJson, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    dataEpoch,
+    operationId,
+    requestHash,
+    commandType,
+    subjectKind,
+    subjectId,
+    resultJson,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionOperationsData &&
+          other.dataEpoch == this.dataEpoch &&
+          other.operationId == this.operationId &&
+          other.requestHash == this.requestHash &&
+          other.commandType == this.commandType &&
+          other.subjectKind == this.subjectKind &&
+          other.subjectId == this.subjectId &&
+          other.resultJson == this.resultJson &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class ExecutionOperationsCompanion
+    extends UpdateCompanion<ExecutionOperationsData> {
+  final Value<String> dataEpoch;
+  final Value<String> operationId;
+  final Value<String> requestHash;
+  final Value<String> commandType;
+  final Value<String> subjectKind;
+  final Value<String?> subjectId;
+  final Value<String> resultJson;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const ExecutionOperationsCompanion({
+    this.dataEpoch = const Value.absent(),
+    this.operationId = const Value.absent(),
+    this.requestHash = const Value.absent(),
+    this.commandType = const Value.absent(),
+    this.subjectKind = const Value.absent(),
+    this.subjectId = const Value.absent(),
+    this.resultJson = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionOperationsCompanion.insert({
+    required String dataEpoch,
+    required String operationId,
+    required String requestHash,
+    required String commandType,
+    required String subjectKind,
+    this.subjectId = const Value.absent(),
+    required String resultJson,
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : dataEpoch = Value(dataEpoch),
+       operationId = Value(operationId),
+       requestHash = Value(requestHash),
+       commandType = Value(commandType),
+       subjectKind = Value(subjectKind),
+       resultJson = Value(resultJson),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionOperationsData> custom({
+    Expression<String>? dataEpoch,
+    Expression<String>? operationId,
+    Expression<String>? requestHash,
+    Expression<String>? commandType,
+    Expression<String>? subjectKind,
+    Expression<String>? subjectId,
+    Expression<String>? resultJson,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (operationId != null) 'operation_id': operationId,
+      if (requestHash != null) 'request_hash': requestHash,
+      if (commandType != null) 'command_type': commandType,
+      if (subjectKind != null) 'subject_kind': subjectKind,
+      if (subjectId != null) 'subject_id': subjectId,
+      if (resultJson != null) 'result_json': resultJson,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionOperationsCompanion copyWith({
+    Value<String>? dataEpoch,
+    Value<String>? operationId,
+    Value<String>? requestHash,
+    Value<String>? commandType,
+    Value<String>? subjectKind,
+    Value<String?>? subjectId,
+    Value<String>? resultJson,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionOperationsCompanion(
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      operationId: operationId ?? this.operationId,
+      requestHash: requestHash ?? this.requestHash,
+      commandType: commandType ?? this.commandType,
+      subjectKind: subjectKind ?? this.subjectKind,
+      subjectId: subjectId ?? this.subjectId,
+      resultJson: resultJson ?? this.resultJson,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
+    }
+    if (requestHash.present) {
+      map['request_hash'] = Variable<String>(requestHash.value);
+    }
+    if (commandType.present) {
+      map['command_type'] = Variable<String>(commandType.value);
+    }
+    if (subjectKind.present) {
+      map['subject_kind'] = Variable<String>(subjectKind.value);
+    }
+    if (subjectId.present) {
+      map['subject_id'] = Variable<String>(subjectId.value);
+    }
+    if (resultJson.present) {
+      map['result_json'] = Variable<String>(resultJson.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOperationsCompanion(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('requestHash: $requestHash, ')
+          ..write('commandType: $commandType, ')
+          ..write('subjectKind: $subjectKind, ')
+          ..write('subjectId: $subjectId, ')
+          ..write('resultJson: $resultJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionOccurrences extends Table
+    with TableInfo<ExecutionOccurrences, ExecutionOccurrencesData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionOccurrences(this.attachedDatabase, [this._alias]);
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
     'id',
     aliasedName,
@@ -9993,82 +11034,1480 @@ class DayExceptions extends Table
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL',
   );
-  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
-    'local_date',
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL REFERENCES tasks(id)ON DELETE SET NULL',
   );
-  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
-    'kind',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<String> status = GeneratedColumn<String>(
-    'status',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<int> originalSleepStartOffsetMinutes =
-      GeneratedColumn<int>(
-        'original_sleep_start_offset_minutes',
-        aliasedName,
-        false,
-        type: DriftSqlType.int,
-        requiredDuringInsert: true,
-        $customConstraints: 'NOT NULL',
-      );
-  late final GeneratedColumn<int> temporarySleepStartOffsetMinutes =
-      GeneratedColumn<int>(
-        'temporary_sleep_start_offset_minutes',
-        aliasedName,
-        false,
-        type: DriftSqlType.int,
-        requiredDuringInsert: true,
-        $customConstraints: 'NOT NULL',
-      );
-  late final GeneratedColumn<int> fixedWakeOffsetMinutes = GeneratedColumn<int>(
-    'fixed_wake_offset_minutes',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<int> absoluteMinimumSleepMinutes =
-      GeneratedColumn<int>(
-        'absolute_minimum_sleep_minutes',
-        aliasedName,
-        false,
-        type: DriftSqlType.int,
-        requiredDuringInsert: true,
-        $customConstraints: 'NOT NULL',
-      );
-  late final GeneratedColumn<String> recoveryChoice = GeneratedColumn<String>(
-    'recovery_choice',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<String> recoveryLocalDate =
+  late final GeneratedColumn<String> originPlanVersionId =
       GeneratedColumn<String>(
-        'recovery_local_date',
+        'origin_plan_version_id',
         aliasedName,
         true,
         type: DriftSqlType.string,
         requiredDuringInsert: false,
         $customConstraints: 'NULL',
       );
+  late final GeneratedColumn<String> originBlockId = GeneratedColumn<String>(
+    'origin_block_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> baselineStartUtc = GeneratedColumn<int>(
+    'baseline_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> baselineEndUtc = GeneratedColumn<int>(
+    'baseline_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> baselineTimeZoneId =
+      GeneratedColumn<String>(
+        'baseline_time_zone_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> baselineLocalDate =
+      GeneratedColumn<String>(
+        'baseline_local_date',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> baselinePlannedDurationMicros =
+      GeneratedColumn<int>(
+        'baseline_planned_duration_micros',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> currentPlanVersionId =
+      GeneratedColumn<String>(
+        'current_plan_version_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<int> allocatedMicros = GeneratedColumn<int>(
+    'allocated_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> remainingAllocationMicros =
+      GeneratedColumn<int>(
+        'remaining_allocation_micros',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> firstStartEvidenceId =
+      GeneratedColumn<String>(
+        'first_start_evidence_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<String> withdrawalReason = GeneratedColumn<String>(
+    'withdrawal_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> withdrawnAtUtc = GeneratedColumn<int>(
+    'withdrawn_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> lifecycleState = GeneratedColumn<String>(
+    'lifecycle_state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> privacyState = GeneratedColumn<String>(
+    'privacy_state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    taskId,
+    originPlanVersionId,
+    originBlockId,
+    baselineStartUtc,
+    baselineEndUtc,
+    baselineTimeZoneId,
+    baselineLocalDate,
+    baselinePlannedDurationMicros,
+    currentPlanVersionId,
+    allocatedMicros,
+    remainingAllocationMicros,
+    firstStartEvidenceId,
+    withdrawalReason,
+    withdrawnAtUtc,
+    lifecycleState,
+    privacyState,
+    createdAtUtc,
+    revision,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_occurrences';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ExecutionOccurrencesData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionOccurrencesData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      ),
+      originPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}origin_plan_version_id'],
+      ),
+      originBlockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}origin_block_id'],
+      ),
+      baselineStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_start_utc'],
+      )!,
+      baselineEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_end_utc'],
+      )!,
+      baselineTimeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_time_zone_id'],
+      )!,
+      baselineLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_local_date'],
+      )!,
+      baselinePlannedDurationMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}baseline_planned_duration_micros'],
+      )!,
+      currentPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}current_plan_version_id'],
+      ),
+      allocatedMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}allocated_micros'],
+      )!,
+      remainingAllocationMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}remaining_allocation_micros'],
+      )!,
+      firstStartEvidenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}first_start_evidence_id'],
+      ),
+      withdrawalReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}withdrawal_reason'],
+      ),
+      withdrawnAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}withdrawn_at_utc'],
+      ),
+      lifecycleState: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lifecycle_state'],
+      )!,
+      privacyState: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}privacy_state'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionOccurrences createAlias(String alias) {
+    return ExecutionOccurrences(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(id)',
+    'CHECK(baseline_end_utc > baseline_start_utc)',
+    'CHECK(baseline_planned_duration_micros >= 0)',
+    'CHECK(allocated_micros >= 0)',
+    'CHECK(remaining_allocation_micros >= 0)',
+    'CHECK(remaining_allocation_micros <= allocated_micros)',
+    'CHECK(revision >= 1)',
+    'CHECK(lifecycle_state IN (\'planned\', \'started\', \'finished\', \'withdrawn\'))',
+    'CHECK(privacy_state IN (\'linked\', \'anonymized\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionOccurrencesData extends DataClass
+    implements Insertable<ExecutionOccurrencesData> {
+  final String id;
+  final String? taskId;
+  final String? originPlanVersionId;
+  final String? originBlockId;
+  final int baselineStartUtc;
+  final int baselineEndUtc;
+  final String baselineTimeZoneId;
+  final String baselineLocalDate;
+  final int baselinePlannedDurationMicros;
+  final String? currentPlanVersionId;
+  final int allocatedMicros;
+  final int remainingAllocationMicros;
+  final String? firstStartEvidenceId;
+  final String? withdrawalReason;
+  final int? withdrawnAtUtc;
+  final String lifecycleState;
+  final String privacyState;
+  final int createdAtUtc;
+  final int revision;
+  const ExecutionOccurrencesData({
+    required this.id,
+    this.taskId,
+    this.originPlanVersionId,
+    this.originBlockId,
+    required this.baselineStartUtc,
+    required this.baselineEndUtc,
+    required this.baselineTimeZoneId,
+    required this.baselineLocalDate,
+    required this.baselinePlannedDurationMicros,
+    this.currentPlanVersionId,
+    required this.allocatedMicros,
+    required this.remainingAllocationMicros,
+    this.firstStartEvidenceId,
+    this.withdrawalReason,
+    this.withdrawnAtUtc,
+    required this.lifecycleState,
+    required this.privacyState,
+    required this.createdAtUtc,
+    required this.revision,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    if (!nullToAbsent || taskId != null) {
+      map['task_id'] = Variable<String>(taskId);
+    }
+    if (!nullToAbsent || originPlanVersionId != null) {
+      map['origin_plan_version_id'] = Variable<String>(originPlanVersionId);
+    }
+    if (!nullToAbsent || originBlockId != null) {
+      map['origin_block_id'] = Variable<String>(originBlockId);
+    }
+    map['baseline_start_utc'] = Variable<int>(baselineStartUtc);
+    map['baseline_end_utc'] = Variable<int>(baselineEndUtc);
+    map['baseline_time_zone_id'] = Variable<String>(baselineTimeZoneId);
+    map['baseline_local_date'] = Variable<String>(baselineLocalDate);
+    map['baseline_planned_duration_micros'] = Variable<int>(
+      baselinePlannedDurationMicros,
+    );
+    if (!nullToAbsent || currentPlanVersionId != null) {
+      map['current_plan_version_id'] = Variable<String>(currentPlanVersionId);
+    }
+    map['allocated_micros'] = Variable<int>(allocatedMicros);
+    map['remaining_allocation_micros'] = Variable<int>(
+      remainingAllocationMicros,
+    );
+    if (!nullToAbsent || firstStartEvidenceId != null) {
+      map['first_start_evidence_id'] = Variable<String>(firstStartEvidenceId);
+    }
+    if (!nullToAbsent || withdrawalReason != null) {
+      map['withdrawal_reason'] = Variable<String>(withdrawalReason);
+    }
+    if (!nullToAbsent || withdrawnAtUtc != null) {
+      map['withdrawn_at_utc'] = Variable<int>(withdrawnAtUtc);
+    }
+    map['lifecycle_state'] = Variable<String>(lifecycleState);
+    map['privacy_state'] = Variable<String>(privacyState);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  ExecutionOccurrencesCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionOccurrencesCompanion(
+      id: Value(id),
+      taskId: taskId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(taskId),
+      originPlanVersionId: originPlanVersionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(originPlanVersionId),
+      originBlockId: originBlockId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(originBlockId),
+      baselineStartUtc: Value(baselineStartUtc),
+      baselineEndUtc: Value(baselineEndUtc),
+      baselineTimeZoneId: Value(baselineTimeZoneId),
+      baselineLocalDate: Value(baselineLocalDate),
+      baselinePlannedDurationMicros: Value(baselinePlannedDurationMicros),
+      currentPlanVersionId: currentPlanVersionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(currentPlanVersionId),
+      allocatedMicros: Value(allocatedMicros),
+      remainingAllocationMicros: Value(remainingAllocationMicros),
+      firstStartEvidenceId: firstStartEvidenceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(firstStartEvidenceId),
+      withdrawalReason: withdrawalReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(withdrawalReason),
+      withdrawnAtUtc: withdrawnAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(withdrawnAtUtc),
+      lifecycleState: Value(lifecycleState),
+      privacyState: Value(privacyState),
+      createdAtUtc: Value(createdAtUtc),
+      revision: Value(revision),
+    );
+  }
+
+  factory ExecutionOccurrencesData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionOccurrencesData(
+      id: serializer.fromJson<String>(json['id']),
+      taskId: serializer.fromJson<String?>(json['taskId']),
+      originPlanVersionId: serializer.fromJson<String?>(
+        json['originPlanVersionId'],
+      ),
+      originBlockId: serializer.fromJson<String?>(json['originBlockId']),
+      baselineStartUtc: serializer.fromJson<int>(json['baselineStartUtc']),
+      baselineEndUtc: serializer.fromJson<int>(json['baselineEndUtc']),
+      baselineTimeZoneId: serializer.fromJson<String>(
+        json['baselineTimeZoneId'],
+      ),
+      baselineLocalDate: serializer.fromJson<String>(json['baselineLocalDate']),
+      baselinePlannedDurationMicros: serializer.fromJson<int>(
+        json['baselinePlannedDurationMicros'],
+      ),
+      currentPlanVersionId: serializer.fromJson<String?>(
+        json['currentPlanVersionId'],
+      ),
+      allocatedMicros: serializer.fromJson<int>(json['allocatedMicros']),
+      remainingAllocationMicros: serializer.fromJson<int>(
+        json['remainingAllocationMicros'],
+      ),
+      firstStartEvidenceId: serializer.fromJson<String?>(
+        json['firstStartEvidenceId'],
+      ),
+      withdrawalReason: serializer.fromJson<String?>(json['withdrawalReason']),
+      withdrawnAtUtc: serializer.fromJson<int?>(json['withdrawnAtUtc']),
+      lifecycleState: serializer.fromJson<String>(json['lifecycleState']),
+      privacyState: serializer.fromJson<String>(json['privacyState']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'taskId': serializer.toJson<String?>(taskId),
+      'originPlanVersionId': serializer.toJson<String?>(originPlanVersionId),
+      'originBlockId': serializer.toJson<String?>(originBlockId),
+      'baselineStartUtc': serializer.toJson<int>(baselineStartUtc),
+      'baselineEndUtc': serializer.toJson<int>(baselineEndUtc),
+      'baselineTimeZoneId': serializer.toJson<String>(baselineTimeZoneId),
+      'baselineLocalDate': serializer.toJson<String>(baselineLocalDate),
+      'baselinePlannedDurationMicros': serializer.toJson<int>(
+        baselinePlannedDurationMicros,
+      ),
+      'currentPlanVersionId': serializer.toJson<String?>(currentPlanVersionId),
+      'allocatedMicros': serializer.toJson<int>(allocatedMicros),
+      'remainingAllocationMicros': serializer.toJson<int>(
+        remainingAllocationMicros,
+      ),
+      'firstStartEvidenceId': serializer.toJson<String?>(firstStartEvidenceId),
+      'withdrawalReason': serializer.toJson<String?>(withdrawalReason),
+      'withdrawnAtUtc': serializer.toJson<int?>(withdrawnAtUtc),
+      'lifecycleState': serializer.toJson<String>(lifecycleState),
+      'privacyState': serializer.toJson<String>(privacyState),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  ExecutionOccurrencesData copyWith({
+    String? id,
+    Value<String?> taskId = const Value.absent(),
+    Value<String?> originPlanVersionId = const Value.absent(),
+    Value<String?> originBlockId = const Value.absent(),
+    int? baselineStartUtc,
+    int? baselineEndUtc,
+    String? baselineTimeZoneId,
+    String? baselineLocalDate,
+    int? baselinePlannedDurationMicros,
+    Value<String?> currentPlanVersionId = const Value.absent(),
+    int? allocatedMicros,
+    int? remainingAllocationMicros,
+    Value<String?> firstStartEvidenceId = const Value.absent(),
+    Value<String?> withdrawalReason = const Value.absent(),
+    Value<int?> withdrawnAtUtc = const Value.absent(),
+    String? lifecycleState,
+    String? privacyState,
+    int? createdAtUtc,
+    int? revision,
+  }) => ExecutionOccurrencesData(
+    id: id ?? this.id,
+    taskId: taskId.present ? taskId.value : this.taskId,
+    originPlanVersionId: originPlanVersionId.present
+        ? originPlanVersionId.value
+        : this.originPlanVersionId,
+    originBlockId: originBlockId.present
+        ? originBlockId.value
+        : this.originBlockId,
+    baselineStartUtc: baselineStartUtc ?? this.baselineStartUtc,
+    baselineEndUtc: baselineEndUtc ?? this.baselineEndUtc,
+    baselineTimeZoneId: baselineTimeZoneId ?? this.baselineTimeZoneId,
+    baselineLocalDate: baselineLocalDate ?? this.baselineLocalDate,
+    baselinePlannedDurationMicros:
+        baselinePlannedDurationMicros ?? this.baselinePlannedDurationMicros,
+    currentPlanVersionId: currentPlanVersionId.present
+        ? currentPlanVersionId.value
+        : this.currentPlanVersionId,
+    allocatedMicros: allocatedMicros ?? this.allocatedMicros,
+    remainingAllocationMicros:
+        remainingAllocationMicros ?? this.remainingAllocationMicros,
+    firstStartEvidenceId: firstStartEvidenceId.present
+        ? firstStartEvidenceId.value
+        : this.firstStartEvidenceId,
+    withdrawalReason: withdrawalReason.present
+        ? withdrawalReason.value
+        : this.withdrawalReason,
+    withdrawnAtUtc: withdrawnAtUtc.present
+        ? withdrawnAtUtc.value
+        : this.withdrawnAtUtc,
+    lifecycleState: lifecycleState ?? this.lifecycleState,
+    privacyState: privacyState ?? this.privacyState,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    revision: revision ?? this.revision,
+  );
+  ExecutionOccurrencesData copyWithCompanion(
+    ExecutionOccurrencesCompanion data,
+  ) {
+    return ExecutionOccurrencesData(
+      id: data.id.present ? data.id.value : this.id,
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      originPlanVersionId: data.originPlanVersionId.present
+          ? data.originPlanVersionId.value
+          : this.originPlanVersionId,
+      originBlockId: data.originBlockId.present
+          ? data.originBlockId.value
+          : this.originBlockId,
+      baselineStartUtc: data.baselineStartUtc.present
+          ? data.baselineStartUtc.value
+          : this.baselineStartUtc,
+      baselineEndUtc: data.baselineEndUtc.present
+          ? data.baselineEndUtc.value
+          : this.baselineEndUtc,
+      baselineTimeZoneId: data.baselineTimeZoneId.present
+          ? data.baselineTimeZoneId.value
+          : this.baselineTimeZoneId,
+      baselineLocalDate: data.baselineLocalDate.present
+          ? data.baselineLocalDate.value
+          : this.baselineLocalDate,
+      baselinePlannedDurationMicros: data.baselinePlannedDurationMicros.present
+          ? data.baselinePlannedDurationMicros.value
+          : this.baselinePlannedDurationMicros,
+      currentPlanVersionId: data.currentPlanVersionId.present
+          ? data.currentPlanVersionId.value
+          : this.currentPlanVersionId,
+      allocatedMicros: data.allocatedMicros.present
+          ? data.allocatedMicros.value
+          : this.allocatedMicros,
+      remainingAllocationMicros: data.remainingAllocationMicros.present
+          ? data.remainingAllocationMicros.value
+          : this.remainingAllocationMicros,
+      firstStartEvidenceId: data.firstStartEvidenceId.present
+          ? data.firstStartEvidenceId.value
+          : this.firstStartEvidenceId,
+      withdrawalReason: data.withdrawalReason.present
+          ? data.withdrawalReason.value
+          : this.withdrawalReason,
+      withdrawnAtUtc: data.withdrawnAtUtc.present
+          ? data.withdrawnAtUtc.value
+          : this.withdrawnAtUtc,
+      lifecycleState: data.lifecycleState.present
+          ? data.lifecycleState.value
+          : this.lifecycleState,
+      privacyState: data.privacyState.present
+          ? data.privacyState.value
+          : this.privacyState,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOccurrencesData(')
+          ..write('id: $id, ')
+          ..write('taskId: $taskId, ')
+          ..write('originPlanVersionId: $originPlanVersionId, ')
+          ..write('originBlockId: $originBlockId, ')
+          ..write('baselineStartUtc: $baselineStartUtc, ')
+          ..write('baselineEndUtc: $baselineEndUtc, ')
+          ..write('baselineTimeZoneId: $baselineTimeZoneId, ')
+          ..write('baselineLocalDate: $baselineLocalDate, ')
+          ..write(
+            'baselinePlannedDurationMicros: $baselinePlannedDurationMicros, ',
+          )
+          ..write('currentPlanVersionId: $currentPlanVersionId, ')
+          ..write('allocatedMicros: $allocatedMicros, ')
+          ..write('remainingAllocationMicros: $remainingAllocationMicros, ')
+          ..write('firstStartEvidenceId: $firstStartEvidenceId, ')
+          ..write('withdrawalReason: $withdrawalReason, ')
+          ..write('withdrawnAtUtc: $withdrawnAtUtc, ')
+          ..write('lifecycleState: $lifecycleState, ')
+          ..write('privacyState: $privacyState, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    taskId,
+    originPlanVersionId,
+    originBlockId,
+    baselineStartUtc,
+    baselineEndUtc,
+    baselineTimeZoneId,
+    baselineLocalDate,
+    baselinePlannedDurationMicros,
+    currentPlanVersionId,
+    allocatedMicros,
+    remainingAllocationMicros,
+    firstStartEvidenceId,
+    withdrawalReason,
+    withdrawnAtUtc,
+    lifecycleState,
+    privacyState,
+    createdAtUtc,
+    revision,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionOccurrencesData &&
+          other.id == this.id &&
+          other.taskId == this.taskId &&
+          other.originPlanVersionId == this.originPlanVersionId &&
+          other.originBlockId == this.originBlockId &&
+          other.baselineStartUtc == this.baselineStartUtc &&
+          other.baselineEndUtc == this.baselineEndUtc &&
+          other.baselineTimeZoneId == this.baselineTimeZoneId &&
+          other.baselineLocalDate == this.baselineLocalDate &&
+          other.baselinePlannedDurationMicros ==
+              this.baselinePlannedDurationMicros &&
+          other.currentPlanVersionId == this.currentPlanVersionId &&
+          other.allocatedMicros == this.allocatedMicros &&
+          other.remainingAllocationMicros == this.remainingAllocationMicros &&
+          other.firstStartEvidenceId == this.firstStartEvidenceId &&
+          other.withdrawalReason == this.withdrawalReason &&
+          other.withdrawnAtUtc == this.withdrawnAtUtc &&
+          other.lifecycleState == this.lifecycleState &&
+          other.privacyState == this.privacyState &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.revision == this.revision);
+}
+
+class ExecutionOccurrencesCompanion
+    extends UpdateCompanion<ExecutionOccurrencesData> {
+  final Value<String> id;
+  final Value<String?> taskId;
+  final Value<String?> originPlanVersionId;
+  final Value<String?> originBlockId;
+  final Value<int> baselineStartUtc;
+  final Value<int> baselineEndUtc;
+  final Value<String> baselineTimeZoneId;
+  final Value<String> baselineLocalDate;
+  final Value<int> baselinePlannedDurationMicros;
+  final Value<String?> currentPlanVersionId;
+  final Value<int> allocatedMicros;
+  final Value<int> remainingAllocationMicros;
+  final Value<String?> firstStartEvidenceId;
+  final Value<String?> withdrawalReason;
+  final Value<int?> withdrawnAtUtc;
+  final Value<String> lifecycleState;
+  final Value<String> privacyState;
+  final Value<int> createdAtUtc;
+  final Value<int> revision;
+  final Value<int> rowid;
+  const ExecutionOccurrencesCompanion({
+    this.id = const Value.absent(),
+    this.taskId = const Value.absent(),
+    this.originPlanVersionId = const Value.absent(),
+    this.originBlockId = const Value.absent(),
+    this.baselineStartUtc = const Value.absent(),
+    this.baselineEndUtc = const Value.absent(),
+    this.baselineTimeZoneId = const Value.absent(),
+    this.baselineLocalDate = const Value.absent(),
+    this.baselinePlannedDurationMicros = const Value.absent(),
+    this.currentPlanVersionId = const Value.absent(),
+    this.allocatedMicros = const Value.absent(),
+    this.remainingAllocationMicros = const Value.absent(),
+    this.firstStartEvidenceId = const Value.absent(),
+    this.withdrawalReason = const Value.absent(),
+    this.withdrawnAtUtc = const Value.absent(),
+    this.lifecycleState = const Value.absent(),
+    this.privacyState = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionOccurrencesCompanion.insert({
+    required String id,
+    this.taskId = const Value.absent(),
+    this.originPlanVersionId = const Value.absent(),
+    this.originBlockId = const Value.absent(),
+    required int baselineStartUtc,
+    required int baselineEndUtc,
+    required String baselineTimeZoneId,
+    required String baselineLocalDate,
+    required int baselinePlannedDurationMicros,
+    this.currentPlanVersionId = const Value.absent(),
+    required int allocatedMicros,
+    required int remainingAllocationMicros,
+    this.firstStartEvidenceId = const Value.absent(),
+    this.withdrawalReason = const Value.absent(),
+    this.withdrawnAtUtc = const Value.absent(),
+    required String lifecycleState,
+    required String privacyState,
+    required int createdAtUtc,
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       baselineStartUtc = Value(baselineStartUtc),
+       baselineEndUtc = Value(baselineEndUtc),
+       baselineTimeZoneId = Value(baselineTimeZoneId),
+       baselineLocalDate = Value(baselineLocalDate),
+       baselinePlannedDurationMicros = Value(baselinePlannedDurationMicros),
+       allocatedMicros = Value(allocatedMicros),
+       remainingAllocationMicros = Value(remainingAllocationMicros),
+       lifecycleState = Value(lifecycleState),
+       privacyState = Value(privacyState),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionOccurrencesData> custom({
+    Expression<String>? id,
+    Expression<String>? taskId,
+    Expression<String>? originPlanVersionId,
+    Expression<String>? originBlockId,
+    Expression<int>? baselineStartUtc,
+    Expression<int>? baselineEndUtc,
+    Expression<String>? baselineTimeZoneId,
+    Expression<String>? baselineLocalDate,
+    Expression<int>? baselinePlannedDurationMicros,
+    Expression<String>? currentPlanVersionId,
+    Expression<int>? allocatedMicros,
+    Expression<int>? remainingAllocationMicros,
+    Expression<String>? firstStartEvidenceId,
+    Expression<String>? withdrawalReason,
+    Expression<int>? withdrawnAtUtc,
+    Expression<String>? lifecycleState,
+    Expression<String>? privacyState,
+    Expression<int>? createdAtUtc,
+    Expression<int>? revision,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (taskId != null) 'task_id': taskId,
+      if (originPlanVersionId != null)
+        'origin_plan_version_id': originPlanVersionId,
+      if (originBlockId != null) 'origin_block_id': originBlockId,
+      if (baselineStartUtc != null) 'baseline_start_utc': baselineStartUtc,
+      if (baselineEndUtc != null) 'baseline_end_utc': baselineEndUtc,
+      if (baselineTimeZoneId != null)
+        'baseline_time_zone_id': baselineTimeZoneId,
+      if (baselineLocalDate != null) 'baseline_local_date': baselineLocalDate,
+      if (baselinePlannedDurationMicros != null)
+        'baseline_planned_duration_micros': baselinePlannedDurationMicros,
+      if (currentPlanVersionId != null)
+        'current_plan_version_id': currentPlanVersionId,
+      if (allocatedMicros != null) 'allocated_micros': allocatedMicros,
+      if (remainingAllocationMicros != null)
+        'remaining_allocation_micros': remainingAllocationMicros,
+      if (firstStartEvidenceId != null)
+        'first_start_evidence_id': firstStartEvidenceId,
+      if (withdrawalReason != null) 'withdrawal_reason': withdrawalReason,
+      if (withdrawnAtUtc != null) 'withdrawn_at_utc': withdrawnAtUtc,
+      if (lifecycleState != null) 'lifecycle_state': lifecycleState,
+      if (privacyState != null) 'privacy_state': privacyState,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (revision != null) 'revision': revision,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionOccurrencesCompanion copyWith({
+    Value<String>? id,
+    Value<String?>? taskId,
+    Value<String?>? originPlanVersionId,
+    Value<String?>? originBlockId,
+    Value<int>? baselineStartUtc,
+    Value<int>? baselineEndUtc,
+    Value<String>? baselineTimeZoneId,
+    Value<String>? baselineLocalDate,
+    Value<int>? baselinePlannedDurationMicros,
+    Value<String?>? currentPlanVersionId,
+    Value<int>? allocatedMicros,
+    Value<int>? remainingAllocationMicros,
+    Value<String?>? firstStartEvidenceId,
+    Value<String?>? withdrawalReason,
+    Value<int?>? withdrawnAtUtc,
+    Value<String>? lifecycleState,
+    Value<String>? privacyState,
+    Value<int>? createdAtUtc,
+    Value<int>? revision,
+    Value<int>? rowid,
+  }) {
+    return ExecutionOccurrencesCompanion(
+      id: id ?? this.id,
+      taskId: taskId ?? this.taskId,
+      originPlanVersionId: originPlanVersionId ?? this.originPlanVersionId,
+      originBlockId: originBlockId ?? this.originBlockId,
+      baselineStartUtc: baselineStartUtc ?? this.baselineStartUtc,
+      baselineEndUtc: baselineEndUtc ?? this.baselineEndUtc,
+      baselineTimeZoneId: baselineTimeZoneId ?? this.baselineTimeZoneId,
+      baselineLocalDate: baselineLocalDate ?? this.baselineLocalDate,
+      baselinePlannedDurationMicros:
+          baselinePlannedDurationMicros ?? this.baselinePlannedDurationMicros,
+      currentPlanVersionId: currentPlanVersionId ?? this.currentPlanVersionId,
+      allocatedMicros: allocatedMicros ?? this.allocatedMicros,
+      remainingAllocationMicros:
+          remainingAllocationMicros ?? this.remainingAllocationMicros,
+      firstStartEvidenceId: firstStartEvidenceId ?? this.firstStartEvidenceId,
+      withdrawalReason: withdrawalReason ?? this.withdrawalReason,
+      withdrawnAtUtc: withdrawnAtUtc ?? this.withdrawnAtUtc,
+      lifecycleState: lifecycleState ?? this.lifecycleState,
+      privacyState: privacyState ?? this.privacyState,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      revision: revision ?? this.revision,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (originPlanVersionId.present) {
+      map['origin_plan_version_id'] = Variable<String>(
+        originPlanVersionId.value,
+      );
+    }
+    if (originBlockId.present) {
+      map['origin_block_id'] = Variable<String>(originBlockId.value);
+    }
+    if (baselineStartUtc.present) {
+      map['baseline_start_utc'] = Variable<int>(baselineStartUtc.value);
+    }
+    if (baselineEndUtc.present) {
+      map['baseline_end_utc'] = Variable<int>(baselineEndUtc.value);
+    }
+    if (baselineTimeZoneId.present) {
+      map['baseline_time_zone_id'] = Variable<String>(baselineTimeZoneId.value);
+    }
+    if (baselineLocalDate.present) {
+      map['baseline_local_date'] = Variable<String>(baselineLocalDate.value);
+    }
+    if (baselinePlannedDurationMicros.present) {
+      map['baseline_planned_duration_micros'] = Variable<int>(
+        baselinePlannedDurationMicros.value,
+      );
+    }
+    if (currentPlanVersionId.present) {
+      map['current_plan_version_id'] = Variable<String>(
+        currentPlanVersionId.value,
+      );
+    }
+    if (allocatedMicros.present) {
+      map['allocated_micros'] = Variable<int>(allocatedMicros.value);
+    }
+    if (remainingAllocationMicros.present) {
+      map['remaining_allocation_micros'] = Variable<int>(
+        remainingAllocationMicros.value,
+      );
+    }
+    if (firstStartEvidenceId.present) {
+      map['first_start_evidence_id'] = Variable<String>(
+        firstStartEvidenceId.value,
+      );
+    }
+    if (withdrawalReason.present) {
+      map['withdrawal_reason'] = Variable<String>(withdrawalReason.value);
+    }
+    if (withdrawnAtUtc.present) {
+      map['withdrawn_at_utc'] = Variable<int>(withdrawnAtUtc.value);
+    }
+    if (lifecycleState.present) {
+      map['lifecycle_state'] = Variable<String>(lifecycleState.value);
+    }
+    if (privacyState.present) {
+      map['privacy_state'] = Variable<String>(privacyState.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOccurrencesCompanion(')
+          ..write('id: $id, ')
+          ..write('taskId: $taskId, ')
+          ..write('originPlanVersionId: $originPlanVersionId, ')
+          ..write('originBlockId: $originBlockId, ')
+          ..write('baselineStartUtc: $baselineStartUtc, ')
+          ..write('baselineEndUtc: $baselineEndUtc, ')
+          ..write('baselineTimeZoneId: $baselineTimeZoneId, ')
+          ..write('baselineLocalDate: $baselineLocalDate, ')
+          ..write(
+            'baselinePlannedDurationMicros: $baselinePlannedDurationMicros, ',
+          )
+          ..write('currentPlanVersionId: $currentPlanVersionId, ')
+          ..write('allocatedMicros: $allocatedMicros, ')
+          ..write('remainingAllocationMicros: $remainingAllocationMicros, ')
+          ..write('firstStartEvidenceId: $firstStartEvidenceId, ')
+          ..write('withdrawalReason: $withdrawalReason, ')
+          ..write('withdrawnAtUtc: $withdrawnAtUtc, ')
+          ..write('lifecycleState: $lifecycleState, ')
+          ..write('privacyState: $privacyState, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionBlockLinks extends Table
+    with TableInfo<ExecutionBlockLinks, ExecutionBlockLinksData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionBlockLinks(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> planVersionId = GeneratedColumn<String>(
+    'plan_version_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES plan_versions(id)',
+  );
+  late final GeneratedColumn<String> blockId = GeneratedColumn<String>(
+    'block_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> occurrenceId = GeneratedColumn<String>(
+    'occurrence_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES execution_occurrences(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> sourceBlockId = GeneratedColumn<String>(
+    'source_block_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> reservedMicros = GeneratedColumn<int>(
+    'reserved_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> fragmentId = GeneratedColumn<String>(
+    'fragment_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    dataEpoch,
+    planVersionId,
+    blockId,
+    occurrenceId,
+    sourceBlockId,
+    reservedMicros,
+    createdAtUtc,
+    fragmentId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_block_links';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {dataEpoch, planVersionId, blockId};
+  @override
+  ExecutionBlockLinksData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionBlockLinksData(
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      planVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_version_id'],
+      )!,
+      blockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}block_id'],
+      )!,
+      occurrenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}occurrence_id'],
+      )!,
+      sourceBlockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_block_id'],
+      ),
+      reservedMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}reserved_micros'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      fragmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fragment_id'],
+      ),
+    );
+  }
+
+  @override
+  ExecutionBlockLinks createAlias(String alias) {
+    return ExecutionBlockLinks(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(data_epoch, plan_version_id, block_id)',
+    'CHECK(reserved_micros >= 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionBlockLinksData extends DataClass
+    implements Insertable<ExecutionBlockLinksData> {
+  final String dataEpoch;
+  final String planVersionId;
+  final String blockId;
+  final String occurrenceId;
+  final String? sourceBlockId;
+  final int reservedMicros;
+  final int createdAtUtc;
+  final String? fragmentId;
+  const ExecutionBlockLinksData({
+    required this.dataEpoch,
+    required this.planVersionId,
+    required this.blockId,
+    required this.occurrenceId,
+    this.sourceBlockId,
+    required this.reservedMicros,
+    required this.createdAtUtc,
+    this.fragmentId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['plan_version_id'] = Variable<String>(planVersionId);
+    map['block_id'] = Variable<String>(blockId);
+    map['occurrence_id'] = Variable<String>(occurrenceId);
+    if (!nullToAbsent || sourceBlockId != null) {
+      map['source_block_id'] = Variable<String>(sourceBlockId);
+    }
+    map['reserved_micros'] = Variable<int>(reservedMicros);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || fragmentId != null) {
+      map['fragment_id'] = Variable<String>(fragmentId);
+    }
+    return map;
+  }
+
+  ExecutionBlockLinksCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionBlockLinksCompanion(
+      dataEpoch: Value(dataEpoch),
+      planVersionId: Value(planVersionId),
+      blockId: Value(blockId),
+      occurrenceId: Value(occurrenceId),
+      sourceBlockId: sourceBlockId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceBlockId),
+      reservedMicros: Value(reservedMicros),
+      createdAtUtc: Value(createdAtUtc),
+      fragmentId: fragmentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fragmentId),
+    );
+  }
+
+  factory ExecutionBlockLinksData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionBlockLinksData(
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      planVersionId: serializer.fromJson<String>(json['planVersionId']),
+      blockId: serializer.fromJson<String>(json['blockId']),
+      occurrenceId: serializer.fromJson<String>(json['occurrenceId']),
+      sourceBlockId: serializer.fromJson<String?>(json['sourceBlockId']),
+      reservedMicros: serializer.fromJson<int>(json['reservedMicros']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      fragmentId: serializer.fromJson<String?>(json['fragmentId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'planVersionId': serializer.toJson<String>(planVersionId),
+      'blockId': serializer.toJson<String>(blockId),
+      'occurrenceId': serializer.toJson<String>(occurrenceId),
+      'sourceBlockId': serializer.toJson<String?>(sourceBlockId),
+      'reservedMicros': serializer.toJson<int>(reservedMicros),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'fragmentId': serializer.toJson<String?>(fragmentId),
+    };
+  }
+
+  ExecutionBlockLinksData copyWith({
+    String? dataEpoch,
+    String? planVersionId,
+    String? blockId,
+    String? occurrenceId,
+    Value<String?> sourceBlockId = const Value.absent(),
+    int? reservedMicros,
+    int? createdAtUtc,
+    Value<String?> fragmentId = const Value.absent(),
+  }) => ExecutionBlockLinksData(
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    planVersionId: planVersionId ?? this.planVersionId,
+    blockId: blockId ?? this.blockId,
+    occurrenceId: occurrenceId ?? this.occurrenceId,
+    sourceBlockId: sourceBlockId.present
+        ? sourceBlockId.value
+        : this.sourceBlockId,
+    reservedMicros: reservedMicros ?? this.reservedMicros,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    fragmentId: fragmentId.present ? fragmentId.value : this.fragmentId,
+  );
+  ExecutionBlockLinksData copyWithCompanion(ExecutionBlockLinksCompanion data) {
+    return ExecutionBlockLinksData(
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      planVersionId: data.planVersionId.present
+          ? data.planVersionId.value
+          : this.planVersionId,
+      blockId: data.blockId.present ? data.blockId.value : this.blockId,
+      occurrenceId: data.occurrenceId.present
+          ? data.occurrenceId.value
+          : this.occurrenceId,
+      sourceBlockId: data.sourceBlockId.present
+          ? data.sourceBlockId.value
+          : this.sourceBlockId,
+      reservedMicros: data.reservedMicros.present
+          ? data.reservedMicros.value
+          : this.reservedMicros,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      fragmentId: data.fragmentId.present
+          ? data.fragmentId.value
+          : this.fragmentId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionBlockLinksData(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('blockId: $blockId, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('sourceBlockId: $sourceBlockId, ')
+          ..write('reservedMicros: $reservedMicros, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('fragmentId: $fragmentId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    dataEpoch,
+    planVersionId,
+    blockId,
+    occurrenceId,
+    sourceBlockId,
+    reservedMicros,
+    createdAtUtc,
+    fragmentId,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionBlockLinksData &&
+          other.dataEpoch == this.dataEpoch &&
+          other.planVersionId == this.planVersionId &&
+          other.blockId == this.blockId &&
+          other.occurrenceId == this.occurrenceId &&
+          other.sourceBlockId == this.sourceBlockId &&
+          other.reservedMicros == this.reservedMicros &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.fragmentId == this.fragmentId);
+}
+
+class ExecutionBlockLinksCompanion
+    extends UpdateCompanion<ExecutionBlockLinksData> {
+  final Value<String> dataEpoch;
+  final Value<String> planVersionId;
+  final Value<String> blockId;
+  final Value<String> occurrenceId;
+  final Value<String?> sourceBlockId;
+  final Value<int> reservedMicros;
+  final Value<int> createdAtUtc;
+  final Value<String?> fragmentId;
+  final Value<int> rowid;
+  const ExecutionBlockLinksCompanion({
+    this.dataEpoch = const Value.absent(),
+    this.planVersionId = const Value.absent(),
+    this.blockId = const Value.absent(),
+    this.occurrenceId = const Value.absent(),
+    this.sourceBlockId = const Value.absent(),
+    this.reservedMicros = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.fragmentId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionBlockLinksCompanion.insert({
+    required String dataEpoch,
+    required String planVersionId,
+    required String blockId,
+    required String occurrenceId,
+    this.sourceBlockId = const Value.absent(),
+    required int reservedMicros,
+    required int createdAtUtc,
+    this.fragmentId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : dataEpoch = Value(dataEpoch),
+       planVersionId = Value(planVersionId),
+       blockId = Value(blockId),
+       occurrenceId = Value(occurrenceId),
+       reservedMicros = Value(reservedMicros),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionBlockLinksData> custom({
+    Expression<String>? dataEpoch,
+    Expression<String>? planVersionId,
+    Expression<String>? blockId,
+    Expression<String>? occurrenceId,
+    Expression<String>? sourceBlockId,
+    Expression<int>? reservedMicros,
+    Expression<int>? createdAtUtc,
+    Expression<String>? fragmentId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (planVersionId != null) 'plan_version_id': planVersionId,
+      if (blockId != null) 'block_id': blockId,
+      if (occurrenceId != null) 'occurrence_id': occurrenceId,
+      if (sourceBlockId != null) 'source_block_id': sourceBlockId,
+      if (reservedMicros != null) 'reserved_micros': reservedMicros,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (fragmentId != null) 'fragment_id': fragmentId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionBlockLinksCompanion copyWith({
+    Value<String>? dataEpoch,
+    Value<String>? planVersionId,
+    Value<String>? blockId,
+    Value<String>? occurrenceId,
+    Value<String?>? sourceBlockId,
+    Value<int>? reservedMicros,
+    Value<int>? createdAtUtc,
+    Value<String?>? fragmentId,
+    Value<int>? rowid,
+  }) {
+    return ExecutionBlockLinksCompanion(
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      planVersionId: planVersionId ?? this.planVersionId,
+      blockId: blockId ?? this.blockId,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
+      sourceBlockId: sourceBlockId ?? this.sourceBlockId,
+      reservedMicros: reservedMicros ?? this.reservedMicros,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      fragmentId: fragmentId ?? this.fragmentId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (planVersionId.present) {
+      map['plan_version_id'] = Variable<String>(planVersionId.value);
+    }
+    if (blockId.present) {
+      map['block_id'] = Variable<String>(blockId.value);
+    }
+    if (occurrenceId.present) {
+      map['occurrence_id'] = Variable<String>(occurrenceId.value);
+    }
+    if (sourceBlockId.present) {
+      map['source_block_id'] = Variable<String>(sourceBlockId.value);
+    }
+    if (reservedMicros.present) {
+      map['reserved_micros'] = Variable<int>(reservedMicros.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (fragmentId.present) {
+      map['fragment_id'] = Variable<String>(fragmentId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionBlockLinksCompanion(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('blockId: $blockId, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('sourceBlockId: $sourceBlockId, ')
+          ..write('reservedMicros: $reservedMicros, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('fragmentId: $fragmentId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionEvents extends Table
+    with TableInfo<ExecutionEvents, ExecutionEventsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionEvents(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> eventId = GeneratedColumn<String>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> subEventIndex = GeneratedColumn<int>(
+    'sub_event_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> occurrenceId = GeneratedColumn<String>(
+    'occurrence_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL REFERENCES execution_occurrences(id)',
+  );
+  late final GeneratedColumn<String> eventType = GeneratedColumn<String>(
+    'event_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> occurredAtUtc = GeneratedColumn<int>(
+    'occurred_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> recordedAtUtc = GeneratedColumn<int>(
+    'recorded_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
   late final GeneratedColumn<String> source = GeneratedColumn<String>(
     'source',
     aliasedName,
@@ -10077,23 +12516,632 @@ class DayExceptions extends Table
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL',
   );
-  late final GeneratedColumn<String> triggeringProposalId =
-      GeneratedColumn<String>(
-        'triggering_proposal_id',
-        aliasedName,
-        true,
-        type: DriftSqlType.string,
-        requiredDuringInsert: false,
-        $customConstraints: 'NULL',
-      );
-  late final GeneratedColumn<String> auditNote = GeneratedColumn<String>(
-    'audit_note',
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: false,
-    $customConstraints: 'NOT NULL DEFAULT \'\'',
-    defaultValue: const CustomExpression('\'\''),
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<String> correctedEventId = GeneratedColumn<String>(
+    'corrected_event_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    eventId,
+    dataEpoch,
+    operationId,
+    subEventIndex,
+    occurrenceId,
+    eventType,
+    occurredAtUtc,
+    recordedAtUtc,
+    source,
+    payloadJson,
+    correctedEventId,
+    sequence,
+    revision,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_events';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {eventId};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {operationId, subEventIndex},
+  ];
+  @override
+  ExecutionEventsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionEventsData(
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
+      )!,
+      subEventIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sub_event_index'],
+      )!,
+      occurrenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}occurrence_id'],
+      ),
+      eventType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}event_type'],
+      )!,
+      occurredAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}occurred_at_utc'],
+      )!,
+      recordedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}recorded_at_utc'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      correctedEventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}corrected_event_id'],
+      ),
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionEvents createAlias(String alias) {
+    return ExecutionEvents(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(event_id)',
+    'UNIQUE(operation_id, sub_event_index)',
+    'CHECK(sub_event_index >= 0)',
+    'CHECK(sequence >= 1)',
+    'CHECK(revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionEventsData extends DataClass
+    implements Insertable<ExecutionEventsData> {
+  final String eventId;
+  final String dataEpoch;
+  final String operationId;
+  final int subEventIndex;
+  final String? occurrenceId;
+  final String eventType;
+  final int occurredAtUtc;
+  final int recordedAtUtc;
+  final String source;
+  final String payloadJson;
+  final String? correctedEventId;
+  final int sequence;
+  final int revision;
+  const ExecutionEventsData({
+    required this.eventId,
+    required this.dataEpoch,
+    required this.operationId,
+    required this.subEventIndex,
+    this.occurrenceId,
+    required this.eventType,
+    required this.occurredAtUtc,
+    required this.recordedAtUtc,
+    required this.source,
+    required this.payloadJson,
+    this.correctedEventId,
+    required this.sequence,
+    required this.revision,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['event_id'] = Variable<String>(eventId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['operation_id'] = Variable<String>(operationId);
+    map['sub_event_index'] = Variable<int>(subEventIndex);
+    if (!nullToAbsent || occurrenceId != null) {
+      map['occurrence_id'] = Variable<String>(occurrenceId);
+    }
+    map['event_type'] = Variable<String>(eventType);
+    map['occurred_at_utc'] = Variable<int>(occurredAtUtc);
+    map['recorded_at_utc'] = Variable<int>(recordedAtUtc);
+    map['source'] = Variable<String>(source);
+    map['payload_json'] = Variable<String>(payloadJson);
+    if (!nullToAbsent || correctedEventId != null) {
+      map['corrected_event_id'] = Variable<String>(correctedEventId);
+    }
+    map['sequence'] = Variable<int>(sequence);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  ExecutionEventsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionEventsCompanion(
+      eventId: Value(eventId),
+      dataEpoch: Value(dataEpoch),
+      operationId: Value(operationId),
+      subEventIndex: Value(subEventIndex),
+      occurrenceId: occurrenceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(occurrenceId),
+      eventType: Value(eventType),
+      occurredAtUtc: Value(occurredAtUtc),
+      recordedAtUtc: Value(recordedAtUtc),
+      source: Value(source),
+      payloadJson: Value(payloadJson),
+      correctedEventId: correctedEventId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(correctedEventId),
+      sequence: Value(sequence),
+      revision: Value(revision),
+    );
+  }
+
+  factory ExecutionEventsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionEventsData(
+      eventId: serializer.fromJson<String>(json['eventId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      operationId: serializer.fromJson<String>(json['operationId']),
+      subEventIndex: serializer.fromJson<int>(json['subEventIndex']),
+      occurrenceId: serializer.fromJson<String?>(json['occurrenceId']),
+      eventType: serializer.fromJson<String>(json['eventType']),
+      occurredAtUtc: serializer.fromJson<int>(json['occurredAtUtc']),
+      recordedAtUtc: serializer.fromJson<int>(json['recordedAtUtc']),
+      source: serializer.fromJson<String>(json['source']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      correctedEventId: serializer.fromJson<String?>(json['correctedEventId']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'eventId': serializer.toJson<String>(eventId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'operationId': serializer.toJson<String>(operationId),
+      'subEventIndex': serializer.toJson<int>(subEventIndex),
+      'occurrenceId': serializer.toJson<String?>(occurrenceId),
+      'eventType': serializer.toJson<String>(eventType),
+      'occurredAtUtc': serializer.toJson<int>(occurredAtUtc),
+      'recordedAtUtc': serializer.toJson<int>(recordedAtUtc),
+      'source': serializer.toJson<String>(source),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'correctedEventId': serializer.toJson<String?>(correctedEventId),
+      'sequence': serializer.toJson<int>(sequence),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  ExecutionEventsData copyWith({
+    String? eventId,
+    String? dataEpoch,
+    String? operationId,
+    int? subEventIndex,
+    Value<String?> occurrenceId = const Value.absent(),
+    String? eventType,
+    int? occurredAtUtc,
+    int? recordedAtUtc,
+    String? source,
+    String? payloadJson,
+    Value<String?> correctedEventId = const Value.absent(),
+    int? sequence,
+    int? revision,
+  }) => ExecutionEventsData(
+    eventId: eventId ?? this.eventId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    operationId: operationId ?? this.operationId,
+    subEventIndex: subEventIndex ?? this.subEventIndex,
+    occurrenceId: occurrenceId.present ? occurrenceId.value : this.occurrenceId,
+    eventType: eventType ?? this.eventType,
+    occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+    recordedAtUtc: recordedAtUtc ?? this.recordedAtUtc,
+    source: source ?? this.source,
+    payloadJson: payloadJson ?? this.payloadJson,
+    correctedEventId: correctedEventId.present
+        ? correctedEventId.value
+        : this.correctedEventId,
+    sequence: sequence ?? this.sequence,
+    revision: revision ?? this.revision,
+  );
+  ExecutionEventsData copyWithCompanion(ExecutionEventsCompanion data) {
+    return ExecutionEventsData(
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
+      subEventIndex: data.subEventIndex.present
+          ? data.subEventIndex.value
+          : this.subEventIndex,
+      occurrenceId: data.occurrenceId.present
+          ? data.occurrenceId.value
+          : this.occurrenceId,
+      eventType: data.eventType.present ? data.eventType.value : this.eventType,
+      occurredAtUtc: data.occurredAtUtc.present
+          ? data.occurredAtUtc.value
+          : this.occurredAtUtc,
+      recordedAtUtc: data.recordedAtUtc.present
+          ? data.recordedAtUtc.value
+          : this.recordedAtUtc,
+      source: data.source.present ? data.source.value : this.source,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      correctedEventId: data.correctedEventId.present
+          ? data.correctedEventId.value
+          : this.correctedEventId,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionEventsData(')
+          ..write('eventId: $eventId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('subEventIndex: $subEventIndex, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('eventType: $eventType, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('recordedAtUtc: $recordedAtUtc, ')
+          ..write('source: $source, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('correctedEventId: $correctedEventId, ')
+          ..write('sequence: $sequence, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    eventId,
+    dataEpoch,
+    operationId,
+    subEventIndex,
+    occurrenceId,
+    eventType,
+    occurredAtUtc,
+    recordedAtUtc,
+    source,
+    payloadJson,
+    correctedEventId,
+    sequence,
+    revision,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionEventsData &&
+          other.eventId == this.eventId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.operationId == this.operationId &&
+          other.subEventIndex == this.subEventIndex &&
+          other.occurrenceId == this.occurrenceId &&
+          other.eventType == this.eventType &&
+          other.occurredAtUtc == this.occurredAtUtc &&
+          other.recordedAtUtc == this.recordedAtUtc &&
+          other.source == this.source &&
+          other.payloadJson == this.payloadJson &&
+          other.correctedEventId == this.correctedEventId &&
+          other.sequence == this.sequence &&
+          other.revision == this.revision);
+}
+
+class ExecutionEventsCompanion extends UpdateCompanion<ExecutionEventsData> {
+  final Value<String> eventId;
+  final Value<String> dataEpoch;
+  final Value<String> operationId;
+  final Value<int> subEventIndex;
+  final Value<String?> occurrenceId;
+  final Value<String> eventType;
+  final Value<int> occurredAtUtc;
+  final Value<int> recordedAtUtc;
+  final Value<String> source;
+  final Value<String> payloadJson;
+  final Value<String?> correctedEventId;
+  final Value<int> sequence;
+  final Value<int> revision;
+  final Value<int> rowid;
+  const ExecutionEventsCompanion({
+    this.eventId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.operationId = const Value.absent(),
+    this.subEventIndex = const Value.absent(),
+    this.occurrenceId = const Value.absent(),
+    this.eventType = const Value.absent(),
+    this.occurredAtUtc = const Value.absent(),
+    this.recordedAtUtc = const Value.absent(),
+    this.source = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.correctedEventId = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionEventsCompanion.insert({
+    required String eventId,
+    required String dataEpoch,
+    required String operationId,
+    required int subEventIndex,
+    this.occurrenceId = const Value.absent(),
+    required String eventType,
+    required int occurredAtUtc,
+    required int recordedAtUtc,
+    required String source,
+    this.payloadJson = const Value.absent(),
+    this.correctedEventId = const Value.absent(),
+    required int sequence,
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : eventId = Value(eventId),
+       dataEpoch = Value(dataEpoch),
+       operationId = Value(operationId),
+       subEventIndex = Value(subEventIndex),
+       eventType = Value(eventType),
+       occurredAtUtc = Value(occurredAtUtc),
+       recordedAtUtc = Value(recordedAtUtc),
+       source = Value(source),
+       sequence = Value(sequence);
+  static Insertable<ExecutionEventsData> custom({
+    Expression<String>? eventId,
+    Expression<String>? dataEpoch,
+    Expression<String>? operationId,
+    Expression<int>? subEventIndex,
+    Expression<String>? occurrenceId,
+    Expression<String>? eventType,
+    Expression<int>? occurredAtUtc,
+    Expression<int>? recordedAtUtc,
+    Expression<String>? source,
+    Expression<String>? payloadJson,
+    Expression<String>? correctedEventId,
+    Expression<int>? sequence,
+    Expression<int>? revision,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (eventId != null) 'event_id': eventId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (operationId != null) 'operation_id': operationId,
+      if (subEventIndex != null) 'sub_event_index': subEventIndex,
+      if (occurrenceId != null) 'occurrence_id': occurrenceId,
+      if (eventType != null) 'event_type': eventType,
+      if (occurredAtUtc != null) 'occurred_at_utc': occurredAtUtc,
+      if (recordedAtUtc != null) 'recorded_at_utc': recordedAtUtc,
+      if (source != null) 'source': source,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (correctedEventId != null) 'corrected_event_id': correctedEventId,
+      if (sequence != null) 'sequence': sequence,
+      if (revision != null) 'revision': revision,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionEventsCompanion copyWith({
+    Value<String>? eventId,
+    Value<String>? dataEpoch,
+    Value<String>? operationId,
+    Value<int>? subEventIndex,
+    Value<String?>? occurrenceId,
+    Value<String>? eventType,
+    Value<int>? occurredAtUtc,
+    Value<int>? recordedAtUtc,
+    Value<String>? source,
+    Value<String>? payloadJson,
+    Value<String?>? correctedEventId,
+    Value<int>? sequence,
+    Value<int>? revision,
+    Value<int>? rowid,
+  }) {
+    return ExecutionEventsCompanion(
+      eventId: eventId ?? this.eventId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      operationId: operationId ?? this.operationId,
+      subEventIndex: subEventIndex ?? this.subEventIndex,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
+      eventType: eventType ?? this.eventType,
+      occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+      recordedAtUtc: recordedAtUtc ?? this.recordedAtUtc,
+      source: source ?? this.source,
+      payloadJson: payloadJson ?? this.payloadJson,
+      correctedEventId: correctedEventId ?? this.correctedEventId,
+      sequence: sequence ?? this.sequence,
+      revision: revision ?? this.revision,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (eventId.present) {
+      map['event_id'] = Variable<String>(eventId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
+    }
+    if (subEventIndex.present) {
+      map['sub_event_index'] = Variable<int>(subEventIndex.value);
+    }
+    if (occurrenceId.present) {
+      map['occurrence_id'] = Variable<String>(occurrenceId.value);
+    }
+    if (eventType.present) {
+      map['event_type'] = Variable<String>(eventType.value);
+    }
+    if (occurredAtUtc.present) {
+      map['occurred_at_utc'] = Variable<int>(occurredAtUtc.value);
+    }
+    if (recordedAtUtc.present) {
+      map['recorded_at_utc'] = Variable<int>(recordedAtUtc.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (correctedEventId.present) {
+      map['corrected_event_id'] = Variable<String>(correctedEventId.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionEventsCompanion(')
+          ..write('eventId: $eventId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('subEventIndex: $subEventIndex, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('eventType: $eventType, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('recordedAtUtc: $recordedAtUtc, ')
+          ..write('source: $source, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('correctedEventId: $correctedEventId, ')
+          ..write('sequence: $sequence, ')
+          ..write('revision: $revision, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionSessionLinks extends Table
+    with TableInfo<ExecutionSessionLinks, ExecutionSessionLinksData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionSessionLinks(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> sessionId = GeneratedColumn<String>(
+    'session_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES time_entries(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> occurrenceId = GeneratedColumn<String>(
+    'occurrence_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL REFERENCES execution_occurrences(id)',
+  );
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> mode = GeneratedColumn<String>(
+    'mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> firstAcceptedSequence = GeneratedColumn<int>(
+    'first_accepted_sequence',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
   );
   late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
     'created_at_utc',
@@ -10111,95 +13159,59 @@ class DayExceptions extends Table
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL',
   );
-  late final GeneratedColumn<int> revokedAtUtc = GeneratedColumn<int>(
-    'revoked_at_utc',
-    aliasedName,
-    true,
-    type: DriftSqlType.int,
-    requiredDuringInsert: false,
-    $customConstraints: 'NULL',
-  );
   @override
   List<GeneratedColumn> get $columns => [
-    id,
-    localDate,
-    kind,
-    status,
-    originalSleepStartOffsetMinutes,
-    temporarySleepStartOffsetMinutes,
-    fixedWakeOffsetMinutes,
-    absoluteMinimumSleepMinutes,
-    recoveryChoice,
-    recoveryLocalDate,
+    sessionId,
+    dataEpoch,
+    occurrenceId,
     source,
-    triggeringProposalId,
-    auditNote,
+    mode,
+    firstAcceptedSequence,
+    revision,
     createdAtUtc,
     updatedAtUtc,
-    revokedAtUtc,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'day_exceptions';
+  static const String $name = 'execution_session_links';
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {sessionId};
   @override
-  DayExceptionsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+  ExecutionSessionLinksData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return DayExceptionsData(
-      id: attachedDatabase.typeMapping.read(
+    return ExecutionSessionLinksData(
+      sessionId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}id'],
+        data['${effectivePrefix}session_id'],
       )!,
-      localDate: attachedDatabase.typeMapping.read(
+      dataEpoch: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}local_date'],
+        data['${effectivePrefix}data_epoch'],
       )!,
-      kind: attachedDatabase.typeMapping.read(
+      occurrenceId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}kind'],
-      )!,
-      status: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}status'],
-      )!,
-      originalSleepStartOffsetMinutes: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}original_sleep_start_offset_minutes'],
-      )!,
-      temporarySleepStartOffsetMinutes: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}temporary_sleep_start_offset_minutes'],
-      )!,
-      fixedWakeOffsetMinutes: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}fixed_wake_offset_minutes'],
-      )!,
-      absoluteMinimumSleepMinutes: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}absolute_minimum_sleep_minutes'],
-      )!,
-      recoveryChoice: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}recovery_choice'],
-      )!,
-      recoveryLocalDate: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}recovery_local_date'],
+        data['${effectivePrefix}occurrence_id'],
       ),
       source: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}source'],
       )!,
-      triggeringProposalId: attachedDatabase.typeMapping.read(
+      mode: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}triggering_proposal_id'],
+        data['${effectivePrefix}mode'],
+      )!,
+      firstAcceptedSequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}first_accepted_sequence'],
       ),
-      auditNote: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}audit_note'],
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
       )!,
       createdAtUtc: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -10209,167 +13221,10145 @@ class DayExceptions extends Table
         DriftSqlType.int,
         data['${effectivePrefix}updated_at_utc'],
       )!,
-      revokedAtUtc: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}revoked_at_utc'],
-      ),
     );
   }
 
   @override
-  DayExceptions createAlias(String alias) {
-    return DayExceptions(attachedDatabase, alias);
+  ExecutionSessionLinks createAlias(String alias) {
+    return ExecutionSessionLinks(attachedDatabase, alias);
   }
 
   @override
   List<String> get customConstraints => const [
-    'PRIMARY KEY(id)',
-    'CHECK(kind IN (\'userSpecialDay\', \'temporaryExtensionDay\'))',
-    'CHECK(status IN (\'draft\', \'confirmed\', \'revoked\', \'expired\'))',
-    'CHECK(recovery_choice IN (\'nextDayRest\', \'nextNightEarlierSleep\', \'reduceNextDayLoad\', \'none\'))',
-    'CHECK(original_sleep_start_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK(temporary_sleep_start_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK(fixed_wake_offset_minutes BETWEEN 0 AND 2880)',
-    'CHECK(original_sleep_start_offset_minutes <= temporary_sleep_start_offset_minutes)',
-    'CHECK(temporary_sleep_start_offset_minutes < fixed_wake_offset_minutes)',
-    'CHECK(absolute_minimum_sleep_minutes BETWEEN 0 AND 1440)',
-    'CHECK(length(local_date) = 10 AND length(recovery_local_date) = 10 OR recovery_local_date IS NULL)',
+    'PRIMARY KEY(session_id)',
+    'CHECK(revision >= 1)',
+    'CHECK(source IN (\'realtime\', \'manual\', \'recoveryConfirmed\', \'legacyUnlinked\'))',
+    'CHECK(mode IN (\'planned\', \'actualOnly\'))',
   ];
   @override
   bool get dontWriteConstraints => true;
 }
 
-class DayExceptionsData extends DataClass
-    implements Insertable<DayExceptionsData> {
-  final String id;
-  final String localDate;
-  final String kind;
-  final String status;
-  final int originalSleepStartOffsetMinutes;
-  final int temporarySleepStartOffsetMinutes;
-  final int fixedWakeOffsetMinutes;
-  final int absoluteMinimumSleepMinutes;
-  final String recoveryChoice;
-  final String? recoveryLocalDate;
+class ExecutionSessionLinksData extends DataClass
+    implements Insertable<ExecutionSessionLinksData> {
+  final String sessionId;
+  final String dataEpoch;
+  final String? occurrenceId;
   final String source;
-  final String? triggeringProposalId;
-  final String auditNote;
+  final String mode;
+  final int? firstAcceptedSequence;
+  final int revision;
   final int createdAtUtc;
   final int updatedAtUtc;
-  final int? revokedAtUtc;
-  const DayExceptionsData({
-    required this.id,
-    required this.localDate,
-    required this.kind,
-    required this.status,
-    required this.originalSleepStartOffsetMinutes,
-    required this.temporarySleepStartOffsetMinutes,
-    required this.fixedWakeOffsetMinutes,
-    required this.absoluteMinimumSleepMinutes,
-    required this.recoveryChoice,
-    this.recoveryLocalDate,
+  const ExecutionSessionLinksData({
+    required this.sessionId,
+    required this.dataEpoch,
+    this.occurrenceId,
     required this.source,
-    this.triggeringProposalId,
-    required this.auditNote,
+    required this.mode,
+    this.firstAcceptedSequence,
+    required this.revision,
     required this.createdAtUtc,
     required this.updatedAtUtc,
-    this.revokedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['session_id'] = Variable<String>(sessionId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    if (!nullToAbsent || occurrenceId != null) {
+      map['occurrence_id'] = Variable<String>(occurrenceId);
+    }
+    map['source'] = Variable<String>(source);
+    map['mode'] = Variable<String>(mode);
+    if (!nullToAbsent || firstAcceptedSequence != null) {
+      map['first_accepted_sequence'] = Variable<int>(firstAcceptedSequence);
+    }
+    map['revision'] = Variable<int>(revision);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  ExecutionSessionLinksCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionSessionLinksCompanion(
+      sessionId: Value(sessionId),
+      dataEpoch: Value(dataEpoch),
+      occurrenceId: occurrenceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(occurrenceId),
+      source: Value(source),
+      mode: Value(mode),
+      firstAcceptedSequence: firstAcceptedSequence == null && nullToAbsent
+          ? const Value.absent()
+          : Value(firstAcceptedSequence),
+      revision: Value(revision),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory ExecutionSessionLinksData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionSessionLinksData(
+      sessionId: serializer.fromJson<String>(json['sessionId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      occurrenceId: serializer.fromJson<String?>(json['occurrenceId']),
+      source: serializer.fromJson<String>(json['source']),
+      mode: serializer.fromJson<String>(json['mode']),
+      firstAcceptedSequence: serializer.fromJson<int?>(
+        json['firstAcceptedSequence'],
+      ),
+      revision: serializer.fromJson<int>(json['revision']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'sessionId': serializer.toJson<String>(sessionId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'occurrenceId': serializer.toJson<String?>(occurrenceId),
+      'source': serializer.toJson<String>(source),
+      'mode': serializer.toJson<String>(mode),
+      'firstAcceptedSequence': serializer.toJson<int?>(firstAcceptedSequence),
+      'revision': serializer.toJson<int>(revision),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  ExecutionSessionLinksData copyWith({
+    String? sessionId,
+    String? dataEpoch,
+    Value<String?> occurrenceId = const Value.absent(),
+    String? source,
+    String? mode,
+    Value<int?> firstAcceptedSequence = const Value.absent(),
+    int? revision,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => ExecutionSessionLinksData(
+    sessionId: sessionId ?? this.sessionId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    occurrenceId: occurrenceId.present ? occurrenceId.value : this.occurrenceId,
+    source: source ?? this.source,
+    mode: mode ?? this.mode,
+    firstAcceptedSequence: firstAcceptedSequence.present
+        ? firstAcceptedSequence.value
+        : this.firstAcceptedSequence,
+    revision: revision ?? this.revision,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  ExecutionSessionLinksData copyWithCompanion(
+    ExecutionSessionLinksCompanion data,
+  ) {
+    return ExecutionSessionLinksData(
+      sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      occurrenceId: data.occurrenceId.present
+          ? data.occurrenceId.value
+          : this.occurrenceId,
+      source: data.source.present ? data.source.value : this.source,
+      mode: data.mode.present ? data.mode.value : this.mode,
+      firstAcceptedSequence: data.firstAcceptedSequence.present
+          ? data.firstAcceptedSequence.value
+          : this.firstAcceptedSequence,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionSessionLinksData(')
+          ..write('sessionId: $sessionId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('source: $source, ')
+          ..write('mode: $mode, ')
+          ..write('firstAcceptedSequence: $firstAcceptedSequence, ')
+          ..write('revision: $revision, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    sessionId,
+    dataEpoch,
+    occurrenceId,
+    source,
+    mode,
+    firstAcceptedSequence,
+    revision,
+    createdAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionSessionLinksData &&
+          other.sessionId == this.sessionId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.occurrenceId == this.occurrenceId &&
+          other.source == this.source &&
+          other.mode == this.mode &&
+          other.firstAcceptedSequence == this.firstAcceptedSequence &&
+          other.revision == this.revision &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class ExecutionSessionLinksCompanion
+    extends UpdateCompanion<ExecutionSessionLinksData> {
+  final Value<String> sessionId;
+  final Value<String> dataEpoch;
+  final Value<String?> occurrenceId;
+  final Value<String> source;
+  final Value<String> mode;
+  final Value<int?> firstAcceptedSequence;
+  final Value<int> revision;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const ExecutionSessionLinksCompanion({
+    this.sessionId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.occurrenceId = const Value.absent(),
+    this.source = const Value.absent(),
+    this.mode = const Value.absent(),
+    this.firstAcceptedSequence = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionSessionLinksCompanion.insert({
+    required String sessionId,
+    required String dataEpoch,
+    this.occurrenceId = const Value.absent(),
+    required String source,
+    required String mode,
+    this.firstAcceptedSequence = const Value.absent(),
+    this.revision = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : sessionId = Value(sessionId),
+       dataEpoch = Value(dataEpoch),
+       source = Value(source),
+       mode = Value(mode),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<ExecutionSessionLinksData> custom({
+    Expression<String>? sessionId,
+    Expression<String>? dataEpoch,
+    Expression<String>? occurrenceId,
+    Expression<String>? source,
+    Expression<String>? mode,
+    Expression<int>? firstAcceptedSequence,
+    Expression<int>? revision,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (sessionId != null) 'session_id': sessionId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (occurrenceId != null) 'occurrence_id': occurrenceId,
+      if (source != null) 'source': source,
+      if (mode != null) 'mode': mode,
+      if (firstAcceptedSequence != null)
+        'first_accepted_sequence': firstAcceptedSequence,
+      if (revision != null) 'revision': revision,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionSessionLinksCompanion copyWith({
+    Value<String>? sessionId,
+    Value<String>? dataEpoch,
+    Value<String?>? occurrenceId,
+    Value<String>? source,
+    Value<String>? mode,
+    Value<int?>? firstAcceptedSequence,
+    Value<int>? revision,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionSessionLinksCompanion(
+      sessionId: sessionId ?? this.sessionId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
+      source: source ?? this.source,
+      mode: mode ?? this.mode,
+      firstAcceptedSequence:
+          firstAcceptedSequence ?? this.firstAcceptedSequence,
+      revision: revision ?? this.revision,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (sessionId.present) {
+      map['session_id'] = Variable<String>(sessionId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (occurrenceId.present) {
+      map['occurrence_id'] = Variable<String>(occurrenceId.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (mode.present) {
+      map['mode'] = Variable<String>(mode.value);
+    }
+    if (firstAcceptedSequence.present) {
+      map['first_accepted_sequence'] = Variable<int>(
+        firstAcceptedSequence.value,
+      );
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionSessionLinksCompanion(')
+          ..write('sessionId: $sessionId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('source: $source, ')
+          ..write('mode: $mode, ')
+          ..write('firstAcceptedSequence: $firstAcceptedSequence, ')
+          ..write('revision: $revision, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionActivitySegments extends Table
+    with TableInfo<ExecutionActivitySegments, ExecutionActivitySegmentsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionActivitySegments(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> segmentId = GeneratedColumn<String>(
+    'segment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> sessionId = GeneratedColumn<String>(
+    'session_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES time_entries(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> startUtc = GeneratedColumn<int>(
+    'start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> endUtc = GeneratedColumn<int>(
+    'end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> invalidatedReason =
+      GeneratedColumn<String>(
+        'invalidated_reason',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    segmentId,
+    dataEpoch,
+    sessionId,
+    sequence,
+    startUtc,
+    endUtc,
+    source,
+    invalidatedReason,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_activity_segments';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {segmentId};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {sessionId, sequence},
+  ];
+  @override
+  ExecutionActivitySegmentsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionActivitySegmentsData(
+      segmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}segment_id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      sessionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}session_id'],
+      )!,
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      startUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_utc'],
+      )!,
+      endUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_utc'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      invalidatedReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}invalidated_reason'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionActivitySegments createAlias(String alias) {
+    return ExecutionActivitySegments(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(segment_id)',
+    'UNIQUE(session_id, sequence)',
+    'CHECK(end_utc > start_utc)',
+    'CHECK(sequence >= 1)',
+    'CHECK(source IN (\'realtime\', \'manual\', \'recoveryConfirmed\', \'legacyUnlinked\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionActivitySegmentsData extends DataClass
+    implements Insertable<ExecutionActivitySegmentsData> {
+  final String segmentId;
+  final String dataEpoch;
+  final String sessionId;
+  final int sequence;
+  final int startUtc;
+  final int endUtc;
+  final String source;
+  final String? invalidatedReason;
+  final int createdAtUtc;
+  const ExecutionActivitySegmentsData({
+    required this.segmentId,
+    required this.dataEpoch,
+    required this.sessionId,
+    required this.sequence,
+    required this.startUtc,
+    required this.endUtc,
+    required this.source,
+    this.invalidatedReason,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['segment_id'] = Variable<String>(segmentId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['session_id'] = Variable<String>(sessionId);
+    map['sequence'] = Variable<int>(sequence);
+    map['start_utc'] = Variable<int>(startUtc);
+    map['end_utc'] = Variable<int>(endUtc);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || invalidatedReason != null) {
+      map['invalidated_reason'] = Variable<String>(invalidatedReason);
+    }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  ExecutionActivitySegmentsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionActivitySegmentsCompanion(
+      segmentId: Value(segmentId),
+      dataEpoch: Value(dataEpoch),
+      sessionId: Value(sessionId),
+      sequence: Value(sequence),
+      startUtc: Value(startUtc),
+      endUtc: Value(endUtc),
+      source: Value(source),
+      invalidatedReason: invalidatedReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(invalidatedReason),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory ExecutionActivitySegmentsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionActivitySegmentsData(
+      segmentId: serializer.fromJson<String>(json['segmentId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      sessionId: serializer.fromJson<String>(json['sessionId']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      startUtc: serializer.fromJson<int>(json['startUtc']),
+      endUtc: serializer.fromJson<int>(json['endUtc']),
+      source: serializer.fromJson<String>(json['source']),
+      invalidatedReason: serializer.fromJson<String?>(
+        json['invalidatedReason'],
+      ),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'segmentId': serializer.toJson<String>(segmentId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'sessionId': serializer.toJson<String>(sessionId),
+      'sequence': serializer.toJson<int>(sequence),
+      'startUtc': serializer.toJson<int>(startUtc),
+      'endUtc': serializer.toJson<int>(endUtc),
+      'source': serializer.toJson<String>(source),
+      'invalidatedReason': serializer.toJson<String?>(invalidatedReason),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  ExecutionActivitySegmentsData copyWith({
+    String? segmentId,
+    String? dataEpoch,
+    String? sessionId,
+    int? sequence,
+    int? startUtc,
+    int? endUtc,
+    String? source,
+    Value<String?> invalidatedReason = const Value.absent(),
+    int? createdAtUtc,
+  }) => ExecutionActivitySegmentsData(
+    segmentId: segmentId ?? this.segmentId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    sessionId: sessionId ?? this.sessionId,
+    sequence: sequence ?? this.sequence,
+    startUtc: startUtc ?? this.startUtc,
+    endUtc: endUtc ?? this.endUtc,
+    source: source ?? this.source,
+    invalidatedReason: invalidatedReason.present
+        ? invalidatedReason.value
+        : this.invalidatedReason,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  ExecutionActivitySegmentsData copyWithCompanion(
+    ExecutionActivitySegmentsCompanion data,
+  ) {
+    return ExecutionActivitySegmentsData(
+      segmentId: data.segmentId.present ? data.segmentId.value : this.segmentId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      startUtc: data.startUtc.present ? data.startUtc.value : this.startUtc,
+      endUtc: data.endUtc.present ? data.endUtc.value : this.endUtc,
+      source: data.source.present ? data.source.value : this.source,
+      invalidatedReason: data.invalidatedReason.present
+          ? data.invalidatedReason.value
+          : this.invalidatedReason,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionActivitySegmentsData(')
+          ..write('segmentId: $segmentId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('sequence: $sequence, ')
+          ..write('startUtc: $startUtc, ')
+          ..write('endUtc: $endUtc, ')
+          ..write('source: $source, ')
+          ..write('invalidatedReason: $invalidatedReason, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    segmentId,
+    dataEpoch,
+    sessionId,
+    sequence,
+    startUtc,
+    endUtc,
+    source,
+    invalidatedReason,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionActivitySegmentsData &&
+          other.segmentId == this.segmentId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.sessionId == this.sessionId &&
+          other.sequence == this.sequence &&
+          other.startUtc == this.startUtc &&
+          other.endUtc == this.endUtc &&
+          other.source == this.source &&
+          other.invalidatedReason == this.invalidatedReason &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class ExecutionActivitySegmentsCompanion
+    extends UpdateCompanion<ExecutionActivitySegmentsData> {
+  final Value<String> segmentId;
+  final Value<String> dataEpoch;
+  final Value<String> sessionId;
+  final Value<int> sequence;
+  final Value<int> startUtc;
+  final Value<int> endUtc;
+  final Value<String> source;
+  final Value<String?> invalidatedReason;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const ExecutionActivitySegmentsCompanion({
+    this.segmentId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.sessionId = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.startUtc = const Value.absent(),
+    this.endUtc = const Value.absent(),
+    this.source = const Value.absent(),
+    this.invalidatedReason = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionActivitySegmentsCompanion.insert({
+    required String segmentId,
+    required String dataEpoch,
+    required String sessionId,
+    required int sequence,
+    required int startUtc,
+    required int endUtc,
+    required String source,
+    this.invalidatedReason = const Value.absent(),
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : segmentId = Value(segmentId),
+       dataEpoch = Value(dataEpoch),
+       sessionId = Value(sessionId),
+       sequence = Value(sequence),
+       startUtc = Value(startUtc),
+       endUtc = Value(endUtc),
+       source = Value(source),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionActivitySegmentsData> custom({
+    Expression<String>? segmentId,
+    Expression<String>? dataEpoch,
+    Expression<String>? sessionId,
+    Expression<int>? sequence,
+    Expression<int>? startUtc,
+    Expression<int>? endUtc,
+    Expression<String>? source,
+    Expression<String>? invalidatedReason,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (segmentId != null) 'segment_id': segmentId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (sessionId != null) 'session_id': sessionId,
+      if (sequence != null) 'sequence': sequence,
+      if (startUtc != null) 'start_utc': startUtc,
+      if (endUtc != null) 'end_utc': endUtc,
+      if (source != null) 'source': source,
+      if (invalidatedReason != null) 'invalidated_reason': invalidatedReason,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionActivitySegmentsCompanion copyWith({
+    Value<String>? segmentId,
+    Value<String>? dataEpoch,
+    Value<String>? sessionId,
+    Value<int>? sequence,
+    Value<int>? startUtc,
+    Value<int>? endUtc,
+    Value<String>? source,
+    Value<String?>? invalidatedReason,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionActivitySegmentsCompanion(
+      segmentId: segmentId ?? this.segmentId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      sessionId: sessionId ?? this.sessionId,
+      sequence: sequence ?? this.sequence,
+      startUtc: startUtc ?? this.startUtc,
+      endUtc: endUtc ?? this.endUtc,
+      source: source ?? this.source,
+      invalidatedReason: invalidatedReason ?? this.invalidatedReason,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (segmentId.present) {
+      map['segment_id'] = Variable<String>(segmentId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (sessionId.present) {
+      map['session_id'] = Variable<String>(sessionId.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (startUtc.present) {
+      map['start_utc'] = Variable<int>(startUtc.value);
+    }
+    if (endUtc.present) {
+      map['end_utc'] = Variable<int>(endUtc.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (invalidatedReason.present) {
+      map['invalidated_reason'] = Variable<String>(invalidatedReason.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionActivitySegmentsCompanion(')
+          ..write('segmentId: $segmentId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('sequence: $sequence, ')
+          ..write('startUtc: $startUtc, ')
+          ..write('endUtc: $endUtc, ')
+          ..write('source: $source, ')
+          ..write('invalidatedReason: $invalidatedReason, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionProgressAnchors extends Table
+    with TableInfo<ExecutionProgressAnchors, ExecutionProgressAnchorsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionProgressAnchors(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES tasks(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> anchorRemainingMicros = GeneratedColumn<int>(
+    'anchor_remaining_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> anchorSequence = GeneratedColumn<int>(
+    'anchor_sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> reason = GeneratedColumn<String>(
+    'reason',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> isCurrent = GeneratedColumn<int>(
+    'is_current',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1 CHECK (is_current IN (0, 1))',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    taskId,
+    revision,
+    anchorRemainingMicros,
+    anchorSequence,
+    reason,
+    createdAtUtc,
+    isCurrent,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_progress_anchors';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {taskId, revision};
+  @override
+  ExecutionProgressAnchorsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionProgressAnchorsData(
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      anchorRemainingMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}anchor_remaining_micros'],
+      )!,
+      anchorSequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}anchor_sequence'],
+      )!,
+      reason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reason'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      isCurrent: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}is_current'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionProgressAnchors createAlias(String alias) {
+    return ExecutionProgressAnchors(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(task_id, revision)',
+    'CHECK(revision >= 1)',
+    'CHECK(anchor_remaining_micros >= 0)',
+    'CHECK(anchor_sequence >= 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionProgressAnchorsData extends DataClass
+    implements Insertable<ExecutionProgressAnchorsData> {
+  final String taskId;
+  final int revision;
+  final int anchorRemainingMicros;
+  final int anchorSequence;
+  final String reason;
+  final int createdAtUtc;
+  final int isCurrent;
+  const ExecutionProgressAnchorsData({
+    required this.taskId,
+    required this.revision,
+    required this.anchorRemainingMicros,
+    required this.anchorSequence,
+    required this.reason,
+    required this.createdAtUtc,
+    required this.isCurrent,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['task_id'] = Variable<String>(taskId);
+    map['revision'] = Variable<int>(revision);
+    map['anchor_remaining_micros'] = Variable<int>(anchorRemainingMicros);
+    map['anchor_sequence'] = Variable<int>(anchorSequence);
+    map['reason'] = Variable<String>(reason);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['is_current'] = Variable<int>(isCurrent);
+    return map;
+  }
+
+  ExecutionProgressAnchorsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionProgressAnchorsCompanion(
+      taskId: Value(taskId),
+      revision: Value(revision),
+      anchorRemainingMicros: Value(anchorRemainingMicros),
+      anchorSequence: Value(anchorSequence),
+      reason: Value(reason),
+      createdAtUtc: Value(createdAtUtc),
+      isCurrent: Value(isCurrent),
+    );
+  }
+
+  factory ExecutionProgressAnchorsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionProgressAnchorsData(
+      taskId: serializer.fromJson<String>(json['taskId']),
+      revision: serializer.fromJson<int>(json['revision']),
+      anchorRemainingMicros: serializer.fromJson<int>(
+        json['anchorRemainingMicros'],
+      ),
+      anchorSequence: serializer.fromJson<int>(json['anchorSequence']),
+      reason: serializer.fromJson<String>(json['reason']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      isCurrent: serializer.fromJson<int>(json['isCurrent']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'taskId': serializer.toJson<String>(taskId),
+      'revision': serializer.toJson<int>(revision),
+      'anchorRemainingMicros': serializer.toJson<int>(anchorRemainingMicros),
+      'anchorSequence': serializer.toJson<int>(anchorSequence),
+      'reason': serializer.toJson<String>(reason),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'isCurrent': serializer.toJson<int>(isCurrent),
+    };
+  }
+
+  ExecutionProgressAnchorsData copyWith({
+    String? taskId,
+    int? revision,
+    int? anchorRemainingMicros,
+    int? anchorSequence,
+    String? reason,
+    int? createdAtUtc,
+    int? isCurrent,
+  }) => ExecutionProgressAnchorsData(
+    taskId: taskId ?? this.taskId,
+    revision: revision ?? this.revision,
+    anchorRemainingMicros: anchorRemainingMicros ?? this.anchorRemainingMicros,
+    anchorSequence: anchorSequence ?? this.anchorSequence,
+    reason: reason ?? this.reason,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    isCurrent: isCurrent ?? this.isCurrent,
+  );
+  ExecutionProgressAnchorsData copyWithCompanion(
+    ExecutionProgressAnchorsCompanion data,
+  ) {
+    return ExecutionProgressAnchorsData(
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      anchorRemainingMicros: data.anchorRemainingMicros.present
+          ? data.anchorRemainingMicros.value
+          : this.anchorRemainingMicros,
+      anchorSequence: data.anchorSequence.present
+          ? data.anchorSequence.value
+          : this.anchorSequence,
+      reason: data.reason.present ? data.reason.value : this.reason,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      isCurrent: data.isCurrent.present ? data.isCurrent.value : this.isCurrent,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionProgressAnchorsData(')
+          ..write('taskId: $taskId, ')
+          ..write('revision: $revision, ')
+          ..write('anchorRemainingMicros: $anchorRemainingMicros, ')
+          ..write('anchorSequence: $anchorSequence, ')
+          ..write('reason: $reason, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('isCurrent: $isCurrent')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    taskId,
+    revision,
+    anchorRemainingMicros,
+    anchorSequence,
+    reason,
+    createdAtUtc,
+    isCurrent,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionProgressAnchorsData &&
+          other.taskId == this.taskId &&
+          other.revision == this.revision &&
+          other.anchorRemainingMicros == this.anchorRemainingMicros &&
+          other.anchorSequence == this.anchorSequence &&
+          other.reason == this.reason &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.isCurrent == this.isCurrent);
+}
+
+class ExecutionProgressAnchorsCompanion
+    extends UpdateCompanion<ExecutionProgressAnchorsData> {
+  final Value<String> taskId;
+  final Value<int> revision;
+  final Value<int> anchorRemainingMicros;
+  final Value<int> anchorSequence;
+  final Value<String> reason;
+  final Value<int> createdAtUtc;
+  final Value<int> isCurrent;
+  final Value<int> rowid;
+  const ExecutionProgressAnchorsCompanion({
+    this.taskId = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.anchorRemainingMicros = const Value.absent(),
+    this.anchorSequence = const Value.absent(),
+    this.reason = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.isCurrent = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionProgressAnchorsCompanion.insert({
+    required String taskId,
+    required int revision,
+    required int anchorRemainingMicros,
+    required int anchorSequence,
+    required String reason,
+    required int createdAtUtc,
+    this.isCurrent = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : taskId = Value(taskId),
+       revision = Value(revision),
+       anchorRemainingMicros = Value(anchorRemainingMicros),
+       anchorSequence = Value(anchorSequence),
+       reason = Value(reason),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionProgressAnchorsData> custom({
+    Expression<String>? taskId,
+    Expression<int>? revision,
+    Expression<int>? anchorRemainingMicros,
+    Expression<int>? anchorSequence,
+    Expression<String>? reason,
+    Expression<int>? createdAtUtc,
+    Expression<int>? isCurrent,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (taskId != null) 'task_id': taskId,
+      if (revision != null) 'revision': revision,
+      if (anchorRemainingMicros != null)
+        'anchor_remaining_micros': anchorRemainingMicros,
+      if (anchorSequence != null) 'anchor_sequence': anchorSequence,
+      if (reason != null) 'reason': reason,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (isCurrent != null) 'is_current': isCurrent,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionProgressAnchorsCompanion copyWith({
+    Value<String>? taskId,
+    Value<int>? revision,
+    Value<int>? anchorRemainingMicros,
+    Value<int>? anchorSequence,
+    Value<String>? reason,
+    Value<int>? createdAtUtc,
+    Value<int>? isCurrent,
+    Value<int>? rowid,
+  }) {
+    return ExecutionProgressAnchorsCompanion(
+      taskId: taskId ?? this.taskId,
+      revision: revision ?? this.revision,
+      anchorRemainingMicros:
+          anchorRemainingMicros ?? this.anchorRemainingMicros,
+      anchorSequence: anchorSequence ?? this.anchorSequence,
+      reason: reason ?? this.reason,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      isCurrent: isCurrent ?? this.isCurrent,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (anchorRemainingMicros.present) {
+      map['anchor_remaining_micros'] = Variable<int>(
+        anchorRemainingMicros.value,
+      );
+    }
+    if (anchorSequence.present) {
+      map['anchor_sequence'] = Variable<int>(anchorSequence.value);
+    }
+    if (reason.present) {
+      map['reason'] = Variable<String>(reason.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (isCurrent.present) {
+      map['is_current'] = Variable<int>(isCurrent.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionProgressAnchorsCompanion(')
+          ..write('taskId: $taskId, ')
+          ..write('revision: $revision, ')
+          ..write('anchorRemainingMicros: $anchorRemainingMicros, ')
+          ..write('anchorSequence: $anchorSequence, ')
+          ..write('reason: $reason, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('isCurrent: $isCurrent, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionCreditAllocations extends Table
+    with TableInfo<ExecutionCreditAllocations, ExecutionCreditAllocationsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionCreditAllocations(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> segmentId = GeneratedColumn<String>(
+    'segment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES execution_activity_segments(segment_id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> targetKind = GeneratedColumn<String>(
+    'target_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetId = GeneratedColumn<String>(
+    'target_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> allocationIndex = GeneratedColumn<int>(
+    'allocation_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> recordRevision = GeneratedColumn<int>(
+    'record_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> amountMicros = GeneratedColumn<int>(
+    'amount_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> firstAcceptedSequence = GeneratedColumn<int>(
+    'first_accepted_sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    dataEpoch,
+    segmentId,
+    targetKind,
+    targetId,
+    allocationIndex,
+    recordRevision,
+    amountMicros,
+    firstAcceptedSequence,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_credit_allocations';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {
+    segmentId,
+    targetKind,
+    targetId,
+    allocationIndex,
+    recordRevision,
+  };
+  @override
+  ExecutionCreditAllocationsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionCreditAllocationsData(
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      segmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}segment_id'],
+      )!,
+      targetKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_kind'],
+      )!,
+      targetId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_id'],
+      )!,
+      allocationIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}allocation_index'],
+      )!,
+      recordRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}record_revision'],
+      )!,
+      amountMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}amount_micros'],
+      )!,
+      firstAcceptedSequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}first_accepted_sequence'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionCreditAllocations createAlias(String alias) {
+    return ExecutionCreditAllocations(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(segment_id, target_kind, target_id, allocation_index, record_revision)',
+    'CHECK(amount_micros > 0)',
+    'CHECK(allocation_index >= 0)',
+    'CHECK(record_revision >= 1)',
+    'CHECK(first_accepted_sequence >= 1)',
+    'CHECK(target_kind IN (\'task\', \'recurringCycle\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionCreditAllocationsData extends DataClass
+    implements Insertable<ExecutionCreditAllocationsData> {
+  final String dataEpoch;
+  final String segmentId;
+  final String targetKind;
+  final String targetId;
+  final int allocationIndex;
+  final int recordRevision;
+  final int amountMicros;
+  final int firstAcceptedSequence;
+  final int createdAtUtc;
+  const ExecutionCreditAllocationsData({
+    required this.dataEpoch,
+    required this.segmentId,
+    required this.targetKind,
+    required this.targetId,
+    required this.allocationIndex,
+    required this.recordRevision,
+    required this.amountMicros,
+    required this.firstAcceptedSequence,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['segment_id'] = Variable<String>(segmentId);
+    map['target_kind'] = Variable<String>(targetKind);
+    map['target_id'] = Variable<String>(targetId);
+    map['allocation_index'] = Variable<int>(allocationIndex);
+    map['record_revision'] = Variable<int>(recordRevision);
+    map['amount_micros'] = Variable<int>(amountMicros);
+    map['first_accepted_sequence'] = Variable<int>(firstAcceptedSequence);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  ExecutionCreditAllocationsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionCreditAllocationsCompanion(
+      dataEpoch: Value(dataEpoch),
+      segmentId: Value(segmentId),
+      targetKind: Value(targetKind),
+      targetId: Value(targetId),
+      allocationIndex: Value(allocationIndex),
+      recordRevision: Value(recordRevision),
+      amountMicros: Value(amountMicros),
+      firstAcceptedSequence: Value(firstAcceptedSequence),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory ExecutionCreditAllocationsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionCreditAllocationsData(
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      segmentId: serializer.fromJson<String>(json['segmentId']),
+      targetKind: serializer.fromJson<String>(json['targetKind']),
+      targetId: serializer.fromJson<String>(json['targetId']),
+      allocationIndex: serializer.fromJson<int>(json['allocationIndex']),
+      recordRevision: serializer.fromJson<int>(json['recordRevision']),
+      amountMicros: serializer.fromJson<int>(json['amountMicros']),
+      firstAcceptedSequence: serializer.fromJson<int>(
+        json['firstAcceptedSequence'],
+      ),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'segmentId': serializer.toJson<String>(segmentId),
+      'targetKind': serializer.toJson<String>(targetKind),
+      'targetId': serializer.toJson<String>(targetId),
+      'allocationIndex': serializer.toJson<int>(allocationIndex),
+      'recordRevision': serializer.toJson<int>(recordRevision),
+      'amountMicros': serializer.toJson<int>(amountMicros),
+      'firstAcceptedSequence': serializer.toJson<int>(firstAcceptedSequence),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  ExecutionCreditAllocationsData copyWith({
+    String? dataEpoch,
+    String? segmentId,
+    String? targetKind,
+    String? targetId,
+    int? allocationIndex,
+    int? recordRevision,
+    int? amountMicros,
+    int? firstAcceptedSequence,
+    int? createdAtUtc,
+  }) => ExecutionCreditAllocationsData(
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    segmentId: segmentId ?? this.segmentId,
+    targetKind: targetKind ?? this.targetKind,
+    targetId: targetId ?? this.targetId,
+    allocationIndex: allocationIndex ?? this.allocationIndex,
+    recordRevision: recordRevision ?? this.recordRevision,
+    amountMicros: amountMicros ?? this.amountMicros,
+    firstAcceptedSequence: firstAcceptedSequence ?? this.firstAcceptedSequence,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  ExecutionCreditAllocationsData copyWithCompanion(
+    ExecutionCreditAllocationsCompanion data,
+  ) {
+    return ExecutionCreditAllocationsData(
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      segmentId: data.segmentId.present ? data.segmentId.value : this.segmentId,
+      targetKind: data.targetKind.present
+          ? data.targetKind.value
+          : this.targetKind,
+      targetId: data.targetId.present ? data.targetId.value : this.targetId,
+      allocationIndex: data.allocationIndex.present
+          ? data.allocationIndex.value
+          : this.allocationIndex,
+      recordRevision: data.recordRevision.present
+          ? data.recordRevision.value
+          : this.recordRevision,
+      amountMicros: data.amountMicros.present
+          ? data.amountMicros.value
+          : this.amountMicros,
+      firstAcceptedSequence: data.firstAcceptedSequence.present
+          ? data.firstAcceptedSequence.value
+          : this.firstAcceptedSequence,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionCreditAllocationsData(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('segmentId: $segmentId, ')
+          ..write('targetKind: $targetKind, ')
+          ..write('targetId: $targetId, ')
+          ..write('allocationIndex: $allocationIndex, ')
+          ..write('recordRevision: $recordRevision, ')
+          ..write('amountMicros: $amountMicros, ')
+          ..write('firstAcceptedSequence: $firstAcceptedSequence, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    dataEpoch,
+    segmentId,
+    targetKind,
+    targetId,
+    allocationIndex,
+    recordRevision,
+    amountMicros,
+    firstAcceptedSequence,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionCreditAllocationsData &&
+          other.dataEpoch == this.dataEpoch &&
+          other.segmentId == this.segmentId &&
+          other.targetKind == this.targetKind &&
+          other.targetId == this.targetId &&
+          other.allocationIndex == this.allocationIndex &&
+          other.recordRevision == this.recordRevision &&
+          other.amountMicros == this.amountMicros &&
+          other.firstAcceptedSequence == this.firstAcceptedSequence &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class ExecutionCreditAllocationsCompanion
+    extends UpdateCompanion<ExecutionCreditAllocationsData> {
+  final Value<String> dataEpoch;
+  final Value<String> segmentId;
+  final Value<String> targetKind;
+  final Value<String> targetId;
+  final Value<int> allocationIndex;
+  final Value<int> recordRevision;
+  final Value<int> amountMicros;
+  final Value<int> firstAcceptedSequence;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const ExecutionCreditAllocationsCompanion({
+    this.dataEpoch = const Value.absent(),
+    this.segmentId = const Value.absent(),
+    this.targetKind = const Value.absent(),
+    this.targetId = const Value.absent(),
+    this.allocationIndex = const Value.absent(),
+    this.recordRevision = const Value.absent(),
+    this.amountMicros = const Value.absent(),
+    this.firstAcceptedSequence = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionCreditAllocationsCompanion.insert({
+    required String dataEpoch,
+    required String segmentId,
+    required String targetKind,
+    required String targetId,
+    required int allocationIndex,
+    required int recordRevision,
+    required int amountMicros,
+    required int firstAcceptedSequence,
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : dataEpoch = Value(dataEpoch),
+       segmentId = Value(segmentId),
+       targetKind = Value(targetKind),
+       targetId = Value(targetId),
+       allocationIndex = Value(allocationIndex),
+       recordRevision = Value(recordRevision),
+       amountMicros = Value(amountMicros),
+       firstAcceptedSequence = Value(firstAcceptedSequence),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionCreditAllocationsData> custom({
+    Expression<String>? dataEpoch,
+    Expression<String>? segmentId,
+    Expression<String>? targetKind,
+    Expression<String>? targetId,
+    Expression<int>? allocationIndex,
+    Expression<int>? recordRevision,
+    Expression<int>? amountMicros,
+    Expression<int>? firstAcceptedSequence,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (segmentId != null) 'segment_id': segmentId,
+      if (targetKind != null) 'target_kind': targetKind,
+      if (targetId != null) 'target_id': targetId,
+      if (allocationIndex != null) 'allocation_index': allocationIndex,
+      if (recordRevision != null) 'record_revision': recordRevision,
+      if (amountMicros != null) 'amount_micros': amountMicros,
+      if (firstAcceptedSequence != null)
+        'first_accepted_sequence': firstAcceptedSequence,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionCreditAllocationsCompanion copyWith({
+    Value<String>? dataEpoch,
+    Value<String>? segmentId,
+    Value<String>? targetKind,
+    Value<String>? targetId,
+    Value<int>? allocationIndex,
+    Value<int>? recordRevision,
+    Value<int>? amountMicros,
+    Value<int>? firstAcceptedSequence,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionCreditAllocationsCompanion(
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      segmentId: segmentId ?? this.segmentId,
+      targetKind: targetKind ?? this.targetKind,
+      targetId: targetId ?? this.targetId,
+      allocationIndex: allocationIndex ?? this.allocationIndex,
+      recordRevision: recordRevision ?? this.recordRevision,
+      amountMicros: amountMicros ?? this.amountMicros,
+      firstAcceptedSequence:
+          firstAcceptedSequence ?? this.firstAcceptedSequence,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (segmentId.present) {
+      map['segment_id'] = Variable<String>(segmentId.value);
+    }
+    if (targetKind.present) {
+      map['target_kind'] = Variable<String>(targetKind.value);
+    }
+    if (targetId.present) {
+      map['target_id'] = Variable<String>(targetId.value);
+    }
+    if (allocationIndex.present) {
+      map['allocation_index'] = Variable<int>(allocationIndex.value);
+    }
+    if (recordRevision.present) {
+      map['record_revision'] = Variable<int>(recordRevision.value);
+    }
+    if (amountMicros.present) {
+      map['amount_micros'] = Variable<int>(amountMicros.value);
+    }
+    if (firstAcceptedSequence.present) {
+      map['first_accepted_sequence'] = Variable<int>(
+        firstAcceptedSequence.value,
+      );
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionCreditAllocationsCompanion(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('segmentId: $segmentId, ')
+          ..write('targetKind: $targetKind, ')
+          ..write('targetId: $targetId, ')
+          ..write('allocationIndex: $allocationIndex, ')
+          ..write('recordRevision: $recordRevision, ')
+          ..write('amountMicros: $amountMicros, ')
+          ..write('firstAcceptedSequence: $firstAcceptedSequence, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionReminderIntents extends Table
+    with TableInfo<ExecutionReminderIntents, ExecutionReminderIntentsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionReminderIntents(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> occurrenceId = GeneratedColumn<String>(
+    'occurrence_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES execution_occurrences(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> targetAtUtc = GeneratedColumn<int>(
+    'target_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> notificationId = GeneratedColumn<String>(
+    'notification_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> claimedAtUtc = GeneratedColumn<int>(
+    'claimed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> scheduledAtUtc = GeneratedColumn<int>(
+    'scheduled_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> dispatchResult = GeneratedColumn<String>(
+    'dispatch_result',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    dataEpoch,
+    occurrenceId,
+    revision,
+    targetAtUtc,
+    notificationId,
+    state,
+    claimedAtUtc,
+    scheduledAtUtc,
+    dispatchResult,
+    createdAtUtc,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_reminder_intents';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {occurrenceId, revision, dataEpoch};
+  @override
+  ExecutionReminderIntentsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionReminderIntentsData(
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      occurrenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}occurrence_id'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      targetAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_at_utc'],
+      )!,
+      notificationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notification_id'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      claimedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}claimed_at_utc'],
+      ),
+      scheduledAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}scheduled_at_utc'],
+      ),
+      dispatchResult: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dispatch_result'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionReminderIntents createAlias(String alias) {
+    return ExecutionReminderIntents(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(occurrence_id, revision, data_epoch)',
+    'CHECK(revision >= 1)',
+    'CHECK(state IN (\'pending\', \'claimed\', \'scheduled\', \'suppressed\', \'expired\', \'unknown\', \'cancelled\', \'handled\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionReminderIntentsData extends DataClass
+    implements Insertable<ExecutionReminderIntentsData> {
+  final String dataEpoch;
+  final String occurrenceId;
+  final int revision;
+  final int targetAtUtc;
+  final String notificationId;
+  final String state;
+  final int? claimedAtUtc;
+  final int? scheduledAtUtc;
+  final String? dispatchResult;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  const ExecutionReminderIntentsData({
+    required this.dataEpoch,
+    required this.occurrenceId,
+    required this.revision,
+    required this.targetAtUtc,
+    required this.notificationId,
+    required this.state,
+    this.claimedAtUtc,
+    this.scheduledAtUtc,
+    this.dispatchResult,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['occurrence_id'] = Variable<String>(occurrenceId);
+    map['revision'] = Variable<int>(revision);
+    map['target_at_utc'] = Variable<int>(targetAtUtc);
+    map['notification_id'] = Variable<String>(notificationId);
+    map['state'] = Variable<String>(state);
+    if (!nullToAbsent || claimedAtUtc != null) {
+      map['claimed_at_utc'] = Variable<int>(claimedAtUtc);
+    }
+    if (!nullToAbsent || scheduledAtUtc != null) {
+      map['scheduled_at_utc'] = Variable<int>(scheduledAtUtc);
+    }
+    if (!nullToAbsent || dispatchResult != null) {
+      map['dispatch_result'] = Variable<String>(dispatchResult);
+    }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  ExecutionReminderIntentsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionReminderIntentsCompanion(
+      dataEpoch: Value(dataEpoch),
+      occurrenceId: Value(occurrenceId),
+      revision: Value(revision),
+      targetAtUtc: Value(targetAtUtc),
+      notificationId: Value(notificationId),
+      state: Value(state),
+      claimedAtUtc: claimedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(claimedAtUtc),
+      scheduledAtUtc: scheduledAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(scheduledAtUtc),
+      dispatchResult: dispatchResult == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dispatchResult),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory ExecutionReminderIntentsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionReminderIntentsData(
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      occurrenceId: serializer.fromJson<String>(json['occurrenceId']),
+      revision: serializer.fromJson<int>(json['revision']),
+      targetAtUtc: serializer.fromJson<int>(json['targetAtUtc']),
+      notificationId: serializer.fromJson<String>(json['notificationId']),
+      state: serializer.fromJson<String>(json['state']),
+      claimedAtUtc: serializer.fromJson<int?>(json['claimedAtUtc']),
+      scheduledAtUtc: serializer.fromJson<int?>(json['scheduledAtUtc']),
+      dispatchResult: serializer.fromJson<String?>(json['dispatchResult']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'occurrenceId': serializer.toJson<String>(occurrenceId),
+      'revision': serializer.toJson<int>(revision),
+      'targetAtUtc': serializer.toJson<int>(targetAtUtc),
+      'notificationId': serializer.toJson<String>(notificationId),
+      'state': serializer.toJson<String>(state),
+      'claimedAtUtc': serializer.toJson<int?>(claimedAtUtc),
+      'scheduledAtUtc': serializer.toJson<int?>(scheduledAtUtc),
+      'dispatchResult': serializer.toJson<String?>(dispatchResult),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  ExecutionReminderIntentsData copyWith({
+    String? dataEpoch,
+    String? occurrenceId,
+    int? revision,
+    int? targetAtUtc,
+    String? notificationId,
+    String? state,
+    Value<int?> claimedAtUtc = const Value.absent(),
+    Value<int?> scheduledAtUtc = const Value.absent(),
+    Value<String?> dispatchResult = const Value.absent(),
+    int? createdAtUtc,
+    int? updatedAtUtc,
+  }) => ExecutionReminderIntentsData(
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    occurrenceId: occurrenceId ?? this.occurrenceId,
+    revision: revision ?? this.revision,
+    targetAtUtc: targetAtUtc ?? this.targetAtUtc,
+    notificationId: notificationId ?? this.notificationId,
+    state: state ?? this.state,
+    claimedAtUtc: claimedAtUtc.present ? claimedAtUtc.value : this.claimedAtUtc,
+    scheduledAtUtc: scheduledAtUtc.present
+        ? scheduledAtUtc.value
+        : this.scheduledAtUtc,
+    dispatchResult: dispatchResult.present
+        ? dispatchResult.value
+        : this.dispatchResult,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  ExecutionReminderIntentsData copyWithCompanion(
+    ExecutionReminderIntentsCompanion data,
+  ) {
+    return ExecutionReminderIntentsData(
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      occurrenceId: data.occurrenceId.present
+          ? data.occurrenceId.value
+          : this.occurrenceId,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      targetAtUtc: data.targetAtUtc.present
+          ? data.targetAtUtc.value
+          : this.targetAtUtc,
+      notificationId: data.notificationId.present
+          ? data.notificationId.value
+          : this.notificationId,
+      state: data.state.present ? data.state.value : this.state,
+      claimedAtUtc: data.claimedAtUtc.present
+          ? data.claimedAtUtc.value
+          : this.claimedAtUtc,
+      scheduledAtUtc: data.scheduledAtUtc.present
+          ? data.scheduledAtUtc.value
+          : this.scheduledAtUtc,
+      dispatchResult: data.dispatchResult.present
+          ? data.dispatchResult.value
+          : this.dispatchResult,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionReminderIntentsData(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('revision: $revision, ')
+          ..write('targetAtUtc: $targetAtUtc, ')
+          ..write('notificationId: $notificationId, ')
+          ..write('state: $state, ')
+          ..write('claimedAtUtc: $claimedAtUtc, ')
+          ..write('scheduledAtUtc: $scheduledAtUtc, ')
+          ..write('dispatchResult: $dispatchResult, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    dataEpoch,
+    occurrenceId,
+    revision,
+    targetAtUtc,
+    notificationId,
+    state,
+    claimedAtUtc,
+    scheduledAtUtc,
+    dispatchResult,
+    createdAtUtc,
+    updatedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionReminderIntentsData &&
+          other.dataEpoch == this.dataEpoch &&
+          other.occurrenceId == this.occurrenceId &&
+          other.revision == this.revision &&
+          other.targetAtUtc == this.targetAtUtc &&
+          other.notificationId == this.notificationId &&
+          other.state == this.state &&
+          other.claimedAtUtc == this.claimedAtUtc &&
+          other.scheduledAtUtc == this.scheduledAtUtc &&
+          other.dispatchResult == this.dispatchResult &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class ExecutionReminderIntentsCompanion
+    extends UpdateCompanion<ExecutionReminderIntentsData> {
+  final Value<String> dataEpoch;
+  final Value<String> occurrenceId;
+  final Value<int> revision;
+  final Value<int> targetAtUtc;
+  final Value<String> notificationId;
+  final Value<String> state;
+  final Value<int?> claimedAtUtc;
+  final Value<int?> scheduledAtUtc;
+  final Value<String?> dispatchResult;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const ExecutionReminderIntentsCompanion({
+    this.dataEpoch = const Value.absent(),
+    this.occurrenceId = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.targetAtUtc = const Value.absent(),
+    this.notificationId = const Value.absent(),
+    this.state = const Value.absent(),
+    this.claimedAtUtc = const Value.absent(),
+    this.scheduledAtUtc = const Value.absent(),
+    this.dispatchResult = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionReminderIntentsCompanion.insert({
+    required String dataEpoch,
+    required String occurrenceId,
+    required int revision,
+    required int targetAtUtc,
+    required String notificationId,
+    required String state,
+    this.claimedAtUtc = const Value.absent(),
+    this.scheduledAtUtc = const Value.absent(),
+    this.dispatchResult = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : dataEpoch = Value(dataEpoch),
+       occurrenceId = Value(occurrenceId),
+       revision = Value(revision),
+       targetAtUtc = Value(targetAtUtc),
+       notificationId = Value(notificationId),
+       state = Value(state),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<ExecutionReminderIntentsData> custom({
+    Expression<String>? dataEpoch,
+    Expression<String>? occurrenceId,
+    Expression<int>? revision,
+    Expression<int>? targetAtUtc,
+    Expression<String>? notificationId,
+    Expression<String>? state,
+    Expression<int>? claimedAtUtc,
+    Expression<int>? scheduledAtUtc,
+    Expression<String>? dispatchResult,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (occurrenceId != null) 'occurrence_id': occurrenceId,
+      if (revision != null) 'revision': revision,
+      if (targetAtUtc != null) 'target_at_utc': targetAtUtc,
+      if (notificationId != null) 'notification_id': notificationId,
+      if (state != null) 'state': state,
+      if (claimedAtUtc != null) 'claimed_at_utc': claimedAtUtc,
+      if (scheduledAtUtc != null) 'scheduled_at_utc': scheduledAtUtc,
+      if (dispatchResult != null) 'dispatch_result': dispatchResult,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionReminderIntentsCompanion copyWith({
+    Value<String>? dataEpoch,
+    Value<String>? occurrenceId,
+    Value<int>? revision,
+    Value<int>? targetAtUtc,
+    Value<String>? notificationId,
+    Value<String>? state,
+    Value<int?>? claimedAtUtc,
+    Value<int?>? scheduledAtUtc,
+    Value<String?>? dispatchResult,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionReminderIntentsCompanion(
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
+      revision: revision ?? this.revision,
+      targetAtUtc: targetAtUtc ?? this.targetAtUtc,
+      notificationId: notificationId ?? this.notificationId,
+      state: state ?? this.state,
+      claimedAtUtc: claimedAtUtc ?? this.claimedAtUtc,
+      scheduledAtUtc: scheduledAtUtc ?? this.scheduledAtUtc,
+      dispatchResult: dispatchResult ?? this.dispatchResult,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (occurrenceId.present) {
+      map['occurrence_id'] = Variable<String>(occurrenceId.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (targetAtUtc.present) {
+      map['target_at_utc'] = Variable<int>(targetAtUtc.value);
+    }
+    if (notificationId.present) {
+      map['notification_id'] = Variable<String>(notificationId.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (claimedAtUtc.present) {
+      map['claimed_at_utc'] = Variable<int>(claimedAtUtc.value);
+    }
+    if (scheduledAtUtc.present) {
+      map['scheduled_at_utc'] = Variable<int>(scheduledAtUtc.value);
+    }
+    if (dispatchResult.present) {
+      map['dispatch_result'] = Variable<String>(dispatchResult.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionReminderIntentsCompanion(')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('revision: $revision, ')
+          ..write('targetAtUtc: $targetAtUtc, ')
+          ..write('notificationId: $notificationId, ')
+          ..write('state: $state, ')
+          ..write('claimedAtUtc: $claimedAtUtc, ')
+          ..write('scheduledAtUtc: $scheduledAtUtc, ')
+          ..write('dispatchResult: $dispatchResult, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionDayHolds extends Table
+    with TableInfo<ExecutionDayHolds, ExecutionDayHoldsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionDayHolds(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES tasks(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
+    'local_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> invalidAfterUtc = GeneratedColumn<int>(
+    'invalid_after_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> sourceProposalId = GeneratedColumn<String>(
+    'source_proposal_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    taskId,
+    localDate,
+    timeZoneId,
+    invalidAfterUtc,
+    sourceProposalId,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_day_holds';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {taskId, localDate, timeZoneId};
+  @override
+  ExecutionDayHoldsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionDayHoldsData(
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      )!,
+      localDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_date'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      invalidAfterUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}invalid_after_utc'],
+      )!,
+      sourceProposalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_proposal_id'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionDayHolds createAlias(String alias) {
+    return ExecutionDayHolds(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(task_id, local_date, time_zone_id)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionDayHoldsData extends DataClass
+    implements Insertable<ExecutionDayHoldsData> {
+  final String taskId;
+  final String localDate;
+  final String timeZoneId;
+  final int invalidAfterUtc;
+  final String? sourceProposalId;
+  final int createdAtUtc;
+  const ExecutionDayHoldsData({
+    required this.taskId,
+    required this.localDate,
+    required this.timeZoneId,
+    required this.invalidAfterUtc,
+    this.sourceProposalId,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['task_id'] = Variable<String>(taskId);
+    map['local_date'] = Variable<String>(localDate);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['invalid_after_utc'] = Variable<int>(invalidAfterUtc);
+    if (!nullToAbsent || sourceProposalId != null) {
+      map['source_proposal_id'] = Variable<String>(sourceProposalId);
+    }
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  ExecutionDayHoldsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionDayHoldsCompanion(
+      taskId: Value(taskId),
+      localDate: Value(localDate),
+      timeZoneId: Value(timeZoneId),
+      invalidAfterUtc: Value(invalidAfterUtc),
+      sourceProposalId: sourceProposalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceProposalId),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory ExecutionDayHoldsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionDayHoldsData(
+      taskId: serializer.fromJson<String>(json['taskId']),
+      localDate: serializer.fromJson<String>(json['localDate']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      invalidAfterUtc: serializer.fromJson<int>(json['invalidAfterUtc']),
+      sourceProposalId: serializer.fromJson<String?>(json['sourceProposalId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'taskId': serializer.toJson<String>(taskId),
+      'localDate': serializer.toJson<String>(localDate),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'invalidAfterUtc': serializer.toJson<int>(invalidAfterUtc),
+      'sourceProposalId': serializer.toJson<String?>(sourceProposalId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  ExecutionDayHoldsData copyWith({
+    String? taskId,
+    String? localDate,
+    String? timeZoneId,
+    int? invalidAfterUtc,
+    Value<String?> sourceProposalId = const Value.absent(),
+    int? createdAtUtc,
+  }) => ExecutionDayHoldsData(
+    taskId: taskId ?? this.taskId,
+    localDate: localDate ?? this.localDate,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    invalidAfterUtc: invalidAfterUtc ?? this.invalidAfterUtc,
+    sourceProposalId: sourceProposalId.present
+        ? sourceProposalId.value
+        : this.sourceProposalId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  ExecutionDayHoldsData copyWithCompanion(ExecutionDayHoldsCompanion data) {
+    return ExecutionDayHoldsData(
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      invalidAfterUtc: data.invalidAfterUtc.present
+          ? data.invalidAfterUtc.value
+          : this.invalidAfterUtc,
+      sourceProposalId: data.sourceProposalId.present
+          ? data.sourceProposalId.value
+          : this.sourceProposalId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionDayHoldsData(')
+          ..write('taskId: $taskId, ')
+          ..write('localDate: $localDate, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('invalidAfterUtc: $invalidAfterUtc, ')
+          ..write('sourceProposalId: $sourceProposalId, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    taskId,
+    localDate,
+    timeZoneId,
+    invalidAfterUtc,
+    sourceProposalId,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionDayHoldsData &&
+          other.taskId == this.taskId &&
+          other.localDate == this.localDate &&
+          other.timeZoneId == this.timeZoneId &&
+          other.invalidAfterUtc == this.invalidAfterUtc &&
+          other.sourceProposalId == this.sourceProposalId &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class ExecutionDayHoldsCompanion
+    extends UpdateCompanion<ExecutionDayHoldsData> {
+  final Value<String> taskId;
+  final Value<String> localDate;
+  final Value<String> timeZoneId;
+  final Value<int> invalidAfterUtc;
+  final Value<String?> sourceProposalId;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const ExecutionDayHoldsCompanion({
+    this.taskId = const Value.absent(),
+    this.localDate = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.invalidAfterUtc = const Value.absent(),
+    this.sourceProposalId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionDayHoldsCompanion.insert({
+    required String taskId,
+    required String localDate,
+    required String timeZoneId,
+    required int invalidAfterUtc,
+    this.sourceProposalId = const Value.absent(),
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : taskId = Value(taskId),
+       localDate = Value(localDate),
+       timeZoneId = Value(timeZoneId),
+       invalidAfterUtc = Value(invalidAfterUtc),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionDayHoldsData> custom({
+    Expression<String>? taskId,
+    Expression<String>? localDate,
+    Expression<String>? timeZoneId,
+    Expression<int>? invalidAfterUtc,
+    Expression<String>? sourceProposalId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (taskId != null) 'task_id': taskId,
+      if (localDate != null) 'local_date': localDate,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (invalidAfterUtc != null) 'invalid_after_utc': invalidAfterUtc,
+      if (sourceProposalId != null) 'source_proposal_id': sourceProposalId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionDayHoldsCompanion copyWith({
+    Value<String>? taskId,
+    Value<String>? localDate,
+    Value<String>? timeZoneId,
+    Value<int>? invalidAfterUtc,
+    Value<String?>? sourceProposalId,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionDayHoldsCompanion(
+      taskId: taskId ?? this.taskId,
+      localDate: localDate ?? this.localDate,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      invalidAfterUtc: invalidAfterUtc ?? this.invalidAfterUtc,
+      sourceProposalId: sourceProposalId ?? this.sourceProposalId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (localDate.present) {
+      map['local_date'] = Variable<String>(localDate.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (invalidAfterUtc.present) {
+      map['invalid_after_utc'] = Variable<int>(invalidAfterUtc.value);
+    }
+    if (sourceProposalId.present) {
+      map['source_proposal_id'] = Variable<String>(sourceProposalId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionDayHoldsCompanion(')
+          ..write('taskId: $taskId, ')
+          ..write('localDate: $localDate, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('invalidAfterUtc: $invalidAfterUtc, ')
+          ..write('sourceProposalId: $sourceProposalId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionOutbox extends Table
+    with TableInfo<ExecutionOutbox, ExecutionOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionOutbox(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> effectId = GeneratedColumn<String>(
+    'effect_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> sourceTransaction =
+      GeneratedColumn<String>(
+        'source_transaction',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> targetRevision = GeneratedColumn<int>(
+    'target_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> effectType = GeneratedColumn<String>(
+    'effect_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> nextAttemptAtUtc = GeneratedColumn<int>(
+    'next_attempt_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> processedAtUtc = GeneratedColumn<int>(
+    'processed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    effectId,
+    dataEpoch,
+    sourceTransaction,
+    targetRevision,
+    effectType,
+    payloadJson,
+    attempts,
+    createdAtUtc,
+    nextAttemptAtUtc,
+    processedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_outbox';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {effectId};
+  @override
+  ExecutionOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionOutboxData(
+      effectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}effect_id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      sourceTransaction: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_transaction'],
+      )!,
+      targetRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_revision'],
+      )!,
+      effectType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}effect_type'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      nextAttemptAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at_utc'],
+      )!,
+      processedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}processed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  ExecutionOutbox createAlias(String alias) {
+    return ExecutionOutbox(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(effect_id)',
+    'CHECK(attempts >= 0)',
+    'CHECK(target_revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionOutboxData extends DataClass
+    implements Insertable<ExecutionOutboxData> {
+  final String effectId;
+  final String dataEpoch;
+  final String sourceTransaction;
+  final int targetRevision;
+  final String effectType;
+  final String payloadJson;
+  final int attempts;
+  final int createdAtUtc;
+  final int nextAttemptAtUtc;
+  final int? processedAtUtc;
+  const ExecutionOutboxData({
+    required this.effectId,
+    required this.dataEpoch,
+    required this.sourceTransaction,
+    required this.targetRevision,
+    required this.effectType,
+    required this.payloadJson,
+    required this.attempts,
+    required this.createdAtUtc,
+    required this.nextAttemptAtUtc,
+    this.processedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['effect_id'] = Variable<String>(effectId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['source_transaction'] = Variable<String>(sourceTransaction);
+    map['target_revision'] = Variable<int>(targetRevision);
+    map['effect_type'] = Variable<String>(effectType);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['attempts'] = Variable<int>(attempts);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc);
+    if (!nullToAbsent || processedAtUtc != null) {
+      map['processed_at_utc'] = Variable<int>(processedAtUtc);
+    }
+    return map;
+  }
+
+  ExecutionOutboxCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionOutboxCompanion(
+      effectId: Value(effectId),
+      dataEpoch: Value(dataEpoch),
+      sourceTransaction: Value(sourceTransaction),
+      targetRevision: Value(targetRevision),
+      effectType: Value(effectType),
+      payloadJson: Value(payloadJson),
+      attempts: Value(attempts),
+      createdAtUtc: Value(createdAtUtc),
+      nextAttemptAtUtc: Value(nextAttemptAtUtc),
+      processedAtUtc: processedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(processedAtUtc),
+    );
+  }
+
+  factory ExecutionOutboxData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionOutboxData(
+      effectId: serializer.fromJson<String>(json['effectId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      sourceTransaction: serializer.fromJson<String>(json['sourceTransaction']),
+      targetRevision: serializer.fromJson<int>(json['targetRevision']),
+      effectType: serializer.fromJson<String>(json['effectType']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      nextAttemptAtUtc: serializer.fromJson<int>(json['nextAttemptAtUtc']),
+      processedAtUtc: serializer.fromJson<int?>(json['processedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'effectId': serializer.toJson<String>(effectId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'sourceTransaction': serializer.toJson<String>(sourceTransaction),
+      'targetRevision': serializer.toJson<int>(targetRevision),
+      'effectType': serializer.toJson<String>(effectType),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'attempts': serializer.toJson<int>(attempts),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'nextAttemptAtUtc': serializer.toJson<int>(nextAttemptAtUtc),
+      'processedAtUtc': serializer.toJson<int?>(processedAtUtc),
+    };
+  }
+
+  ExecutionOutboxData copyWith({
+    String? effectId,
+    String? dataEpoch,
+    String? sourceTransaction,
+    int? targetRevision,
+    String? effectType,
+    String? payloadJson,
+    int? attempts,
+    int? createdAtUtc,
+    int? nextAttemptAtUtc,
+    Value<int?> processedAtUtc = const Value.absent(),
+  }) => ExecutionOutboxData(
+    effectId: effectId ?? this.effectId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    sourceTransaction: sourceTransaction ?? this.sourceTransaction,
+    targetRevision: targetRevision ?? this.targetRevision,
+    effectType: effectType ?? this.effectType,
+    payloadJson: payloadJson ?? this.payloadJson,
+    attempts: attempts ?? this.attempts,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+    processedAtUtc: processedAtUtc.present
+        ? processedAtUtc.value
+        : this.processedAtUtc,
+  );
+  ExecutionOutboxData copyWithCompanion(ExecutionOutboxCompanion data) {
+    return ExecutionOutboxData(
+      effectId: data.effectId.present ? data.effectId.value : this.effectId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      sourceTransaction: data.sourceTransaction.present
+          ? data.sourceTransaction.value
+          : this.sourceTransaction,
+      targetRevision: data.targetRevision.present
+          ? data.targetRevision.value
+          : this.targetRevision,
+      effectType: data.effectType.present
+          ? data.effectType.value
+          : this.effectType,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      nextAttemptAtUtc: data.nextAttemptAtUtc.present
+          ? data.nextAttemptAtUtc.value
+          : this.nextAttemptAtUtc,
+      processedAtUtc: data.processedAtUtc.present
+          ? data.processedAtUtc.value
+          : this.processedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOutboxData(')
+          ..write('effectId: $effectId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('sourceTransaction: $sourceTransaction, ')
+          ..write('targetRevision: $targetRevision, ')
+          ..write('effectType: $effectType, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('processedAtUtc: $processedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    effectId,
+    dataEpoch,
+    sourceTransaction,
+    targetRevision,
+    effectType,
+    payloadJson,
+    attempts,
+    createdAtUtc,
+    nextAttemptAtUtc,
+    processedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionOutboxData &&
+          other.effectId == this.effectId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.sourceTransaction == this.sourceTransaction &&
+          other.targetRevision == this.targetRevision &&
+          other.effectType == this.effectType &&
+          other.payloadJson == this.payloadJson &&
+          other.attempts == this.attempts &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.nextAttemptAtUtc == this.nextAttemptAtUtc &&
+          other.processedAtUtc == this.processedAtUtc);
+}
+
+class ExecutionOutboxCompanion extends UpdateCompanion<ExecutionOutboxData> {
+  final Value<String> effectId;
+  final Value<String> dataEpoch;
+  final Value<String> sourceTransaction;
+  final Value<int> targetRevision;
+  final Value<String> effectType;
+  final Value<String> payloadJson;
+  final Value<int> attempts;
+  final Value<int> createdAtUtc;
+  final Value<int> nextAttemptAtUtc;
+  final Value<int?> processedAtUtc;
+  final Value<int> rowid;
+  const ExecutionOutboxCompanion({
+    this.effectId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.sourceTransaction = const Value.absent(),
+    this.targetRevision = const Value.absent(),
+    this.effectType = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.nextAttemptAtUtc = const Value.absent(),
+    this.processedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionOutboxCompanion.insert({
+    required String effectId,
+    required String dataEpoch,
+    required String sourceTransaction,
+    required int targetRevision,
+    required String effectType,
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int createdAtUtc,
+    required int nextAttemptAtUtc,
+    this.processedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : effectId = Value(effectId),
+       dataEpoch = Value(dataEpoch),
+       sourceTransaction = Value(sourceTransaction),
+       targetRevision = Value(targetRevision),
+       effectType = Value(effectType),
+       createdAtUtc = Value(createdAtUtc),
+       nextAttemptAtUtc = Value(nextAttemptAtUtc);
+  static Insertable<ExecutionOutboxData> custom({
+    Expression<String>? effectId,
+    Expression<String>? dataEpoch,
+    Expression<String>? sourceTransaction,
+    Expression<int>? targetRevision,
+    Expression<String>? effectType,
+    Expression<String>? payloadJson,
+    Expression<int>? attempts,
+    Expression<int>? createdAtUtc,
+    Expression<int>? nextAttemptAtUtc,
+    Expression<int>? processedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (effectId != null) 'effect_id': effectId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (sourceTransaction != null) 'source_transaction': sourceTransaction,
+      if (targetRevision != null) 'target_revision': targetRevision,
+      if (effectType != null) 'effect_type': effectType,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (attempts != null) 'attempts': attempts,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (nextAttemptAtUtc != null) 'next_attempt_at_utc': nextAttemptAtUtc,
+      if (processedAtUtc != null) 'processed_at_utc': processedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionOutboxCompanion copyWith({
+    Value<String>? effectId,
+    Value<String>? dataEpoch,
+    Value<String>? sourceTransaction,
+    Value<int>? targetRevision,
+    Value<String>? effectType,
+    Value<String>? payloadJson,
+    Value<int>? attempts,
+    Value<int>? createdAtUtc,
+    Value<int>? nextAttemptAtUtc,
+    Value<int?>? processedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return ExecutionOutboxCompanion(
+      effectId: effectId ?? this.effectId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      sourceTransaction: sourceTransaction ?? this.sourceTransaction,
+      targetRevision: targetRevision ?? this.targetRevision,
+      effectType: effectType ?? this.effectType,
+      payloadJson: payloadJson ?? this.payloadJson,
+      attempts: attempts ?? this.attempts,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+      processedAtUtc: processedAtUtc ?? this.processedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (effectId.present) {
+      map['effect_id'] = Variable<String>(effectId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (sourceTransaction.present) {
+      map['source_transaction'] = Variable<String>(sourceTransaction.value);
+    }
+    if (targetRevision.present) {
+      map['target_revision'] = Variable<int>(targetRevision.value);
+    }
+    if (effectType.present) {
+      map['effect_type'] = Variable<String>(effectType.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (nextAttemptAtUtc.present) {
+      map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc.value);
+    }
+    if (processedAtUtc.present) {
+      map['processed_at_utc'] = Variable<int>(processedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionOutboxCompanion(')
+          ..write('effectId: $effectId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('sourceTransaction: $sourceTransaction, ')
+          ..write('targetRevision: $targetRevision, ')
+          ..write('effectType: $effectType, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('processedAtUtc: $processedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class RecurringCycleSnapshots extends Table
+    with TableInfo<RecurringCycleSnapshots, RecurringCycleSnapshotsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  RecurringCycleSnapshots(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> cycleId = GeneratedColumn<String>(
+    'cycle_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> templateId = GeneratedColumn<String>(
+    'template_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> transportTaskId = GeneratedColumn<String>(
+    'transport_task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> periodStartLocalDate =
+      GeneratedColumn<String>(
+        'period_start_local_date',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> periodStartUtc = GeneratedColumn<int>(
+    'period_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> periodEndUtc = GeneratedColumn<int>(
+    'period_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> effectiveStartUtc = GeneratedColumn<int>(
+    'effective_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> effectiveEndUtc = GeneratedColumn<int>(
+    'effective_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> templateRevision = GeneratedColumn<int>(
+    'template_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'\'',
+    defaultValue: const CustomExpression('\'\''),
+  );
+  late final GeneratedColumn<String> areaId = GeneratedColumn<String>(
+    'area_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> projectId = GeneratedColumn<String>(
+    'project_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> priority = GeneratedColumn<String>(
+    'priority',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> energyLevel = GeneratedColumn<String>(
+    'energy_level',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> splitMode = GeneratedColumn<String>(
+    'split_mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> minChunkMinutes = GeneratedColumn<int>(
+    'min_chunk_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> maxChunkMinutes = GeneratedColumn<int>(
+    'max_chunk_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> preferredStartMinute = GeneratedColumn<int>(
+    'preferred_start_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> preferredEndMinute = GeneratedColumn<int>(
+    'preferred_end_minute',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> pace = GeneratedColumn<String>(
+    'pace',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> allowedWeekdaysMask = GeneratedColumn<int>(
+    'allowed_weekdays_mask',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> targetMinutes = GeneratedColumn<int>(
+    'target_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> carryInMinutes = GeneratedColumn<int>(
+    'carry_in_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> settledAtUtc = GeneratedColumn<int>(
+    'settled_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    cycleId,
+    templateId,
+    transportTaskId,
+    periodStartLocalDate,
+    periodStartUtc,
+    periodEndUtc,
+    effectiveStartUtc,
+    effectiveEndUtc,
+    timeZoneId,
+    templateRevision,
+    title,
+    notes,
+    areaId,
+    projectId,
+    priority,
+    energyLevel,
+    splitMode,
+    minChunkMinutes,
+    maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
+    pace,
+    allowedWeekdaysMask,
+    targetMinutes,
+    carryInMinutes,
+    state,
+    revision,
+    createdAtUtc,
+    updatedAtUtc,
+    settledAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recurring_cycle_snapshots';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {cycleId};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {templateId, periodStartLocalDate},
+  ];
+  @override
+  RecurringCycleSnapshotsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecurringCycleSnapshotsData(
+      cycleId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cycle_id'],
+      )!,
+      templateId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}template_id'],
+      )!,
+      transportTaskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}transport_task_id'],
+      )!,
+      periodStartLocalDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}period_start_local_date'],
+      )!,
+      periodStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}period_start_utc'],
+      )!,
+      periodEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}period_end_utc'],
+      )!,
+      effectiveStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}effective_start_utc'],
+      )!,
+      effectiveEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}effective_end_utc'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      templateRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}template_revision'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      )!,
+      areaId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}area_id'],
+      ),
+      projectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}project_id'],
+      ),
+      priority: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}priority'],
+      )!,
+      energyLevel: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}energy_level'],
+      )!,
+      splitMode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}split_mode'],
+      )!,
+      minChunkMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}min_chunk_minutes'],
+      )!,
+      maxChunkMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_chunk_minutes'],
+      )!,
+      preferredStartMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_start_minute'],
+      ),
+      preferredEndMinute: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}preferred_end_minute'],
+      ),
+      pace: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pace'],
+      )!,
+      allowedWeekdaysMask: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}allowed_weekdays_mask'],
+      )!,
+      targetMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_minutes'],
+      )!,
+      carryInMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}carry_in_minutes'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+      settledAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}settled_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  RecurringCycleSnapshots createAlias(String alias) {
+    return RecurringCycleSnapshots(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(cycle_id)',
+    'UNIQUE(template_id, period_start_local_date)',
+    'CHECK(period_end_utc > period_start_utc)',
+    'CHECK(effective_end_utc > effective_start_utc)',
+    'CHECK(effective_start_utc >= period_start_utc)',
+    'CHECK(effective_end_utc <= period_end_utc)',
+    'CHECK(target_minutes > 0)',
+    'CHECK(carry_in_minutes >= 0)',
+    'CHECK(revision >= 1)',
+    'CHECK((preferred_start_minute IS NULL)=(preferred_end_minute IS NULL))',
+    'CHECK(state IN (\'open\', \'met\', \'missed\', \'skipped\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class RecurringCycleSnapshotsData extends DataClass
+    implements Insertable<RecurringCycleSnapshotsData> {
+  final String cycleId;
+  final String templateId;
+  final String transportTaskId;
+  final String periodStartLocalDate;
+  final int periodStartUtc;
+  final int periodEndUtc;
+  final int effectiveStartUtc;
+  final int effectiveEndUtc;
+  final String timeZoneId;
+  final int templateRevision;
+  final String title;
+  final String notes;
+  final String? areaId;
+  final String? projectId;
+  final String priority;
+  final String energyLevel;
+  final String splitMode;
+  final int minChunkMinutes;
+  final int maxChunkMinutes;
+  final int? preferredStartMinute;
+  final int? preferredEndMinute;
+  final String pace;
+  final int allowedWeekdaysMask;
+  final int targetMinutes;
+  final int carryInMinutes;
+  final String state;
+  final int revision;
+  final int createdAtUtc;
+  final int updatedAtUtc;
+  final int? settledAtUtc;
+  const RecurringCycleSnapshotsData({
+    required this.cycleId,
+    required this.templateId,
+    required this.transportTaskId,
+    required this.periodStartLocalDate,
+    required this.periodStartUtc,
+    required this.periodEndUtc,
+    required this.effectiveStartUtc,
+    required this.effectiveEndUtc,
+    required this.timeZoneId,
+    required this.templateRevision,
+    required this.title,
+    required this.notes,
+    this.areaId,
+    this.projectId,
+    required this.priority,
+    required this.energyLevel,
+    required this.splitMode,
+    required this.minChunkMinutes,
+    required this.maxChunkMinutes,
+    this.preferredStartMinute,
+    this.preferredEndMinute,
+    required this.pace,
+    required this.allowedWeekdaysMask,
+    required this.targetMinutes,
+    required this.carryInMinutes,
+    required this.state,
+    required this.revision,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    this.settledAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['cycle_id'] = Variable<String>(cycleId);
+    map['template_id'] = Variable<String>(templateId);
+    map['transport_task_id'] = Variable<String>(transportTaskId);
+    map['period_start_local_date'] = Variable<String>(periodStartLocalDate);
+    map['period_start_utc'] = Variable<int>(periodStartUtc);
+    map['period_end_utc'] = Variable<int>(periodEndUtc);
+    map['effective_start_utc'] = Variable<int>(effectiveStartUtc);
+    map['effective_end_utc'] = Variable<int>(effectiveEndUtc);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['template_revision'] = Variable<int>(templateRevision);
+    map['title'] = Variable<String>(title);
+    map['notes'] = Variable<String>(notes);
+    if (!nullToAbsent || areaId != null) {
+      map['area_id'] = Variable<String>(areaId);
+    }
+    if (!nullToAbsent || projectId != null) {
+      map['project_id'] = Variable<String>(projectId);
+    }
+    map['priority'] = Variable<String>(priority);
+    map['energy_level'] = Variable<String>(energyLevel);
+    map['split_mode'] = Variable<String>(splitMode);
+    map['min_chunk_minutes'] = Variable<int>(minChunkMinutes);
+    map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes);
+    if (!nullToAbsent || preferredStartMinute != null) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute);
+    }
+    if (!nullToAbsent || preferredEndMinute != null) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute);
+    }
+    map['pace'] = Variable<String>(pace);
+    map['allowed_weekdays_mask'] = Variable<int>(allowedWeekdaysMask);
+    map['target_minutes'] = Variable<int>(targetMinutes);
+    map['carry_in_minutes'] = Variable<int>(carryInMinutes);
+    map['state'] = Variable<String>(state);
+    map['revision'] = Variable<int>(revision);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    if (!nullToAbsent || settledAtUtc != null) {
+      map['settled_at_utc'] = Variable<int>(settledAtUtc);
+    }
+    return map;
+  }
+
+  RecurringCycleSnapshotsCompanion toCompanion(bool nullToAbsent) {
+    return RecurringCycleSnapshotsCompanion(
+      cycleId: Value(cycleId),
+      templateId: Value(templateId),
+      transportTaskId: Value(transportTaskId),
+      periodStartLocalDate: Value(periodStartLocalDate),
+      periodStartUtc: Value(periodStartUtc),
+      periodEndUtc: Value(periodEndUtc),
+      effectiveStartUtc: Value(effectiveStartUtc),
+      effectiveEndUtc: Value(effectiveEndUtc),
+      timeZoneId: Value(timeZoneId),
+      templateRevision: Value(templateRevision),
+      title: Value(title),
+      notes: Value(notes),
+      areaId: areaId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(areaId),
+      projectId: projectId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(projectId),
+      priority: Value(priority),
+      energyLevel: Value(energyLevel),
+      splitMode: Value(splitMode),
+      minChunkMinutes: Value(minChunkMinutes),
+      maxChunkMinutes: Value(maxChunkMinutes),
+      preferredStartMinute: preferredStartMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredStartMinute),
+      preferredEndMinute: preferredEndMinute == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredEndMinute),
+      pace: Value(pace),
+      allowedWeekdaysMask: Value(allowedWeekdaysMask),
+      targetMinutes: Value(targetMinutes),
+      carryInMinutes: Value(carryInMinutes),
+      state: Value(state),
+      revision: Value(revision),
+      createdAtUtc: Value(createdAtUtc),
+      updatedAtUtc: Value(updatedAtUtc),
+      settledAtUtc: settledAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(settledAtUtc),
+    );
+  }
+
+  factory RecurringCycleSnapshotsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecurringCycleSnapshotsData(
+      cycleId: serializer.fromJson<String>(json['cycleId']),
+      templateId: serializer.fromJson<String>(json['templateId']),
+      transportTaskId: serializer.fromJson<String>(json['transportTaskId']),
+      periodStartLocalDate: serializer.fromJson<String>(
+        json['periodStartLocalDate'],
+      ),
+      periodStartUtc: serializer.fromJson<int>(json['periodStartUtc']),
+      periodEndUtc: serializer.fromJson<int>(json['periodEndUtc']),
+      effectiveStartUtc: serializer.fromJson<int>(json['effectiveStartUtc']),
+      effectiveEndUtc: serializer.fromJson<int>(json['effectiveEndUtc']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      templateRevision: serializer.fromJson<int>(json['templateRevision']),
+      title: serializer.fromJson<String>(json['title']),
+      notes: serializer.fromJson<String>(json['notes']),
+      areaId: serializer.fromJson<String?>(json['areaId']),
+      projectId: serializer.fromJson<String?>(json['projectId']),
+      priority: serializer.fromJson<String>(json['priority']),
+      energyLevel: serializer.fromJson<String>(json['energyLevel']),
+      splitMode: serializer.fromJson<String>(json['splitMode']),
+      minChunkMinutes: serializer.fromJson<int>(json['minChunkMinutes']),
+      maxChunkMinutes: serializer.fromJson<int>(json['maxChunkMinutes']),
+      preferredStartMinute: serializer.fromJson<int?>(
+        json['preferredStartMinute'],
+      ),
+      preferredEndMinute: serializer.fromJson<int?>(json['preferredEndMinute']),
+      pace: serializer.fromJson<String>(json['pace']),
+      allowedWeekdaysMask: serializer.fromJson<int>(
+        json['allowedWeekdaysMask'],
+      ),
+      targetMinutes: serializer.fromJson<int>(json['targetMinutes']),
+      carryInMinutes: serializer.fromJson<int>(json['carryInMinutes']),
+      state: serializer.fromJson<String>(json['state']),
+      revision: serializer.fromJson<int>(json['revision']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+      settledAtUtc: serializer.fromJson<int?>(json['settledAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'cycleId': serializer.toJson<String>(cycleId),
+      'templateId': serializer.toJson<String>(templateId),
+      'transportTaskId': serializer.toJson<String>(transportTaskId),
+      'periodStartLocalDate': serializer.toJson<String>(periodStartLocalDate),
+      'periodStartUtc': serializer.toJson<int>(periodStartUtc),
+      'periodEndUtc': serializer.toJson<int>(periodEndUtc),
+      'effectiveStartUtc': serializer.toJson<int>(effectiveStartUtc),
+      'effectiveEndUtc': serializer.toJson<int>(effectiveEndUtc),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'templateRevision': serializer.toJson<int>(templateRevision),
+      'title': serializer.toJson<String>(title),
+      'notes': serializer.toJson<String>(notes),
+      'areaId': serializer.toJson<String?>(areaId),
+      'projectId': serializer.toJson<String?>(projectId),
+      'priority': serializer.toJson<String>(priority),
+      'energyLevel': serializer.toJson<String>(energyLevel),
+      'splitMode': serializer.toJson<String>(splitMode),
+      'minChunkMinutes': serializer.toJson<int>(minChunkMinutes),
+      'maxChunkMinutes': serializer.toJson<int>(maxChunkMinutes),
+      'preferredStartMinute': serializer.toJson<int?>(preferredStartMinute),
+      'preferredEndMinute': serializer.toJson<int?>(preferredEndMinute),
+      'pace': serializer.toJson<String>(pace),
+      'allowedWeekdaysMask': serializer.toJson<int>(allowedWeekdaysMask),
+      'targetMinutes': serializer.toJson<int>(targetMinutes),
+      'carryInMinutes': serializer.toJson<int>(carryInMinutes),
+      'state': serializer.toJson<String>(state),
+      'revision': serializer.toJson<int>(revision),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+      'settledAtUtc': serializer.toJson<int?>(settledAtUtc),
+    };
+  }
+
+  RecurringCycleSnapshotsData copyWith({
+    String? cycleId,
+    String? templateId,
+    String? transportTaskId,
+    String? periodStartLocalDate,
+    int? periodStartUtc,
+    int? periodEndUtc,
+    int? effectiveStartUtc,
+    int? effectiveEndUtc,
+    String? timeZoneId,
+    int? templateRevision,
+    String? title,
+    String? notes,
+    Value<String?> areaId = const Value.absent(),
+    Value<String?> projectId = const Value.absent(),
+    String? priority,
+    String? energyLevel,
+    String? splitMode,
+    int? minChunkMinutes,
+    int? maxChunkMinutes,
+    Value<int?> preferredStartMinute = const Value.absent(),
+    Value<int?> preferredEndMinute = const Value.absent(),
+    String? pace,
+    int? allowedWeekdaysMask,
+    int? targetMinutes,
+    int? carryInMinutes,
+    String? state,
+    int? revision,
+    int? createdAtUtc,
+    int? updatedAtUtc,
+    Value<int?> settledAtUtc = const Value.absent(),
+  }) => RecurringCycleSnapshotsData(
+    cycleId: cycleId ?? this.cycleId,
+    templateId: templateId ?? this.templateId,
+    transportTaskId: transportTaskId ?? this.transportTaskId,
+    periodStartLocalDate: periodStartLocalDate ?? this.periodStartLocalDate,
+    periodStartUtc: periodStartUtc ?? this.periodStartUtc,
+    periodEndUtc: periodEndUtc ?? this.periodEndUtc,
+    effectiveStartUtc: effectiveStartUtc ?? this.effectiveStartUtc,
+    effectiveEndUtc: effectiveEndUtc ?? this.effectiveEndUtc,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    templateRevision: templateRevision ?? this.templateRevision,
+    title: title ?? this.title,
+    notes: notes ?? this.notes,
+    areaId: areaId.present ? areaId.value : this.areaId,
+    projectId: projectId.present ? projectId.value : this.projectId,
+    priority: priority ?? this.priority,
+    energyLevel: energyLevel ?? this.energyLevel,
+    splitMode: splitMode ?? this.splitMode,
+    minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
+    maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+    preferredStartMinute: preferredStartMinute.present
+        ? preferredStartMinute.value
+        : this.preferredStartMinute,
+    preferredEndMinute: preferredEndMinute.present
+        ? preferredEndMinute.value
+        : this.preferredEndMinute,
+    pace: pace ?? this.pace,
+    allowedWeekdaysMask: allowedWeekdaysMask ?? this.allowedWeekdaysMask,
+    targetMinutes: targetMinutes ?? this.targetMinutes,
+    carryInMinutes: carryInMinutes ?? this.carryInMinutes,
+    state: state ?? this.state,
+    revision: revision ?? this.revision,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+    settledAtUtc: settledAtUtc.present ? settledAtUtc.value : this.settledAtUtc,
+  );
+  RecurringCycleSnapshotsData copyWithCompanion(
+    RecurringCycleSnapshotsCompanion data,
+  ) {
+    return RecurringCycleSnapshotsData(
+      cycleId: data.cycleId.present ? data.cycleId.value : this.cycleId,
+      templateId: data.templateId.present
+          ? data.templateId.value
+          : this.templateId,
+      transportTaskId: data.transportTaskId.present
+          ? data.transportTaskId.value
+          : this.transportTaskId,
+      periodStartLocalDate: data.periodStartLocalDate.present
+          ? data.periodStartLocalDate.value
+          : this.periodStartLocalDate,
+      periodStartUtc: data.periodStartUtc.present
+          ? data.periodStartUtc.value
+          : this.periodStartUtc,
+      periodEndUtc: data.periodEndUtc.present
+          ? data.periodEndUtc.value
+          : this.periodEndUtc,
+      effectiveStartUtc: data.effectiveStartUtc.present
+          ? data.effectiveStartUtc.value
+          : this.effectiveStartUtc,
+      effectiveEndUtc: data.effectiveEndUtc.present
+          ? data.effectiveEndUtc.value
+          : this.effectiveEndUtc,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      templateRevision: data.templateRevision.present
+          ? data.templateRevision.value
+          : this.templateRevision,
+      title: data.title.present ? data.title.value : this.title,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      areaId: data.areaId.present ? data.areaId.value : this.areaId,
+      projectId: data.projectId.present ? data.projectId.value : this.projectId,
+      priority: data.priority.present ? data.priority.value : this.priority,
+      energyLevel: data.energyLevel.present
+          ? data.energyLevel.value
+          : this.energyLevel,
+      splitMode: data.splitMode.present ? data.splitMode.value : this.splitMode,
+      minChunkMinutes: data.minChunkMinutes.present
+          ? data.minChunkMinutes.value
+          : this.minChunkMinutes,
+      maxChunkMinutes: data.maxChunkMinutes.present
+          ? data.maxChunkMinutes.value
+          : this.maxChunkMinutes,
+      preferredStartMinute: data.preferredStartMinute.present
+          ? data.preferredStartMinute.value
+          : this.preferredStartMinute,
+      preferredEndMinute: data.preferredEndMinute.present
+          ? data.preferredEndMinute.value
+          : this.preferredEndMinute,
+      pace: data.pace.present ? data.pace.value : this.pace,
+      allowedWeekdaysMask: data.allowedWeekdaysMask.present
+          ? data.allowedWeekdaysMask.value
+          : this.allowedWeekdaysMask,
+      targetMinutes: data.targetMinutes.present
+          ? data.targetMinutes.value
+          : this.targetMinutes,
+      carryInMinutes: data.carryInMinutes.present
+          ? data.carryInMinutes.value
+          : this.carryInMinutes,
+      state: data.state.present ? data.state.value : this.state,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+      settledAtUtc: data.settledAtUtc.present
+          ? data.settledAtUtc.value
+          : this.settledAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCycleSnapshotsData(')
+          ..write('cycleId: $cycleId, ')
+          ..write('templateId: $templateId, ')
+          ..write('transportTaskId: $transportTaskId, ')
+          ..write('periodStartLocalDate: $periodStartLocalDate, ')
+          ..write('periodStartUtc: $periodStartUtc, ')
+          ..write('periodEndUtc: $periodEndUtc, ')
+          ..write('effectiveStartUtc: $effectiveStartUtc, ')
+          ..write('effectiveEndUtc: $effectiveEndUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('templateRevision: $templateRevision, ')
+          ..write('title: $title, ')
+          ..write('notes: $notes, ')
+          ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('priority: $priority, ')
+          ..write('energyLevel: $energyLevel, ')
+          ..write('splitMode: $splitMode, ')
+          ..write('minChunkMinutes: $minChunkMinutes, ')
+          ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
+          ..write('pace: $pace, ')
+          ..write('allowedWeekdaysMask: $allowedWeekdaysMask, ')
+          ..write('targetMinutes: $targetMinutes, ')
+          ..write('carryInMinutes: $carryInMinutes, ')
+          ..write('state: $state, ')
+          ..write('revision: $revision, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('settledAtUtc: $settledAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    cycleId,
+    templateId,
+    transportTaskId,
+    periodStartLocalDate,
+    periodStartUtc,
+    periodEndUtc,
+    effectiveStartUtc,
+    effectiveEndUtc,
+    timeZoneId,
+    templateRevision,
+    title,
+    notes,
+    areaId,
+    projectId,
+    priority,
+    energyLevel,
+    splitMode,
+    minChunkMinutes,
+    maxChunkMinutes,
+    preferredStartMinute,
+    preferredEndMinute,
+    pace,
+    allowedWeekdaysMask,
+    targetMinutes,
+    carryInMinutes,
+    state,
+    revision,
+    createdAtUtc,
+    updatedAtUtc,
+    settledAtUtc,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecurringCycleSnapshotsData &&
+          other.cycleId == this.cycleId &&
+          other.templateId == this.templateId &&
+          other.transportTaskId == this.transportTaskId &&
+          other.periodStartLocalDate == this.periodStartLocalDate &&
+          other.periodStartUtc == this.periodStartUtc &&
+          other.periodEndUtc == this.periodEndUtc &&
+          other.effectiveStartUtc == this.effectiveStartUtc &&
+          other.effectiveEndUtc == this.effectiveEndUtc &&
+          other.timeZoneId == this.timeZoneId &&
+          other.templateRevision == this.templateRevision &&
+          other.title == this.title &&
+          other.notes == this.notes &&
+          other.areaId == this.areaId &&
+          other.projectId == this.projectId &&
+          other.priority == this.priority &&
+          other.energyLevel == this.energyLevel &&
+          other.splitMode == this.splitMode &&
+          other.minChunkMinutes == this.minChunkMinutes &&
+          other.maxChunkMinutes == this.maxChunkMinutes &&
+          other.preferredStartMinute == this.preferredStartMinute &&
+          other.preferredEndMinute == this.preferredEndMinute &&
+          other.pace == this.pace &&
+          other.allowedWeekdaysMask == this.allowedWeekdaysMask &&
+          other.targetMinutes == this.targetMinutes &&
+          other.carryInMinutes == this.carryInMinutes &&
+          other.state == this.state &&
+          other.revision == this.revision &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.updatedAtUtc == this.updatedAtUtc &&
+          other.settledAtUtc == this.settledAtUtc);
+}
+
+class RecurringCycleSnapshotsCompanion
+    extends UpdateCompanion<RecurringCycleSnapshotsData> {
+  final Value<String> cycleId;
+  final Value<String> templateId;
+  final Value<String> transportTaskId;
+  final Value<String> periodStartLocalDate;
+  final Value<int> periodStartUtc;
+  final Value<int> periodEndUtc;
+  final Value<int> effectiveStartUtc;
+  final Value<int> effectiveEndUtc;
+  final Value<String> timeZoneId;
+  final Value<int> templateRevision;
+  final Value<String> title;
+  final Value<String> notes;
+  final Value<String?> areaId;
+  final Value<String?> projectId;
+  final Value<String> priority;
+  final Value<String> energyLevel;
+  final Value<String> splitMode;
+  final Value<int> minChunkMinutes;
+  final Value<int> maxChunkMinutes;
+  final Value<int?> preferredStartMinute;
+  final Value<int?> preferredEndMinute;
+  final Value<String> pace;
+  final Value<int> allowedWeekdaysMask;
+  final Value<int> targetMinutes;
+  final Value<int> carryInMinutes;
+  final Value<String> state;
+  final Value<int> revision;
+  final Value<int> createdAtUtc;
+  final Value<int> updatedAtUtc;
+  final Value<int?> settledAtUtc;
+  final Value<int> rowid;
+  const RecurringCycleSnapshotsCompanion({
+    this.cycleId = const Value.absent(),
+    this.templateId = const Value.absent(),
+    this.transportTaskId = const Value.absent(),
+    this.periodStartLocalDate = const Value.absent(),
+    this.periodStartUtc = const Value.absent(),
+    this.periodEndUtc = const Value.absent(),
+    this.effectiveStartUtc = const Value.absent(),
+    this.effectiveEndUtc = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.templateRevision = const Value.absent(),
+    this.title = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.energyLevel = const Value.absent(),
+    this.splitMode = const Value.absent(),
+    this.minChunkMinutes = const Value.absent(),
+    this.maxChunkMinutes = const Value.absent(),
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
+    this.pace = const Value.absent(),
+    this.allowedWeekdaysMask = const Value.absent(),
+    this.targetMinutes = const Value.absent(),
+    this.carryInMinutes = const Value.absent(),
+    this.state = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.settledAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecurringCycleSnapshotsCompanion.insert({
+    required String cycleId,
+    required String templateId,
+    required String transportTaskId,
+    required String periodStartLocalDate,
+    required int periodStartUtc,
+    required int periodEndUtc,
+    required int effectiveStartUtc,
+    required int effectiveEndUtc,
+    required String timeZoneId,
+    required int templateRevision,
+    required String title,
+    this.notes = const Value.absent(),
+    this.areaId = const Value.absent(),
+    this.projectId = const Value.absent(),
+    required String priority,
+    required String energyLevel,
+    required String splitMode,
+    required int minChunkMinutes,
+    required int maxChunkMinutes,
+    this.preferredStartMinute = const Value.absent(),
+    this.preferredEndMinute = const Value.absent(),
+    required String pace,
+    required int allowedWeekdaysMask,
+    required int targetMinutes,
+    this.carryInMinutes = const Value.absent(),
+    required String state,
+    this.revision = const Value.absent(),
+    required int createdAtUtc,
+    required int updatedAtUtc,
+    this.settledAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : cycleId = Value(cycleId),
+       templateId = Value(templateId),
+       transportTaskId = Value(transportTaskId),
+       periodStartLocalDate = Value(periodStartLocalDate),
+       periodStartUtc = Value(periodStartUtc),
+       periodEndUtc = Value(periodEndUtc),
+       effectiveStartUtc = Value(effectiveStartUtc),
+       effectiveEndUtc = Value(effectiveEndUtc),
+       timeZoneId = Value(timeZoneId),
+       templateRevision = Value(templateRevision),
+       title = Value(title),
+       priority = Value(priority),
+       energyLevel = Value(energyLevel),
+       splitMode = Value(splitMode),
+       minChunkMinutes = Value(minChunkMinutes),
+       maxChunkMinutes = Value(maxChunkMinutes),
+       pace = Value(pace),
+       allowedWeekdaysMask = Value(allowedWeekdaysMask),
+       targetMinutes = Value(targetMinutes),
+       state = Value(state),
+       createdAtUtc = Value(createdAtUtc),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<RecurringCycleSnapshotsData> custom({
+    Expression<String>? cycleId,
+    Expression<String>? templateId,
+    Expression<String>? transportTaskId,
+    Expression<String>? periodStartLocalDate,
+    Expression<int>? periodStartUtc,
+    Expression<int>? periodEndUtc,
+    Expression<int>? effectiveStartUtc,
+    Expression<int>? effectiveEndUtc,
+    Expression<String>? timeZoneId,
+    Expression<int>? templateRevision,
+    Expression<String>? title,
+    Expression<String>? notes,
+    Expression<String>? areaId,
+    Expression<String>? projectId,
+    Expression<String>? priority,
+    Expression<String>? energyLevel,
+    Expression<String>? splitMode,
+    Expression<int>? minChunkMinutes,
+    Expression<int>? maxChunkMinutes,
+    Expression<int>? preferredStartMinute,
+    Expression<int>? preferredEndMinute,
+    Expression<String>? pace,
+    Expression<int>? allowedWeekdaysMask,
+    Expression<int>? targetMinutes,
+    Expression<int>? carryInMinutes,
+    Expression<String>? state,
+    Expression<int>? revision,
+    Expression<int>? createdAtUtc,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? settledAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (cycleId != null) 'cycle_id': cycleId,
+      if (templateId != null) 'template_id': templateId,
+      if (transportTaskId != null) 'transport_task_id': transportTaskId,
+      if (periodStartLocalDate != null)
+        'period_start_local_date': periodStartLocalDate,
+      if (periodStartUtc != null) 'period_start_utc': periodStartUtc,
+      if (periodEndUtc != null) 'period_end_utc': periodEndUtc,
+      if (effectiveStartUtc != null) 'effective_start_utc': effectiveStartUtc,
+      if (effectiveEndUtc != null) 'effective_end_utc': effectiveEndUtc,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (templateRevision != null) 'template_revision': templateRevision,
+      if (title != null) 'title': title,
+      if (notes != null) 'notes': notes,
+      if (areaId != null) 'area_id': areaId,
+      if (projectId != null) 'project_id': projectId,
+      if (priority != null) 'priority': priority,
+      if (energyLevel != null) 'energy_level': energyLevel,
+      if (splitMode != null) 'split_mode': splitMode,
+      if (minChunkMinutes != null) 'min_chunk_minutes': minChunkMinutes,
+      if (maxChunkMinutes != null) 'max_chunk_minutes': maxChunkMinutes,
+      if (preferredStartMinute != null)
+        'preferred_start_minute': preferredStartMinute,
+      if (preferredEndMinute != null)
+        'preferred_end_minute': preferredEndMinute,
+      if (pace != null) 'pace': pace,
+      if (allowedWeekdaysMask != null)
+        'allowed_weekdays_mask': allowedWeekdaysMask,
+      if (targetMinutes != null) 'target_minutes': targetMinutes,
+      if (carryInMinutes != null) 'carry_in_minutes': carryInMinutes,
+      if (state != null) 'state': state,
+      if (revision != null) 'revision': revision,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (settledAtUtc != null) 'settled_at_utc': settledAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecurringCycleSnapshotsCompanion copyWith({
+    Value<String>? cycleId,
+    Value<String>? templateId,
+    Value<String>? transportTaskId,
+    Value<String>? periodStartLocalDate,
+    Value<int>? periodStartUtc,
+    Value<int>? periodEndUtc,
+    Value<int>? effectiveStartUtc,
+    Value<int>? effectiveEndUtc,
+    Value<String>? timeZoneId,
+    Value<int>? templateRevision,
+    Value<String>? title,
+    Value<String>? notes,
+    Value<String?>? areaId,
+    Value<String?>? projectId,
+    Value<String>? priority,
+    Value<String>? energyLevel,
+    Value<String>? splitMode,
+    Value<int>? minChunkMinutes,
+    Value<int>? maxChunkMinutes,
+    Value<int?>? preferredStartMinute,
+    Value<int?>? preferredEndMinute,
+    Value<String>? pace,
+    Value<int>? allowedWeekdaysMask,
+    Value<int>? targetMinutes,
+    Value<int>? carryInMinutes,
+    Value<String>? state,
+    Value<int>? revision,
+    Value<int>? createdAtUtc,
+    Value<int>? updatedAtUtc,
+    Value<int?>? settledAtUtc,
+    Value<int>? rowid,
+  }) {
+    return RecurringCycleSnapshotsCompanion(
+      cycleId: cycleId ?? this.cycleId,
+      templateId: templateId ?? this.templateId,
+      transportTaskId: transportTaskId ?? this.transportTaskId,
+      periodStartLocalDate: periodStartLocalDate ?? this.periodStartLocalDate,
+      periodStartUtc: periodStartUtc ?? this.periodStartUtc,
+      periodEndUtc: periodEndUtc ?? this.periodEndUtc,
+      effectiveStartUtc: effectiveStartUtc ?? this.effectiveStartUtc,
+      effectiveEndUtc: effectiveEndUtc ?? this.effectiveEndUtc,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      templateRevision: templateRevision ?? this.templateRevision,
+      title: title ?? this.title,
+      notes: notes ?? this.notes,
+      areaId: areaId ?? this.areaId,
+      projectId: projectId ?? this.projectId,
+      priority: priority ?? this.priority,
+      energyLevel: energyLevel ?? this.energyLevel,
+      splitMode: splitMode ?? this.splitMode,
+      minChunkMinutes: minChunkMinutes ?? this.minChunkMinutes,
+      maxChunkMinutes: maxChunkMinutes ?? this.maxChunkMinutes,
+      preferredStartMinute: preferredStartMinute ?? this.preferredStartMinute,
+      preferredEndMinute: preferredEndMinute ?? this.preferredEndMinute,
+      pace: pace ?? this.pace,
+      allowedWeekdaysMask: allowedWeekdaysMask ?? this.allowedWeekdaysMask,
+      targetMinutes: targetMinutes ?? this.targetMinutes,
+      carryInMinutes: carryInMinutes ?? this.carryInMinutes,
+      state: state ?? this.state,
+      revision: revision ?? this.revision,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      settledAtUtc: settledAtUtc ?? this.settledAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (cycleId.present) {
+      map['cycle_id'] = Variable<String>(cycleId.value);
+    }
+    if (templateId.present) {
+      map['template_id'] = Variable<String>(templateId.value);
+    }
+    if (transportTaskId.present) {
+      map['transport_task_id'] = Variable<String>(transportTaskId.value);
+    }
+    if (periodStartLocalDate.present) {
+      map['period_start_local_date'] = Variable<String>(
+        periodStartLocalDate.value,
+      );
+    }
+    if (periodStartUtc.present) {
+      map['period_start_utc'] = Variable<int>(periodStartUtc.value);
+    }
+    if (periodEndUtc.present) {
+      map['period_end_utc'] = Variable<int>(periodEndUtc.value);
+    }
+    if (effectiveStartUtc.present) {
+      map['effective_start_utc'] = Variable<int>(effectiveStartUtc.value);
+    }
+    if (effectiveEndUtc.present) {
+      map['effective_end_utc'] = Variable<int>(effectiveEndUtc.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (templateRevision.present) {
+      map['template_revision'] = Variable<int>(templateRevision.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (areaId.present) {
+      map['area_id'] = Variable<String>(areaId.value);
+    }
+    if (projectId.present) {
+      map['project_id'] = Variable<String>(projectId.value);
+    }
+    if (priority.present) {
+      map['priority'] = Variable<String>(priority.value);
+    }
+    if (energyLevel.present) {
+      map['energy_level'] = Variable<String>(energyLevel.value);
+    }
+    if (splitMode.present) {
+      map['split_mode'] = Variable<String>(splitMode.value);
+    }
+    if (minChunkMinutes.present) {
+      map['min_chunk_minutes'] = Variable<int>(minChunkMinutes.value);
+    }
+    if (maxChunkMinutes.present) {
+      map['max_chunk_minutes'] = Variable<int>(maxChunkMinutes.value);
+    }
+    if (preferredStartMinute.present) {
+      map['preferred_start_minute'] = Variable<int>(preferredStartMinute.value);
+    }
+    if (preferredEndMinute.present) {
+      map['preferred_end_minute'] = Variable<int>(preferredEndMinute.value);
+    }
+    if (pace.present) {
+      map['pace'] = Variable<String>(pace.value);
+    }
+    if (allowedWeekdaysMask.present) {
+      map['allowed_weekdays_mask'] = Variable<int>(allowedWeekdaysMask.value);
+    }
+    if (targetMinutes.present) {
+      map['target_minutes'] = Variable<int>(targetMinutes.value);
+    }
+    if (carryInMinutes.present) {
+      map['carry_in_minutes'] = Variable<int>(carryInMinutes.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (settledAtUtc.present) {
+      map['settled_at_utc'] = Variable<int>(settledAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCycleSnapshotsCompanion(')
+          ..write('cycleId: $cycleId, ')
+          ..write('templateId: $templateId, ')
+          ..write('transportTaskId: $transportTaskId, ')
+          ..write('periodStartLocalDate: $periodStartLocalDate, ')
+          ..write('periodStartUtc: $periodStartUtc, ')
+          ..write('periodEndUtc: $periodEndUtc, ')
+          ..write('effectiveStartUtc: $effectiveStartUtc, ')
+          ..write('effectiveEndUtc: $effectiveEndUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('templateRevision: $templateRevision, ')
+          ..write('title: $title, ')
+          ..write('notes: $notes, ')
+          ..write('areaId: $areaId, ')
+          ..write('projectId: $projectId, ')
+          ..write('priority: $priority, ')
+          ..write('energyLevel: $energyLevel, ')
+          ..write('splitMode: $splitMode, ')
+          ..write('minChunkMinutes: $minChunkMinutes, ')
+          ..write('maxChunkMinutes: $maxChunkMinutes, ')
+          ..write('preferredStartMinute: $preferredStartMinute, ')
+          ..write('preferredEndMinute: $preferredEndMinute, ')
+          ..write('pace: $pace, ')
+          ..write('allowedWeekdaysMask: $allowedWeekdaysMask, ')
+          ..write('targetMinutes: $targetMinutes, ')
+          ..write('carryInMinutes: $carryInMinutes, ')
+          ..write('state: $state, ')
+          ..write('revision: $revision, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('settledAtUtc: $settledAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class RecurringCarryInStates extends Table
+    with TableInfo<RecurringCarryInStates, RecurringCarryInStatesData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  RecurringCarryInStates(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> cycleId = GeneratedColumn<String>(
+    'cycle_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> provisional = GeneratedColumn<int>(
+    'provisional',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0 CHECK (provisional IN (0, 1))',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<int> updatedAtUtc = GeneratedColumn<int>(
+    'updated_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    cycleId,
+    provisional,
+    revision,
+    updatedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recurring_carry_in_states';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {cycleId};
+  @override
+  RecurringCarryInStatesData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecurringCarryInStatesData(
+      cycleId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cycle_id'],
+      )!,
+      provisional: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}provisional'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      updatedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  RecurringCarryInStates createAlias(String alias) {
+    return RecurringCarryInStates(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(cycle_id)',
+    'CHECK(revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class RecurringCarryInStatesData extends DataClass
+    implements Insertable<RecurringCarryInStatesData> {
+  final String cycleId;
+  final int provisional;
+  final int revision;
+  final int updatedAtUtc;
+  const RecurringCarryInStatesData({
+    required this.cycleId,
+    required this.provisional,
+    required this.revision,
+    required this.updatedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['cycle_id'] = Variable<String>(cycleId);
+    map['provisional'] = Variable<int>(provisional);
+    map['revision'] = Variable<int>(revision);
+    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
+    return map;
+  }
+
+  RecurringCarryInStatesCompanion toCompanion(bool nullToAbsent) {
+    return RecurringCarryInStatesCompanion(
+      cycleId: Value(cycleId),
+      provisional: Value(provisional),
+      revision: Value(revision),
+      updatedAtUtc: Value(updatedAtUtc),
+    );
+  }
+
+  factory RecurringCarryInStatesData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecurringCarryInStatesData(
+      cycleId: serializer.fromJson<String>(json['cycleId']),
+      provisional: serializer.fromJson<int>(json['provisional']),
+      revision: serializer.fromJson<int>(json['revision']),
+      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'cycleId': serializer.toJson<String>(cycleId),
+      'provisional': serializer.toJson<int>(provisional),
+      'revision': serializer.toJson<int>(revision),
+      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
+    };
+  }
+
+  RecurringCarryInStatesData copyWith({
+    String? cycleId,
+    int? provisional,
+    int? revision,
+    int? updatedAtUtc,
+  }) => RecurringCarryInStatesData(
+    cycleId: cycleId ?? this.cycleId,
+    provisional: provisional ?? this.provisional,
+    revision: revision ?? this.revision,
+    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+  );
+  RecurringCarryInStatesData copyWithCompanion(
+    RecurringCarryInStatesCompanion data,
+  ) {
+    return RecurringCarryInStatesData(
+      cycleId: data.cycleId.present ? data.cycleId.value : this.cycleId,
+      provisional: data.provisional.present
+          ? data.provisional.value
+          : this.provisional,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      updatedAtUtc: data.updatedAtUtc.present
+          ? data.updatedAtUtc.value
+          : this.updatedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCarryInStatesData(')
+          ..write('cycleId: $cycleId, ')
+          ..write('provisional: $provisional, ')
+          ..write('revision: $revision, ')
+          ..write('updatedAtUtc: $updatedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(cycleId, provisional, revision, updatedAtUtc);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecurringCarryInStatesData &&
+          other.cycleId == this.cycleId &&
+          other.provisional == this.provisional &&
+          other.revision == this.revision &&
+          other.updatedAtUtc == this.updatedAtUtc);
+}
+
+class RecurringCarryInStatesCompanion
+    extends UpdateCompanion<RecurringCarryInStatesData> {
+  final Value<String> cycleId;
+  final Value<int> provisional;
+  final Value<int> revision;
+  final Value<int> updatedAtUtc;
+  final Value<int> rowid;
+  const RecurringCarryInStatesCompanion({
+    this.cycleId = const Value.absent(),
+    this.provisional = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.updatedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecurringCarryInStatesCompanion.insert({
+    required String cycleId,
+    this.provisional = const Value.absent(),
+    this.revision = const Value.absent(),
+    required int updatedAtUtc,
+    this.rowid = const Value.absent(),
+  }) : cycleId = Value(cycleId),
+       updatedAtUtc = Value(updatedAtUtc);
+  static Insertable<RecurringCarryInStatesData> custom({
+    Expression<String>? cycleId,
+    Expression<int>? provisional,
+    Expression<int>? revision,
+    Expression<int>? updatedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (cycleId != null) 'cycle_id': cycleId,
+      if (provisional != null) 'provisional': provisional,
+      if (revision != null) 'revision': revision,
+      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecurringCarryInStatesCompanion copyWith({
+    Value<String>? cycleId,
+    Value<int>? provisional,
+    Value<int>? revision,
+    Value<int>? updatedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return RecurringCarryInStatesCompanion(
+      cycleId: cycleId ?? this.cycleId,
+      provisional: provisional ?? this.provisional,
+      revision: revision ?? this.revision,
+      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (cycleId.present) {
+      map['cycle_id'] = Variable<String>(cycleId.value);
+    }
+    if (provisional.present) {
+      map['provisional'] = Variable<int>(provisional.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (updatedAtUtc.present) {
+      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCarryInStatesCompanion(')
+          ..write('cycleId: $cycleId, ')
+          ..write('provisional: $provisional, ')
+          ..write('revision: $revision, ')
+          ..write('updatedAtUtc: $updatedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ExecutionFragments extends Table
+    with TableInfo<ExecutionFragments, ExecutionFragmentsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ExecutionFragments(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> fragmentId = GeneratedColumn<String>(
+    'fragment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> occurrenceId = GeneratedColumn<String>(
+    'occurrence_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES execution_occurrences(id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> cycleId = GeneratedColumn<String>(
+    'cycle_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> rootFragmentId = GeneratedColumn<String>(
+    'root_fragment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> sourceFragmentId = GeneratedColumn<String>(
+    'source_fragment_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> planVersionId = GeneratedColumn<String>(
+    'plan_version_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES plan_versions(id)',
+  );
+  late final GeneratedColumn<String> blockId = GeneratedColumn<String>(
+    'block_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> plannedStartUtc = GeneratedColumn<int>(
+    'planned_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> plannedEndUtc = GeneratedColumn<int>(
+    'planned_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> plannedMinutes = GeneratedColumn<int>(
+    'planned_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> allocatedMicros = GeneratedColumn<int>(
+    'allocated_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedMicros = GeneratedColumn<int>(
+    'completed_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    fragmentId,
+    dataEpoch,
+    occurrenceId,
+    cycleId,
+    rootFragmentId,
+    sourceFragmentId,
+    planVersionId,
+    blockId,
+    plannedStartUtc,
+    plannedEndUtc,
+    plannedMinutes,
+    allocatedMicros,
+    completedMicros,
+    state,
+    createdAtUtc,
+    completedAtUtc,
+    revision,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'execution_fragments';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {fragmentId};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {planVersionId, blockId},
+  ];
+  @override
+  ExecutionFragmentsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ExecutionFragmentsData(
+      fragmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fragment_id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      occurrenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}occurrence_id'],
+      )!,
+      cycleId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cycle_id'],
+      ),
+      rootFragmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}root_fragment_id'],
+      )!,
+      sourceFragmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_fragment_id'],
+      ),
+      planVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_version_id'],
+      )!,
+      blockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}block_id'],
+      )!,
+      plannedStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}planned_start_utc'],
+      )!,
+      plannedEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}planned_end_utc'],
+      )!,
+      plannedMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}planned_minutes'],
+      )!,
+      allocatedMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}allocated_micros'],
+      )!,
+      completedMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_micros'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+    );
+  }
+
+  @override
+  ExecutionFragments createAlias(String alias) {
+    return ExecutionFragments(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(fragment_id)',
+    'UNIQUE(plan_version_id, block_id)',
+    'CHECK(planned_end_utc > planned_start_utc)',
+    'CHECK(planned_minutes > 0)',
+    'CHECK(allocated_micros >= 0)',
+    'CHECK(completed_micros >= 0)',
+    'CHECK(completed_micros <= allocated_micros)',
+    'CHECK(revision >= 1)',
+    'CHECK(state IN (\'planned\', \'started\', \'completed\', \'withdrawn\', \'superseded\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ExecutionFragmentsData extends DataClass
+    implements Insertable<ExecutionFragmentsData> {
+  final String fragmentId;
+  final String dataEpoch;
+  final String occurrenceId;
+  final String? cycleId;
+  final String rootFragmentId;
+  final String? sourceFragmentId;
+  final String planVersionId;
+  final String blockId;
+  final int plannedStartUtc;
+  final int plannedEndUtc;
+  final int plannedMinutes;
+  final int allocatedMicros;
+  final int completedMicros;
+  final String state;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  final int revision;
+  const ExecutionFragmentsData({
+    required this.fragmentId,
+    required this.dataEpoch,
+    required this.occurrenceId,
+    this.cycleId,
+    required this.rootFragmentId,
+    this.sourceFragmentId,
+    required this.planVersionId,
+    required this.blockId,
+    required this.plannedStartUtc,
+    required this.plannedEndUtc,
+    required this.plannedMinutes,
+    required this.allocatedMicros,
+    required this.completedMicros,
+    required this.state,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+    required this.revision,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['fragment_id'] = Variable<String>(fragmentId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['occurrence_id'] = Variable<String>(occurrenceId);
+    if (!nullToAbsent || cycleId != null) {
+      map['cycle_id'] = Variable<String>(cycleId);
+    }
+    map['root_fragment_id'] = Variable<String>(rootFragmentId);
+    if (!nullToAbsent || sourceFragmentId != null) {
+      map['source_fragment_id'] = Variable<String>(sourceFragmentId);
+    }
+    map['plan_version_id'] = Variable<String>(planVersionId);
+    map['block_id'] = Variable<String>(blockId);
+    map['planned_start_utc'] = Variable<int>(plannedStartUtc);
+    map['planned_end_utc'] = Variable<int>(plannedEndUtc);
+    map['planned_minutes'] = Variable<int>(plannedMinutes);
+    map['allocated_micros'] = Variable<int>(allocatedMicros);
+    map['completed_micros'] = Variable<int>(completedMicros);
+    map['state'] = Variable<String>(state);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  ExecutionFragmentsCompanion toCompanion(bool nullToAbsent) {
+    return ExecutionFragmentsCompanion(
+      fragmentId: Value(fragmentId),
+      dataEpoch: Value(dataEpoch),
+      occurrenceId: Value(occurrenceId),
+      cycleId: cycleId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cycleId),
+      rootFragmentId: Value(rootFragmentId),
+      sourceFragmentId: sourceFragmentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceFragmentId),
+      planVersionId: Value(planVersionId),
+      blockId: Value(blockId),
+      plannedStartUtc: Value(plannedStartUtc),
+      plannedEndUtc: Value(plannedEndUtc),
+      plannedMinutes: Value(plannedMinutes),
+      allocatedMicros: Value(allocatedMicros),
+      completedMicros: Value(completedMicros),
+      state: Value(state),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+      revision: Value(revision),
+    );
+  }
+
+  factory ExecutionFragmentsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ExecutionFragmentsData(
+      fragmentId: serializer.fromJson<String>(json['fragmentId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      occurrenceId: serializer.fromJson<String>(json['occurrenceId']),
+      cycleId: serializer.fromJson<String?>(json['cycleId']),
+      rootFragmentId: serializer.fromJson<String>(json['rootFragmentId']),
+      sourceFragmentId: serializer.fromJson<String?>(json['sourceFragmentId']),
+      planVersionId: serializer.fromJson<String>(json['planVersionId']),
+      blockId: serializer.fromJson<String>(json['blockId']),
+      plannedStartUtc: serializer.fromJson<int>(json['plannedStartUtc']),
+      plannedEndUtc: serializer.fromJson<int>(json['plannedEndUtc']),
+      plannedMinutes: serializer.fromJson<int>(json['plannedMinutes']),
+      allocatedMicros: serializer.fromJson<int>(json['allocatedMicros']),
+      completedMicros: serializer.fromJson<int>(json['completedMicros']),
+      state: serializer.fromJson<String>(json['state']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'fragmentId': serializer.toJson<String>(fragmentId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'occurrenceId': serializer.toJson<String>(occurrenceId),
+      'cycleId': serializer.toJson<String?>(cycleId),
+      'rootFragmentId': serializer.toJson<String>(rootFragmentId),
+      'sourceFragmentId': serializer.toJson<String?>(sourceFragmentId),
+      'planVersionId': serializer.toJson<String>(planVersionId),
+      'blockId': serializer.toJson<String>(blockId),
+      'plannedStartUtc': serializer.toJson<int>(plannedStartUtc),
+      'plannedEndUtc': serializer.toJson<int>(plannedEndUtc),
+      'plannedMinutes': serializer.toJson<int>(plannedMinutes),
+      'allocatedMicros': serializer.toJson<int>(allocatedMicros),
+      'completedMicros': serializer.toJson<int>(completedMicros),
+      'state': serializer.toJson<String>(state),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  ExecutionFragmentsData copyWith({
+    String? fragmentId,
+    String? dataEpoch,
+    String? occurrenceId,
+    Value<String?> cycleId = const Value.absent(),
+    String? rootFragmentId,
+    Value<String?> sourceFragmentId = const Value.absent(),
+    String? planVersionId,
+    String? blockId,
+    int? plannedStartUtc,
+    int? plannedEndUtc,
+    int? plannedMinutes,
+    int? allocatedMicros,
+    int? completedMicros,
+    String? state,
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+    int? revision,
+  }) => ExecutionFragmentsData(
+    fragmentId: fragmentId ?? this.fragmentId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    occurrenceId: occurrenceId ?? this.occurrenceId,
+    cycleId: cycleId.present ? cycleId.value : this.cycleId,
+    rootFragmentId: rootFragmentId ?? this.rootFragmentId,
+    sourceFragmentId: sourceFragmentId.present
+        ? sourceFragmentId.value
+        : this.sourceFragmentId,
+    planVersionId: planVersionId ?? this.planVersionId,
+    blockId: blockId ?? this.blockId,
+    plannedStartUtc: plannedStartUtc ?? this.plannedStartUtc,
+    plannedEndUtc: plannedEndUtc ?? this.plannedEndUtc,
+    plannedMinutes: plannedMinutes ?? this.plannedMinutes,
+    allocatedMicros: allocatedMicros ?? this.allocatedMicros,
+    completedMicros: completedMicros ?? this.completedMicros,
+    state: state ?? this.state,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+    revision: revision ?? this.revision,
+  );
+  ExecutionFragmentsData copyWithCompanion(ExecutionFragmentsCompanion data) {
+    return ExecutionFragmentsData(
+      fragmentId: data.fragmentId.present
+          ? data.fragmentId.value
+          : this.fragmentId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      occurrenceId: data.occurrenceId.present
+          ? data.occurrenceId.value
+          : this.occurrenceId,
+      cycleId: data.cycleId.present ? data.cycleId.value : this.cycleId,
+      rootFragmentId: data.rootFragmentId.present
+          ? data.rootFragmentId.value
+          : this.rootFragmentId,
+      sourceFragmentId: data.sourceFragmentId.present
+          ? data.sourceFragmentId.value
+          : this.sourceFragmentId,
+      planVersionId: data.planVersionId.present
+          ? data.planVersionId.value
+          : this.planVersionId,
+      blockId: data.blockId.present ? data.blockId.value : this.blockId,
+      plannedStartUtc: data.plannedStartUtc.present
+          ? data.plannedStartUtc.value
+          : this.plannedStartUtc,
+      plannedEndUtc: data.plannedEndUtc.present
+          ? data.plannedEndUtc.value
+          : this.plannedEndUtc,
+      plannedMinutes: data.plannedMinutes.present
+          ? data.plannedMinutes.value
+          : this.plannedMinutes,
+      allocatedMicros: data.allocatedMicros.present
+          ? data.allocatedMicros.value
+          : this.allocatedMicros,
+      completedMicros: data.completedMicros.present
+          ? data.completedMicros.value
+          : this.completedMicros,
+      state: data.state.present ? data.state.value : this.state,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionFragmentsData(')
+          ..write('fragmentId: $fragmentId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('rootFragmentId: $rootFragmentId, ')
+          ..write('sourceFragmentId: $sourceFragmentId, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('blockId: $blockId, ')
+          ..write('plannedStartUtc: $plannedStartUtc, ')
+          ..write('plannedEndUtc: $plannedEndUtc, ')
+          ..write('plannedMinutes: $plannedMinutes, ')
+          ..write('allocatedMicros: $allocatedMicros, ')
+          ..write('completedMicros: $completedMicros, ')
+          ..write('state: $state, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    fragmentId,
+    dataEpoch,
+    occurrenceId,
+    cycleId,
+    rootFragmentId,
+    sourceFragmentId,
+    planVersionId,
+    blockId,
+    plannedStartUtc,
+    plannedEndUtc,
+    plannedMinutes,
+    allocatedMicros,
+    completedMicros,
+    state,
+    createdAtUtc,
+    completedAtUtc,
+    revision,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ExecutionFragmentsData &&
+          other.fragmentId == this.fragmentId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.occurrenceId == this.occurrenceId &&
+          other.cycleId == this.cycleId &&
+          other.rootFragmentId == this.rootFragmentId &&
+          other.sourceFragmentId == this.sourceFragmentId &&
+          other.planVersionId == this.planVersionId &&
+          other.blockId == this.blockId &&
+          other.plannedStartUtc == this.plannedStartUtc &&
+          other.plannedEndUtc == this.plannedEndUtc &&
+          other.plannedMinutes == this.plannedMinutes &&
+          other.allocatedMicros == this.allocatedMicros &&
+          other.completedMicros == this.completedMicros &&
+          other.state == this.state &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc &&
+          other.revision == this.revision);
+}
+
+class ExecutionFragmentsCompanion
+    extends UpdateCompanion<ExecutionFragmentsData> {
+  final Value<String> fragmentId;
+  final Value<String> dataEpoch;
+  final Value<String> occurrenceId;
+  final Value<String?> cycleId;
+  final Value<String> rootFragmentId;
+  final Value<String?> sourceFragmentId;
+  final Value<String> planVersionId;
+  final Value<String> blockId;
+  final Value<int> plannedStartUtc;
+  final Value<int> plannedEndUtc;
+  final Value<int> plannedMinutes;
+  final Value<int> allocatedMicros;
+  final Value<int> completedMicros;
+  final Value<String> state;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> revision;
+  final Value<int> rowid;
+  const ExecutionFragmentsCompanion({
+    this.fragmentId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.occurrenceId = const Value.absent(),
+    this.cycleId = const Value.absent(),
+    this.rootFragmentId = const Value.absent(),
+    this.sourceFragmentId = const Value.absent(),
+    this.planVersionId = const Value.absent(),
+    this.blockId = const Value.absent(),
+    this.plannedStartUtc = const Value.absent(),
+    this.plannedEndUtc = const Value.absent(),
+    this.plannedMinutes = const Value.absent(),
+    this.allocatedMicros = const Value.absent(),
+    this.completedMicros = const Value.absent(),
+    this.state = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ExecutionFragmentsCompanion.insert({
+    required String fragmentId,
+    required String dataEpoch,
+    required String occurrenceId,
+    this.cycleId = const Value.absent(),
+    required String rootFragmentId,
+    this.sourceFragmentId = const Value.absent(),
+    required String planVersionId,
+    required String blockId,
+    required int plannedStartUtc,
+    required int plannedEndUtc,
+    required int plannedMinutes,
+    required int allocatedMicros,
+    this.completedMicros = const Value.absent(),
+    required String state,
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : fragmentId = Value(fragmentId),
+       dataEpoch = Value(dataEpoch),
+       occurrenceId = Value(occurrenceId),
+       rootFragmentId = Value(rootFragmentId),
+       planVersionId = Value(planVersionId),
+       blockId = Value(blockId),
+       plannedStartUtc = Value(plannedStartUtc),
+       plannedEndUtc = Value(plannedEndUtc),
+       plannedMinutes = Value(plannedMinutes),
+       allocatedMicros = Value(allocatedMicros),
+       state = Value(state),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<ExecutionFragmentsData> custom({
+    Expression<String>? fragmentId,
+    Expression<String>? dataEpoch,
+    Expression<String>? occurrenceId,
+    Expression<String>? cycleId,
+    Expression<String>? rootFragmentId,
+    Expression<String>? sourceFragmentId,
+    Expression<String>? planVersionId,
+    Expression<String>? blockId,
+    Expression<int>? plannedStartUtc,
+    Expression<int>? plannedEndUtc,
+    Expression<int>? plannedMinutes,
+    Expression<int>? allocatedMicros,
+    Expression<int>? completedMicros,
+    Expression<String>? state,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? revision,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (fragmentId != null) 'fragment_id': fragmentId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (occurrenceId != null) 'occurrence_id': occurrenceId,
+      if (cycleId != null) 'cycle_id': cycleId,
+      if (rootFragmentId != null) 'root_fragment_id': rootFragmentId,
+      if (sourceFragmentId != null) 'source_fragment_id': sourceFragmentId,
+      if (planVersionId != null) 'plan_version_id': planVersionId,
+      if (blockId != null) 'block_id': blockId,
+      if (plannedStartUtc != null) 'planned_start_utc': plannedStartUtc,
+      if (plannedEndUtc != null) 'planned_end_utc': plannedEndUtc,
+      if (plannedMinutes != null) 'planned_minutes': plannedMinutes,
+      if (allocatedMicros != null) 'allocated_micros': allocatedMicros,
+      if (completedMicros != null) 'completed_micros': completedMicros,
+      if (state != null) 'state': state,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (revision != null) 'revision': revision,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ExecutionFragmentsCompanion copyWith({
+    Value<String>? fragmentId,
+    Value<String>? dataEpoch,
+    Value<String>? occurrenceId,
+    Value<String?>? cycleId,
+    Value<String>? rootFragmentId,
+    Value<String?>? sourceFragmentId,
+    Value<String>? planVersionId,
+    Value<String>? blockId,
+    Value<int>? plannedStartUtc,
+    Value<int>? plannedEndUtc,
+    Value<int>? plannedMinutes,
+    Value<int>? allocatedMicros,
+    Value<int>? completedMicros,
+    Value<String>? state,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? revision,
+    Value<int>? rowid,
+  }) {
+    return ExecutionFragmentsCompanion(
+      fragmentId: fragmentId ?? this.fragmentId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      occurrenceId: occurrenceId ?? this.occurrenceId,
+      cycleId: cycleId ?? this.cycleId,
+      rootFragmentId: rootFragmentId ?? this.rootFragmentId,
+      sourceFragmentId: sourceFragmentId ?? this.sourceFragmentId,
+      planVersionId: planVersionId ?? this.planVersionId,
+      blockId: blockId ?? this.blockId,
+      plannedStartUtc: plannedStartUtc ?? this.plannedStartUtc,
+      plannedEndUtc: plannedEndUtc ?? this.plannedEndUtc,
+      plannedMinutes: plannedMinutes ?? this.plannedMinutes,
+      allocatedMicros: allocatedMicros ?? this.allocatedMicros,
+      completedMicros: completedMicros ?? this.completedMicros,
+      state: state ?? this.state,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      revision: revision ?? this.revision,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (fragmentId.present) {
+      map['fragment_id'] = Variable<String>(fragmentId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (occurrenceId.present) {
+      map['occurrence_id'] = Variable<String>(occurrenceId.value);
+    }
+    if (cycleId.present) {
+      map['cycle_id'] = Variable<String>(cycleId.value);
+    }
+    if (rootFragmentId.present) {
+      map['root_fragment_id'] = Variable<String>(rootFragmentId.value);
+    }
+    if (sourceFragmentId.present) {
+      map['source_fragment_id'] = Variable<String>(sourceFragmentId.value);
+    }
+    if (planVersionId.present) {
+      map['plan_version_id'] = Variable<String>(planVersionId.value);
+    }
+    if (blockId.present) {
+      map['block_id'] = Variable<String>(blockId.value);
+    }
+    if (plannedStartUtc.present) {
+      map['planned_start_utc'] = Variable<int>(plannedStartUtc.value);
+    }
+    if (plannedEndUtc.present) {
+      map['planned_end_utc'] = Variable<int>(plannedEndUtc.value);
+    }
+    if (plannedMinutes.present) {
+      map['planned_minutes'] = Variable<int>(plannedMinutes.value);
+    }
+    if (allocatedMicros.present) {
+      map['allocated_micros'] = Variable<int>(allocatedMicros.value);
+    }
+    if (completedMicros.present) {
+      map['completed_micros'] = Variable<int>(completedMicros.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ExecutionFragmentsCompanion(')
+          ..write('fragmentId: $fragmentId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('occurrenceId: $occurrenceId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('rootFragmentId: $rootFragmentId, ')
+          ..write('sourceFragmentId: $sourceFragmentId, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('blockId: $blockId, ')
+          ..write('plannedStartUtc: $plannedStartUtc, ')
+          ..write('plannedEndUtc: $plannedEndUtc, ')
+          ..write('plannedMinutes: $plannedMinutes, ')
+          ..write('allocatedMicros: $allocatedMicros, ')
+          ..write('completedMicros: $completedMicros, ')
+          ..write('state: $state, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class RecurringCompletionEvidence extends Table
+    with
+        TableInfo<
+          RecurringCompletionEvidence,
+          RecurringCompletionEvidenceData
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  RecurringCompletionEvidence(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> evidenceId = GeneratedColumn<String>(
+    'evidence_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dataEpoch = GeneratedColumn<String>(
+    'data_epoch',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> cycleId = GeneratedColumn<String>(
+    'cycle_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> fragmentId = GeneratedColumn<String>(
+    'fragment_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> amountMicros = GeneratedColumn<int>(
+    'amount_micros',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> reversesEvidenceId =
+      GeneratedColumn<String>(
+        'reverses_evidence_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<int> recordedAtUtc = GeneratedColumn<int>(
+    'recorded_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> effectiveAtUtc = GeneratedColumn<int>(
+    'effective_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> reason = GeneratedColumn<String>(
+    'reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> idempotencyKey = GeneratedColumn<String>(
+    'idempotency_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    evidenceId,
+    dataEpoch,
+    operationId,
+    cycleId,
+    fragmentId,
+    amountMicros,
+    kind,
+    reversesEvidenceId,
+    recordedAtUtc,
+    effectiveAtUtc,
+    sequence,
+    reason,
+    idempotencyKey,
+    revision,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recurring_completion_evidence';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {evidenceId};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {idempotencyKey},
+  ];
+  @override
+  RecurringCompletionEvidenceData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecurringCompletionEvidenceData(
+      evidenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}evidence_id'],
+      )!,
+      dataEpoch: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_epoch'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
+      )!,
+      cycleId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cycle_id'],
+      )!,
+      fragmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fragment_id'],
+      ),
+      amountMicros: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}amount_micros'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      reversesEvidenceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reverses_evidence_id'],
+      ),
+      recordedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}recorded_at_utc'],
+      )!,
+      effectiveAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}effective_at_utc'],
+      )!,
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      reason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reason'],
+      ),
+      idempotencyKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}idempotency_key'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+    );
+  }
+
+  @override
+  RecurringCompletionEvidence createAlias(String alias) {
+    return RecurringCompletionEvidence(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(evidence_id)',
+    'UNIQUE(idempotency_key)',
+    'CHECK(amount_micros > 0)',
+    'CHECK(sequence >= 1)',
+    'CHECK(revision >= 1)',
+    'CHECK(kind IN (\'activity\', \'fragmentCompletion\', \'manualAdjustment\', \'correction\'))',
+    'CHECK(kind <> \'correction\' OR reverses_evidence_id IS NOT NULL)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class RecurringCompletionEvidenceData extends DataClass
+    implements Insertable<RecurringCompletionEvidenceData> {
+  final String evidenceId;
+  final String dataEpoch;
+  final String operationId;
+  final String cycleId;
+  final String? fragmentId;
+  final int amountMicros;
+  final String kind;
+  final String? reversesEvidenceId;
+  final int recordedAtUtc;
+  final int effectiveAtUtc;
+  final int sequence;
+  final String? reason;
+  final String idempotencyKey;
+  final int revision;
+  const RecurringCompletionEvidenceData({
+    required this.evidenceId,
+    required this.dataEpoch,
+    required this.operationId,
+    required this.cycleId,
+    this.fragmentId,
+    required this.amountMicros,
+    required this.kind,
+    this.reversesEvidenceId,
+    required this.recordedAtUtc,
+    required this.effectiveAtUtc,
+    required this.sequence,
+    this.reason,
+    required this.idempotencyKey,
+    required this.revision,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['evidence_id'] = Variable<String>(evidenceId);
+    map['data_epoch'] = Variable<String>(dataEpoch);
+    map['operation_id'] = Variable<String>(operationId);
+    map['cycle_id'] = Variable<String>(cycleId);
+    if (!nullToAbsent || fragmentId != null) {
+      map['fragment_id'] = Variable<String>(fragmentId);
+    }
+    map['amount_micros'] = Variable<int>(amountMicros);
+    map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || reversesEvidenceId != null) {
+      map['reverses_evidence_id'] = Variable<String>(reversesEvidenceId);
+    }
+    map['recorded_at_utc'] = Variable<int>(recordedAtUtc);
+    map['effective_at_utc'] = Variable<int>(effectiveAtUtc);
+    map['sequence'] = Variable<int>(sequence);
+    if (!nullToAbsent || reason != null) {
+      map['reason'] = Variable<String>(reason);
+    }
+    map['idempotency_key'] = Variable<String>(idempotencyKey);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  RecurringCompletionEvidenceCompanion toCompanion(bool nullToAbsent) {
+    return RecurringCompletionEvidenceCompanion(
+      evidenceId: Value(evidenceId),
+      dataEpoch: Value(dataEpoch),
+      operationId: Value(operationId),
+      cycleId: Value(cycleId),
+      fragmentId: fragmentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fragmentId),
+      amountMicros: Value(amountMicros),
+      kind: Value(kind),
+      reversesEvidenceId: reversesEvidenceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reversesEvidenceId),
+      recordedAtUtc: Value(recordedAtUtc),
+      effectiveAtUtc: Value(effectiveAtUtc),
+      sequence: Value(sequence),
+      reason: reason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reason),
+      idempotencyKey: Value(idempotencyKey),
+      revision: Value(revision),
+    );
+  }
+
+  factory RecurringCompletionEvidenceData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecurringCompletionEvidenceData(
+      evidenceId: serializer.fromJson<String>(json['evidenceId']),
+      dataEpoch: serializer.fromJson<String>(json['dataEpoch']),
+      operationId: serializer.fromJson<String>(json['operationId']),
+      cycleId: serializer.fromJson<String>(json['cycleId']),
+      fragmentId: serializer.fromJson<String?>(json['fragmentId']),
+      amountMicros: serializer.fromJson<int>(json['amountMicros']),
+      kind: serializer.fromJson<String>(json['kind']),
+      reversesEvidenceId: serializer.fromJson<String?>(
+        json['reversesEvidenceId'],
+      ),
+      recordedAtUtc: serializer.fromJson<int>(json['recordedAtUtc']),
+      effectiveAtUtc: serializer.fromJson<int>(json['effectiveAtUtc']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      reason: serializer.fromJson<String?>(json['reason']),
+      idempotencyKey: serializer.fromJson<String>(json['idempotencyKey']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'evidenceId': serializer.toJson<String>(evidenceId),
+      'dataEpoch': serializer.toJson<String>(dataEpoch),
+      'operationId': serializer.toJson<String>(operationId),
+      'cycleId': serializer.toJson<String>(cycleId),
+      'fragmentId': serializer.toJson<String?>(fragmentId),
+      'amountMicros': serializer.toJson<int>(amountMicros),
+      'kind': serializer.toJson<String>(kind),
+      'reversesEvidenceId': serializer.toJson<String?>(reversesEvidenceId),
+      'recordedAtUtc': serializer.toJson<int>(recordedAtUtc),
+      'effectiveAtUtc': serializer.toJson<int>(effectiveAtUtc),
+      'sequence': serializer.toJson<int>(sequence),
+      'reason': serializer.toJson<String?>(reason),
+      'idempotencyKey': serializer.toJson<String>(idempotencyKey),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  RecurringCompletionEvidenceData copyWith({
+    String? evidenceId,
+    String? dataEpoch,
+    String? operationId,
+    String? cycleId,
+    Value<String?> fragmentId = const Value.absent(),
+    int? amountMicros,
+    String? kind,
+    Value<String?> reversesEvidenceId = const Value.absent(),
+    int? recordedAtUtc,
+    int? effectiveAtUtc,
+    int? sequence,
+    Value<String?> reason = const Value.absent(),
+    String? idempotencyKey,
+    int? revision,
+  }) => RecurringCompletionEvidenceData(
+    evidenceId: evidenceId ?? this.evidenceId,
+    dataEpoch: dataEpoch ?? this.dataEpoch,
+    operationId: operationId ?? this.operationId,
+    cycleId: cycleId ?? this.cycleId,
+    fragmentId: fragmentId.present ? fragmentId.value : this.fragmentId,
+    amountMicros: amountMicros ?? this.amountMicros,
+    kind: kind ?? this.kind,
+    reversesEvidenceId: reversesEvidenceId.present
+        ? reversesEvidenceId.value
+        : this.reversesEvidenceId,
+    recordedAtUtc: recordedAtUtc ?? this.recordedAtUtc,
+    effectiveAtUtc: effectiveAtUtc ?? this.effectiveAtUtc,
+    sequence: sequence ?? this.sequence,
+    reason: reason.present ? reason.value : this.reason,
+    idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+    revision: revision ?? this.revision,
+  );
+  RecurringCompletionEvidenceData copyWithCompanion(
+    RecurringCompletionEvidenceCompanion data,
+  ) {
+    return RecurringCompletionEvidenceData(
+      evidenceId: data.evidenceId.present
+          ? data.evidenceId.value
+          : this.evidenceId,
+      dataEpoch: data.dataEpoch.present ? data.dataEpoch.value : this.dataEpoch,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
+      cycleId: data.cycleId.present ? data.cycleId.value : this.cycleId,
+      fragmentId: data.fragmentId.present
+          ? data.fragmentId.value
+          : this.fragmentId,
+      amountMicros: data.amountMicros.present
+          ? data.amountMicros.value
+          : this.amountMicros,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      reversesEvidenceId: data.reversesEvidenceId.present
+          ? data.reversesEvidenceId.value
+          : this.reversesEvidenceId,
+      recordedAtUtc: data.recordedAtUtc.present
+          ? data.recordedAtUtc.value
+          : this.recordedAtUtc,
+      effectiveAtUtc: data.effectiveAtUtc.present
+          ? data.effectiveAtUtc.value
+          : this.effectiveAtUtc,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      reason: data.reason.present ? data.reason.value : this.reason,
+      idempotencyKey: data.idempotencyKey.present
+          ? data.idempotencyKey.value
+          : this.idempotencyKey,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCompletionEvidenceData(')
+          ..write('evidenceId: $evidenceId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('fragmentId: $fragmentId, ')
+          ..write('amountMicros: $amountMicros, ')
+          ..write('kind: $kind, ')
+          ..write('reversesEvidenceId: $reversesEvidenceId, ')
+          ..write('recordedAtUtc: $recordedAtUtc, ')
+          ..write('effectiveAtUtc: $effectiveAtUtc, ')
+          ..write('sequence: $sequence, ')
+          ..write('reason: $reason, ')
+          ..write('idempotencyKey: $idempotencyKey, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    evidenceId,
+    dataEpoch,
+    operationId,
+    cycleId,
+    fragmentId,
+    amountMicros,
+    kind,
+    reversesEvidenceId,
+    recordedAtUtc,
+    effectiveAtUtc,
+    sequence,
+    reason,
+    idempotencyKey,
+    revision,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecurringCompletionEvidenceData &&
+          other.evidenceId == this.evidenceId &&
+          other.dataEpoch == this.dataEpoch &&
+          other.operationId == this.operationId &&
+          other.cycleId == this.cycleId &&
+          other.fragmentId == this.fragmentId &&
+          other.amountMicros == this.amountMicros &&
+          other.kind == this.kind &&
+          other.reversesEvidenceId == this.reversesEvidenceId &&
+          other.recordedAtUtc == this.recordedAtUtc &&
+          other.effectiveAtUtc == this.effectiveAtUtc &&
+          other.sequence == this.sequence &&
+          other.reason == this.reason &&
+          other.idempotencyKey == this.idempotencyKey &&
+          other.revision == this.revision);
+}
+
+class RecurringCompletionEvidenceCompanion
+    extends UpdateCompanion<RecurringCompletionEvidenceData> {
+  final Value<String> evidenceId;
+  final Value<String> dataEpoch;
+  final Value<String> operationId;
+  final Value<String> cycleId;
+  final Value<String?> fragmentId;
+  final Value<int> amountMicros;
+  final Value<String> kind;
+  final Value<String?> reversesEvidenceId;
+  final Value<int> recordedAtUtc;
+  final Value<int> effectiveAtUtc;
+  final Value<int> sequence;
+  final Value<String?> reason;
+  final Value<String> idempotencyKey;
+  final Value<int> revision;
+  final Value<int> rowid;
+  const RecurringCompletionEvidenceCompanion({
+    this.evidenceId = const Value.absent(),
+    this.dataEpoch = const Value.absent(),
+    this.operationId = const Value.absent(),
+    this.cycleId = const Value.absent(),
+    this.fragmentId = const Value.absent(),
+    this.amountMicros = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.reversesEvidenceId = const Value.absent(),
+    this.recordedAtUtc = const Value.absent(),
+    this.effectiveAtUtc = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.reason = const Value.absent(),
+    this.idempotencyKey = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecurringCompletionEvidenceCompanion.insert({
+    required String evidenceId,
+    required String dataEpoch,
+    required String operationId,
+    required String cycleId,
+    this.fragmentId = const Value.absent(),
+    required int amountMicros,
+    required String kind,
+    this.reversesEvidenceId = const Value.absent(),
+    required int recordedAtUtc,
+    required int effectiveAtUtc,
+    required int sequence,
+    this.reason = const Value.absent(),
+    required String idempotencyKey,
+    this.revision = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : evidenceId = Value(evidenceId),
+       dataEpoch = Value(dataEpoch),
+       operationId = Value(operationId),
+       cycleId = Value(cycleId),
+       amountMicros = Value(amountMicros),
+       kind = Value(kind),
+       recordedAtUtc = Value(recordedAtUtc),
+       effectiveAtUtc = Value(effectiveAtUtc),
+       sequence = Value(sequence),
+       idempotencyKey = Value(idempotencyKey);
+  static Insertable<RecurringCompletionEvidenceData> custom({
+    Expression<String>? evidenceId,
+    Expression<String>? dataEpoch,
+    Expression<String>? operationId,
+    Expression<String>? cycleId,
+    Expression<String>? fragmentId,
+    Expression<int>? amountMicros,
+    Expression<String>? kind,
+    Expression<String>? reversesEvidenceId,
+    Expression<int>? recordedAtUtc,
+    Expression<int>? effectiveAtUtc,
+    Expression<int>? sequence,
+    Expression<String>? reason,
+    Expression<String>? idempotencyKey,
+    Expression<int>? revision,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (evidenceId != null) 'evidence_id': evidenceId,
+      if (dataEpoch != null) 'data_epoch': dataEpoch,
+      if (operationId != null) 'operation_id': operationId,
+      if (cycleId != null) 'cycle_id': cycleId,
+      if (fragmentId != null) 'fragment_id': fragmentId,
+      if (amountMicros != null) 'amount_micros': amountMicros,
+      if (kind != null) 'kind': kind,
+      if (reversesEvidenceId != null)
+        'reverses_evidence_id': reversesEvidenceId,
+      if (recordedAtUtc != null) 'recorded_at_utc': recordedAtUtc,
+      if (effectiveAtUtc != null) 'effective_at_utc': effectiveAtUtc,
+      if (sequence != null) 'sequence': sequence,
+      if (reason != null) 'reason': reason,
+      if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
+      if (revision != null) 'revision': revision,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecurringCompletionEvidenceCompanion copyWith({
+    Value<String>? evidenceId,
+    Value<String>? dataEpoch,
+    Value<String>? operationId,
+    Value<String>? cycleId,
+    Value<String?>? fragmentId,
+    Value<int>? amountMicros,
+    Value<String>? kind,
+    Value<String?>? reversesEvidenceId,
+    Value<int>? recordedAtUtc,
+    Value<int>? effectiveAtUtc,
+    Value<int>? sequence,
+    Value<String?>? reason,
+    Value<String>? idempotencyKey,
+    Value<int>? revision,
+    Value<int>? rowid,
+  }) {
+    return RecurringCompletionEvidenceCompanion(
+      evidenceId: evidenceId ?? this.evidenceId,
+      dataEpoch: dataEpoch ?? this.dataEpoch,
+      operationId: operationId ?? this.operationId,
+      cycleId: cycleId ?? this.cycleId,
+      fragmentId: fragmentId ?? this.fragmentId,
+      amountMicros: amountMicros ?? this.amountMicros,
+      kind: kind ?? this.kind,
+      reversesEvidenceId: reversesEvidenceId ?? this.reversesEvidenceId,
+      recordedAtUtc: recordedAtUtc ?? this.recordedAtUtc,
+      effectiveAtUtc: effectiveAtUtc ?? this.effectiveAtUtc,
+      sequence: sequence ?? this.sequence,
+      reason: reason ?? this.reason,
+      idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+      revision: revision ?? this.revision,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (evidenceId.present) {
+      map['evidence_id'] = Variable<String>(evidenceId.value);
+    }
+    if (dataEpoch.present) {
+      map['data_epoch'] = Variable<String>(dataEpoch.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
+    }
+    if (cycleId.present) {
+      map['cycle_id'] = Variable<String>(cycleId.value);
+    }
+    if (fragmentId.present) {
+      map['fragment_id'] = Variable<String>(fragmentId.value);
+    }
+    if (amountMicros.present) {
+      map['amount_micros'] = Variable<int>(amountMicros.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (reversesEvidenceId.present) {
+      map['reverses_evidence_id'] = Variable<String>(reversesEvidenceId.value);
+    }
+    if (recordedAtUtc.present) {
+      map['recorded_at_utc'] = Variable<int>(recordedAtUtc.value);
+    }
+    if (effectiveAtUtc.present) {
+      map['effective_at_utc'] = Variable<int>(effectiveAtUtc.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (reason.present) {
+      map['reason'] = Variable<String>(reason.value);
+    }
+    if (idempotencyKey.present) {
+      map['idempotency_key'] = Variable<String>(idempotencyKey.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecurringCompletionEvidenceCompanion(')
+          ..write('evidenceId: $evidenceId, ')
+          ..write('dataEpoch: $dataEpoch, ')
+          ..write('operationId: $operationId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('fragmentId: $fragmentId, ')
+          ..write('amountMicros: $amountMicros, ')
+          ..write('kind: $kind, ')
+          ..write('reversesEvidenceId: $reversesEvidenceId, ')
+          ..write('recordedAtUtc: $recordedAtUtc, ')
+          ..write('effectiveAtUtc: $effectiveAtUtc, ')
+          ..write('sequence: $sequence, ')
+          ..write('reason: $reason, ')
+          ..write('idempotencyKey: $idempotencyKey, ')
+          ..write('revision: $revision, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PendingPlanPreviews extends Table
+    with TableInfo<PendingPlanPreviews, PendingPlanPreviewsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PendingPlanPreviews(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> previewId = GeneratedColumn<String>(
+    'preview_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'recurring-lookahead\'',
+    defaultValue: const CustomExpression('\'recurring-lookahead\''),
+  );
+  late final GeneratedColumn<String> basePlanVersionId =
+      GeneratedColumn<String>(
+        'base_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> inputHash = GeneratedColumn<String>(
+    'input_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> algorithmVersion = GeneratedColumn<String>(
+    'algorithm_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> windowStartUtc = GeneratedColumn<int>(
+    'window_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> windowEndUtc = GeneratedColumn<int>(
+    'window_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> expiresAtUtc = GeneratedColumn<int>(
+    'expires_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> summaryJson = GeneratedColumn<String>(
+    'summary_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<String> diagnosticsJson = GeneratedColumn<String>(
+    'diagnostics_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<String> proposalJson = GeneratedColumn<String>(
+    'proposal_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<String> proposalSha256 = GeneratedColumn<String>(
+    'proposal_sha256',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'\'',
+    defaultValue: const CustomExpression('\'\''),
+  );
+  late final GeneratedColumn<int> formatVersion = GeneratedColumn<int>(
+    'format_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    previewId,
+    kind,
+    operationId,
+    basePlanVersionId,
+    inputHash,
+    algorithmVersion,
+    windowStartUtc,
+    windowEndUtc,
+    timeZoneId,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    summaryJson,
+    diagnosticsJson,
+    revision,
+    proposalJson,
+    proposalSha256,
+    formatVersion,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pending_plan_previews';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {previewId};
+  @override
+  PendingPlanPreviewsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PendingPlanPreviewsData(
+      previewId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
+      )!,
+      basePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_plan_version_id'],
+      )!,
+      inputHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}input_hash'],
+      )!,
+      algorithmVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}algorithm_version'],
+      )!,
+      windowStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}window_start_utc'],
+      )!,
+      windowEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}window_end_utc'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      expiresAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expires_at_utc'],
+      )!,
+      summaryJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}summary_json'],
+      )!,
+      diagnosticsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}diagnostics_json'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      proposalJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}proposal_json'],
+      )!,
+      proposalSha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}proposal_sha256'],
+      )!,
+      formatVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}format_version'],
+      )!,
+    );
+  }
+
+  @override
+  PendingPlanPreviews createAlias(String alias) {
+    return PendingPlanPreviews(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(preview_id)',
+    'CHECK(window_end_utc > window_start_utc)',
+    'CHECK(revision >= 1)',
+    'CHECK(format_version >= 1)',
+    'CHECK(kind IN (\'recurringLookahead\', \'deferAdjustment\'))',
+    'CHECK(status IN (\'active\', \'superseded\', \'accepted\', \'rejected\', \'stale\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PendingPlanPreviewsData extends DataClass
+    implements Insertable<PendingPlanPreviewsData> {
+  final String previewId;
+  final String kind;
+  final String operationId;
+  final String basePlanVersionId;
+  final String inputHash;
+  final String algorithmVersion;
+  final int windowStartUtc;
+  final int windowEndUtc;
+  final String timeZoneId;
+  final String status;
+  final int createdAtUtc;
+  final int expiresAtUtc;
+  final String summaryJson;
+  final String diagnosticsJson;
+  final int revision;
+  final String proposalJson;
+  final String proposalSha256;
+  final int formatVersion;
+  const PendingPlanPreviewsData({
+    required this.previewId,
+    required this.kind,
+    required this.operationId,
+    required this.basePlanVersionId,
+    required this.inputHash,
+    required this.algorithmVersion,
+    required this.windowStartUtc,
+    required this.windowEndUtc,
+    required this.timeZoneId,
+    required this.status,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    required this.summaryJson,
+    required this.diagnosticsJson,
+    required this.revision,
+    required this.proposalJson,
+    required this.proposalSha256,
+    required this.formatVersion,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['preview_id'] = Variable<String>(previewId);
+    map['kind'] = Variable<String>(kind);
+    map['operation_id'] = Variable<String>(operationId);
+    map['base_plan_version_id'] = Variable<String>(basePlanVersionId);
+    map['input_hash'] = Variable<String>(inputHash);
+    map['algorithm_version'] = Variable<String>(algorithmVersion);
+    map['window_start_utc'] = Variable<int>(windowStartUtc);
+    map['window_end_utc'] = Variable<int>(windowEndUtc);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['status'] = Variable<String>(status);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['expires_at_utc'] = Variable<int>(expiresAtUtc);
+    map['summary_json'] = Variable<String>(summaryJson);
+    map['diagnostics_json'] = Variable<String>(diagnosticsJson);
+    map['revision'] = Variable<int>(revision);
+    map['proposal_json'] = Variable<String>(proposalJson);
+    map['proposal_sha256'] = Variable<String>(proposalSha256);
+    map['format_version'] = Variable<int>(formatVersion);
+    return map;
+  }
+
+  PendingPlanPreviewsCompanion toCompanion(bool nullToAbsent) {
+    return PendingPlanPreviewsCompanion(
+      previewId: Value(previewId),
+      kind: Value(kind),
+      operationId: Value(operationId),
+      basePlanVersionId: Value(basePlanVersionId),
+      inputHash: Value(inputHash),
+      algorithmVersion: Value(algorithmVersion),
+      windowStartUtc: Value(windowStartUtc),
+      windowEndUtc: Value(windowEndUtc),
+      timeZoneId: Value(timeZoneId),
+      status: Value(status),
+      createdAtUtc: Value(createdAtUtc),
+      expiresAtUtc: Value(expiresAtUtc),
+      summaryJson: Value(summaryJson),
+      diagnosticsJson: Value(diagnosticsJson),
+      revision: Value(revision),
+      proposalJson: Value(proposalJson),
+      proposalSha256: Value(proposalSha256),
+      formatVersion: Value(formatVersion),
+    );
+  }
+
+  factory PendingPlanPreviewsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PendingPlanPreviewsData(
+      previewId: serializer.fromJson<String>(json['previewId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      operationId: serializer.fromJson<String>(json['operationId']),
+      basePlanVersionId: serializer.fromJson<String>(json['basePlanVersionId']),
+      inputHash: serializer.fromJson<String>(json['inputHash']),
+      algorithmVersion: serializer.fromJson<String>(json['algorithmVersion']),
+      windowStartUtc: serializer.fromJson<int>(json['windowStartUtc']),
+      windowEndUtc: serializer.fromJson<int>(json['windowEndUtc']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      expiresAtUtc: serializer.fromJson<int>(json['expiresAtUtc']),
+      summaryJson: serializer.fromJson<String>(json['summaryJson']),
+      diagnosticsJson: serializer.fromJson<String>(json['diagnosticsJson']),
+      revision: serializer.fromJson<int>(json['revision']),
+      proposalJson: serializer.fromJson<String>(json['proposalJson']),
+      proposalSha256: serializer.fromJson<String>(json['proposalSha256']),
+      formatVersion: serializer.fromJson<int>(json['formatVersion']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'previewId': serializer.toJson<String>(previewId),
+      'kind': serializer.toJson<String>(kind),
+      'operationId': serializer.toJson<String>(operationId),
+      'basePlanVersionId': serializer.toJson<String>(basePlanVersionId),
+      'inputHash': serializer.toJson<String>(inputHash),
+      'algorithmVersion': serializer.toJson<String>(algorithmVersion),
+      'windowStartUtc': serializer.toJson<int>(windowStartUtc),
+      'windowEndUtc': serializer.toJson<int>(windowEndUtc),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'status': serializer.toJson<String>(status),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'expiresAtUtc': serializer.toJson<int>(expiresAtUtc),
+      'summaryJson': serializer.toJson<String>(summaryJson),
+      'diagnosticsJson': serializer.toJson<String>(diagnosticsJson),
+      'revision': serializer.toJson<int>(revision),
+      'proposalJson': serializer.toJson<String>(proposalJson),
+      'proposalSha256': serializer.toJson<String>(proposalSha256),
+      'formatVersion': serializer.toJson<int>(formatVersion),
+    };
+  }
+
+  PendingPlanPreviewsData copyWith({
+    String? previewId,
+    String? kind,
+    String? operationId,
+    String? basePlanVersionId,
+    String? inputHash,
+    String? algorithmVersion,
+    int? windowStartUtc,
+    int? windowEndUtc,
+    String? timeZoneId,
+    String? status,
+    int? createdAtUtc,
+    int? expiresAtUtc,
+    String? summaryJson,
+    String? diagnosticsJson,
+    int? revision,
+    String? proposalJson,
+    String? proposalSha256,
+    int? formatVersion,
+  }) => PendingPlanPreviewsData(
+    previewId: previewId ?? this.previewId,
+    kind: kind ?? this.kind,
+    operationId: operationId ?? this.operationId,
+    basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+    inputHash: inputHash ?? this.inputHash,
+    algorithmVersion: algorithmVersion ?? this.algorithmVersion,
+    windowStartUtc: windowStartUtc ?? this.windowStartUtc,
+    windowEndUtc: windowEndUtc ?? this.windowEndUtc,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    status: status ?? this.status,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+    summaryJson: summaryJson ?? this.summaryJson,
+    diagnosticsJson: diagnosticsJson ?? this.diagnosticsJson,
+    revision: revision ?? this.revision,
+    proposalJson: proposalJson ?? this.proposalJson,
+    proposalSha256: proposalSha256 ?? this.proposalSha256,
+    formatVersion: formatVersion ?? this.formatVersion,
+  );
+  PendingPlanPreviewsData copyWithCompanion(PendingPlanPreviewsCompanion data) {
+    return PendingPlanPreviewsData(
+      previewId: data.previewId.present ? data.previewId.value : this.previewId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
+      basePlanVersionId: data.basePlanVersionId.present
+          ? data.basePlanVersionId.value
+          : this.basePlanVersionId,
+      inputHash: data.inputHash.present ? data.inputHash.value : this.inputHash,
+      algorithmVersion: data.algorithmVersion.present
+          ? data.algorithmVersion.value
+          : this.algorithmVersion,
+      windowStartUtc: data.windowStartUtc.present
+          ? data.windowStartUtc.value
+          : this.windowStartUtc,
+      windowEndUtc: data.windowEndUtc.present
+          ? data.windowEndUtc.value
+          : this.windowEndUtc,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      status: data.status.present ? data.status.value : this.status,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      expiresAtUtc: data.expiresAtUtc.present
+          ? data.expiresAtUtc.value
+          : this.expiresAtUtc,
+      summaryJson: data.summaryJson.present
+          ? data.summaryJson.value
+          : this.summaryJson,
+      diagnosticsJson: data.diagnosticsJson.present
+          ? data.diagnosticsJson.value
+          : this.diagnosticsJson,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      proposalJson: data.proposalJson.present
+          ? data.proposalJson.value
+          : this.proposalJson,
+      proposalSha256: data.proposalSha256.present
+          ? data.proposalSha256.value
+          : this.proposalSha256,
+      formatVersion: data.formatVersion.present
+          ? data.formatVersion.value
+          : this.formatVersion,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingPlanPreviewsData(')
+          ..write('previewId: $previewId, ')
+          ..write('kind: $kind, ')
+          ..write('operationId: $operationId, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('inputHash: $inputHash, ')
+          ..write('algorithmVersion: $algorithmVersion, ')
+          ..write('windowStartUtc: $windowStartUtc, ')
+          ..write('windowEndUtc: $windowEndUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('summaryJson: $summaryJson, ')
+          ..write('diagnosticsJson: $diagnosticsJson, ')
+          ..write('revision: $revision, ')
+          ..write('proposalJson: $proposalJson, ')
+          ..write('proposalSha256: $proposalSha256, ')
+          ..write('formatVersion: $formatVersion')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    previewId,
+    kind,
+    operationId,
+    basePlanVersionId,
+    inputHash,
+    algorithmVersion,
+    windowStartUtc,
+    windowEndUtc,
+    timeZoneId,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    summaryJson,
+    diagnosticsJson,
+    revision,
+    proposalJson,
+    proposalSha256,
+    formatVersion,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PendingPlanPreviewsData &&
+          other.previewId == this.previewId &&
+          other.kind == this.kind &&
+          other.operationId == this.operationId &&
+          other.basePlanVersionId == this.basePlanVersionId &&
+          other.inputHash == this.inputHash &&
+          other.algorithmVersion == this.algorithmVersion &&
+          other.windowStartUtc == this.windowStartUtc &&
+          other.windowEndUtc == this.windowEndUtc &&
+          other.timeZoneId == this.timeZoneId &&
+          other.status == this.status &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.expiresAtUtc == this.expiresAtUtc &&
+          other.summaryJson == this.summaryJson &&
+          other.diagnosticsJson == this.diagnosticsJson &&
+          other.revision == this.revision &&
+          other.proposalJson == this.proposalJson &&
+          other.proposalSha256 == this.proposalSha256 &&
+          other.formatVersion == this.formatVersion);
+}
+
+class PendingPlanPreviewsCompanion
+    extends UpdateCompanion<PendingPlanPreviewsData> {
+  final Value<String> previewId;
+  final Value<String> kind;
+  final Value<String> operationId;
+  final Value<String> basePlanVersionId;
+  final Value<String> inputHash;
+  final Value<String> algorithmVersion;
+  final Value<int> windowStartUtc;
+  final Value<int> windowEndUtc;
+  final Value<String> timeZoneId;
+  final Value<String> status;
+  final Value<int> createdAtUtc;
+  final Value<int> expiresAtUtc;
+  final Value<String> summaryJson;
+  final Value<String> diagnosticsJson;
+  final Value<int> revision;
+  final Value<String> proposalJson;
+  final Value<String> proposalSha256;
+  final Value<int> formatVersion;
+  final Value<int> rowid;
+  const PendingPlanPreviewsCompanion({
+    this.previewId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.operationId = const Value.absent(),
+    this.basePlanVersionId = const Value.absent(),
+    this.inputHash = const Value.absent(),
+    this.algorithmVersion = const Value.absent(),
+    this.windowStartUtc = const Value.absent(),
+    this.windowEndUtc = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.expiresAtUtc = const Value.absent(),
+    this.summaryJson = const Value.absent(),
+    this.diagnosticsJson = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.proposalJson = const Value.absent(),
+    this.proposalSha256 = const Value.absent(),
+    this.formatVersion = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PendingPlanPreviewsCompanion.insert({
+    required String previewId,
+    required String kind,
+    this.operationId = const Value.absent(),
+    required String basePlanVersionId,
+    required String inputHash,
+    required String algorithmVersion,
+    required int windowStartUtc,
+    required int windowEndUtc,
+    required String timeZoneId,
+    required String status,
+    required int createdAtUtc,
+    required int expiresAtUtc,
+    this.summaryJson = const Value.absent(),
+    this.diagnosticsJson = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.proposalJson = const Value.absent(),
+    this.proposalSha256 = const Value.absent(),
+    this.formatVersion = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : previewId = Value(previewId),
+       kind = Value(kind),
+       basePlanVersionId = Value(basePlanVersionId),
+       inputHash = Value(inputHash),
+       algorithmVersion = Value(algorithmVersion),
+       windowStartUtc = Value(windowStartUtc),
+       windowEndUtc = Value(windowEndUtc),
+       timeZoneId = Value(timeZoneId),
+       status = Value(status),
+       createdAtUtc = Value(createdAtUtc),
+       expiresAtUtc = Value(expiresAtUtc);
+  static Insertable<PendingPlanPreviewsData> custom({
+    Expression<String>? previewId,
+    Expression<String>? kind,
+    Expression<String>? operationId,
+    Expression<String>? basePlanVersionId,
+    Expression<String>? inputHash,
+    Expression<String>? algorithmVersion,
+    Expression<int>? windowStartUtc,
+    Expression<int>? windowEndUtc,
+    Expression<String>? timeZoneId,
+    Expression<String>? status,
+    Expression<int>? createdAtUtc,
+    Expression<int>? expiresAtUtc,
+    Expression<String>? summaryJson,
+    Expression<String>? diagnosticsJson,
+    Expression<int>? revision,
+    Expression<String>? proposalJson,
+    Expression<String>? proposalSha256,
+    Expression<int>? formatVersion,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (previewId != null) 'preview_id': previewId,
+      if (kind != null) 'kind': kind,
+      if (operationId != null) 'operation_id': operationId,
+      if (basePlanVersionId != null) 'base_plan_version_id': basePlanVersionId,
+      if (inputHash != null) 'input_hash': inputHash,
+      if (algorithmVersion != null) 'algorithm_version': algorithmVersion,
+      if (windowStartUtc != null) 'window_start_utc': windowStartUtc,
+      if (windowEndUtc != null) 'window_end_utc': windowEndUtc,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (status != null) 'status': status,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (expiresAtUtc != null) 'expires_at_utc': expiresAtUtc,
+      if (summaryJson != null) 'summary_json': summaryJson,
+      if (diagnosticsJson != null) 'diagnostics_json': diagnosticsJson,
+      if (revision != null) 'revision': revision,
+      if (proposalJson != null) 'proposal_json': proposalJson,
+      if (proposalSha256 != null) 'proposal_sha256': proposalSha256,
+      if (formatVersion != null) 'format_version': formatVersion,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PendingPlanPreviewsCompanion copyWith({
+    Value<String>? previewId,
+    Value<String>? kind,
+    Value<String>? operationId,
+    Value<String>? basePlanVersionId,
+    Value<String>? inputHash,
+    Value<String>? algorithmVersion,
+    Value<int>? windowStartUtc,
+    Value<int>? windowEndUtc,
+    Value<String>? timeZoneId,
+    Value<String>? status,
+    Value<int>? createdAtUtc,
+    Value<int>? expiresAtUtc,
+    Value<String>? summaryJson,
+    Value<String>? diagnosticsJson,
+    Value<int>? revision,
+    Value<String>? proposalJson,
+    Value<String>? proposalSha256,
+    Value<int>? formatVersion,
+    Value<int>? rowid,
+  }) {
+    return PendingPlanPreviewsCompanion(
+      previewId: previewId ?? this.previewId,
+      kind: kind ?? this.kind,
+      operationId: operationId ?? this.operationId,
+      basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+      inputHash: inputHash ?? this.inputHash,
+      algorithmVersion: algorithmVersion ?? this.algorithmVersion,
+      windowStartUtc: windowStartUtc ?? this.windowStartUtc,
+      windowEndUtc: windowEndUtc ?? this.windowEndUtc,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      status: status ?? this.status,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+      summaryJson: summaryJson ?? this.summaryJson,
+      diagnosticsJson: diagnosticsJson ?? this.diagnosticsJson,
+      revision: revision ?? this.revision,
+      proposalJson: proposalJson ?? this.proposalJson,
+      proposalSha256: proposalSha256 ?? this.proposalSha256,
+      formatVersion: formatVersion ?? this.formatVersion,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (previewId.present) {
+      map['preview_id'] = Variable<String>(previewId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
+    }
+    if (basePlanVersionId.present) {
+      map['base_plan_version_id'] = Variable<String>(basePlanVersionId.value);
+    }
+    if (inputHash.present) {
+      map['input_hash'] = Variable<String>(inputHash.value);
+    }
+    if (algorithmVersion.present) {
+      map['algorithm_version'] = Variable<String>(algorithmVersion.value);
+    }
+    if (windowStartUtc.present) {
+      map['window_start_utc'] = Variable<int>(windowStartUtc.value);
+    }
+    if (windowEndUtc.present) {
+      map['window_end_utc'] = Variable<int>(windowEndUtc.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (expiresAtUtc.present) {
+      map['expires_at_utc'] = Variable<int>(expiresAtUtc.value);
+    }
+    if (summaryJson.present) {
+      map['summary_json'] = Variable<String>(summaryJson.value);
+    }
+    if (diagnosticsJson.present) {
+      map['diagnostics_json'] = Variable<String>(diagnosticsJson.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (proposalJson.present) {
+      map['proposal_json'] = Variable<String>(proposalJson.value);
+    }
+    if (proposalSha256.present) {
+      map['proposal_sha256'] = Variable<String>(proposalSha256.value);
+    }
+    if (formatVersion.present) {
+      map['format_version'] = Variable<int>(formatVersion.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingPlanPreviewsCompanion(')
+          ..write('previewId: $previewId, ')
+          ..write('kind: $kind, ')
+          ..write('operationId: $operationId, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('inputHash: $inputHash, ')
+          ..write('algorithmVersion: $algorithmVersion, ')
+          ..write('windowStartUtc: $windowStartUtc, ')
+          ..write('windowEndUtc: $windowEndUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('summaryJson: $summaryJson, ')
+          ..write('diagnosticsJson: $diagnosticsJson, ')
+          ..write('revision: $revision, ')
+          ..write('proposalJson: $proposalJson, ')
+          ..write('proposalSha256: $proposalSha256, ')
+          ..write('formatVersion: $formatVersion, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PendingPlanPreviewBlocks extends Table
+    with TableInfo<PendingPlanPreviewBlocks, PendingPlanPreviewBlocksData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PendingPlanPreviewBlocks(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> previewId = GeneratedColumn<String>(
+    'preview_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES pending_plan_previews(preview_id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<String> blockId = GeneratedColumn<String>(
+    'block_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> taskId = GeneratedColumn<String>(
+    'task_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> cycleId = GeneratedColumn<String>(
+    'cycle_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> startUtc = GeneratedColumn<int>(
+    'start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> endUtc = GeneratedColumn<int>(
+    'end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> minutes = GeneratedColumn<int>(
+    'minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> explanationCode = GeneratedColumn<String>(
+    'explanation_code',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    previewId,
+    blockId,
+    taskId,
+    cycleId,
+    title,
+    startUtc,
+    endUtc,
+    minutes,
+    explanationCode,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pending_plan_preview_blocks';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {previewId, blockId};
+  @override
+  PendingPlanPreviewBlocksData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PendingPlanPreviewBlocksData(
+      previewId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_id'],
+      )!,
+      blockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}block_id'],
+      )!,
+      taskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}task_id'],
+      ),
+      cycleId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cycle_id'],
+      ),
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      startUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_utc'],
+      )!,
+      endUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_utc'],
+      )!,
+      minutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}minutes'],
+      )!,
+      explanationCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}explanation_code'],
+      )!,
+    );
+  }
+
+  @override
+  PendingPlanPreviewBlocks createAlias(String alias) {
+    return PendingPlanPreviewBlocks(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(preview_id, block_id)',
+    'CHECK(end_utc > start_utc)',
+    'CHECK(minutes > 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PendingPlanPreviewBlocksData extends DataClass
+    implements Insertable<PendingPlanPreviewBlocksData> {
+  final String previewId;
+  final String blockId;
+  final String? taskId;
+  final String? cycleId;
+  final String title;
+  final int startUtc;
+  final int endUtc;
+  final int minutes;
+  final String explanationCode;
+  const PendingPlanPreviewBlocksData({
+    required this.previewId,
+    required this.blockId,
+    this.taskId,
+    this.cycleId,
+    required this.title,
+    required this.startUtc,
+    required this.endUtc,
+    required this.minutes,
+    required this.explanationCode,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['preview_id'] = Variable<String>(previewId);
+    map['block_id'] = Variable<String>(blockId);
+    if (!nullToAbsent || taskId != null) {
+      map['task_id'] = Variable<String>(taskId);
+    }
+    if (!nullToAbsent || cycleId != null) {
+      map['cycle_id'] = Variable<String>(cycleId);
+    }
+    map['title'] = Variable<String>(title);
+    map['start_utc'] = Variable<int>(startUtc);
+    map['end_utc'] = Variable<int>(endUtc);
+    map['minutes'] = Variable<int>(minutes);
+    map['explanation_code'] = Variable<String>(explanationCode);
+    return map;
+  }
+
+  PendingPlanPreviewBlocksCompanion toCompanion(bool nullToAbsent) {
+    return PendingPlanPreviewBlocksCompanion(
+      previewId: Value(previewId),
+      blockId: Value(blockId),
+      taskId: taskId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(taskId),
+      cycleId: cycleId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cycleId),
+      title: Value(title),
+      startUtc: Value(startUtc),
+      endUtc: Value(endUtc),
+      minutes: Value(minutes),
+      explanationCode: Value(explanationCode),
+    );
+  }
+
+  factory PendingPlanPreviewBlocksData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PendingPlanPreviewBlocksData(
+      previewId: serializer.fromJson<String>(json['previewId']),
+      blockId: serializer.fromJson<String>(json['blockId']),
+      taskId: serializer.fromJson<String?>(json['taskId']),
+      cycleId: serializer.fromJson<String?>(json['cycleId']),
+      title: serializer.fromJson<String>(json['title']),
+      startUtc: serializer.fromJson<int>(json['startUtc']),
+      endUtc: serializer.fromJson<int>(json['endUtc']),
+      minutes: serializer.fromJson<int>(json['minutes']),
+      explanationCode: serializer.fromJson<String>(json['explanationCode']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'previewId': serializer.toJson<String>(previewId),
+      'blockId': serializer.toJson<String>(blockId),
+      'taskId': serializer.toJson<String?>(taskId),
+      'cycleId': serializer.toJson<String?>(cycleId),
+      'title': serializer.toJson<String>(title),
+      'startUtc': serializer.toJson<int>(startUtc),
+      'endUtc': serializer.toJson<int>(endUtc),
+      'minutes': serializer.toJson<int>(minutes),
+      'explanationCode': serializer.toJson<String>(explanationCode),
+    };
+  }
+
+  PendingPlanPreviewBlocksData copyWith({
+    String? previewId,
+    String? blockId,
+    Value<String?> taskId = const Value.absent(),
+    Value<String?> cycleId = const Value.absent(),
+    String? title,
+    int? startUtc,
+    int? endUtc,
+    int? minutes,
+    String? explanationCode,
+  }) => PendingPlanPreviewBlocksData(
+    previewId: previewId ?? this.previewId,
+    blockId: blockId ?? this.blockId,
+    taskId: taskId.present ? taskId.value : this.taskId,
+    cycleId: cycleId.present ? cycleId.value : this.cycleId,
+    title: title ?? this.title,
+    startUtc: startUtc ?? this.startUtc,
+    endUtc: endUtc ?? this.endUtc,
+    minutes: minutes ?? this.minutes,
+    explanationCode: explanationCode ?? this.explanationCode,
+  );
+  PendingPlanPreviewBlocksData copyWithCompanion(
+    PendingPlanPreviewBlocksCompanion data,
+  ) {
+    return PendingPlanPreviewBlocksData(
+      previewId: data.previewId.present ? data.previewId.value : this.previewId,
+      blockId: data.blockId.present ? data.blockId.value : this.blockId,
+      taskId: data.taskId.present ? data.taskId.value : this.taskId,
+      cycleId: data.cycleId.present ? data.cycleId.value : this.cycleId,
+      title: data.title.present ? data.title.value : this.title,
+      startUtc: data.startUtc.present ? data.startUtc.value : this.startUtc,
+      endUtc: data.endUtc.present ? data.endUtc.value : this.endUtc,
+      minutes: data.minutes.present ? data.minutes.value : this.minutes,
+      explanationCode: data.explanationCode.present
+          ? data.explanationCode.value
+          : this.explanationCode,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingPlanPreviewBlocksData(')
+          ..write('previewId: $previewId, ')
+          ..write('blockId: $blockId, ')
+          ..write('taskId: $taskId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('title: $title, ')
+          ..write('startUtc: $startUtc, ')
+          ..write('endUtc: $endUtc, ')
+          ..write('minutes: $minutes, ')
+          ..write('explanationCode: $explanationCode')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    previewId,
+    blockId,
+    taskId,
+    cycleId,
+    title,
+    startUtc,
+    endUtc,
+    minutes,
+    explanationCode,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PendingPlanPreviewBlocksData &&
+          other.previewId == this.previewId &&
+          other.blockId == this.blockId &&
+          other.taskId == this.taskId &&
+          other.cycleId == this.cycleId &&
+          other.title == this.title &&
+          other.startUtc == this.startUtc &&
+          other.endUtc == this.endUtc &&
+          other.minutes == this.minutes &&
+          other.explanationCode == this.explanationCode);
+}
+
+class PendingPlanPreviewBlocksCompanion
+    extends UpdateCompanion<PendingPlanPreviewBlocksData> {
+  final Value<String> previewId;
+  final Value<String> blockId;
+  final Value<String?> taskId;
+  final Value<String?> cycleId;
+  final Value<String> title;
+  final Value<int> startUtc;
+  final Value<int> endUtc;
+  final Value<int> minutes;
+  final Value<String> explanationCode;
+  final Value<int> rowid;
+  const PendingPlanPreviewBlocksCompanion({
+    this.previewId = const Value.absent(),
+    this.blockId = const Value.absent(),
+    this.taskId = const Value.absent(),
+    this.cycleId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.startUtc = const Value.absent(),
+    this.endUtc = const Value.absent(),
+    this.minutes = const Value.absent(),
+    this.explanationCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PendingPlanPreviewBlocksCompanion.insert({
+    required String previewId,
+    required String blockId,
+    this.taskId = const Value.absent(),
+    this.cycleId = const Value.absent(),
+    required String title,
+    required int startUtc,
+    required int endUtc,
+    required int minutes,
+    required String explanationCode,
+    this.rowid = const Value.absent(),
+  }) : previewId = Value(previewId),
+       blockId = Value(blockId),
+       title = Value(title),
+       startUtc = Value(startUtc),
+       endUtc = Value(endUtc),
+       minutes = Value(minutes),
+       explanationCode = Value(explanationCode);
+  static Insertable<PendingPlanPreviewBlocksData> custom({
+    Expression<String>? previewId,
+    Expression<String>? blockId,
+    Expression<String>? taskId,
+    Expression<String>? cycleId,
+    Expression<String>? title,
+    Expression<int>? startUtc,
+    Expression<int>? endUtc,
+    Expression<int>? minutes,
+    Expression<String>? explanationCode,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (previewId != null) 'preview_id': previewId,
+      if (blockId != null) 'block_id': blockId,
+      if (taskId != null) 'task_id': taskId,
+      if (cycleId != null) 'cycle_id': cycleId,
+      if (title != null) 'title': title,
+      if (startUtc != null) 'start_utc': startUtc,
+      if (endUtc != null) 'end_utc': endUtc,
+      if (minutes != null) 'minutes': minutes,
+      if (explanationCode != null) 'explanation_code': explanationCode,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PendingPlanPreviewBlocksCompanion copyWith({
+    Value<String>? previewId,
+    Value<String>? blockId,
+    Value<String?>? taskId,
+    Value<String?>? cycleId,
+    Value<String>? title,
+    Value<int>? startUtc,
+    Value<int>? endUtc,
+    Value<int>? minutes,
+    Value<String>? explanationCode,
+    Value<int>? rowid,
+  }) {
+    return PendingPlanPreviewBlocksCompanion(
+      previewId: previewId ?? this.previewId,
+      blockId: blockId ?? this.blockId,
+      taskId: taskId ?? this.taskId,
+      cycleId: cycleId ?? this.cycleId,
+      title: title ?? this.title,
+      startUtc: startUtc ?? this.startUtc,
+      endUtc: endUtc ?? this.endUtc,
+      minutes: minutes ?? this.minutes,
+      explanationCode: explanationCode ?? this.explanationCode,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (previewId.present) {
+      map['preview_id'] = Variable<String>(previewId.value);
+    }
+    if (blockId.present) {
+      map['block_id'] = Variable<String>(blockId.value);
+    }
+    if (taskId.present) {
+      map['task_id'] = Variable<String>(taskId.value);
+    }
+    if (cycleId.present) {
+      map['cycle_id'] = Variable<String>(cycleId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (startUtc.present) {
+      map['start_utc'] = Variable<int>(startUtc.value);
+    }
+    if (endUtc.present) {
+      map['end_utc'] = Variable<int>(endUtc.value);
+    }
+    if (minutes.present) {
+      map['minutes'] = Variable<int>(minutes.value);
+    }
+    if (explanationCode.present) {
+      map['explanation_code'] = Variable<String>(explanationCode.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingPlanPreviewBlocksCompanion(')
+          ..write('previewId: $previewId, ')
+          ..write('blockId: $blockId, ')
+          ..write('taskId: $taskId, ')
+          ..write('cycleId: $cycleId, ')
+          ..write('title: $title, ')
+          ..write('startUtc: $startUtc, ')
+          ..write('endUtc: $endUtc, ')
+          ..write('minutes: $minutes, ')
+          ..write('explanationCode: $explanationCode, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustments extends Table
+    with TableInfo<PlanAdjustments, PlanAdjustmentsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustments(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetBlockId = GeneratedColumn<String>(
+    'target_block_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetTaskId = GeneratedColumn<String>(
+    'target_task_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> targetTitleSnapshot =
+      GeneratedColumn<String>(
+        'target_title_snapshot',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> basePlanVersionId =
+      GeneratedColumn<String>(
+        'base_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> sourceStartUtc = GeneratedColumn<int>(
+    'source_start_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> sourceEndUtc = GeneratedColumn<int>(
+    'source_end_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> notBeforeUtc = GeneratedColumn<int>(
+    'not_before_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> timeZoneId = GeneratedColumn<String>(
+    'time_zone_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> requestedAmount = GeneratedColumn<int>(
+    'requested_amount',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> requestedUnit = GeneratedColumn<String>(
+    'requested_unit',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> expiresAtUtc = GeneratedColumn<int>(
+    'expires_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 1',
+    defaultValue: const CustomExpression('1'),
+  );
+  late final GeneratedColumn<String> targetSiblingBlockIdsJson =
+      GeneratedColumn<String>(
+        'target_sibling_block_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NOT NULL DEFAULT \'[]\'',
+        defaultValue: const CustomExpression('\'[]\''),
+      );
+  late final GeneratedColumn<String> previewId = GeneratedColumn<String>(
+    'preview_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> appliedPlanVersionId =
+      GeneratedColumn<String>(
+        'applied_plan_version_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints: 'NULL',
+      );
+  late final GeneratedColumn<String> failureCode = GeneratedColumn<String>(
+    'failure_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    adjustmentId,
+    kind,
+    targetBlockId,
+    targetTaskId,
+    targetTitleSnapshot,
+    basePlanVersionId,
+    sourceStartUtc,
+    sourceEndUtc,
+    notBeforeUtc,
+    timeZoneId,
+    requestedAmount,
+    requestedUnit,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    revision,
+    targetSiblingBlockIdsJson,
+    previewId,
+    appliedPlanVersionId,
+    failureCode,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustments';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {adjustmentId};
+  @override
+  PlanAdjustmentsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentsData(
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      targetBlockId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_block_id'],
+      )!,
+      targetTaskId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_task_id'],
+      )!,
+      targetTitleSnapshot: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_title_snapshot'],
+      )!,
+      basePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_plan_version_id'],
+      )!,
+      sourceStartUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_start_utc'],
+      )!,
+      sourceEndUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_end_utc'],
+      )!,
+      notBeforeUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}not_before_utc'],
+      )!,
+      timeZoneId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time_zone_id'],
+      )!,
+      requestedAmount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}requested_amount'],
+      )!,
+      requestedUnit: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}requested_unit'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      expiresAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expires_at_utc'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      targetSiblingBlockIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_sibling_block_ids_json'],
+      )!,
+      previewId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_id'],
+      ),
+      appliedPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_plan_version_id'],
+      ),
+      failureCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}failure_code'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustments createAlias(String alias) {
+    return PlanAdjustments(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(adjustment_id)',
+    'CHECK(source_end_utc > source_start_utc)',
+    'CHECK(not_before_utc > source_start_utc)',
+    'CHECK(expires_at_utc > created_at_utc)',
+    'CHECK(requested_amount > 0)',
+    'CHECK(revision >= 1)',
+    'CHECK(kind IN (\'defer\'))',
+    'CHECK(requested_unit IN (\'minutes\', \'hours\', \'days\'))',
+    'CHECK(status IN (\'active\', \'generating\', \'previewReady\', \'applying\', \'applied\', \'cancelled\', \'failed\', \'stale\', \'expired\'))',
+    'CHECK(failure_code IS NULL OR failure_code IN (\'targetMissing\', \'targetChanged\', \'targetIneligible\', \'basePlanChanged\', \'previewExpired\', \'tokenMismatch\', \'noLegalSlot\', \'deadlineExceeded\', \'disallowedWeekday\', \'taskDailyLimitReached\', \'globalDailyLimitReached\', \'requiredBreakUnavailable\', \'fixedOrProtectedConflict\', \'searchBudgetExhausted\', \'invariantViolation\', \'fulfilmentMissing\', \'fulfilmentDurationMismatch\', \'concurrentModification\'))',
+    'CHECK((status <> \'previewReady\')OR preview_id IS NOT NULL)',
+    'CHECK((status <> \'applied\')OR applied_plan_version_id IS NOT NULL)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentsData extends DataClass
+    implements Insertable<PlanAdjustmentsData> {
+  final String adjustmentId;
+  final String kind;
+  final String targetBlockId;
+  final String targetTaskId;
+  final String targetTitleSnapshot;
+  final String basePlanVersionId;
+  final int sourceStartUtc;
+  final int sourceEndUtc;
+  final int notBeforeUtc;
+  final String timeZoneId;
+  final int requestedAmount;
+  final String requestedUnit;
+  final String status;
+  final int createdAtUtc;
+  final int expiresAtUtc;
+  final int revision;
+  final String targetSiblingBlockIdsJson;
+  final String? previewId;
+  final String? appliedPlanVersionId;
+  final String? failureCode;
+  const PlanAdjustmentsData({
+    required this.adjustmentId,
+    required this.kind,
+    required this.targetBlockId,
+    required this.targetTaskId,
+    required this.targetTitleSnapshot,
+    required this.basePlanVersionId,
+    required this.sourceStartUtc,
+    required this.sourceEndUtc,
+    required this.notBeforeUtc,
+    required this.timeZoneId,
+    required this.requestedAmount,
+    required this.requestedUnit,
+    required this.status,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    required this.revision,
+    required this.targetSiblingBlockIdsJson,
+    this.previewId,
+    this.appliedPlanVersionId,
+    this.failureCode,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['kind'] = Variable<String>(kind);
+    map['target_block_id'] = Variable<String>(targetBlockId);
+    map['target_task_id'] = Variable<String>(targetTaskId);
+    map['target_title_snapshot'] = Variable<String>(targetTitleSnapshot);
+    map['base_plan_version_id'] = Variable<String>(basePlanVersionId);
+    map['source_start_utc'] = Variable<int>(sourceStartUtc);
+    map['source_end_utc'] = Variable<int>(sourceEndUtc);
+    map['not_before_utc'] = Variable<int>(notBeforeUtc);
+    map['time_zone_id'] = Variable<String>(timeZoneId);
+    map['requested_amount'] = Variable<int>(requestedAmount);
+    map['requested_unit'] = Variable<String>(requestedUnit);
+    map['status'] = Variable<String>(status);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    map['expires_at_utc'] = Variable<int>(expiresAtUtc);
+    map['revision'] = Variable<int>(revision);
+    map['target_sibling_block_ids_json'] = Variable<String>(
+      targetSiblingBlockIdsJson,
+    );
+    if (!nullToAbsent || previewId != null) {
+      map['preview_id'] = Variable<String>(previewId);
+    }
+    if (!nullToAbsent || appliedPlanVersionId != null) {
+      map['applied_plan_version_id'] = Variable<String>(appliedPlanVersionId);
+    }
+    if (!nullToAbsent || failureCode != null) {
+      map['failure_code'] = Variable<String>(failureCode);
+    }
+    return map;
+  }
+
+  PlanAdjustmentsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentsCompanion(
+      adjustmentId: Value(adjustmentId),
+      kind: Value(kind),
+      targetBlockId: Value(targetBlockId),
+      targetTaskId: Value(targetTaskId),
+      targetTitleSnapshot: Value(targetTitleSnapshot),
+      basePlanVersionId: Value(basePlanVersionId),
+      sourceStartUtc: Value(sourceStartUtc),
+      sourceEndUtc: Value(sourceEndUtc),
+      notBeforeUtc: Value(notBeforeUtc),
+      timeZoneId: Value(timeZoneId),
+      requestedAmount: Value(requestedAmount),
+      requestedUnit: Value(requestedUnit),
+      status: Value(status),
+      createdAtUtc: Value(createdAtUtc),
+      expiresAtUtc: Value(expiresAtUtc),
+      revision: Value(revision),
+      targetSiblingBlockIdsJson: Value(targetSiblingBlockIdsJson),
+      previewId: previewId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previewId),
+      appliedPlanVersionId: appliedPlanVersionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(appliedPlanVersionId),
+      failureCode: failureCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(failureCode),
+    );
+  }
+
+  factory PlanAdjustmentsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentsData(
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      targetBlockId: serializer.fromJson<String>(json['targetBlockId']),
+      targetTaskId: serializer.fromJson<String>(json['targetTaskId']),
+      targetTitleSnapshot: serializer.fromJson<String>(
+        json['targetTitleSnapshot'],
+      ),
+      basePlanVersionId: serializer.fromJson<String>(json['basePlanVersionId']),
+      sourceStartUtc: serializer.fromJson<int>(json['sourceStartUtc']),
+      sourceEndUtc: serializer.fromJson<int>(json['sourceEndUtc']),
+      notBeforeUtc: serializer.fromJson<int>(json['notBeforeUtc']),
+      timeZoneId: serializer.fromJson<String>(json['timeZoneId']),
+      requestedAmount: serializer.fromJson<int>(json['requestedAmount']),
+      requestedUnit: serializer.fromJson<String>(json['requestedUnit']),
+      status: serializer.fromJson<String>(json['status']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      expiresAtUtc: serializer.fromJson<int>(json['expiresAtUtc']),
+      revision: serializer.fromJson<int>(json['revision']),
+      targetSiblingBlockIdsJson: serializer.fromJson<String>(
+        json['targetSiblingBlockIdsJson'],
+      ),
+      previewId: serializer.fromJson<String?>(json['previewId']),
+      appliedPlanVersionId: serializer.fromJson<String?>(
+        json['appliedPlanVersionId'],
+      ),
+      failureCode: serializer.fromJson<String?>(json['failureCode']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'kind': serializer.toJson<String>(kind),
+      'targetBlockId': serializer.toJson<String>(targetBlockId),
+      'targetTaskId': serializer.toJson<String>(targetTaskId),
+      'targetTitleSnapshot': serializer.toJson<String>(targetTitleSnapshot),
+      'basePlanVersionId': serializer.toJson<String>(basePlanVersionId),
+      'sourceStartUtc': serializer.toJson<int>(sourceStartUtc),
+      'sourceEndUtc': serializer.toJson<int>(sourceEndUtc),
+      'notBeforeUtc': serializer.toJson<int>(notBeforeUtc),
+      'timeZoneId': serializer.toJson<String>(timeZoneId),
+      'requestedAmount': serializer.toJson<int>(requestedAmount),
+      'requestedUnit': serializer.toJson<String>(requestedUnit),
+      'status': serializer.toJson<String>(status),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'expiresAtUtc': serializer.toJson<int>(expiresAtUtc),
+      'revision': serializer.toJson<int>(revision),
+      'targetSiblingBlockIdsJson': serializer.toJson<String>(
+        targetSiblingBlockIdsJson,
+      ),
+      'previewId': serializer.toJson<String?>(previewId),
+      'appliedPlanVersionId': serializer.toJson<String?>(appliedPlanVersionId),
+      'failureCode': serializer.toJson<String?>(failureCode),
+    };
+  }
+
+  PlanAdjustmentsData copyWith({
+    String? adjustmentId,
+    String? kind,
+    String? targetBlockId,
+    String? targetTaskId,
+    String? targetTitleSnapshot,
+    String? basePlanVersionId,
+    int? sourceStartUtc,
+    int? sourceEndUtc,
+    int? notBeforeUtc,
+    String? timeZoneId,
+    int? requestedAmount,
+    String? requestedUnit,
+    String? status,
+    int? createdAtUtc,
+    int? expiresAtUtc,
+    int? revision,
+    String? targetSiblingBlockIdsJson,
+    Value<String?> previewId = const Value.absent(),
+    Value<String?> appliedPlanVersionId = const Value.absent(),
+    Value<String?> failureCode = const Value.absent(),
+  }) => PlanAdjustmentsData(
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    kind: kind ?? this.kind,
+    targetBlockId: targetBlockId ?? this.targetBlockId,
+    targetTaskId: targetTaskId ?? this.targetTaskId,
+    targetTitleSnapshot: targetTitleSnapshot ?? this.targetTitleSnapshot,
+    basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+    sourceStartUtc: sourceStartUtc ?? this.sourceStartUtc,
+    sourceEndUtc: sourceEndUtc ?? this.sourceEndUtc,
+    notBeforeUtc: notBeforeUtc ?? this.notBeforeUtc,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    requestedAmount: requestedAmount ?? this.requestedAmount,
+    requestedUnit: requestedUnit ?? this.requestedUnit,
+    status: status ?? this.status,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+    revision: revision ?? this.revision,
+    targetSiblingBlockIdsJson:
+        targetSiblingBlockIdsJson ?? this.targetSiblingBlockIdsJson,
+    previewId: previewId.present ? previewId.value : this.previewId,
+    appliedPlanVersionId: appliedPlanVersionId.present
+        ? appliedPlanVersionId.value
+        : this.appliedPlanVersionId,
+    failureCode: failureCode.present ? failureCode.value : this.failureCode,
+  );
+  PlanAdjustmentsData copyWithCompanion(PlanAdjustmentsCompanion data) {
+    return PlanAdjustmentsData(
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      targetBlockId: data.targetBlockId.present
+          ? data.targetBlockId.value
+          : this.targetBlockId,
+      targetTaskId: data.targetTaskId.present
+          ? data.targetTaskId.value
+          : this.targetTaskId,
+      targetTitleSnapshot: data.targetTitleSnapshot.present
+          ? data.targetTitleSnapshot.value
+          : this.targetTitleSnapshot,
+      basePlanVersionId: data.basePlanVersionId.present
+          ? data.basePlanVersionId.value
+          : this.basePlanVersionId,
+      sourceStartUtc: data.sourceStartUtc.present
+          ? data.sourceStartUtc.value
+          : this.sourceStartUtc,
+      sourceEndUtc: data.sourceEndUtc.present
+          ? data.sourceEndUtc.value
+          : this.sourceEndUtc,
+      notBeforeUtc: data.notBeforeUtc.present
+          ? data.notBeforeUtc.value
+          : this.notBeforeUtc,
+      timeZoneId: data.timeZoneId.present
+          ? data.timeZoneId.value
+          : this.timeZoneId,
+      requestedAmount: data.requestedAmount.present
+          ? data.requestedAmount.value
+          : this.requestedAmount,
+      requestedUnit: data.requestedUnit.present
+          ? data.requestedUnit.value
+          : this.requestedUnit,
+      status: data.status.present ? data.status.value : this.status,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      expiresAtUtc: data.expiresAtUtc.present
+          ? data.expiresAtUtc.value
+          : this.expiresAtUtc,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      targetSiblingBlockIdsJson: data.targetSiblingBlockIdsJson.present
+          ? data.targetSiblingBlockIdsJson.value
+          : this.targetSiblingBlockIdsJson,
+      previewId: data.previewId.present ? data.previewId.value : this.previewId,
+      appliedPlanVersionId: data.appliedPlanVersionId.present
+          ? data.appliedPlanVersionId.value
+          : this.appliedPlanVersionId,
+      failureCode: data.failureCode.present
+          ? data.failureCode.value
+          : this.failureCode,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentsData(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('kind: $kind, ')
+          ..write('targetBlockId: $targetBlockId, ')
+          ..write('targetTaskId: $targetTaskId, ')
+          ..write('targetTitleSnapshot: $targetTitleSnapshot, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('sourceStartUtc: $sourceStartUtc, ')
+          ..write('sourceEndUtc: $sourceEndUtc, ')
+          ..write('notBeforeUtc: $notBeforeUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('requestedAmount: $requestedAmount, ')
+          ..write('requestedUnit: $requestedUnit, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('targetSiblingBlockIdsJson: $targetSiblingBlockIdsJson, ')
+          ..write('previewId: $previewId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('failureCode: $failureCode')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    adjustmentId,
+    kind,
+    targetBlockId,
+    targetTaskId,
+    targetTitleSnapshot,
+    basePlanVersionId,
+    sourceStartUtc,
+    sourceEndUtc,
+    notBeforeUtc,
+    timeZoneId,
+    requestedAmount,
+    requestedUnit,
+    status,
+    createdAtUtc,
+    expiresAtUtc,
+    revision,
+    targetSiblingBlockIdsJson,
+    previewId,
+    appliedPlanVersionId,
+    failureCode,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentsData &&
+          other.adjustmentId == this.adjustmentId &&
+          other.kind == this.kind &&
+          other.targetBlockId == this.targetBlockId &&
+          other.targetTaskId == this.targetTaskId &&
+          other.targetTitleSnapshot == this.targetTitleSnapshot &&
+          other.basePlanVersionId == this.basePlanVersionId &&
+          other.sourceStartUtc == this.sourceStartUtc &&
+          other.sourceEndUtc == this.sourceEndUtc &&
+          other.notBeforeUtc == this.notBeforeUtc &&
+          other.timeZoneId == this.timeZoneId &&
+          other.requestedAmount == this.requestedAmount &&
+          other.requestedUnit == this.requestedUnit &&
+          other.status == this.status &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.expiresAtUtc == this.expiresAtUtc &&
+          other.revision == this.revision &&
+          other.targetSiblingBlockIdsJson == this.targetSiblingBlockIdsJson &&
+          other.previewId == this.previewId &&
+          other.appliedPlanVersionId == this.appliedPlanVersionId &&
+          other.failureCode == this.failureCode);
+}
+
+class PlanAdjustmentsCompanion extends UpdateCompanion<PlanAdjustmentsData> {
+  final Value<String> adjustmentId;
+  final Value<String> kind;
+  final Value<String> targetBlockId;
+  final Value<String> targetTaskId;
+  final Value<String> targetTitleSnapshot;
+  final Value<String> basePlanVersionId;
+  final Value<int> sourceStartUtc;
+  final Value<int> sourceEndUtc;
+  final Value<int> notBeforeUtc;
+  final Value<String> timeZoneId;
+  final Value<int> requestedAmount;
+  final Value<String> requestedUnit;
+  final Value<String> status;
+  final Value<int> createdAtUtc;
+  final Value<int> expiresAtUtc;
+  final Value<int> revision;
+  final Value<String> targetSiblingBlockIdsJson;
+  final Value<String?> previewId;
+  final Value<String?> appliedPlanVersionId;
+  final Value<String?> failureCode;
+  final Value<int> rowid;
+  const PlanAdjustmentsCompanion({
+    this.adjustmentId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.targetBlockId = const Value.absent(),
+    this.targetTaskId = const Value.absent(),
+    this.targetTitleSnapshot = const Value.absent(),
+    this.basePlanVersionId = const Value.absent(),
+    this.sourceStartUtc = const Value.absent(),
+    this.sourceEndUtc = const Value.absent(),
+    this.notBeforeUtc = const Value.absent(),
+    this.timeZoneId = const Value.absent(),
+    this.requestedAmount = const Value.absent(),
+    this.requestedUnit = const Value.absent(),
+    this.status = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.expiresAtUtc = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.targetSiblingBlockIdsJson = const Value.absent(),
+    this.previewId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.failureCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentsCompanion.insert({
+    required String adjustmentId,
+    required String kind,
+    required String targetBlockId,
+    required String targetTaskId,
+    required String targetTitleSnapshot,
+    required String basePlanVersionId,
+    required int sourceStartUtc,
+    required int sourceEndUtc,
+    required int notBeforeUtc,
+    required String timeZoneId,
+    required int requestedAmount,
+    required String requestedUnit,
+    required String status,
+    required int createdAtUtc,
+    required int expiresAtUtc,
+    this.revision = const Value.absent(),
+    this.targetSiblingBlockIdsJson = const Value.absent(),
+    this.previewId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.failureCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : adjustmentId = Value(adjustmentId),
+       kind = Value(kind),
+       targetBlockId = Value(targetBlockId),
+       targetTaskId = Value(targetTaskId),
+       targetTitleSnapshot = Value(targetTitleSnapshot),
+       basePlanVersionId = Value(basePlanVersionId),
+       sourceStartUtc = Value(sourceStartUtc),
+       sourceEndUtc = Value(sourceEndUtc),
+       notBeforeUtc = Value(notBeforeUtc),
+       timeZoneId = Value(timeZoneId),
+       requestedAmount = Value(requestedAmount),
+       requestedUnit = Value(requestedUnit),
+       status = Value(status),
+       createdAtUtc = Value(createdAtUtc),
+       expiresAtUtc = Value(expiresAtUtc);
+  static Insertable<PlanAdjustmentsData> custom({
+    Expression<String>? adjustmentId,
+    Expression<String>? kind,
+    Expression<String>? targetBlockId,
+    Expression<String>? targetTaskId,
+    Expression<String>? targetTitleSnapshot,
+    Expression<String>? basePlanVersionId,
+    Expression<int>? sourceStartUtc,
+    Expression<int>? sourceEndUtc,
+    Expression<int>? notBeforeUtc,
+    Expression<String>? timeZoneId,
+    Expression<int>? requestedAmount,
+    Expression<String>? requestedUnit,
+    Expression<String>? status,
+    Expression<int>? createdAtUtc,
+    Expression<int>? expiresAtUtc,
+    Expression<int>? revision,
+    Expression<String>? targetSiblingBlockIdsJson,
+    Expression<String>? previewId,
+    Expression<String>? appliedPlanVersionId,
+    Expression<String>? failureCode,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (kind != null) 'kind': kind,
+      if (targetBlockId != null) 'target_block_id': targetBlockId,
+      if (targetTaskId != null) 'target_task_id': targetTaskId,
+      if (targetTitleSnapshot != null)
+        'target_title_snapshot': targetTitleSnapshot,
+      if (basePlanVersionId != null) 'base_plan_version_id': basePlanVersionId,
+      if (sourceStartUtc != null) 'source_start_utc': sourceStartUtc,
+      if (sourceEndUtc != null) 'source_end_utc': sourceEndUtc,
+      if (notBeforeUtc != null) 'not_before_utc': notBeforeUtc,
+      if (timeZoneId != null) 'time_zone_id': timeZoneId,
+      if (requestedAmount != null) 'requested_amount': requestedAmount,
+      if (requestedUnit != null) 'requested_unit': requestedUnit,
+      if (status != null) 'status': status,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (expiresAtUtc != null) 'expires_at_utc': expiresAtUtc,
+      if (revision != null) 'revision': revision,
+      if (targetSiblingBlockIdsJson != null)
+        'target_sibling_block_ids_json': targetSiblingBlockIdsJson,
+      if (previewId != null) 'preview_id': previewId,
+      if (appliedPlanVersionId != null)
+        'applied_plan_version_id': appliedPlanVersionId,
+      if (failureCode != null) 'failure_code': failureCode,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentsCompanion copyWith({
+    Value<String>? adjustmentId,
+    Value<String>? kind,
+    Value<String>? targetBlockId,
+    Value<String>? targetTaskId,
+    Value<String>? targetTitleSnapshot,
+    Value<String>? basePlanVersionId,
+    Value<int>? sourceStartUtc,
+    Value<int>? sourceEndUtc,
+    Value<int>? notBeforeUtc,
+    Value<String>? timeZoneId,
+    Value<int>? requestedAmount,
+    Value<String>? requestedUnit,
+    Value<String>? status,
+    Value<int>? createdAtUtc,
+    Value<int>? expiresAtUtc,
+    Value<int>? revision,
+    Value<String>? targetSiblingBlockIdsJson,
+    Value<String?>? previewId,
+    Value<String?>? appliedPlanVersionId,
+    Value<String?>? failureCode,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentsCompanion(
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      kind: kind ?? this.kind,
+      targetBlockId: targetBlockId ?? this.targetBlockId,
+      targetTaskId: targetTaskId ?? this.targetTaskId,
+      targetTitleSnapshot: targetTitleSnapshot ?? this.targetTitleSnapshot,
+      basePlanVersionId: basePlanVersionId ?? this.basePlanVersionId,
+      sourceStartUtc: sourceStartUtc ?? this.sourceStartUtc,
+      sourceEndUtc: sourceEndUtc ?? this.sourceEndUtc,
+      notBeforeUtc: notBeforeUtc ?? this.notBeforeUtc,
+      timeZoneId: timeZoneId ?? this.timeZoneId,
+      requestedAmount: requestedAmount ?? this.requestedAmount,
+      requestedUnit: requestedUnit ?? this.requestedUnit,
+      status: status ?? this.status,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      expiresAtUtc: expiresAtUtc ?? this.expiresAtUtc,
+      revision: revision ?? this.revision,
+      targetSiblingBlockIdsJson:
+          targetSiblingBlockIdsJson ?? this.targetSiblingBlockIdsJson,
+      previewId: previewId ?? this.previewId,
+      appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+      failureCode: failureCode ?? this.failureCode,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (targetBlockId.present) {
+      map['target_block_id'] = Variable<String>(targetBlockId.value);
+    }
+    if (targetTaskId.present) {
+      map['target_task_id'] = Variable<String>(targetTaskId.value);
+    }
+    if (targetTitleSnapshot.present) {
+      map['target_title_snapshot'] = Variable<String>(
+        targetTitleSnapshot.value,
+      );
+    }
+    if (basePlanVersionId.present) {
+      map['base_plan_version_id'] = Variable<String>(basePlanVersionId.value);
+    }
+    if (sourceStartUtc.present) {
+      map['source_start_utc'] = Variable<int>(sourceStartUtc.value);
+    }
+    if (sourceEndUtc.present) {
+      map['source_end_utc'] = Variable<int>(sourceEndUtc.value);
+    }
+    if (notBeforeUtc.present) {
+      map['not_before_utc'] = Variable<int>(notBeforeUtc.value);
+    }
+    if (timeZoneId.present) {
+      map['time_zone_id'] = Variable<String>(timeZoneId.value);
+    }
+    if (requestedAmount.present) {
+      map['requested_amount'] = Variable<int>(requestedAmount.value);
+    }
+    if (requestedUnit.present) {
+      map['requested_unit'] = Variable<String>(requestedUnit.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (expiresAtUtc.present) {
+      map['expires_at_utc'] = Variable<int>(expiresAtUtc.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (targetSiblingBlockIdsJson.present) {
+      map['target_sibling_block_ids_json'] = Variable<String>(
+        targetSiblingBlockIdsJson.value,
+      );
+    }
+    if (previewId.present) {
+      map['preview_id'] = Variable<String>(previewId.value);
+    }
+    if (appliedPlanVersionId.present) {
+      map['applied_plan_version_id'] = Variable<String>(
+        appliedPlanVersionId.value,
+      );
+    }
+    if (failureCode.present) {
+      map['failure_code'] = Variable<String>(failureCode.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentsCompanion(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('kind: $kind, ')
+          ..write('targetBlockId: $targetBlockId, ')
+          ..write('targetTaskId: $targetTaskId, ')
+          ..write('targetTitleSnapshot: $targetTitleSnapshot, ')
+          ..write('basePlanVersionId: $basePlanVersionId, ')
+          ..write('sourceStartUtc: $sourceStartUtc, ')
+          ..write('sourceEndUtc: $sourceEndUtc, ')
+          ..write('notBeforeUtc: $notBeforeUtc, ')
+          ..write('timeZoneId: $timeZoneId, ')
+          ..write('requestedAmount: $requestedAmount, ')
+          ..write('requestedUnit: $requestedUnit, ')
+          ..write('status: $status, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('expiresAtUtc: $expiresAtUtc, ')
+          ..write('revision: $revision, ')
+          ..write('targetSiblingBlockIdsJson: $targetSiblingBlockIdsJson, ')
+          ..write('previewId: $previewId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('failureCode: $failureCode, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustmentEvents extends Table
+    with TableInfo<PlanAdjustmentEvents, PlanAdjustmentEventsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentEvents(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES plan_adjustments(adjustment_id)ON DELETE CASCADE',
+  );
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> fromStatus = GeneratedColumn<String>(
+    'from_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> toStatus = GeneratedColumn<String>(
+    'to_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> occurredAtUtc = GeneratedColumn<int>(
+    'occurred_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> reasonCode = GeneratedColumn<String>(
+    'reason_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    adjustmentId,
+    sequence,
+    fromStatus,
+    toStatus,
+    revision,
+    occurredAtUtc,
+    reasonCode,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_events';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {adjustmentId, sequence};
+  @override
+  PlanAdjustmentEventsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentEventsData(
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      fromStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}from_status'],
+      )!,
+      toStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}to_status'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      occurredAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}occurred_at_utc'],
+      )!,
+      reasonCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reason_code'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustmentEvents createAlias(String alias) {
+    return PlanAdjustmentEvents(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(adjustment_id, sequence)',
+    'CHECK(sequence >= 1)',
+    'CHECK(revision >= 1)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentEventsData extends DataClass
+    implements Insertable<PlanAdjustmentEventsData> {
+  final String adjustmentId;
+  final int sequence;
+  final String fromStatus;
+  final String toStatus;
+  final int revision;
+  final int occurredAtUtc;
+  final String? reasonCode;
+  const PlanAdjustmentEventsData({
+    required this.adjustmentId,
+    required this.sequence,
+    required this.fromStatus,
+    required this.toStatus,
+    required this.revision,
+    required this.occurredAtUtc,
+    this.reasonCode,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['sequence'] = Variable<int>(sequence);
+    map['from_status'] = Variable<String>(fromStatus);
+    map['to_status'] = Variable<String>(toStatus);
+    map['revision'] = Variable<int>(revision);
+    map['occurred_at_utc'] = Variable<int>(occurredAtUtc);
+    if (!nullToAbsent || reasonCode != null) {
+      map['reason_code'] = Variable<String>(reasonCode);
+    }
+    return map;
+  }
+
+  PlanAdjustmentEventsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentEventsCompanion(
+      adjustmentId: Value(adjustmentId),
+      sequence: Value(sequence),
+      fromStatus: Value(fromStatus),
+      toStatus: Value(toStatus),
+      revision: Value(revision),
+      occurredAtUtc: Value(occurredAtUtc),
+      reasonCode: reasonCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reasonCode),
+    );
+  }
+
+  factory PlanAdjustmentEventsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentEventsData(
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      fromStatus: serializer.fromJson<String>(json['fromStatus']),
+      toStatus: serializer.fromJson<String>(json['toStatus']),
+      revision: serializer.fromJson<int>(json['revision']),
+      occurredAtUtc: serializer.fromJson<int>(json['occurredAtUtc']),
+      reasonCode: serializer.fromJson<String?>(json['reasonCode']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'sequence': serializer.toJson<int>(sequence),
+      'fromStatus': serializer.toJson<String>(fromStatus),
+      'toStatus': serializer.toJson<String>(toStatus),
+      'revision': serializer.toJson<int>(revision),
+      'occurredAtUtc': serializer.toJson<int>(occurredAtUtc),
+      'reasonCode': serializer.toJson<String?>(reasonCode),
+    };
+  }
+
+  PlanAdjustmentEventsData copyWith({
+    String? adjustmentId,
+    int? sequence,
+    String? fromStatus,
+    String? toStatus,
+    int? revision,
+    int? occurredAtUtc,
+    Value<String?> reasonCode = const Value.absent(),
+  }) => PlanAdjustmentEventsData(
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    sequence: sequence ?? this.sequence,
+    fromStatus: fromStatus ?? this.fromStatus,
+    toStatus: toStatus ?? this.toStatus,
+    revision: revision ?? this.revision,
+    occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+    reasonCode: reasonCode.present ? reasonCode.value : this.reasonCode,
+  );
+  PlanAdjustmentEventsData copyWithCompanion(
+    PlanAdjustmentEventsCompanion data,
+  ) {
+    return PlanAdjustmentEventsData(
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      fromStatus: data.fromStatus.present
+          ? data.fromStatus.value
+          : this.fromStatus,
+      toStatus: data.toStatus.present ? data.toStatus.value : this.toStatus,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      occurredAtUtc: data.occurredAtUtc.present
+          ? data.occurredAtUtc.value
+          : this.occurredAtUtc,
+      reasonCode: data.reasonCode.present
+          ? data.reasonCode.value
+          : this.reasonCode,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentEventsData(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('sequence: $sequence, ')
+          ..write('fromStatus: $fromStatus, ')
+          ..write('toStatus: $toStatus, ')
+          ..write('revision: $revision, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('reasonCode: $reasonCode')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    adjustmentId,
+    sequence,
+    fromStatus,
+    toStatus,
+    revision,
+    occurredAtUtc,
+    reasonCode,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentEventsData &&
+          other.adjustmentId == this.adjustmentId &&
+          other.sequence == this.sequence &&
+          other.fromStatus == this.fromStatus &&
+          other.toStatus == this.toStatus &&
+          other.revision == this.revision &&
+          other.occurredAtUtc == this.occurredAtUtc &&
+          other.reasonCode == this.reasonCode);
+}
+
+class PlanAdjustmentEventsCompanion
+    extends UpdateCompanion<PlanAdjustmentEventsData> {
+  final Value<String> adjustmentId;
+  final Value<int> sequence;
+  final Value<String> fromStatus;
+  final Value<String> toStatus;
+  final Value<int> revision;
+  final Value<int> occurredAtUtc;
+  final Value<String?> reasonCode;
+  final Value<int> rowid;
+  const PlanAdjustmentEventsCompanion({
+    this.adjustmentId = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.fromStatus = const Value.absent(),
+    this.toStatus = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.occurredAtUtc = const Value.absent(),
+    this.reasonCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentEventsCompanion.insert({
+    required String adjustmentId,
+    required int sequence,
+    required String fromStatus,
+    required String toStatus,
+    required int revision,
+    required int occurredAtUtc,
+    this.reasonCode = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : adjustmentId = Value(adjustmentId),
+       sequence = Value(sequence),
+       fromStatus = Value(fromStatus),
+       toStatus = Value(toStatus),
+       revision = Value(revision),
+       occurredAtUtc = Value(occurredAtUtc);
+  static Insertable<PlanAdjustmentEventsData> custom({
+    Expression<String>? adjustmentId,
+    Expression<int>? sequence,
+    Expression<String>? fromStatus,
+    Expression<String>? toStatus,
+    Expression<int>? revision,
+    Expression<int>? occurredAtUtc,
+    Expression<String>? reasonCode,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (sequence != null) 'sequence': sequence,
+      if (fromStatus != null) 'from_status': fromStatus,
+      if (toStatus != null) 'to_status': toStatus,
+      if (revision != null) 'revision': revision,
+      if (occurredAtUtc != null) 'occurred_at_utc': occurredAtUtc,
+      if (reasonCode != null) 'reason_code': reasonCode,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentEventsCompanion copyWith({
+    Value<String>? adjustmentId,
+    Value<int>? sequence,
+    Value<String>? fromStatus,
+    Value<String>? toStatus,
+    Value<int>? revision,
+    Value<int>? occurredAtUtc,
+    Value<String?>? reasonCode,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentEventsCompanion(
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      sequence: sequence ?? this.sequence,
+      fromStatus: fromStatus ?? this.fromStatus,
+      toStatus: toStatus ?? this.toStatus,
+      revision: revision ?? this.revision,
+      occurredAtUtc: occurredAtUtc ?? this.occurredAtUtc,
+      reasonCode: reasonCode ?? this.reasonCode,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (fromStatus.present) {
+      map['from_status'] = Variable<String>(fromStatus.value);
+    }
+    if (toStatus.present) {
+      map['to_status'] = Variable<String>(toStatus.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (occurredAtUtc.present) {
+      map['occurred_at_utc'] = Variable<int>(occurredAtUtc.value);
+    }
+    if (reasonCode.present) {
+      map['reason_code'] = Variable<String>(reasonCode.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentEventsCompanion(')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('sequence: $sequence, ')
+          ..write('fromStatus: $fromStatus, ')
+          ..write('toStatus: $toStatus, ')
+          ..write('revision: $revision, ')
+          ..write('occurredAtUtc: $occurredAtUtc, ')
+          ..write('reasonCode: $reasonCode, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustmentApplyReceipts extends Table
+    with
+        TableInfo<
+          PlanAdjustmentApplyReceipts,
+          PlanAdjustmentApplyReceiptsData
+        > {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentApplyReceipts(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> tokenHash = GeneratedColumn<String>(
+    'token_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> planVersionId = GeneratedColumn<String>(
+    'plan_version_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> undoReceiptId = GeneratedColumn<String>(
+    'undo_receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_apply_receipts';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentApplyReceiptsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      tokenHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}token_hash'],
+      )!,
+      planVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}plan_version_id'],
+      )!,
+      undoReceiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}undo_receipt_id'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+    );
+  }
+
+  @override
+  PlanAdjustmentApplyReceipts createAlias(String alias) {
+    return PlanAdjustmentApplyReceipts(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(receipt_id)',
+    'CHECK(length(token_hash) = 64)',
+    'CHECK(created_at_utc >= 0)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentApplyReceiptsData extends DataClass
+    implements Insertable<PlanAdjustmentApplyReceiptsData> {
+  final String receiptId;
+  final String adjustmentId;
+  final String tokenHash;
+  final String planVersionId;
+  final String undoReceiptId;
+  final int createdAtUtc;
+  const PlanAdjustmentApplyReceiptsData({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.tokenHash,
+    required this.planVersionId,
+    required this.undoReceiptId,
+    required this.createdAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['token_hash'] = Variable<String>(tokenHash);
+    map['plan_version_id'] = Variable<String>(planVersionId);
+    map['undo_receipt_id'] = Variable<String>(undoReceiptId);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    return map;
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      tokenHash: Value(tokenHash),
+      planVersionId: Value(planVersionId),
+      undoReceiptId: Value(undoReceiptId),
+      createdAtUtc: Value(createdAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentApplyReceiptsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      tokenHash: serializer.fromJson<String>(json['tokenHash']),
+      planVersionId: serializer.fromJson<String>(json['planVersionId']),
+      undoReceiptId: serializer.fromJson<String>(json['undoReceiptId']),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'tokenHash': serializer.toJson<String>(tokenHash),
+      'planVersionId': serializer.toJson<String>(planVersionId),
+      'undoReceiptId': serializer.toJson<String>(undoReceiptId),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+    };
+  }
+
+  PlanAdjustmentApplyReceiptsData copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? tokenHash,
+    String? planVersionId,
+    String? undoReceiptId,
+    int? createdAtUtc,
+  }) => PlanAdjustmentApplyReceiptsData(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    tokenHash: tokenHash ?? this.tokenHash,
+    planVersionId: planVersionId ?? this.planVersionId,
+    undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+  );
+  PlanAdjustmentApplyReceiptsData copyWithCompanion(
+    PlanAdjustmentApplyReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentApplyReceiptsData(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      tokenHash: data.tokenHash.present ? data.tokenHash.value : this.tokenHash,
+      planVersionId: data.planVersionId.present
+          ? data.planVersionId.value
+          : this.planVersionId,
+      undoReceiptId: data.undoReceiptId.present
+          ? data.undoReceiptId.value
+          : this.undoReceiptId,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceiptsData(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    tokenHash,
+    planVersionId,
+    undoReceiptId,
+    createdAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentApplyReceiptsData &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.tokenHash == this.tokenHash &&
+          other.planVersionId == this.planVersionId &&
+          other.undoReceiptId == this.undoReceiptId &&
+          other.createdAtUtc == this.createdAtUtc);
+}
+
+class PlanAdjustmentApplyReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentApplyReceiptsData> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> tokenHash;
+  final Value<String> planVersionId;
+  final Value<String> undoReceiptId;
+  final Value<int> createdAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentApplyReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.tokenHash = const Value.absent(),
+    this.planVersionId = const Value.absent(),
+    this.undoReceiptId = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentApplyReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String tokenHash,
+    required String planVersionId,
+    required String undoReceiptId,
+    required int createdAtUtc,
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       tokenHash = Value(tokenHash),
+       planVersionId = Value(planVersionId),
+       undoReceiptId = Value(undoReceiptId),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentApplyReceiptsData> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? tokenHash,
+    Expression<String>? planVersionId,
+    Expression<String>? undoReceiptId,
+    Expression<int>? createdAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (tokenHash != null) 'token_hash': tokenHash,
+      if (planVersionId != null) 'plan_version_id': planVersionId,
+      if (undoReceiptId != null) 'undo_receipt_id': undoReceiptId,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentApplyReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? tokenHash,
+    Value<String>? planVersionId,
+    Value<String>? undoReceiptId,
+    Value<int>? createdAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentApplyReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      tokenHash: tokenHash ?? this.tokenHash,
+      planVersionId: planVersionId ?? this.planVersionId,
+      undoReceiptId: undoReceiptId ?? this.undoReceiptId,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (tokenHash.present) {
+      map['token_hash'] = Variable<String>(tokenHash.value);
+    }
+    if (planVersionId.present) {
+      map['plan_version_id'] = Variable<String>(planVersionId.value);
+    }
+    if (undoReceiptId.present) {
+      map['undo_receipt_id'] = Variable<String>(undoReceiptId.value);
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentApplyReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('tokenHash: $tokenHash, ')
+          ..write('planVersionId: $planVersionId, ')
+          ..write('undoReceiptId: $undoReceiptId, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanAdjustmentUndoReceipts extends Table
+    with TableInfo<PlanAdjustmentUndoReceipts, PlanAdjustmentUndoReceiptsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanAdjustmentUndoReceipts(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> receiptId = GeneratedColumn<String>(
+    'receipt_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> adjustmentId = GeneratedColumn<String>(
+    'adjustment_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> baselinePlanVersionId =
+      GeneratedColumn<String>(
+        'baseline_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> appliedPlanVersionId =
+      GeneratedColumn<String>(
+        'applied_plan_version_id',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> baselineBlocksJson =
+      GeneratedColumn<String>(
+        'baseline_blocks_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<String> appliedBlockIdsJson =
+      GeneratedColumn<String>(
+        'applied_block_ids_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+        $customConstraints: 'NOT NULL',
+      );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_adjustment_undo_receipts';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {receiptId};
+  @override
+  PlanAdjustmentUndoReceiptsData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}receipt_id'],
+      )!,
+      adjustmentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}adjustment_id'],
+      )!,
+      baselinePlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_plan_version_id'],
+      )!,
+      appliedPlanVersionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_plan_version_id'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      )!,
+      baselineBlocksJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}baseline_blocks_json'],
+      )!,
+      appliedBlockIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_block_ids_json'],
+      )!,
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  PlanAdjustmentUndoReceipts createAlias(String alias) {
+    return PlanAdjustmentUndoReceipts(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(receipt_id)',
+    'CHECK(state IN (\'available\', \'completed\', \'blocked\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanAdjustmentUndoReceiptsData extends DataClass
+    implements Insertable<PlanAdjustmentUndoReceiptsData> {
+  final String receiptId;
+  final String adjustmentId;
+  final String baselinePlanVersionId;
+  final String appliedPlanVersionId;
+  final String state;
+  final String baselineBlocksJson;
+  final String appliedBlockIdsJson;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanAdjustmentUndoReceiptsData({
+    required this.receiptId,
+    required this.adjustmentId,
+    required this.baselinePlanVersionId,
+    required this.appliedPlanVersionId,
+    required this.state,
+    required this.baselineBlocksJson,
+    required this.appliedBlockIdsJson,
+    required this.createdAtUtc,
+    this.completedAtUtc,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['receipt_id'] = Variable<String>(receiptId);
+    map['adjustment_id'] = Variable<String>(adjustmentId);
+    map['baseline_plan_version_id'] = Variable<String>(baselinePlanVersionId);
+    map['applied_plan_version_id'] = Variable<String>(appliedPlanVersionId);
+    map['state'] = Variable<String>(state);
+    map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson);
+    map['applied_block_ids_json'] = Variable<String>(appliedBlockIdsJson);
+    map['created_at_utc'] = Variable<int>(createdAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
+    }
+    return map;
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion toCompanion(bool nullToAbsent) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: Value(receiptId),
+      adjustmentId: Value(adjustmentId),
+      baselinePlanVersionId: Value(baselinePlanVersionId),
+      appliedPlanVersionId: Value(appliedPlanVersionId),
+      state: Value(state),
+      baselineBlocksJson: Value(baselineBlocksJson),
+      appliedBlockIdsJson: Value(appliedBlockIdsJson),
+      createdAtUtc: Value(createdAtUtc),
+      completedAtUtc: completedAtUtc == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAtUtc),
+    );
+  }
+
+  factory PlanAdjustmentUndoReceiptsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: serializer.fromJson<String>(json['receiptId']),
+      adjustmentId: serializer.fromJson<String>(json['adjustmentId']),
+      baselinePlanVersionId: serializer.fromJson<String>(
+        json['baselinePlanVersionId'],
+      ),
+      appliedPlanVersionId: serializer.fromJson<String>(
+        json['appliedPlanVersionId'],
+      ),
+      state: serializer.fromJson<String>(json['state']),
+      baselineBlocksJson: serializer.fromJson<String>(
+        json['baselineBlocksJson'],
+      ),
+      appliedBlockIdsJson: serializer.fromJson<String>(
+        json['appliedBlockIdsJson'],
+      ),
+      createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'receiptId': serializer.toJson<String>(receiptId),
+      'adjustmentId': serializer.toJson<String>(adjustmentId),
+      'baselinePlanVersionId': serializer.toJson<String>(baselinePlanVersionId),
+      'appliedPlanVersionId': serializer.toJson<String>(appliedPlanVersionId),
+      'state': serializer.toJson<String>(state),
+      'baselineBlocksJson': serializer.toJson<String>(baselineBlocksJson),
+      'appliedBlockIdsJson': serializer.toJson<String>(appliedBlockIdsJson),
+      'createdAtUtc': serializer.toJson<int>(createdAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
+    };
+  }
+
+  PlanAdjustmentUndoReceiptsData copyWith({
+    String? receiptId,
+    String? adjustmentId,
+    String? baselinePlanVersionId,
+    String? appliedPlanVersionId,
+    String? state,
+    String? baselineBlocksJson,
+    String? appliedBlockIdsJson,
+    int? createdAtUtc,
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanAdjustmentUndoReceiptsData(
+    receiptId: receiptId ?? this.receiptId,
+    adjustmentId: adjustmentId ?? this.adjustmentId,
+    baselinePlanVersionId: baselinePlanVersionId ?? this.baselinePlanVersionId,
+    appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+    state: state ?? this.state,
+    baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+    appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+    createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
+  );
+  PlanAdjustmentUndoReceiptsData copyWithCompanion(
+    PlanAdjustmentUndoReceiptsCompanion data,
+  ) {
+    return PlanAdjustmentUndoReceiptsData(
+      receiptId: data.receiptId.present ? data.receiptId.value : this.receiptId,
+      adjustmentId: data.adjustmentId.present
+          ? data.adjustmentId.value
+          : this.adjustmentId,
+      baselinePlanVersionId: data.baselinePlanVersionId.present
+          ? data.baselinePlanVersionId.value
+          : this.baselinePlanVersionId,
+      appliedPlanVersionId: data.appliedPlanVersionId.present
+          ? data.appliedPlanVersionId.value
+          : this.appliedPlanVersionId,
+      state: data.state.present ? data.state.value : this.state,
+      baselineBlocksJson: data.baselineBlocksJson.present
+          ? data.baselineBlocksJson.value
+          : this.baselineBlocksJson,
+      appliedBlockIdsJson: data.appliedBlockIdsJson.present
+          ? data.appliedBlockIdsJson.value
+          : this.appliedBlockIdsJson,
+      createdAtUtc: data.createdAtUtc.present
+          ? data.createdAtUtc.value
+          : this.createdAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceiptsData(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    receiptId,
+    adjustmentId,
+    baselinePlanVersionId,
+    appliedPlanVersionId,
+    state,
+    baselineBlocksJson,
+    appliedBlockIdsJson,
+    createdAtUtc,
+    completedAtUtc,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlanAdjustmentUndoReceiptsData &&
+          other.receiptId == this.receiptId &&
+          other.adjustmentId == this.adjustmentId &&
+          other.baselinePlanVersionId == this.baselinePlanVersionId &&
+          other.appliedPlanVersionId == this.appliedPlanVersionId &&
+          other.state == this.state &&
+          other.baselineBlocksJson == this.baselineBlocksJson &&
+          other.appliedBlockIdsJson == this.appliedBlockIdsJson &&
+          other.createdAtUtc == this.createdAtUtc &&
+          other.completedAtUtc == this.completedAtUtc);
+}
+
+class PlanAdjustmentUndoReceiptsCompanion
+    extends UpdateCompanion<PlanAdjustmentUndoReceiptsData> {
+  final Value<String> receiptId;
+  final Value<String> adjustmentId;
+  final Value<String> baselinePlanVersionId;
+  final Value<String> appliedPlanVersionId;
+  final Value<String> state;
+  final Value<String> baselineBlocksJson;
+  final Value<String> appliedBlockIdsJson;
+  final Value<int> createdAtUtc;
+  final Value<int?> completedAtUtc;
+  final Value<int> rowid;
+  const PlanAdjustmentUndoReceiptsCompanion({
+    this.receiptId = const Value.absent(),
+    this.adjustmentId = const Value.absent(),
+    this.baselinePlanVersionId = const Value.absent(),
+    this.appliedPlanVersionId = const Value.absent(),
+    this.state = const Value.absent(),
+    this.baselineBlocksJson = const Value.absent(),
+    this.appliedBlockIdsJson = const Value.absent(),
+    this.createdAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlanAdjustmentUndoReceiptsCompanion.insert({
+    required String receiptId,
+    required String adjustmentId,
+    required String baselinePlanVersionId,
+    required String appliedPlanVersionId,
+    required String state,
+    required String baselineBlocksJson,
+    required String appliedBlockIdsJson,
+    required int createdAtUtc,
+    this.completedAtUtc = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : receiptId = Value(receiptId),
+       adjustmentId = Value(adjustmentId),
+       baselinePlanVersionId = Value(baselinePlanVersionId),
+       appliedPlanVersionId = Value(appliedPlanVersionId),
+       state = Value(state),
+       baselineBlocksJson = Value(baselineBlocksJson),
+       appliedBlockIdsJson = Value(appliedBlockIdsJson),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanAdjustmentUndoReceiptsData> custom({
+    Expression<String>? receiptId,
+    Expression<String>? adjustmentId,
+    Expression<String>? baselinePlanVersionId,
+    Expression<String>? appliedPlanVersionId,
+    Expression<String>? state,
+    Expression<String>? baselineBlocksJson,
+    Expression<String>? appliedBlockIdsJson,
+    Expression<int>? createdAtUtc,
+    Expression<int>? completedAtUtc,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (receiptId != null) 'receipt_id': receiptId,
+      if (adjustmentId != null) 'adjustment_id': adjustmentId,
+      if (baselinePlanVersionId != null)
+        'baseline_plan_version_id': baselinePlanVersionId,
+      if (appliedPlanVersionId != null)
+        'applied_plan_version_id': appliedPlanVersionId,
+      if (state != null) 'state': state,
+      if (baselineBlocksJson != null)
+        'baseline_blocks_json': baselineBlocksJson,
+      if (appliedBlockIdsJson != null)
+        'applied_block_ids_json': appliedBlockIdsJson,
+      if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlanAdjustmentUndoReceiptsCompanion copyWith({
+    Value<String>? receiptId,
+    Value<String>? adjustmentId,
+    Value<String>? baselinePlanVersionId,
+    Value<String>? appliedPlanVersionId,
+    Value<String>? state,
+    Value<String>? baselineBlocksJson,
+    Value<String>? appliedBlockIdsJson,
+    Value<int>? createdAtUtc,
+    Value<int?>? completedAtUtc,
+    Value<int>? rowid,
+  }) {
+    return PlanAdjustmentUndoReceiptsCompanion(
+      receiptId: receiptId ?? this.receiptId,
+      adjustmentId: adjustmentId ?? this.adjustmentId,
+      baselinePlanVersionId:
+          baselinePlanVersionId ?? this.baselinePlanVersionId,
+      appliedPlanVersionId: appliedPlanVersionId ?? this.appliedPlanVersionId,
+      state: state ?? this.state,
+      baselineBlocksJson: baselineBlocksJson ?? this.baselineBlocksJson,
+      appliedBlockIdsJson: appliedBlockIdsJson ?? this.appliedBlockIdsJson,
+      createdAtUtc: createdAtUtc ?? this.createdAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (receiptId.present) {
+      map['receipt_id'] = Variable<String>(receiptId.value);
+    }
+    if (adjustmentId.present) {
+      map['adjustment_id'] = Variable<String>(adjustmentId.value);
+    }
+    if (baselinePlanVersionId.present) {
+      map['baseline_plan_version_id'] = Variable<String>(
+        baselinePlanVersionId.value,
+      );
+    }
+    if (appliedPlanVersionId.present) {
+      map['applied_plan_version_id'] = Variable<String>(
+        appliedPlanVersionId.value,
+      );
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (baselineBlocksJson.present) {
+      map['baseline_blocks_json'] = Variable<String>(baselineBlocksJson.value);
+    }
+    if (appliedBlockIdsJson.present) {
+      map['applied_block_ids_json'] = Variable<String>(
+        appliedBlockIdsJson.value,
+      );
+    }
+    if (createdAtUtc.present) {
+      map['created_at_utc'] = Variable<int>(createdAtUtc.value);
+    }
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlanAdjustmentUndoReceiptsCompanion(')
+          ..write('receiptId: $receiptId, ')
+          ..write('adjustmentId: $adjustmentId, ')
+          ..write('baselinePlanVersionId: $baselinePlanVersionId, ')
+          ..write('appliedPlanVersionId: $appliedPlanVersionId, ')
+          ..write('state: $state, ')
+          ..write('baselineBlocksJson: $baselineBlocksJson, ')
+          ..write('appliedBlockIdsJson: $appliedBlockIdsJson, ')
+          ..write('createdAtUtc: $createdAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class PlanChangeOutbox extends Table
+    with TableInfo<PlanChangeOutbox, PlanChangeOutboxData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  PlanChangeOutbox(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> dedupeKey = GeneratedColumn<String>(
+    'dedupe_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL UNIQUE',
+  );
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  late final GeneratedColumn<int> nextAttemptAtUtc = GeneratedColumn<int>(
+    'next_attempt_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> lastErrorCode = GeneratedColumn<String>(
+    'last_error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> createdAtUtc = GeneratedColumn<int>(
+    'created_at_utc',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<int> completedAtUtc = GeneratedColumn<int>(
+    'completed_at_utc',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    dedupeKey,
+    kind,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
+    createdAtUtc,
+    completedAtUtc,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'plan_change_outbox';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PlanChangeOutboxData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlanChangeOutboxData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      dedupeKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}dedupe_key'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at_utc'],
+      )!,
+      lastErrorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error_code'],
+      ),
+      createdAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at_utc'],
+      )!,
+      completedAtUtc: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}completed_at_utc'],
+      ),
+    );
+  }
+
+  @override
+  PlanChangeOutbox createAlias(String alias) {
+    return PlanChangeOutbox(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(id)',
+    'CHECK(attempts >= 0)',
+    'CHECK(kind IN (\'planChanged\', \'calendarRefresh\', \'trayRefresh\'))',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class PlanChangeOutboxData extends DataClass
+    implements Insertable<PlanChangeOutboxData> {
+  final String id;
+  final String dedupeKey;
+  final String kind;
+  final String payloadJson;
+  final int attempts;
+  final int nextAttemptAtUtc;
+  final String? lastErrorCode;
+  final int createdAtUtc;
+  final int? completedAtUtc;
+  const PlanChangeOutboxData({
+    required this.id,
+    required this.dedupeKey,
+    required this.kind,
+    required this.payloadJson,
+    required this.attempts,
+    required this.nextAttemptAtUtc,
+    this.lastErrorCode,
+    required this.createdAtUtc,
+    this.completedAtUtc,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    map['local_date'] = Variable<String>(localDate);
+    map['dedupe_key'] = Variable<String>(dedupeKey);
     map['kind'] = Variable<String>(kind);
-    map['status'] = Variable<String>(status);
-    map['original_sleep_start_offset_minutes'] = Variable<int>(
-      originalSleepStartOffsetMinutes,
-    );
-    map['temporary_sleep_start_offset_minutes'] = Variable<int>(
-      temporarySleepStartOffsetMinutes,
-    );
-    map['fixed_wake_offset_minutes'] = Variable<int>(fixedWakeOffsetMinutes);
-    map['absolute_minimum_sleep_minutes'] = Variable<int>(
-      absoluteMinimumSleepMinutes,
-    );
-    map['recovery_choice'] = Variable<String>(recoveryChoice);
-    if (!nullToAbsent || recoveryLocalDate != null) {
-      map['recovery_local_date'] = Variable<String>(recoveryLocalDate);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['attempts'] = Variable<int>(attempts);
+    map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc);
+    if (!nullToAbsent || lastErrorCode != null) {
+      map['last_error_code'] = Variable<String>(lastErrorCode);
     }
-    map['source'] = Variable<String>(source);
-    if (!nullToAbsent || triggeringProposalId != null) {
-      map['triggering_proposal_id'] = Variable<String>(triggeringProposalId);
-    }
-    map['audit_note'] = Variable<String>(auditNote);
     map['created_at_utc'] = Variable<int>(createdAtUtc);
-    map['updated_at_utc'] = Variable<int>(updatedAtUtc);
-    if (!nullToAbsent || revokedAtUtc != null) {
-      map['revoked_at_utc'] = Variable<int>(revokedAtUtc);
+    if (!nullToAbsent || completedAtUtc != null) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc);
     }
     return map;
   }
 
-  DayExceptionsCompanion toCompanion(bool nullToAbsent) {
-    return DayExceptionsCompanion(
+  PlanChangeOutboxCompanion toCompanion(bool nullToAbsent) {
+    return PlanChangeOutboxCompanion(
       id: Value(id),
-      localDate: Value(localDate),
+      dedupeKey: Value(dedupeKey),
       kind: Value(kind),
-      status: Value(status),
-      originalSleepStartOffsetMinutes: Value(originalSleepStartOffsetMinutes),
-      temporarySleepStartOffsetMinutes: Value(temporarySleepStartOffsetMinutes),
-      fixedWakeOffsetMinutes: Value(fixedWakeOffsetMinutes),
-      absoluteMinimumSleepMinutes: Value(absoluteMinimumSleepMinutes),
-      recoveryChoice: Value(recoveryChoice),
-      recoveryLocalDate: recoveryLocalDate == null && nullToAbsent
+      payloadJson: Value(payloadJson),
+      attempts: Value(attempts),
+      nextAttemptAtUtc: Value(nextAttemptAtUtc),
+      lastErrorCode: lastErrorCode == null && nullToAbsent
           ? const Value.absent()
-          : Value(recoveryLocalDate),
-      source: Value(source),
-      triggeringProposalId: triggeringProposalId == null && nullToAbsent
-          ? const Value.absent()
-          : Value(triggeringProposalId),
-      auditNote: Value(auditNote),
+          : Value(lastErrorCode),
       createdAtUtc: Value(createdAtUtc),
-      updatedAtUtc: Value(updatedAtUtc),
-      revokedAtUtc: revokedAtUtc == null && nullToAbsent
+      completedAtUtc: completedAtUtc == null && nullToAbsent
           ? const Value.absent()
-          : Value(revokedAtUtc),
+          : Value(completedAtUtc),
     );
   }
 
-  factory DayExceptionsData.fromJson(
+  factory PlanChangeOutboxData.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return DayExceptionsData(
+    return PlanChangeOutboxData(
       id: serializer.fromJson<String>(json['id']),
-      localDate: serializer.fromJson<String>(json['localDate']),
+      dedupeKey: serializer.fromJson<String>(json['dedupeKey']),
       kind: serializer.fromJson<String>(json['kind']),
-      status: serializer.fromJson<String>(json['status']),
-      originalSleepStartOffsetMinutes: serializer.fromJson<int>(
-        json['originalSleepStartOffsetMinutes'],
-      ),
-      temporarySleepStartOffsetMinutes: serializer.fromJson<int>(
-        json['temporarySleepStartOffsetMinutes'],
-      ),
-      fixedWakeOffsetMinutes: serializer.fromJson<int>(
-        json['fixedWakeOffsetMinutes'],
-      ),
-      absoluteMinimumSleepMinutes: serializer.fromJson<int>(
-        json['absoluteMinimumSleepMinutes'],
-      ),
-      recoveryChoice: serializer.fromJson<String>(json['recoveryChoice']),
-      recoveryLocalDate: serializer.fromJson<String?>(
-        json['recoveryLocalDate'],
-      ),
-      source: serializer.fromJson<String>(json['source']),
-      triggeringProposalId: serializer.fromJson<String?>(
-        json['triggeringProposalId'],
-      ),
-      auditNote: serializer.fromJson<String>(json['auditNote']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAtUtc: serializer.fromJson<int>(json['nextAttemptAtUtc']),
+      lastErrorCode: serializer.fromJson<String?>(json['lastErrorCode']),
       createdAtUtc: serializer.fromJson<int>(json['createdAtUtc']),
-      updatedAtUtc: serializer.fromJson<int>(json['updatedAtUtc']),
-      revokedAtUtc: serializer.fromJson<int?>(json['revokedAtUtc']),
+      completedAtUtc: serializer.fromJson<int?>(json['completedAtUtc']),
     );
   }
   @override
@@ -10377,140 +23367,78 @@ class DayExceptionsData extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'localDate': serializer.toJson<String>(localDate),
+      'dedupeKey': serializer.toJson<String>(dedupeKey),
       'kind': serializer.toJson<String>(kind),
-      'status': serializer.toJson<String>(status),
-      'originalSleepStartOffsetMinutes': serializer.toJson<int>(
-        originalSleepStartOffsetMinutes,
-      ),
-      'temporarySleepStartOffsetMinutes': serializer.toJson<int>(
-        temporarySleepStartOffsetMinutes,
-      ),
-      'fixedWakeOffsetMinutes': serializer.toJson<int>(fixedWakeOffsetMinutes),
-      'absoluteMinimumSleepMinutes': serializer.toJson<int>(
-        absoluteMinimumSleepMinutes,
-      ),
-      'recoveryChoice': serializer.toJson<String>(recoveryChoice),
-      'recoveryLocalDate': serializer.toJson<String?>(recoveryLocalDate),
-      'source': serializer.toJson<String>(source),
-      'triggeringProposalId': serializer.toJson<String?>(triggeringProposalId),
-      'auditNote': serializer.toJson<String>(auditNote),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAtUtc': serializer.toJson<int>(nextAttemptAtUtc),
+      'lastErrorCode': serializer.toJson<String?>(lastErrorCode),
       'createdAtUtc': serializer.toJson<int>(createdAtUtc),
-      'updatedAtUtc': serializer.toJson<int>(updatedAtUtc),
-      'revokedAtUtc': serializer.toJson<int?>(revokedAtUtc),
+      'completedAtUtc': serializer.toJson<int?>(completedAtUtc),
     };
   }
 
-  DayExceptionsData copyWith({
+  PlanChangeOutboxData copyWith({
     String? id,
-    String? localDate,
+    String? dedupeKey,
     String? kind,
-    String? status,
-    int? originalSleepStartOffsetMinutes,
-    int? temporarySleepStartOffsetMinutes,
-    int? fixedWakeOffsetMinutes,
-    int? absoluteMinimumSleepMinutes,
-    String? recoveryChoice,
-    Value<String?> recoveryLocalDate = const Value.absent(),
-    String? source,
-    Value<String?> triggeringProposalId = const Value.absent(),
-    String? auditNote,
+    String? payloadJson,
+    int? attempts,
+    int? nextAttemptAtUtc,
+    Value<String?> lastErrorCode = const Value.absent(),
     int? createdAtUtc,
-    int? updatedAtUtc,
-    Value<int?> revokedAtUtc = const Value.absent(),
-  }) => DayExceptionsData(
+    Value<int?> completedAtUtc = const Value.absent(),
+  }) => PlanChangeOutboxData(
     id: id ?? this.id,
-    localDate: localDate ?? this.localDate,
+    dedupeKey: dedupeKey ?? this.dedupeKey,
     kind: kind ?? this.kind,
-    status: status ?? this.status,
-    originalSleepStartOffsetMinutes:
-        originalSleepStartOffsetMinutes ?? this.originalSleepStartOffsetMinutes,
-    temporarySleepStartOffsetMinutes:
-        temporarySleepStartOffsetMinutes ??
-        this.temporarySleepStartOffsetMinutes,
-    fixedWakeOffsetMinutes:
-        fixedWakeOffsetMinutes ?? this.fixedWakeOffsetMinutes,
-    absoluteMinimumSleepMinutes:
-        absoluteMinimumSleepMinutes ?? this.absoluteMinimumSleepMinutes,
-    recoveryChoice: recoveryChoice ?? this.recoveryChoice,
-    recoveryLocalDate: recoveryLocalDate.present
-        ? recoveryLocalDate.value
-        : this.recoveryLocalDate,
-    source: source ?? this.source,
-    triggeringProposalId: triggeringProposalId.present
-        ? triggeringProposalId.value
-        : this.triggeringProposalId,
-    auditNote: auditNote ?? this.auditNote,
+    payloadJson: payloadJson ?? this.payloadJson,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+    lastErrorCode: lastErrorCode.present
+        ? lastErrorCode.value
+        : this.lastErrorCode,
     createdAtUtc: createdAtUtc ?? this.createdAtUtc,
-    updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
-    revokedAtUtc: revokedAtUtc.present ? revokedAtUtc.value : this.revokedAtUtc,
+    completedAtUtc: completedAtUtc.present
+        ? completedAtUtc.value
+        : this.completedAtUtc,
   );
-  DayExceptionsData copyWithCompanion(DayExceptionsCompanion data) {
-    return DayExceptionsData(
+  PlanChangeOutboxData copyWithCompanion(PlanChangeOutboxCompanion data) {
+    return PlanChangeOutboxData(
       id: data.id.present ? data.id.value : this.id,
-      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      dedupeKey: data.dedupeKey.present ? data.dedupeKey.value : this.dedupeKey,
       kind: data.kind.present ? data.kind.value : this.kind,
-      status: data.status.present ? data.status.value : this.status,
-      originalSleepStartOffsetMinutes:
-          data.originalSleepStartOffsetMinutes.present
-          ? data.originalSleepStartOffsetMinutes.value
-          : this.originalSleepStartOffsetMinutes,
-      temporarySleepStartOffsetMinutes:
-          data.temporarySleepStartOffsetMinutes.present
-          ? data.temporarySleepStartOffsetMinutes.value
-          : this.temporarySleepStartOffsetMinutes,
-      fixedWakeOffsetMinutes: data.fixedWakeOffsetMinutes.present
-          ? data.fixedWakeOffsetMinutes.value
-          : this.fixedWakeOffsetMinutes,
-      absoluteMinimumSleepMinutes: data.absoluteMinimumSleepMinutes.present
-          ? data.absoluteMinimumSleepMinutes.value
-          : this.absoluteMinimumSleepMinutes,
-      recoveryChoice: data.recoveryChoice.present
-          ? data.recoveryChoice.value
-          : this.recoveryChoice,
-      recoveryLocalDate: data.recoveryLocalDate.present
-          ? data.recoveryLocalDate.value
-          : this.recoveryLocalDate,
-      source: data.source.present ? data.source.value : this.source,
-      triggeringProposalId: data.triggeringProposalId.present
-          ? data.triggeringProposalId.value
-          : this.triggeringProposalId,
-      auditNote: data.auditNote.present ? data.auditNote.value : this.auditNote,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAtUtc: data.nextAttemptAtUtc.present
+          ? data.nextAttemptAtUtc.value
+          : this.nextAttemptAtUtc,
+      lastErrorCode: data.lastErrorCode.present
+          ? data.lastErrorCode.value
+          : this.lastErrorCode,
       createdAtUtc: data.createdAtUtc.present
           ? data.createdAtUtc.value
           : this.createdAtUtc,
-      updatedAtUtc: data.updatedAtUtc.present
-          ? data.updatedAtUtc.value
-          : this.updatedAtUtc,
-      revokedAtUtc: data.revokedAtUtc.present
-          ? data.revokedAtUtc.value
-          : this.revokedAtUtc,
+      completedAtUtc: data.completedAtUtc.present
+          ? data.completedAtUtc.value
+          : this.completedAtUtc,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('DayExceptionsData(')
+    return (StringBuffer('PlanChangeOutboxData(')
           ..write('id: $id, ')
-          ..write('localDate: $localDate, ')
+          ..write('dedupeKey: $dedupeKey, ')
           ..write('kind: $kind, ')
-          ..write('status: $status, ')
-          ..write(
-            'originalSleepStartOffsetMinutes: $originalSleepStartOffsetMinutes, ',
-          )
-          ..write(
-            'temporarySleepStartOffsetMinutes: $temporarySleepStartOffsetMinutes, ',
-          )
-          ..write('fixedWakeOffsetMinutes: $fixedWakeOffsetMinutes, ')
-          ..write('absoluteMinimumSleepMinutes: $absoluteMinimumSleepMinutes, ')
-          ..write('recoveryChoice: $recoveryChoice, ')
-          ..write('recoveryLocalDate: $recoveryLocalDate, ')
-          ..write('source: $source, ')
-          ..write('triggeringProposalId: $triggeringProposalId, ')
-          ..write('auditNote: $auditNote, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
           ..write('createdAtUtc: $createdAtUtc, ')
-          ..write('updatedAtUtc: $updatedAtUtc, ')
-          ..write('revokedAtUtc: $revokedAtUtc')
+          ..write('completedAtUtc: $completedAtUtc')
           ..write(')'))
         .toString();
   }
@@ -10518,204 +23446,117 @@ class DayExceptionsData extends DataClass
   @override
   int get hashCode => Object.hash(
     id,
-    localDate,
+    dedupeKey,
     kind,
-    status,
-    originalSleepStartOffsetMinutes,
-    temporarySleepStartOffsetMinutes,
-    fixedWakeOffsetMinutes,
-    absoluteMinimumSleepMinutes,
-    recoveryChoice,
-    recoveryLocalDate,
-    source,
-    triggeringProposalId,
-    auditNote,
+    payloadJson,
+    attempts,
+    nextAttemptAtUtc,
+    lastErrorCode,
     createdAtUtc,
-    updatedAtUtc,
-    revokedAtUtc,
+    completedAtUtc,
   );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is DayExceptionsData &&
+      (other is PlanChangeOutboxData &&
           other.id == this.id &&
-          other.localDate == this.localDate &&
+          other.dedupeKey == this.dedupeKey &&
           other.kind == this.kind &&
-          other.status == this.status &&
-          other.originalSleepStartOffsetMinutes ==
-              this.originalSleepStartOffsetMinutes &&
-          other.temporarySleepStartOffsetMinutes ==
-              this.temporarySleepStartOffsetMinutes &&
-          other.fixedWakeOffsetMinutes == this.fixedWakeOffsetMinutes &&
-          other.absoluteMinimumSleepMinutes ==
-              this.absoluteMinimumSleepMinutes &&
-          other.recoveryChoice == this.recoveryChoice &&
-          other.recoveryLocalDate == this.recoveryLocalDate &&
-          other.source == this.source &&
-          other.triggeringProposalId == this.triggeringProposalId &&
-          other.auditNote == this.auditNote &&
+          other.payloadJson == this.payloadJson &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAtUtc == this.nextAttemptAtUtc &&
+          other.lastErrorCode == this.lastErrorCode &&
           other.createdAtUtc == this.createdAtUtc &&
-          other.updatedAtUtc == this.updatedAtUtc &&
-          other.revokedAtUtc == this.revokedAtUtc);
+          other.completedAtUtc == this.completedAtUtc);
 }
 
-class DayExceptionsCompanion extends UpdateCompanion<DayExceptionsData> {
+class PlanChangeOutboxCompanion extends UpdateCompanion<PlanChangeOutboxData> {
   final Value<String> id;
-  final Value<String> localDate;
+  final Value<String> dedupeKey;
   final Value<String> kind;
-  final Value<String> status;
-  final Value<int> originalSleepStartOffsetMinutes;
-  final Value<int> temporarySleepStartOffsetMinutes;
-  final Value<int> fixedWakeOffsetMinutes;
-  final Value<int> absoluteMinimumSleepMinutes;
-  final Value<String> recoveryChoice;
-  final Value<String?> recoveryLocalDate;
-  final Value<String> source;
-  final Value<String?> triggeringProposalId;
-  final Value<String> auditNote;
+  final Value<String> payloadJson;
+  final Value<int> attempts;
+  final Value<int> nextAttemptAtUtc;
+  final Value<String?> lastErrorCode;
   final Value<int> createdAtUtc;
-  final Value<int> updatedAtUtc;
-  final Value<int?> revokedAtUtc;
+  final Value<int?> completedAtUtc;
   final Value<int> rowid;
-  const DayExceptionsCompanion({
+  const PlanChangeOutboxCompanion({
     this.id = const Value.absent(),
-    this.localDate = const Value.absent(),
+    this.dedupeKey = const Value.absent(),
     this.kind = const Value.absent(),
-    this.status = const Value.absent(),
-    this.originalSleepStartOffsetMinutes = const Value.absent(),
-    this.temporarySleepStartOffsetMinutes = const Value.absent(),
-    this.fixedWakeOffsetMinutes = const Value.absent(),
-    this.absoluteMinimumSleepMinutes = const Value.absent(),
-    this.recoveryChoice = const Value.absent(),
-    this.recoveryLocalDate = const Value.absent(),
-    this.source = const Value.absent(),
-    this.triggeringProposalId = const Value.absent(),
-    this.auditNote = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAtUtc = const Value.absent(),
+    this.lastErrorCode = const Value.absent(),
     this.createdAtUtc = const Value.absent(),
-    this.updatedAtUtc = const Value.absent(),
-    this.revokedAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  DayExceptionsCompanion.insert({
+  PlanChangeOutboxCompanion.insert({
     required String id,
-    required String localDate,
+    required String dedupeKey,
     required String kind,
-    required String status,
-    required int originalSleepStartOffsetMinutes,
-    required int temporarySleepStartOffsetMinutes,
-    required int fixedWakeOffsetMinutes,
-    required int absoluteMinimumSleepMinutes,
-    required String recoveryChoice,
-    this.recoveryLocalDate = const Value.absent(),
-    required String source,
-    this.triggeringProposalId = const Value.absent(),
-    this.auditNote = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    required int nextAttemptAtUtc,
+    this.lastErrorCode = const Value.absent(),
     required int createdAtUtc,
-    required int updatedAtUtc,
-    this.revokedAtUtc = const Value.absent(),
+    this.completedAtUtc = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
-       localDate = Value(localDate),
+       dedupeKey = Value(dedupeKey),
        kind = Value(kind),
-       status = Value(status),
-       originalSleepStartOffsetMinutes = Value(originalSleepStartOffsetMinutes),
-       temporarySleepStartOffsetMinutes = Value(
-         temporarySleepStartOffsetMinutes,
-       ),
-       fixedWakeOffsetMinutes = Value(fixedWakeOffsetMinutes),
-       absoluteMinimumSleepMinutes = Value(absoluteMinimumSleepMinutes),
-       recoveryChoice = Value(recoveryChoice),
-       source = Value(source),
-       createdAtUtc = Value(createdAtUtc),
-       updatedAtUtc = Value(updatedAtUtc);
-  static Insertable<DayExceptionsData> custom({
+       nextAttemptAtUtc = Value(nextAttemptAtUtc),
+       createdAtUtc = Value(createdAtUtc);
+  static Insertable<PlanChangeOutboxData> custom({
     Expression<String>? id,
-    Expression<String>? localDate,
+    Expression<String>? dedupeKey,
     Expression<String>? kind,
-    Expression<String>? status,
-    Expression<int>? originalSleepStartOffsetMinutes,
-    Expression<int>? temporarySleepStartOffsetMinutes,
-    Expression<int>? fixedWakeOffsetMinutes,
-    Expression<int>? absoluteMinimumSleepMinutes,
-    Expression<String>? recoveryChoice,
-    Expression<String>? recoveryLocalDate,
-    Expression<String>? source,
-    Expression<String>? triggeringProposalId,
-    Expression<String>? auditNote,
+    Expression<String>? payloadJson,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAtUtc,
+    Expression<String>? lastErrorCode,
     Expression<int>? createdAtUtc,
-    Expression<int>? updatedAtUtc,
-    Expression<int>? revokedAtUtc,
+    Expression<int>? completedAtUtc,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
-      if (localDate != null) 'local_date': localDate,
+      if (dedupeKey != null) 'dedupe_key': dedupeKey,
       if (kind != null) 'kind': kind,
-      if (status != null) 'status': status,
-      if (originalSleepStartOffsetMinutes != null)
-        'original_sleep_start_offset_minutes': originalSleepStartOffsetMinutes,
-      if (temporarySleepStartOffsetMinutes != null)
-        'temporary_sleep_start_offset_minutes':
-            temporarySleepStartOffsetMinutes,
-      if (fixedWakeOffsetMinutes != null)
-        'fixed_wake_offset_minutes': fixedWakeOffsetMinutes,
-      if (absoluteMinimumSleepMinutes != null)
-        'absolute_minimum_sleep_minutes': absoluteMinimumSleepMinutes,
-      if (recoveryChoice != null) 'recovery_choice': recoveryChoice,
-      if (recoveryLocalDate != null) 'recovery_local_date': recoveryLocalDate,
-      if (source != null) 'source': source,
-      if (triggeringProposalId != null)
-        'triggering_proposal_id': triggeringProposalId,
-      if (auditNote != null) 'audit_note': auditNote,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAtUtc != null) 'next_attempt_at_utc': nextAttemptAtUtc,
+      if (lastErrorCode != null) 'last_error_code': lastErrorCode,
       if (createdAtUtc != null) 'created_at_utc': createdAtUtc,
-      if (updatedAtUtc != null) 'updated_at_utc': updatedAtUtc,
-      if (revokedAtUtc != null) 'revoked_at_utc': revokedAtUtc,
+      if (completedAtUtc != null) 'completed_at_utc': completedAtUtc,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  DayExceptionsCompanion copyWith({
+  PlanChangeOutboxCompanion copyWith({
     Value<String>? id,
-    Value<String>? localDate,
+    Value<String>? dedupeKey,
     Value<String>? kind,
-    Value<String>? status,
-    Value<int>? originalSleepStartOffsetMinutes,
-    Value<int>? temporarySleepStartOffsetMinutes,
-    Value<int>? fixedWakeOffsetMinutes,
-    Value<int>? absoluteMinimumSleepMinutes,
-    Value<String>? recoveryChoice,
-    Value<String?>? recoveryLocalDate,
-    Value<String>? source,
-    Value<String?>? triggeringProposalId,
-    Value<String>? auditNote,
+    Value<String>? payloadJson,
+    Value<int>? attempts,
+    Value<int>? nextAttemptAtUtc,
+    Value<String?>? lastErrorCode,
     Value<int>? createdAtUtc,
-    Value<int>? updatedAtUtc,
-    Value<int?>? revokedAtUtc,
+    Value<int?>? completedAtUtc,
     Value<int>? rowid,
   }) {
-    return DayExceptionsCompanion(
+    return PlanChangeOutboxCompanion(
       id: id ?? this.id,
-      localDate: localDate ?? this.localDate,
+      dedupeKey: dedupeKey ?? this.dedupeKey,
       kind: kind ?? this.kind,
-      status: status ?? this.status,
-      originalSleepStartOffsetMinutes:
-          originalSleepStartOffsetMinutes ??
-          this.originalSleepStartOffsetMinutes,
-      temporarySleepStartOffsetMinutes:
-          temporarySleepStartOffsetMinutes ??
-          this.temporarySleepStartOffsetMinutes,
-      fixedWakeOffsetMinutes:
-          fixedWakeOffsetMinutes ?? this.fixedWakeOffsetMinutes,
-      absoluteMinimumSleepMinutes:
-          absoluteMinimumSleepMinutes ?? this.absoluteMinimumSleepMinutes,
-      recoveryChoice: recoveryChoice ?? this.recoveryChoice,
-      recoveryLocalDate: recoveryLocalDate ?? this.recoveryLocalDate,
-      source: source ?? this.source,
-      triggeringProposalId: triggeringProposalId ?? this.triggeringProposalId,
-      auditNote: auditNote ?? this.auditNote,
+      payloadJson: payloadJson ?? this.payloadJson,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAtUtc: nextAttemptAtUtc ?? this.nextAttemptAtUtc,
+      lastErrorCode: lastErrorCode ?? this.lastErrorCode,
       createdAtUtc: createdAtUtc ?? this.createdAtUtc,
-      updatedAtUtc: updatedAtUtc ?? this.updatedAtUtc,
-      revokedAtUtc: revokedAtUtc ?? this.revokedAtUtc,
+      completedAtUtc: completedAtUtc ?? this.completedAtUtc,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -10726,60 +23567,29 @@ class DayExceptionsCompanion extends UpdateCompanion<DayExceptionsData> {
     if (id.present) {
       map['id'] = Variable<String>(id.value);
     }
-    if (localDate.present) {
-      map['local_date'] = Variable<String>(localDate.value);
+    if (dedupeKey.present) {
+      map['dedupe_key'] = Variable<String>(dedupeKey.value);
     }
     if (kind.present) {
       map['kind'] = Variable<String>(kind.value);
     }
-    if (status.present) {
-      map['status'] = Variable<String>(status.value);
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
     }
-    if (originalSleepStartOffsetMinutes.present) {
-      map['original_sleep_start_offset_minutes'] = Variable<int>(
-        originalSleepStartOffsetMinutes.value,
-      );
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
     }
-    if (temporarySleepStartOffsetMinutes.present) {
-      map['temporary_sleep_start_offset_minutes'] = Variable<int>(
-        temporarySleepStartOffsetMinutes.value,
-      );
+    if (nextAttemptAtUtc.present) {
+      map['next_attempt_at_utc'] = Variable<int>(nextAttemptAtUtc.value);
     }
-    if (fixedWakeOffsetMinutes.present) {
-      map['fixed_wake_offset_minutes'] = Variable<int>(
-        fixedWakeOffsetMinutes.value,
-      );
-    }
-    if (absoluteMinimumSleepMinutes.present) {
-      map['absolute_minimum_sleep_minutes'] = Variable<int>(
-        absoluteMinimumSleepMinutes.value,
-      );
-    }
-    if (recoveryChoice.present) {
-      map['recovery_choice'] = Variable<String>(recoveryChoice.value);
-    }
-    if (recoveryLocalDate.present) {
-      map['recovery_local_date'] = Variable<String>(recoveryLocalDate.value);
-    }
-    if (source.present) {
-      map['source'] = Variable<String>(source.value);
-    }
-    if (triggeringProposalId.present) {
-      map['triggering_proposal_id'] = Variable<String>(
-        triggeringProposalId.value,
-      );
-    }
-    if (auditNote.present) {
-      map['audit_note'] = Variable<String>(auditNote.value);
+    if (lastErrorCode.present) {
+      map['last_error_code'] = Variable<String>(lastErrorCode.value);
     }
     if (createdAtUtc.present) {
       map['created_at_utc'] = Variable<int>(createdAtUtc.value);
     }
-    if (updatedAtUtc.present) {
-      map['updated_at_utc'] = Variable<int>(updatedAtUtc.value);
-    }
-    if (revokedAtUtc.present) {
-      map['revoked_at_utc'] = Variable<int>(revokedAtUtc.value);
+    if (completedAtUtc.present) {
+      map['completed_at_utc'] = Variable<int>(completedAtUtc.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -10789,27 +23599,16 @@ class DayExceptionsCompanion extends UpdateCompanion<DayExceptionsData> {
 
   @override
   String toString() {
-    return (StringBuffer('DayExceptionsCompanion(')
+    return (StringBuffer('PlanChangeOutboxCompanion(')
           ..write('id: $id, ')
-          ..write('localDate: $localDate, ')
+          ..write('dedupeKey: $dedupeKey, ')
           ..write('kind: $kind, ')
-          ..write('status: $status, ')
-          ..write(
-            'originalSleepStartOffsetMinutes: $originalSleepStartOffsetMinutes, ',
-          )
-          ..write(
-            'temporarySleepStartOffsetMinutes: $temporarySleepStartOffsetMinutes, ',
-          )
-          ..write('fixedWakeOffsetMinutes: $fixedWakeOffsetMinutes, ')
-          ..write('absoluteMinimumSleepMinutes: $absoluteMinimumSleepMinutes, ')
-          ..write('recoveryChoice: $recoveryChoice, ')
-          ..write('recoveryLocalDate: $recoveryLocalDate, ')
-          ..write('source: $source, ')
-          ..write('triggeringProposalId: $triggeringProposalId, ')
-          ..write('auditNote: $auditNote, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAtUtc: $nextAttemptAtUtc, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
           ..write('createdAtUtc: $createdAtUtc, ')
-          ..write('updatedAtUtc: $updatedAtUtc, ')
-          ..write('revokedAtUtc: $revokedAtUtc, ')
+          ..write('completedAtUtc: $completedAtUtc, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10845,7 +23644,53 @@ class DatabaseAtV11 extends GeneratedDatabase {
   late final RecurringTaskCycles recurringTaskCycles = RecurringTaskCycles(
     this,
   );
-  late final DayExceptions dayExceptions = DayExceptions(this);
+  late final ExecutionRuntimeState executionRuntimeState =
+      ExecutionRuntimeState(this);
+  late final ExecutionWriteSequence executionWriteSequence =
+      ExecutionWriteSequence(this);
+  late final ExecutionOperations executionOperations = ExecutionOperations(
+    this,
+  );
+  late final ExecutionOccurrences executionOccurrences = ExecutionOccurrences(
+    this,
+  );
+  late final ExecutionBlockLinks executionBlockLinks = ExecutionBlockLinks(
+    this,
+  );
+  late final ExecutionEvents executionEvents = ExecutionEvents(this);
+  late final ExecutionSessionLinks executionSessionLinks =
+      ExecutionSessionLinks(this);
+  late final ExecutionActivitySegments executionActivitySegments =
+      ExecutionActivitySegments(this);
+  late final ExecutionProgressAnchors executionProgressAnchors =
+      ExecutionProgressAnchors(this);
+  late final ExecutionCreditAllocations executionCreditAllocations =
+      ExecutionCreditAllocations(this);
+  late final ExecutionReminderIntents executionReminderIntents =
+      ExecutionReminderIntents(this);
+  late final ExecutionDayHolds executionDayHolds = ExecutionDayHolds(this);
+  late final ExecutionOutbox executionOutbox = ExecutionOutbox(this);
+  late final RecurringCycleSnapshots recurringCycleSnapshots =
+      RecurringCycleSnapshots(this);
+  late final RecurringCarryInStates recurringCarryInStates =
+      RecurringCarryInStates(this);
+  late final ExecutionFragments executionFragments = ExecutionFragments(this);
+  late final RecurringCompletionEvidence recurringCompletionEvidence =
+      RecurringCompletionEvidence(this);
+  late final PendingPlanPreviews pendingPlanPreviews = PendingPlanPreviews(
+    this,
+  );
+  late final PendingPlanPreviewBlocks pendingPlanPreviewBlocks =
+      PendingPlanPreviewBlocks(this);
+  late final PlanAdjustments planAdjustments = PlanAdjustments(this);
+  late final PlanAdjustmentEvents planAdjustmentEvents = PlanAdjustmentEvents(
+    this,
+  );
+  late final PlanAdjustmentApplyReceipts planAdjustmentApplyReceipts =
+      PlanAdjustmentApplyReceipts(this);
+  late final PlanAdjustmentUndoReceipts planAdjustmentUndoReceipts =
+      PlanAdjustmentUndoReceipts(this);
+  late final PlanChangeOutbox planChangeOutbox = PlanChangeOutbox(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -10873,7 +23718,30 @@ class DatabaseAtV11 extends GeneratedDatabase {
     changeLog,
     recurringTaskTemplates,
     recurringTaskCycles,
-    dayExceptions,
+    executionRuntimeState,
+    executionWriteSequence,
+    executionOperations,
+    executionOccurrences,
+    executionBlockLinks,
+    executionEvents,
+    executionSessionLinks,
+    executionActivitySegments,
+    executionProgressAnchors,
+    executionCreditAllocations,
+    executionReminderIntents,
+    executionDayHolds,
+    executionOutbox,
+    recurringCycleSnapshots,
+    recurringCarryInStates,
+    executionFragments,
+    recurringCompletionEvidence,
+    pendingPlanPreviews,
+    pendingPlanPreviewBlocks,
+    planAdjustments,
+    planAdjustmentEvents,
+    planAdjustmentApplyReceipts,
+    planAdjustmentUndoReceipts,
+    planChangeOutbox,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -10883,6 +23751,100 @@ class DatabaseAtV11 extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('period_template_entries', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'time_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_runtime_state', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'tasks',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_occurrences', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'execution_occurrences',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_block_links', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'time_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_session_links', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'time_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('execution_activity_segments', kind: UpdateKind.delete),
+      ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'tasks',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('execution_progress_anchors', kind: UpdateKind.delete),
+      ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'execution_activity_segments',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('execution_credit_allocations', kind: UpdateKind.delete),
+      ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'execution_occurrences',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('execution_reminder_intents', kind: UpdateKind.delete),
+      ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'tasks',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_day_holds', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'execution_occurrences',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('execution_fragments', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'pending_plan_previews',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [
+        TableUpdate('pending_plan_preview_blocks', kind: UpdateKind.delete),
+      ],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'plan_adjustments',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('plan_adjustment_events', kind: UpdateKind.delete)],
     ),
   ]);
   @override

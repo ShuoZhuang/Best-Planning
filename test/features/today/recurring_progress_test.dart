@@ -32,13 +32,14 @@ ScheduleViewItem _item({
   String? taskId = 'recurring:template-1:2026-10-05',
   RecurringGoalBadge? goal,
   bool isCompleted = false,
+  DateTime? start,
 }) => ScheduleViewItem(
   id: id,
   title: title,
   kind: ScheduleItemKind.task,
   range: TimeRange(
-    startUtc: _blockStartUtc,
-    endUtc: _blockStartUtc.add(const Duration(hours: 1)),
+    startUtc: start ?? _blockStartUtc,
+    endUtc: (start ?? _blockStartUtc).add(const Duration(hours: 1)),
   ),
   categoryKey: 'area:study',
   categoryLabel: '学业',
@@ -49,7 +50,11 @@ ScheduleViewItem _item({
   recurringGoal: goal,
 );
 
-Future<void> _pump(WidgetTester tester, List<ScheduleViewItem> items) async {
+Future<void> _pump(
+  WidgetTester tester,
+  List<ScheduleViewItem> items, {
+  ValueChanged<ScheduleViewItem>? onComplete,
+}) async {
   await tester.binding.setSurfaceSize(const Size(1280, 900));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
@@ -60,6 +65,7 @@ Future<void> _pump(WidgetTester tester, List<ScheduleViewItem> items) async {
           day: _dayStartUtc,
           toLocal: (instantUtc) => instantUtc.toUtc(),
           nowUtc: _dayStartUtc.add(const Duration(hours: 10)),
+          onComplete: onComplete,
         ),
       ),
     ),
@@ -179,5 +185,22 @@ void main() {
         reason: '$scale 倍缩放下进度必须仍然可见',
       );
     }
+  });
+
+  test('周期块主动作文案是「完成本次」，普通任务仍是「完成」', () {
+    expect(
+      todayCompleteActionLabel(
+        _item(
+          goal: const RecurringGoalBadge(
+            templateId: 'template-1',
+            title: '每周英语',
+            recordedMinutes: 30,
+            targetMinutes: 180,
+          ),
+        ),
+      ),
+      '完成本次',
+    );
+    expect(todayCompleteActionLabel(_item(taskId: 'ordinary-1')), '完成');
   });
 }

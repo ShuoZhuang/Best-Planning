@@ -45,6 +45,7 @@ final class _ImmediateCreator implements ProposalCreator {
   @override
   Future<ScheduleProposal> createProposal({
     ScheduleRuleOverride? override,
+    TimeRange? window,
   }) async {
     calls++;
     return ScheduleProposal(

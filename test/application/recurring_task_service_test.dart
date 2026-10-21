@@ -8,6 +8,7 @@ import 'package:personal_planner/core/ids.dart';
 import 'package:personal_planner/core/time_zone.dart';
 import 'package:personal_planner/data/database/app_database.dart' as db;
 import 'package:personal_planner/data/database/daos/recurring_task_dao.dart';
+import 'package:personal_planner/data/repositories/drift_recurring_execution_repository.dart';
 import 'package:personal_planner/data/repositories/drift_recurring_task_repository.dart';
 import 'package:personal_planner/data/repositories/drift_task_repository.dart';
 import 'package:personal_planner/domain/models/recurring_task.dart';
@@ -32,6 +33,7 @@ void main() {
   late DriftTaskRepository tasks;
   late _FixedClock clock;
   late RecurringTaskService service;
+  late DriftRecurringExecutionRepository snapshots;
   late List<ScheduleInputChange> changes;
 
   const timeZoneId = 'Asia/Shanghai';
@@ -50,6 +52,11 @@ void main() {
     tasks = DriftTaskRepository(database.taskDao);
     clock = _FixedClock(wednesday);
     changes = <ScheduleInputChange>[];
+    snapshots = DriftRecurringExecutionRepository(
+      database,
+      clock: clock,
+      idGenerator: UuidIdGenerator(),
+    );
     service = RecurringTaskService(
       repository: repository,
       clock: clock,
@@ -58,6 +65,7 @@ void main() {
       timeZoneId: timeZoneId,
       tasks: tasks,
       onScheduleInputChanged: changes.add,
+      snapshots: snapshots,
     );
   });
 
@@ -102,6 +110,96 @@ void main() {
     final now = nowUtc ?? clock.nowUtc();
     return service.ensureCycles(windowFrom(now), now);
   }
+
+  test('创建周实例时冻结完整快照，之后改模板不覆盖历史', () async {
+    await repository.saveTemplate(
+      template(startsOn: weekStart, endsOn: DateTime(2026, 10, 7)),
+    );
+    await ensure();
+    final first = await snapshots.findCycleSnapshotForPeriod(
+      'template-1',
+      '2026-10-05',
+    );
+    expect(first, isNotNull);
+    expect(first!.title, '每周英语');
+    expect(first.targetMinutes, 180);
+    expect(
+      first.periodStartUtc,
+      TimeZoneDatabase().localMidnightToUtc(weekStart, timeZoneId),
+    );
+    expect(
+      first.effectiveEndUtc,
+      TimeZoneDatabase().localMidnightToUtc(DateTime(2026, 10, 8), timeZoneId),
+    );
+
+    final current = (await repository.findTemplate('template-1'))!;
+    await repository.saveTemplate(
+      current.copyWith(title: '改名了', targetMinutes: 300),
+    );
+    await ensure();
+    final second = await snapshots.findCycleSnapshotForPeriod(
+      'template-1',
+      '2026-10-05',
+    );
+    expect(second!.title, '每周英语');
+    expect(second.targetMinutes, 180);
+    expect(second.cycleId, first.cycleId);
+  });
+
+  test('周中开始或结束仍生成该周实例，快照按有效区间裁剪', () async {
+    await repository.saveTemplate(
+      template(id: 'starts-wed', startsOn: DateTime(2026, 10, 7)),
+    );
+    await repository.saveTemplate(
+      template(id: 'ends-wed', endsOn: DateTime(2026, 10, 7)),
+    );
+    await ensure();
+    final starts = await snapshots.findCycleSnapshotForPeriod(
+      'starts-wed',
+      '2026-10-05',
+    );
+    final ends = await snapshots.findCycleSnapshotForPeriod(
+      'ends-wed',
+      '2026-10-05',
+    );
+    expect(starts, isNotNull);
+    expect(
+      starts!.effectiveStartUtc,
+      TimeZoneDatabase().localMidnightToUtc(DateTime(2026, 10, 7), timeZoneId),
+    );
+    expect(ends, isNotNull);
+    expect(
+      ends!.effectiveEndUtc,
+      TimeZoneDatabase().localMidnightToUtc(DateTime(2026, 10, 8), timeZoneId),
+    );
+  });
+
+  test('下一周先保存 provisional 结转，上周结算后重算为 settled', () async {
+    await repository.saveTemplate(
+      template(carryOver: true, targetMinutes: 180),
+    );
+    await ensure();
+    final current = await repository.findCycle('template-1', weekStart);
+    expect(current, isNotNull);
+    expect(await snapshots.carryInProvisional('template-1:2026-10-12'), isTrue);
+    await repository.recordCompletedMinutes(
+      entryId: 'carry-entry',
+      taskId: current!.taskId,
+      minutes: 80,
+      endedAtUtc: DateTime.utc(2026, 10, 7, 5),
+    );
+    clock.instant = DateTime.utc(2026, 10, 12, 4);
+    await ensure();
+    final settled = await repository.findCycle(
+      'template-1',
+      DateTime(2026, 10, 12),
+    );
+    expect(settled!.carryInMinutes, 100);
+    expect(
+      await snapshots.carryInProvisional('template-1:2026-10-12'),
+      isFalse,
+    );
+  });
 
   group('幂等生成', () {
     test('连续启动十次：同一模板同一周只有一个实例，且不重复写入任务', () async {
@@ -409,22 +507,21 @@ void main() {
       expect(cycles.single.status, RecurringCycleStatus.skipped);
     });
 
-    test('暂停到某日期间不生成，到期后自动恢复（§7.2）', () async {
+    test('暂停期间保留周实例，到期后恢复正常生成（§7.2）', () async {
       await repository.saveTemplate(
         template(pausedUntil: DateTime(2026, 10, 20)),
       );
       final paused = await ensure();
-      // 窗口覆盖 10-05 与 10-12 两周，而暂停到 10-20（含）之前——两周都不生成。
-      expect(paused.cycles, isEmpty, reason: '暂停到 10-20（含）之前不生成');
+      // 暂停保留周实例与进度，只阻止排程；过去周不再补生成。
+      expect(paused.cycles, isNotEmpty);
 
-      // 10-19 那一周仍然在暂停期内（10-19 <= 10-20），恢复从 10-26 开始。
       clock.instant = DateTime.utc(2026, 10, 19, 4);
       final stillPaused = await ensure();
       expect(
         stillPaused.cycles.where(
           (item) => item.periodStartLocalDate == DateTime(2026, 10, 19),
         ),
-        isEmpty,
+        hasLength(1),
       );
 
       clock.instant = DateTime.utc(2026, 10, 26, 4);
@@ -561,12 +658,14 @@ void main() {
       await ensure();
       await service.recordManualMinutes('template-1', weekStart, 30);
       await service.completeCycle('template-1', weekStart);
+      await service.pauseTemplate('template-1', until: DateTime(2026, 10, 14));
       expect(
         changes.map((change) => change.kind),
         containsAll(<DomainChangeKind>[
           DomainChangeKind.taskCreated,
           DomainChangeKind.focusActualChanged,
           DomainChangeKind.taskCompleted,
+          DomainChangeKind.taskSchedulingChanged,
         ]),
       );
     });
@@ -580,6 +679,23 @@ void main() {
   //
   // 下面钉住"真的删干净"这件事，以及它与"归档"的分工。
   group('删除周期目标（用户 2026-10-08）', () {
+    test('软删除匿名化模板但保留周期与历史引用', () async {
+      await repository.saveTemplate(template());
+      await ensure();
+      await service.anonymizeTemplate('template-1');
+      final stored = await repository.findTemplate('template-1');
+      expect(stored, isNotNull);
+      expect(stored!.title, '已删除的周期目标');
+      expect(stored.status, RecurringTemplateStatus.archived);
+      expect(await repository.findCycle('template-1', weekStart), isNotNull);
+      expect(await repository.listTemplates(includeArchived: false), isEmpty);
+      expect(
+        (await repository.listTemplates(includeArchived: true))
+            .map((item) => item.id),
+        contains('template-1'),
+      );
+    });
+
     test('已经排进计划的周期任务也能删除，且对应计划块一起消失', () async {
       await repository.saveTemplate(template());
       await ensure();

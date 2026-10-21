@@ -1,4 +1,3 @@
-import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 
 /// **某个本地日期**完整解析后的排程规则快照（计划
@@ -33,7 +32,6 @@ final class DailySchedulingPolicy {
     required DateTime localDate,
     required this.resolvedRules,
     required this.softReserveTargetMinutes,
-    this.dayException,
   }) : localDate = normalizeLocalDate(localDate) {
     if (softReserveTargetMinutes < 0) {
       throw ArgumentError.value(
@@ -41,10 +39,6 @@ final class DailySchedulingPolicy {
         'softReserveTargetMinutes',
         '恢复余量不能为负',
       );
-    }
-    if (dayException != null &&
-        normalizeLocalDate(dayException!.localDate) != this.localDate) {
-      throw ArgumentError('特殊日事实必须与策略的本地日期一致');
     }
   }
 
@@ -60,26 +54,18 @@ final class DailySchedulingPolicy {
   /// 当天先作为软目标保留的恢复余量分钟。
   final int softReserveTargetMinutes;
 
-  /// 当天已确认的特殊日 / 临时延长日事实（规范 §8.1）。
-  ///
-  /// **只有 confirmed 且日期匹配的事实**才会被装配到这里；它只覆盖当天的睡眠开始，
-  /// 不扩散到邻日，也不改变固定起床。
-  final DayException? dayException;
-
   @override
   bool operator ==(Object other) =>
       other is DailySchedulingPolicy &&
       other.localDate == localDate &&
       identical(other.resolvedRules, resolvedRules) &&
-      other.softReserveTargetMinutes == softReserveTargetMinutes &&
-      other.dayException == dayException;
+      other.softReserveTargetMinutes == softReserveTargetMinutes;
 
   @override
   int get hashCode => Object.hash(
     localDate,
     identityHashCode(resolvedRules),
     softReserveTargetMinutes,
-    dayException,
   );
 
   @override

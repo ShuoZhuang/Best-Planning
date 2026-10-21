@@ -129,17 +129,19 @@
 - 回填是**判断，不是事实**。上表的作用是让"以后按什么规则走"有据可依，**不是**声称历史上有过
   这些版本。
 
-## 4. 当前取值：`1.6.2+37` / MSIX `1.6.2.0`（**已发布：`1.6` 线收口版本**）
+## 4. 当前取值：`1.11.1+53` / MSIX `1.11.1.0`（**当前候选，构建/签名/发布未执行**）
 
-- `pubspec.yaml` → `version: 1.6.2+37`
-- `pubspec.yaml` `msix_config.msix_version` → `1.6.2.0`，`output_name` → `personal_planner_1.6.2.0_x64`
-- `lib/app/backup_assembly.dart` → `appVersion = '1.6.2+37'`
+- `pubspec.yaml` → `version: 1.11.1+53`
+- `pubspec.yaml` `msix_config.msix_version` → `1.11.1.0`，`output_name` → `personal_planner_1.11.1.0_x64`
+- `lib/app/backup_assembly.dart` → `appVersion = '1.11.1+53'`
 
-> **`1.7` 开发期间这三处刻意保持不动。** 见文首的现行有效期例外：`1.7` 批次的 M1～M9 不各自发布，
-> 未完成的代码不得伪装成可交付的 `1.7.0`。三处改为 `1.7.0+N` / `1.7.0.R` 的动作属于
-> 路线图**任务 13 第 8 步**（发布准备），届时 `test/app/version_consistency_test.dart` 里那条
-> "钉住当前候选批次"的用例、本文第 4 节、工作区 `版本号规则.md` 的"当前值"和
-> `docs/release/build-ledger.md` 的新条目要**一起**改。
+> 本节只写**当前候选**。历史取值与抬段理由见 §3（`1.0.x`～`1.6.1`）、§9（`1.10.0`）、
+> §10（`1.10.2`）、§11（`1.11.1` 及其与已发布 `1.11.0` 的关系）以及
+> `docs/release/build-ledger.md` 的批次条目。`1.11.0+52` / `1.11.0.0` 已发布（tag `v1.11.0`），
+> 不再被本节的"当前"指代。
+>
+> 抬版本时，`test/app/version_consistency_test.dart` 里那条"钉住当前候选批次"的用例、本节、
+> 工作区 `版本号规则.md` 的"当前值"和 `docs/release/build-ledger.md` 的新条目要**一起**改。
 
 ### 4.02 `1.7` 批次对外的号怎么定（2026-10-08 决定，与文首例外同源）
 
@@ -332,15 +334,16 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
 
 | 位置 | 内容 | 谁改 |
 | --- | --- | --- |
-| `pubspec.yaml` `version` | `1.6.2+37` | **人工，唯一来源** |
-| `pubspec.yaml` `msix_config.msix_version` | `1.6.2.0` | 随前者同步 |
-| `lib/app/backup_assembly.dart` `appVersion` | `1.6.2+37`，写进备份清单 | 随前者同步 |
+| `pubspec.yaml` `version` | `1.11.1+53` | **人工，唯一来源** |
+| `pubspec.yaml` `msix_config.msix_version` | `1.11.1.0` | 随前者同步 |
+| `lib/app/backup_assembly.dart` `appVersion` | `1.11.1+53`，写进备份清单 | 随前者同步 |
 
-`test/app/version_consistency_test.dart` 守这些一致性，且**刻意不依赖任何运行时依赖**（本项目没有
-`package_info`，运行时读不到真实版本——这是已知的诚实下限）：改了 `pubspec.yaml` 忘了改另外两处，
-测试会红。该文件里还有一条**钉住当前候选批次**的用例（`1.6.2+37` / `1.6.2.0` / `1.6.2.0_x64`）：
-它让"静默改号"无法通过，抬版本时**故意**改那一行就是流程本身，必须与本文第 4 节、工作区
-`版本号规则.md` 的"当前值"以及 `docs/release/build-ledger.md` 的新条目一起改。
+`test/app/version_consistency_test.dart` 守这些一致性，且**刻意不依赖平台通道**（只读
+`pubspec.yaml` 与纯 Dart 类型；运行时的真实版本由 `package_info_plus` 单独提供）：改了
+`pubspec.yaml` 忘了改另外两处，测试会红。该文件里还有一条**钉住当前候选批次**的用例
+（`1.11.1+53` / `1.11.1.0` / `1.11.1.0_x64`）：它让"静默改号"无法通过，抬版本时**故意**改那一行
+就是流程本身，必须与本节、本文 §4、工作区 `版本号规则.md` 的"当前值"以及
+`docs/release/build-ledger.md` 的新条目一起改。
 
 > 未做且**刻意不做**的事：不改旧产物名（`release/`、`可运行程序/` 下的目录与 zip 保持原样）。
 > 那些包已经装过、可能已经发出去，改名只会破坏"包 ↔ 当时的号"这一条追溯链。回填只写在本文里。
@@ -363,3 +366,107 @@ M8 是用户可感知的新功能，按规则该是 `1.7.0`，按路线图不许
 从 `1.4.1+21` 起，每个交给用户体验的版本必须同时包含：便携目录、ZIP、已签名 MSIX、签名公钥
 证书和使用说明。发布台账必须记录 EXE、ZIP、MSIX 的 SHA-256，以及 MSIX 签名、覆盖安装和启动
 验证结果。任一产物或验证缺失时，只能记为内部构建，不能作为可体验版本交付。
+## 9. 2026-10-18 起：离线单文件安装器的交付口径（补充第 8 节）
+
+`1.10.0` 起，面向普通新用户的入口改为**单文件离线安装器**，依据
+`docs/superpowers/specs/2026-10-18-offline-bootstrap-installer-design.md` 第 3、6 节：
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.10.0+49` |
+| MSIX 版本 | `1.10.0.0` |
+| Git 标签 | `v1.10.0` |
+| 正式产物 | `BestPlanning_Setup_1.10.0_x64.exe`、`BestPlanning_Portable_1.10.0_x64.zip`、`BestPlanning_1.10.0.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+**前置修复版 `1.9.2+48`（2026-10-18）**：只修更新助手——回退时允许降级部署并强制关闭占用进程，
+没有界面或业务变更。它先于 `1.10.0` 发布，使 `1.9.2 → 1.10.0` 的一跳具备自动回退能力。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.9.2+48` |
+| MSIX 版本 | `1.9.2.0` |
+| Git 标签 | `v1.9.2` |
+| 正式产物 | `PersonalPlanner-1.9.2-build48-windows-x64-20261018.zip`、`BestPlanning_1.9.2.0_x64.msix`、`update-manifest.json`、`PersonalPlanner-signing-cert.cer`、`SHA-256.txt`（与 `1.9.0`/`1.9.1` 相同的交付形态） |
+
+- 不是 `1.9.x`：`1.10.0` 新增了单文件安装器、权限隔离、证书信任链与新的产物结构；
+  也不是 `2.0.0`：包身份、发布者、用户数据兼容性没有破坏性变化。
+- 构建号 `+49`：公开的 `v1.9.1` 已使用 `+47`、本批前置的 `v1.9.2` 使用 `+48`，
+  全局构建号继续单调递增。
+- **公开证书不再单独作为 Release 资产**：它已内嵌在 Setup EXE 的只读资源里，由安装器按固定
+  指纹校验后写入 `LocalMachine\TrustedPeople`。第 8 节"必须包含签名公钥证书"由这一点满足；
+  需要单独证书的管理员仍可从安装器资源中导出，或继续使用同 Publisher 的既有证书。
+- 第 8 节的其余要求（真实安装/覆盖安装/启动验证结果、SHA-256 记录）继续有效，
+  另加一条：**发布门禁必须通过** `tool/verify_release_assets.ps1`（含 Setup 内嵌自检与签名时间戳）。
+## 10. 2026-10-18 起：`1.10.2+51` 的 UAC broker 修复批次
+
+修复计划：`docs/superpowers/plans/2026-10-18-offline-installer-uac-broker-repair.md`。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.10.2+51` |
+| MSIX 版本 | `1.10.2.0` |
+| Git 标签 | `v1.10.2` |
+| 正式产物 | `BestPlanning_Setup_1.10.2_x64.exe`、`BestPlanning_Portable_1.10.2_x64.zip`、`BestPlanning_1.10.2.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+- **抬第 3 段**（`1.10.0` → `1.10.2`）：纯修复，不改包身份、发布者与用户数据兼容性。
+  `1.10.1+50` 的候选号已经用掉，因此本批直接到 `1.10.2+51`，构建号继续全局单调递增。
+- **`1.10.0+49` 与 `1.10.1+50` 的单文件 Setup 判定为已知缺陷产物**：在签名证书尚未受信任的
+  设备上，一次 UAC 的主进程/辅助进程命名管道通信可能失败，表现为
+  `failure INSTALLER_CERTIFICATE_IMPORT_FAILED detail=pipe-connect-timeout`、
+  `finalState NotInstalled`。这不是证书本身的问题。
+- **不移动、不重写 `v1.10.0` / `v1.10.1` 标签，也不静默替换旧 Release 的附件**：
+  旧 Release 只在顶部追加已知缺陷说明并指向 `v1.10.2`，原有哈希记录保持不变。
+- 已经成功安装的 `1.10.0` / `1.10.1` 用户**不需要卸载**；应用内更新继续只使用 MSIX，
+  不下载 Setup。
+- **发布门禁新增 UAC 验收证据**：`tool/verify_release_assets.ps1` 会校验
+  `docs/testing/evidence/offline-installer-uac-broker-1.10.2.json` 的 12 个用例、
+  `setupSha256` 与日志/截图哈希；指定 `-RequireSignature` 时**不允许**跳过该项。
+- 真人验收模板与结论见 `docs/testing/offline-installer-uac-broker-acceptance.md`。
+  在 12 项全部 PASS 之前，本批只能写"自动化修复完成，发布验收未完成"。
+
+## 11. 2026-10-20 起：`1.11.1+53` 的更新清单缓存与回退基线修复批次
+
+修复计划：`docs/superpowers/plans/2026-10-20-v1.11.1-update-manifest-cache-and-baseline-recovery-repair.md`。
+
+| 项目 | 值 |
+| --- | --- |
+| 应用版本 | `1.11.1+53` |
+| MSIX 版本 | `1.11.1.0` |
+| Git 标签 | `v1.11.1` |
+| 前一已发布版本 | `1.11.0+52` / MSIX `1.11.0.0`（tag `v1.11.0`，2026-10-20） |
+| 正式产物 | `BestPlanning_Setup_1.11.1_x64.exe`、`BestPlanning_Portable_1.11.1_x64.zip`、`BestPlanning_1.11.1.0_x64.msix`、`update-manifest.json`、`SHA256SUMS.txt` |
+
+**这次是 Patch 抬升，不是 MSIX Revision 抬升。** 本批修改了生产代码：
+
+- 最新的清单与 tag 历史清单曾写进同一个全局缓存文件，导致 `304` 把 `1.10.2` 当成最新、
+  已下载的 `1.11.0` 被降格成"已是最新版"；
+- 回退基线准备缺少 single-flight、可重试状态与严格校验，安装入口可能被永久阻塞；
+- 启动恢复只读状态文件，不收养磁盘上已经验证过的 `.ready` 包。
+
+按第 2 节判据"批次里只有修复 → 第 3 段 +1"，因此 `1.11.0` → `1.11.1`；MSIX 第 4 段归零为 `0`。
+
+**为什么不是 `1.11.0.1`**：第 4 段的定义是"**同一批次的重复打包**"（签名、清单或打包参数修正，
+**代码一字未改**）。本批代码变了，用第 4 段等于把"修过缺陷的构建"谎报成"同一批代码重新打包"；
+而且 `1.11.0.0` 已经装到用户机器上，`1.11.0.1` 会让"内容变了"这件事在版本号上完全看不出来。
+第 4 段只留给真正的重打包。
+
+### 11.1 与已发布 `v1.11.0` 的关系（不可改写）
+
+1. **不移动、不删除、不替换 `v1.11.0` 的 tag 与任何资产。** 旧 Release 只允许追加说明并指向
+   `v1.11.1`，原有哈希记录保持不变。
+2. 发布工具在创建草稿**之前**查询目标 tag 与它名下的资产（`tool/update_publisher.dart` 的
+   `UpdatePublisher.publish` 前置步骤，判定是 `tool/update_pipeline.dart` 的纯函数
+   `releaseImmutabilityIssues`）：
+   - tag 已存在（包括只有裸 tag、没有 Release）→ **中止**；
+   - 该 tag 下已有 Release，或已有同名资产 → **中止**；
+   - 只有"新 tag + 没有任何资产"才继续。
+   拒绝即要求**新的版本号**，绝不 `--clobber` 覆盖；探测失败（网络/凭据/无法解析）同样中止，
+   因为"查不到"不等于"不存在"。
+3. 构建号 `+53`：全局单调递增（`+52` 已用于 `1.11.0`），本批不复用任何旧构建号。
+4. 数据库 schema 仍为 `11`，排程算法版本仍为 `20`，包身份 / Publisher / PFN 均不变——
+   因此不抬第 1 段，也**不得**用这次修复冒充换包身份的大版本。
+5. 若发布前发现 `+53` 已被其他正式构建占用，改用下一个全局单调递增构建号，并把
+   `pubspec.yaml`、`lib/app/backup_assembly.dart`、`test/app/version_consistency_test.dart`、
+   本文件、`docs/release/build-ledger.md` 一并同步；**不得复用构建号**。
+6. 发布门禁记录见 `docs/testing/v1.11.1-release-gate.md`：签名安装、真实升级、回退等在
+   没有正式签名证书与安装环境时只能记 `NOT RUN`，**不得**写"已发布可用"。

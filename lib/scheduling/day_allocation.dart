@@ -33,7 +33,6 @@ import 'package:personal_planner/domain/models/task.dart';
 import 'package:personal_planner/scheduling/day_capacity_ledger.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
 import 'package:personal_planner/scheduling/search_outcome.dart';
-import 'package:personal_planner/scheduling/shape_aware_capacity.dart';
 
 /// 分配一个任务时需要知道的、与**日期无关**的那部分（计划 §6 `DayAllocationInput`）。
 final class DayAllocationInput {
@@ -46,7 +45,6 @@ final class DayAllocationInput {
     required this.granularityMinutes,
     Map<String, int>? targetMinutesByTask,
     Map<String, int> alreadyScheduledMinutesByTask = const {},
-    this.shapeCapacities = const {},
     this.maxAllocationStates = 10000,
   }) : tasks = UnmodifiableListView(List.of(tasks)),
        alreadyPlannedByTask = UnmodifiableMapView({
@@ -97,13 +95,6 @@ final class DayAllocationInput {
 
   /// 最多访问多少个分配状态（计划 §3.6 第 5 条）。
   final int maxAllocationStates;
-
-  /// 逐任务、逐本地日的**形状容量**（算法 20，规范 §5.3）。
-  ///
-  /// 跨日分配只能把分钟许诺给"形状上真的放得下"的日期；只看总空闲会让一个
-  /// 连续任务拿到三天各 30 分钟、却没有任何一天能放下整块。为空时退化为算法 19
-  /// 行为（只服务手写夹具）。
-  final Map<String, Map<DateTime, TaskDayCapacity>> shapeCapacities;
 }
 
 /// 一个任务在某个本地日的**新增**分钟上限（计划 §6 `TaskDayBudget`）。
@@ -794,17 +785,7 @@ int _headroomOf({
   required Map<DateTime, int> allocatedNow,
 }) {
   final snapshot = ledger.forDate(date);
-  var ledgerRemaining = snapshot.remainingMinutes;
-  final shape = input.shapeCapacities[task.id]?[date];
-  if (shape != null) {
-    final shapeRemaining =
-        shape.placeableMinutes -
-        (alreadyPlanned[date] ?? 0) -
-        (allocatedNow[date] ?? 0);
-    if (shapeRemaining < ledgerRemaining) {
-      ledgerRemaining = shapeRemaining;
-    }
-  }
+  final ledgerRemaining = snapshot.remainingMinutes;
   final perDayLimit = task.maxMinutesPerLocalDay;
   if (perDayLimit == null) return ledgerRemaining;
   final used = (alreadyPlanned[date] ?? 0) + (allocatedNow[date] ?? 0);

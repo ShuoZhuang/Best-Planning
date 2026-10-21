@@ -291,6 +291,7 @@ final class _FailingCreator implements ProposalCreator {
   @override
   Future<ScheduleProposal> createProposal({
     ScheduleRuleOverride? override,
+    TimeRange? window,
   }) async => throw StateError('engine exploded');
 }
 
@@ -299,13 +300,17 @@ final class _ImmediateCreator implements ProposalCreator {
   @override
   Future<ScheduleProposal> createProposal({
     ScheduleRuleOverride? override,
+    TimeRange? window,
   }) async => _proposal('p-${++calls}');
 }
 
 final class _DeferredCreator implements ProposalCreator {
   final List<Completer<ScheduleProposal>> pending = [];
   @override
-  Future<ScheduleProposal> createProposal({ScheduleRuleOverride? override}) {
+  Future<ScheduleProposal> createProposal({
+    ScheduleRuleOverride? override,
+    TimeRange? window,
+  }) {
     final completer = Completer<ScheduleProposal>();
     pending.add(completer);
     return completer.future;

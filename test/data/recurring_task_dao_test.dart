@@ -552,14 +552,14 @@ void main() {
       );
     });
 
-    test('窗口外的记录不计入，起点落在窗口内的跨周记录计入本周', () async {
+    test('窗口外的记录不计入，跨周记录只计入本周重叠的30分钟', () async {
       // 上周日结束的记录。
       await insertTimeEntry(
         id: 'entry-before',
         startedAtUtc: DateTime.utc(2026, 10, 4, 10),
         endedAtUtc: DateTime.utc(2026, 10, 4, 11),
       );
-      // 本周日 23:30 开始、跨到下周一的记录算本周。
+      // 本地周日 23:30 开始、跨到周一 00:30：本周只保留 23:30–24:00 的 30 分钟。
       await insertTimeEntry(
         id: 'entry-span',
         startedAtUtc: DateTime.utc(2026, 10, 11, 15, 30),
@@ -567,7 +567,7 @@ void main() {
       );
       expect(
         await repository.recordedMinutesForTask('task-1', weekStart, weekEnd),
-        60,
+        30,
       );
     });
 

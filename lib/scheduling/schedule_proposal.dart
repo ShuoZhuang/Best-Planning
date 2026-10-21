@@ -1,11 +1,8 @@
 import 'dart:collection';
 
-import 'package:personal_planner/domain/models/day_exception.dart';
 import 'package:personal_planner/domain/models/planning_rules.dart';
 import 'package:personal_planner/domain/models/time_range.dart';
-import 'package:personal_planner/domain/repositories/planning_commit_repository.dart';
 import 'package:personal_planner/scheduling/adjustment_fulfilment.dart';
-import 'package:personal_planner/scheduling/extension_day_policy.dart';
 import 'package:personal_planner/scheduling/plan_validator.dart';
 import 'package:personal_planner/scheduling/search_outcome.dart';
 import 'package:personal_planner/scheduling/schedule_problem.dart';
@@ -229,14 +226,10 @@ final class ScheduleProposal {
     this.ruleOverride,
     this.adjustmentRequirement,
     this.outcome = SearchOutcomeKind.solved,
-    List<ExtensionDayCandidate> extensionCandidates = const [],
-    this.confirmedDayException,
-    this.recoveryEffect,
   }) : blocks = UnmodifiableListView(List.of(blocks)),
        unscheduled = UnmodifiableListView(List.of(unscheduled)),
        conflicts = UnmodifiableListView(List.of(conflicts)),
        explanations = UnmodifiableListView(List.of(explanations)),
-       extensionCandidates = UnmodifiableListView(List.of(extensionCandidates)),
        placementDiagnostics = UnmodifiableMapView(Map.of(placementDiagnostics));
 
   final String proposalId;
@@ -303,60 +296,6 @@ final class ScheduleProposal {
   /// 默认值 [SearchOutcomeKind.solved] 只服务手写夹具；引擎**总是显式设置**它。
   final SearchOutcomeKind outcome;
 
-  /// 临时延长日建议（规范 §8.2/§8.3）。最多 3 个，空表示不建议。
-  ///
-  /// **页面只显示一张建议卡，不自动弹窗**；用户点击并确认前零写入。
-  final List<ExtensionDayCandidate> extensionCandidates;
-
-  /// 随提案一起确认的特殊日事实（规范 §8.3）。
-  final DayException? confirmedDayException;
-
-  /// 与 [confirmedDayException] 一起提交的恢复效果。
-  final RecoveryCommitEffect? recoveryEffect;
-
-  ScheduleProposal withDayException(
-    DayException? exception, {
-    RecoveryCommitEffect? recoveryEffect,
-  }) => ScheduleProposal(
-    proposalId: proposalId,
-    inputHash: inputHash,
-    algorithmVersion: algorithmVersion,
-    planningWindow: planningWindow,
-    blocks: blocks,
-    unscheduled: unscheduled,
-    conflicts: conflicts,
-    explanations: explanations,
-    metrics: metrics,
-    placementDiagnostics: placementDiagnostics,
-    ruleOverride: ruleOverride,
-    adjustmentRequirement: adjustmentRequirement,
-    outcome: outcome,
-    extensionCandidates: extensionCandidates,
-    confirmedDayException: exception,
-    recoveryEffect: recoveryEffect,
-  );
-
-  ScheduleProposal withExtensionCandidates(
-    List<ExtensionDayCandidate> candidates,
-  ) => ScheduleProposal(
-    proposalId: proposalId,
-    inputHash: inputHash,
-    algorithmVersion: algorithmVersion,
-    planningWindow: planningWindow,
-    blocks: blocks,
-    unscheduled: unscheduled,
-    conflicts: conflicts,
-    explanations: explanations,
-    metrics: metrics,
-    placementDiagnostics: placementDiagnostics,
-    ruleOverride: ruleOverride,
-    adjustmentRequirement: adjustmentRequirement,
-    outcome: outcome,
-    extensionCandidates: candidates,
-    confirmedDayException: confirmedDayException,
-    recoveryEffect: recoveryEffect,
-  );
-
   ScheduleProposal withRuleOverride(ScheduleRuleOverride? override) =>
       ScheduleProposal(
         proposalId: proposalId,
@@ -372,9 +311,6 @@ final class ScheduleProposal {
         ruleOverride: override,
         adjustmentRequirement: adjustmentRequirement,
         outcome: outcome,
-        extensionCandidates: extensionCandidates,
-        confirmedDayException: confirmedDayException,
-        recoveryEffect: recoveryEffect,
       );
 
   /// 附加本次延后要求（用户第 72 轮）。
@@ -393,9 +329,6 @@ final class ScheduleProposal {
         ruleOverride: ruleOverride,
         adjustmentRequirement: value,
         outcome: outcome,
-        extensionCandidates: extensionCandidates,
-        confirmedDayException: confirmedDayException,
-        recoveryEffect: recoveryEffect,
       );
 
   /// 换一份块集合，其余原样（1.8.0，裁定第 1、4 点；设计 §5.2）。
@@ -411,6 +344,22 @@ final class ScheduleProposal {
   /// 或在带要求的提案上再关联一次来源，就会静默丢掉用户延后要求"的陷阱，而丢掉的后果是
   /// 应用前那次兑现校验拿不到要求（`PlanApplicationService` 会以为"这次没有延后意图"）。
   /// 三个 `with*` 现在对它的处理完全一致。
+  ScheduleProposal withBlocks(List<PlannedBlock> value) => ScheduleProposal(
+    proposalId: proposalId,
+    inputHash: inputHash,
+    algorithmVersion: algorithmVersion,
+    planningWindow: planningWindow,
+    blocks: value,
+    unscheduled: unscheduled,
+    conflicts: conflicts,
+    explanations: explanations,
+    metrics: metrics,
+    placementDiagnostics: placementDiagnostics,
+    ruleOverride: ruleOverride,
+    adjustmentRequirement: adjustmentRequirement,
+    outcome: outcome,
+  );
+
   ScheduleProposal withLinkedBlocks(List<PlannedBlock> linked) =>
       ScheduleProposal(
         proposalId: proposalId,
@@ -426,8 +375,5 @@ final class ScheduleProposal {
         ruleOverride: ruleOverride,
         adjustmentRequirement: adjustmentRequirement,
         outcome: outcome,
-        extensionCandidates: extensionCandidates,
-        confirmedDayException: confirmedDayException,
-        recoveryEffect: recoveryEffect,
       );
 }

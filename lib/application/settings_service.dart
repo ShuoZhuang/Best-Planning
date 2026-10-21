@@ -109,11 +109,6 @@ final class SettingsService {
   static const _notificationsKey = 'notifications.v1';
   static const _trustAutoAdjustKey = 'planning.trustAutoAdjust.v1';
   static const _closeBehaviorKey = 'window.closeBehavior.v1';
-  static const _absoluteMinimumSleepKey = 'planning.absoluteMinimumSleep.v1';
-  static const _weeklyExtensionQuotaKey = 'planning.weeklyExtensionQuota.v1';
-  static const _learningEnabledKey = 'planning.learning.enabled.v1';
-  static const _learningAutoAdoptKey = 'planning.learning.autoAdopt.v1';
-  static const _preferenceMigrationKey = 'planning.learning.migrated.v1';
 
   final SettingsRepository repository;
 
@@ -359,62 +354,6 @@ final class SettingsService {
 
   Future<void> setTrustAutoAdjust(bool value) =>
       repository.write(_trustAutoAdjustKey, value.toString());
-
-  /// 绝对最低睡眠（算法 20，规范 §8.2）。默认 6 小时，只能由用户修改。
-  ///
-  /// 与 `PlanningRules.minimumSleepMinutes`（长期目标睡眠）**分开保存**：一次晚睡
-  /// 不得改变长期作息，而绝对最低线是延长日候选的硬边界。
-  Future<int> loadAbsoluteMinimumSleepMinutes() async {
-    final raw = await repository.read(_absoluteMinimumSleepKey);
-    final value = raw == null ? null : int.tryParse(raw);
-    return (value == null || value <= 0) ? 6 * 60 : value.clamp(60, 24 * 60);
-  }
-
-  Future<void> saveAbsoluteMinimumSleepMinutes(int minutes) {
-    if (minutes < 60 || minutes > 24 * 60) {
-      throw const SettingsValidationException({
-        'absoluteMinimumSleepMinutes': '必须在 60..1440 分钟之间',
-      });
-    }
-    return repository.write(_absoluteMinimumSleepKey, '$minutes');
-  }
-
-  /// 滚动 7 天允许的临时延长日次数（0、1、2），默认 2（规范 §8.2）。
-  Future<int> loadWeeklyExtensionQuota() async {
-    final raw = await repository.read(_weeklyExtensionQuotaKey);
-    final value = raw == null ? null : int.tryParse(raw);
-    return (value == null || value < 0 || value > 2) ? 2 : value;
-  }
-
-  Future<void> saveWeeklyExtensionQuota(int value) {
-    if (value < 0 || value > 2) {
-      throw const SettingsValidationException({
-        'weeklyExtensionQuota': '只能是 0、1 或 2',
-      });
-    }
-    return repository.write(_weeklyExtensionQuotaKey, '$value');
-  }
-
-  /// 学习总开关。关闭学习只停止建议，不删除已有证据（规范 §9.4）。
-  Future<bool> loadLearningEnabled() async =>
-      (await repository.read(_learningEnabledKey)) != 'false';
-
-  Future<void> saveLearningEnabled(bool enabled) =>
-      repository.write(_learningEnabledKey, enabled.toString());
-
-  /// 自动采用学习建议。默认关闭。
-  Future<bool> loadLearningAutoAdopt() async =>
-      (await repository.read(_learningAutoAdoptKey)) == 'true';
-
-  Future<void> saveLearningAutoAdopt(bool enabled) =>
-      repository.write(_learningAutoAdoptKey, enabled.toString());
-
-  /// 旧 `planning.learnedPreferences.v1` 是否已迁移到规则表。
-  Future<bool> isPreferenceMigrationDone() async =>
-      (await repository.read(_preferenceMigrationKey)) == 'true';
-
-  Future<void> markPreferenceMigrationDone() =>
-      repository.write(_preferenceMigrationKey, 'true');
 
   /// 读取"信任自动调整"。此前只有 setter，加上 `resolveForDate` 里那次内联解析，
   /// 启动路径上没有读取它的入口（W8）。

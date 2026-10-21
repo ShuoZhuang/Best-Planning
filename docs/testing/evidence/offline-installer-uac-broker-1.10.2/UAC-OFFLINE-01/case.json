@@ -1,0 +1,15 @@
+{
+  "id": "UAC-OFFLINE-01",
+  "status": "PASS",
+  "declared": "PASS",
+  "problems": [],
+  "osBuild": "26200",
+  "accountMode": "filtered-admin",
+  "exitCode": 0,
+  "finalState": "Installed",
+  "note": "断网等价验证：防火墙仅拦截该 Setup EXE 的出站（真拔网会同时切断本助手到模型的连接）。安装全程无出站依赖：exit 0、包 1.10.2.0、证书写入、auto-launch ok",
+  "logPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-OFFLINE-01/setup.log",
+  "logSha256": "9c662d700d8aaddfa977b4574439b1bd30477669fa7945efda3d4b84848f293b",
+  "screenshotPath": "docs/testing/evidence/offline-installer-uac-broker-1.10.2/UAC-OFFLINE-01/screenshot-after.png",
+  "screenshotSha256": "b689b65554bcf66b4604a7674325309e3b23b98b5d86b94efd4a687757d991b8"
+}

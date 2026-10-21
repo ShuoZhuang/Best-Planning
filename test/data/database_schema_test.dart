@@ -11,7 +11,7 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('创建全部二十三张核心表并启用外键', () async {
+  test('创建全部四十六张核心表并启用外键', () async {
     // 断言 **SQLite 自己**的表目录，而不是 `database.allTables`：后者是 drift 依据 schema
     // 声明生成的列表，拿它跟字面量比对等于把声明抄一遍——它发现不了"迁移里漏了一句
     // CREATE TABLE"，而那恰好是本用例标题所声称要检查的事（§13.0 的 T3）。
@@ -39,8 +39,34 @@ void main() {
       // v7 的两张周期目标表（路线图 §4.1／§4.2）。
       'recurring_task_templates',
       'recurring_task_cycles',
-      // v11 的特殊日/临时延长日事实表（算法 20 规范 §8.1）。
-      'day_exceptions',
+      // v11 的执行事实表（1.11.0 规范 §19.2）。
+      'execution_runtime_state',
+      'execution_write_sequence',
+      'execution_operations',
+      'execution_occurrences',
+      'execution_block_links',
+      'execution_events',
+      'execution_session_links',
+      'execution_activity_segments',
+      'execution_progress_anchors',
+      'execution_credit_allocations',
+      'execution_reminder_intents',
+      'execution_day_holds',
+      'execution_outbox',
+      // v12 的周期快照、片段、证据与持久预排（1.12.0 设计 §5）。
+      'recurring_cycle_snapshots',
+      'recurring_carry_in_states',
+      'execution_fragments',
+      'recurring_completion_evidence',
+      'pending_plan_previews',
+      'pending_plan_preview_blocks',
+      // v11 的块级调整操作与状态审计（1.11.0 计划 Task 3）。
+      'plan_adjustments',
+      'plan_adjustment_events',
+      // v11 的应用回执、撤销快照与提交后 outbox（计划 Task 10/11）。
+      'plan_adjustment_apply_receipts',
+      'plan_adjustment_undo_receipts',
+      'plan_change_outbox',
     };
     final rows = await database
         .customSelect("SELECT name FROM sqlite_master WHERE type = 'table'")
